@@ -7,15 +7,29 @@ export type SceneEventType =
   | 'pointerup'
   | 'wheel'
   | 'keydown'
-  | 'keyup';
+  | 'keyup'
+  | 'contextmenu'
+  | 'touchstart'
+  | 'touchmove'
+  | 'touchend'
+  | 'touchcancel';
 
-/** DOM 事件的最小结构（指针/滚轮/键盘字段的并集，均为可选） */
+/** 触摸点最小结构 */
+export interface TouchPointLike {
+  clientX?: number;
+  clientY?: number;
+}
+
+/** DOM 事件的最小结构（指针/滚轮/键盘/触摸字段的并集，均为可选） */
 export interface DomEventLike {
   clientX?: number;
   clientY?: number;
   deltaX?: number;
   deltaY?: number;
   key?: string;
+  shiftKey?: boolean;
+  /** 触摸事件的触点列表（取第一个触点归一化坐标） */
+  changedTouches?: ArrayLike<TouchPointLike>;
 }
 
 /** 归一化后的场景事件 */
@@ -29,6 +43,7 @@ export interface SceneEvent {
   readonly deltaX: number;
   readonly deltaY: number;
   readonly key: string | undefined;
+  readonly shiftKey: boolean;
   readonly originalEvent: DomEventLike;
 }
 
@@ -48,6 +63,18 @@ const EVENT_TYPES: readonly SceneEventType[] = [
   'wheel',
   'keydown',
   'keyup',
+  'contextmenu',
+  'touchstart',
+  'touchmove',
+  'touchend',
+  'touchcancel',
+];
+
+const TOUCH_TYPES: readonly SceneEventType[] = [
+  'touchstart',
+  'touchmove',
+  'touchend',
+  'touchcancel',
 ];
 
 /**
@@ -73,13 +100,14 @@ export class EventSystem {
   private dispatch(type: SceneEventType, domEvent: DomEventLike): void {
     const roots = this.rootsTopDown();
     const isKeyboard = type === 'keydown' || type === 'keyup';
+    const touch = TOUCH_TYPES.includes(type) ? domEvent.changedTouches?.[0] : undefined;
     let x = 0;
     let y = 0;
     let target: SceneNode | null = null;
     if (!isKeyboard) {
       const rect = this.target.getBoundingClientRect?.();
-      x = (domEvent.clientX ?? 0) - (rect?.left ?? 0);
-      y = (domEvent.clientY ?? 0) - (rect?.top ?? 0);
+      x = (touch?.clientX ?? domEvent.clientX ?? 0) - (rect?.left ?? 0);
+      y = (touch?.clientY ?? domEvent.clientY ?? 0) - (rect?.top ?? 0);
       for (const root of roots) {
         target = hitTest(root, x, y);
         if (target) {
@@ -95,6 +123,7 @@ export class EventSystem {
       deltaX: domEvent.deltaX ?? 0,
       deltaY: domEvent.deltaY ?? 0,
       key: domEvent.key,
+      shiftKey: domEvent.shiftKey ?? false,
       originalEvent: domEvent,
     };
     // 冒泡：命中节点 → 父链直至层根；未命中/键盘事件从最顶层根开始

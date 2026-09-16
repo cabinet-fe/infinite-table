@@ -40,6 +40,11 @@ export class CellValuePipeline {
     return value == null ? '' : String(value);
   }
 
+  /** 求单元格基础值（模型值或 records 字段值，不过 hook；checkbox 态等场景用） */
+  resolveValue(col: number, row: number): unknown {
+    return this.resolveBaseValue(col, row);
+  }
+
   private resolveBaseValue(col: number, row: number): unknown {
     if (this.model) {
       return this.model.getCellValue(col, row);

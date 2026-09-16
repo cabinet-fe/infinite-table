@@ -114,6 +114,36 @@ describe('EventSystem 事件归一化', () => {
     expect(keyEvents[0]).toMatchObject({ key: 'ArrowDown', target: null });
   });
 
+  it('contextmenu 命中并带层坐标；键盘事件带 shiftKey', () => {
+    const target = new FakeEventTarget();
+    const { roots, sky } = makeLayers();
+    const menuEvents: SceneEvent[] = [];
+    const keyEvents: SceneEvent[] = [];
+    sky.on('contextmenu', (e) => menuEvents.push(e));
+    sky.on('keydown', (e) => keyEvents.push(e));
+    new EventSystem(target, () => roots);
+    target.emit('contextmenu', { clientX: 30, clientY: 40 });
+    expect(menuEvents[0]).toMatchObject({ x: 30, y: 40 });
+    target.emit('keydown', { key: 'ArrowRight', shiftKey: true });
+    expect(keyEvents[0]?.shiftKey).toBe(true);
+  });
+
+  it('触摸事件取第一个触点归一化为层坐标', () => {
+    const target = new FakeEventTarget();
+    target.rect = { left: 10, top: 20 };
+    const { roots, sky } = makeLayers();
+    const events: SceneEvent[] = [];
+    sky.on('touchstart', (e) => events.push(e));
+    sky.on('touchmove', (e) => events.push(e));
+    const system = new EventSystem(target, () => roots);
+    target.emit('touchstart', { changedTouches: [{ clientX: 15, clientY: 25 }] });
+    target.emit('touchmove', { changedTouches: [{ clientX: 20, clientY: 30 }] });
+    expect(events[0]).toMatchObject({ type: 'touchstart', x: 5, y: 5 });
+    expect(events[1]).toMatchObject({ type: 'touchmove', x: 10, y: 10 });
+    system.dispose();
+    expect(target.listenerCount('touchcancel')).toBe(0);
+  });
+
   it('dispose 解绑全部 DOM 监听', () => {
     const target = new FakeEventTarget();
     const { roots } = makeLayers();

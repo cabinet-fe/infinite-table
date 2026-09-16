@@ -1,6 +1,13 @@
 // core 公共类型：数据供给三形态（records/columns、按格 hook、模型事件订阅）与 ListTable 配置
 
-import type { RenderHost, RenderHostOptions } from '@infinite-table/render';
+import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinite-table/render';
+
+import type { CellRange } from './cell-range';
+import type { CellType, ResolveCellRenderer } from './cell-renderer';
+import type { ResolveCellStyle } from './cell-style';
+import type { ImageServiceOptions } from './media/image-service';
+import type { TablePlugin } from './plugin';
+import type { ThemeOverride } from './theme';
 
 /** records 形态的一行数据 */
 export type DataRecord = Record<string, unknown>;
@@ -13,6 +20,10 @@ export interface ColumnDefine {
   title?: string;
   /** 列宽（缺省用 ListTableOptions.defaultColWidth） */
   width?: number;
+  /** 内置单元格类型（缺省 text） */
+  cellType?: CellType;
+  /** 该列单元格的编辑器注册名（EditorRegistry 格级路由的列级来源） */
+  editor?: string;
 }
 
 /**
@@ -26,6 +37,19 @@ export interface CellChangeEvent {
   col: number;
   row: number;
 }
+
+/** 格坐标引用（图片加载窗口、浮动对象锚点共用） */
+export interface CellRef {
+  col: number;
+  row: number;
+}
+
+/**
+ * 按格图片 hook：纯函数、同步、O(1)。
+ * 返回图片 URL 则该格按图片渲染（L2 media 层 + ImageService 无闪协议），
+ * 返回 null/undefined 走常规文本/自定义渲染管线。
+ */
+export type ResolveCellImage = (col: number, row: number) => string | null | undefined;
 
 /**
  * 外部数据模型（模型事件订阅形态）：
@@ -52,6 +76,20 @@ export interface ListTableOptions {
   model?: TableModel;
   /** 按格 hook，作用于取值管线末端，可与另两形态叠加 */
   resolveDisplayValue?: ResolveDisplayValue;
+  /** 按格样式 hook：逐格样式投影（含逐边边框），返回 null 沿用基础样式 */
+  resolveCellStyle?: ResolveCellStyle;
+  /** 按格自定义渲染 hook：返回渲染器即接管该格内容绘制（与取值管线解耦） */
+  resolveCellRenderer?: ResolveCellRenderer;
+  /** 按格图片 hook：返回 URL 的格在 L2 media 层按图片渲染（ImageService 窗口化加载 + 无闪协议） */
+  resolveCellImage?: ResolveCellImage;
+  /** ImageService 配置（位图 LRU 预算/并发/占位延迟/加载器注入等） */
+  imageServiceOptions?: ImageServiceOptions;
+  /** 左侧冻结列数（数据列，不含行号列；缺省 0） */
+  frozenColCount?: number;
+  /** 顶部冻结行数（数据行，不含列头；缺省 0）。合并区不允许跨冻结边界 */
+  frozenRowCount?: number;
+  /** 合并单元格区间列表（闭区间；不允许重叠、不允许跨冻结边界） */
+  mergeCells?: readonly CellRange[];
   rowHeight?: number;
   defaultColWidth?: number;
   /** 列头高度 */
@@ -62,4 +100,24 @@ export interface ListTableOptions {
   host?: RenderHost;
   /** 未注入 host 时创建 RenderHost 的参数（width/height 取上面的视口尺寸） */
   hostOptions?: Omit<RenderHostOptions, 'width' | 'height'>;
+  /** 主题覆盖：基于默认主题 extends 派生（缺省用默认主题） */
+  theme?: ThemeOverride;
+  /** 插件：构造即挂载生效，销毁时逆序卸载 */
+  plugins?: readonly TablePlugin[];
+  /** 列宽调整能力：返回 false 禁止该列拖拽改宽（缺省全部允许） */
+  canResizeCol?: (col: number) => boolean;
+  /** 行高调整能力：返回 false 禁止该行拖拽改高（canResizeRow 补丁行为，缺省全部允许） */
+  canResizeRow?: (row: number) => boolean;
 }
+
+/** contextmenu 事件（右键菜单 UI 为非目标，仅保留事件） */
+export interface TableContextMenuEvent {
+  /** 命中的数据格；点在行列头/空白处为 null */
+  cell: CellRef | null;
+  /** 层坐标（CSS 像素） */
+  x: number;
+  y: number;
+  originalEvent: SceneEvent['originalEvent'];
+}
+
+export type ContextMenuListener = (event: TableContextMenuEvent) => void;

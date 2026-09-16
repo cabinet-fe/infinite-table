@@ -1,62 +1,9 @@
-import { SceneNode } from '@infinite-table/render';
-import type {
-  FrameTask,
-  Invalidation,
-  LayerHandle,
-  LayerKind,
-  LayerOpts,
-  RenderCanvas,
-  RenderHost,
-  Size,
-} from '@infinite-table/render';
 import { describe, expect, it } from 'vitest';
 
-import { TextCellNode } from './cell-node';
+import { CellNode } from './cell-node';
 import { ListTable } from './list-table';
+import { StubHost } from './testing/stub-host';
 import type { CellChangeEvent, ListTableOptions, TableModel } from './types';
-
-// 注入式假宿主：core 只依赖 RenderHost 窄接口，测试用 stub 记录失效提交
-class StubLayer implements LayerHandle {
-  readonly root = new SceneNode({ pickable: false });
-  readonly canvasElement: RenderCanvas = { width: 0, height: 0, getContext: () => null };
-
-  constructor(readonly kind: LayerKind) {}
-
-  setSize(): void {}
-  invalidate(): void {}
-  translateBy(): void {}
-}
-
-class StubHost implements RenderHost {
-  readonly layers = new Map<LayerKind, StubLayer>();
-  readonly submitted: { kind: LayerKind; inv: Invalidation }[] = [];
-  destroyed = false;
-
-  createLayer(opts: LayerOpts): LayerHandle {
-    let layer = this.layers.get(opts.kind);
-    if (!layer) {
-      layer = new StubLayer(opts.kind);
-      this.layers.set(opts.kind, layer);
-    }
-    return layer;
-  }
-
-  submitInvalidation(kind: LayerKind, inv: Invalidation): void {
-    this.submitted.push({ kind, inv });
-  }
-
-  requestFrame(task: FrameTask): void {
-    task();
-  }
-
-  measure(): Size {
-    return { width: 0, height: 0 };
-  }
-
-  destroy(): void {
-    this.destroyed = true;
-  }
-}
 
 /** 同步 echo 的假模型：setCellValue 内同步发变更事件 */
 class EchoModel implements TableModel {
@@ -102,11 +49,11 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
 }
 
 /** 在 body 场景树中按坐标找节点 */
-function findNode(host: StubHost, col: number, row: number): TextCellNode | undefined {
+function findNode(host: StubHost, col: number, row: number): CellNode | undefined {
   const body = host.layers.get('body');
   return body?.root.children.find(
-    (child): child is TextCellNode =>
-      child instanceof TextCellNode && child.col === col && child.row === row,
+    (child): child is CellNode =>
+      child instanceof CellNode && child.col === col && child.row === row,
   );
 }
 
@@ -216,9 +163,9 @@ describe('ListTable 虚拟滚动窗口', () => {
     expect(findNode(host, 0, 99_999)?.text).toBe('row-99999');
     expect(findNode(host, 0, 0)).toBeUndefined();
     expect(body?.root.children).toHaveLength(144 + 27);
-    // 滚动 → band 失效登记的主循环
+    // 滚动 → band 失效登记的主循环（无冻结时纵向滚动带为列头以下整个视口）
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'band', region: { x: 0, y: 0, width: 800, height: 600 } } },
+      { kind: 'body', inv: { type: 'band', region: { x: 0, y: 36, width: 800, height: 564 } } },
     ]);
   });
 
