@@ -10,6 +10,21 @@
         "vitest": "4.1.11",
       },
     },
+    "apps/bench": {
+      "name": "@infinite-table/bench",
+      "version": "0.0.0",
+      "dependencies": {
+        "@infinite-table/core": "workspace:*",
+        "@infinite-table/render": "workspace:*",
+      },
+    },
+    "apps/demo": {
+      "name": "@infinite-table/demo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@infinite-table/core": "workspace:*",
+      },
+    },
     "packages/core": {
       "name": "@infinite-table/core",
       "version": "0.0.0",
@@ -39,7 +54,11 @@
 
     "@blazediff/core": ["@blazediff/core@1.9.1", "", {}, "sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA=="],
 
+    "@infinite-table/bench": ["@infinite-table/bench@workspace:apps/bench"],
+
     "@infinite-table/core": ["@infinite-table/core@workspace:packages/core"],
+
+    "@infinite-table/demo": ["@infinite-table/demo@workspace:apps/demo"],
 
     "@infinite-table/render": ["@infinite-table/render@workspace:packages/render"],
 

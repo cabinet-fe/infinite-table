@@ -1,0 +1,67 @@
+body {
+  margin: 0;
+  padding: 24px;
+  font-family: -apple-system, 'PingFang SC', 'Segoe UI', sans-serif;
+  color: #1f2329;
+  background: #fafbfc;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 16px;
+}
+
+section {
+  margin-bottom: 32px;
+}
+
+section h2 {
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+section .desc {
+  font-size: 12px;
+  color: #646a73;
+  margin: 0 0 10px;
+}
+
+section h3 {
+  font-size: 13px;
+  margin: 14px 0 6px;
+}
+
+.table-mount {
+  position: relative;
+  border: 1px solid #dee0e3;
+  background: #fff;
+  touch-action: none;
+  user-select: none;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.toolbar button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid #dee0e3;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.toolbar button:hover {
+  background: #f5f6f7;
+}
+
+.status {
+  font-size: 12px;
+  color: #3370ff;
+  margin-top: 6px;
+  min-height: 16px;
+  font-family: ui-monospace, monospace;
+}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>infinite-table bench</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      #app {
+        padding: 16px;
+      }
+      #report {
+        white-space: pre-wrap;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      #table-host {
+        position: relative;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>infinite-table 量化基准</h1>
+      <pre id="report">基准运行中…</pre>
+      <div id="table-host"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

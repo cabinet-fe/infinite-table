@@ -2,7 +2,7 @@
 
 ## 树
 
-> `packages/render` 已实现（P2 渲染引擎）；`packages/core` 已实现表格骨架（P3：ListTable/ScrollManager/虚拟滚动窗口/行列头/数据供给三形态）、交互（P5：选区/hover/行列 resize/键盘导航/触控惯性滚动/批量更新/contextmenu/onScrollFrame）、扩展点（P6：主题系统/编辑器注册表/插件注册路径）与图片能力（P7：L2 media 层格内图片、ImageService 窗口化加载、cell 级位图 LRU、无闪协议、FloatObjectLayer 浮动对象层）；`packages/utils` 骨架已建（P1 工程底座）；`packages/formulas`、`packages/plugins` 与 `apps/` 仍为规划目录；`vtable-core/` 为旧代码，仅作迁移参考，迁移完成后删除。
+> `packages/render` 已实现（P2 渲染引擎）；`packages/core` 已实现表格骨架（P3：ListTable/ScrollManager/虚拟滚动窗口/行列头/数据供给三形态）、交互（P5：选区/hover/行列 resize/键盘导航/触控惯性滚动/批量更新/contextmenu/onScrollFrame）、扩展点（P6：主题系统/编辑器注册表/插件注册路径）与图片能力（P7：L2 media 层格内图片、ImageService 窗口化加载、cell 级位图 LRU、无闪协议、FloatObjectLayer 浮动对象层）；`packages/utils` 骨架已建（P1 工程底座）；`apps/bench` 已实现（P9 量化基准：TTFF/滚动 FPS/失效面积）；`apps/demo` 已实现（P8 浏览器演示与冒烟）；`packages/formulas`、`packages/plugins` 仍为规划目录；`vtable-core/` 为旧代码，仅作迁移参考，迁移完成后删除。
 
 ```text
 infinite-table/
@@ -13,8 +13,8 @@ infinite-table/
 │   ├── plugins/         # 规划：插件（custom-cell-style、invert-highlight 等）
 │   └── utils/           # 表格域专用工具（骨架已建）
 ├── apps/
-│   ├── demo/            # 规划：开发演示与浏览器冒烟
-│   └── bench/           # 规划：性能基准（TTFF/滚动 FPS/失效面积，docs/perf-redesign M0 要求）
+│   ├── demo/            # 开发演示与浏览器冒烟（数据三形态/显示/交互/图片与浮动对象四演示区）
+│   └── bench/           # 量化基准（TTFF/滚动 FPS/失效面积，docs/perf-redesign 口径，headless + 浏览器双入口）
 ├── vtable-core/         # 旧代码（从 @visactor/vtable 精简，69k 行），迁移参考，待删除
 │   └── src/
 │       ├── scenegraph/  # 场景图与渲染代理（vrender 耦合最深，重写时仅参考行为）
@@ -41,6 +41,8 @@ infinite-table/
 | formulas（规划） | `packages/formulas` | 公式引擎：解析、依赖图、计算 | `src/index.ts` |
 | plugins（规划） | `packages/plugins` | 插件机制与官方插件 | `src/index.ts` |
 | utils | `packages/utils` | 表格域专用工具（通用工具优先 @cat-kit/core） | `src/index.ts` |
+| bench | `apps/bench` | 量化基准（07 §1.1-1.2 口径）：TTFF/滚动 FPS/失效面积场景，headless（bun，假画布 + 手动帧泵）与浏览器（真实 canvas + rAF）共用同一份场景逻辑，JSON 报告落档 `results/` 作防回归基线 | `src/headless.ts`、`src/main.ts` |
+| demo | `apps/demo` | 浏览器演示与冒烟：数据供给三形态、显示（10 万行虚拟滚动/行列头/冻结/合并/逐边边框/自定义渲染/checkbox/主题 extends）、交互（拖选/整行整列/hover/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、图片与浮动对象四演示区；`?smoke=1` 页内逐项断言写 `window.__SMOKE__`，`scripts/smoke.mjs` 构建 + preview + playwright-cli 驱动出退出码 | `src/main.ts`、`scripts/smoke.mjs` |
 | vtable-core（旧） | `vtable-core` | 旧代码迁移参考，只读 | `src/index.ts` |
 
 ## 依赖
@@ -58,6 +60,7 @@ graph TD
     demo --> core
     demo --> plugins
     bench --> core
+    bench --> render
 ```
 
 > 规划依赖方向：render 与 core 之间只经窄接口（RenderHost）耦合；formulas 不依赖 render。
