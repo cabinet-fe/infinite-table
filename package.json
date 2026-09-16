@@ -1,0 +1,24 @@
+{
+  "name": "infinite-table",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && bun run --filter './packages/*' build",
+    "test": "vp test run",
+    "lint": "vp lint && bun run check:deps",
+    "fmt": "vp fmt --write .",
+    "fmt:check": "vp fmt --check .",
+    "typecheck": "tsc -b",
+    "check:deps": "bun scripts/check-core-deps.ts"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vite-plus": "0.3.2",
+    "vitest": "4.1.11"
+  },
+  "packageManager": "bun@1.4.2"
+}

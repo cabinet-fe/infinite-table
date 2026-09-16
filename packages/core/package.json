@@ -1,0 +1,16 @@
+{
+  "name": "@infinite-table/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "vp build"
+  },
+  "dependencies": {
+    "@infinite-table/render": "workspace:*",
+    "@infinite-table/utils": "workspace:*"
+  }
+}
