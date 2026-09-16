@@ -2,12 +2,12 @@
 
 ## 树
 
-> `packages/render`、`packages/core`、`packages/utils` 骨架已建（P1 工程底座）；`packages/formulas`、`packages/plugins` 与 `apps/` 仍为规划目录；`vtable-core/` 为旧代码，仅作迁移参考，迁移完成后删除。
+> `packages/render` 已实现（P2 渲染引擎）；`packages/core`、`packages/utils` 骨架已建（P1 工程底座）；`packages/formulas`、`packages/plugins` 与 `apps/` 仍为规划目录；`vtable-core/` 为旧代码，仅作迁移参考，迁移完成后删除。
 
 ```text
 infinite-table/
 ├── packages/            # monorepo 主体
-│   ├── render/          # 自研表格渲染引擎（场景树/分层/多 region 失效/事件/池化，骨架已建）
+│   ├── render/          # 自研表格渲染引擎（场景树/四层 canvas/三档失效/事件/池化，RenderHost 窄接口）
 │   ├── core/            # 表格主体（ListTable/状态机/事件/布局/主题，骨架已建）
 │   ├── formulas/        # 规划：公式引擎（全新，无旧代码对应）
 │   ├── plugins/         # 规划：插件（custom-cell-style、invert-highlight 等）
@@ -64,4 +64,4 @@ graph TD
 
 ## 关键路径
 
-无（仅有包骨架，渲染主循环尚未实现）。规划中的渲染主循环：ScrollManager 滚动/交互 → 三档失效登记（cell/row-band/full）→ render 各层按策略消费脏区（blit/增量补画/整层重绘）→ 单帧收敛合成上屏。
+render 侧主循环已实现：`submitInvalidation` 三档失效登记（cell/row-band/full，按层合并）→ FrameScheduler 单帧收敛 → 各层按策略消费脏区（ground 仅 band/full、body/media 逐 region 增量补画、sky 整层重绘；`translateBy` 走 blit 自拷贝 + 暴露带补画）→ 四层 canvas 由浏览器合成上屏。规划中的完整链路：core 侧 ScrollManager 滚动/交互（未实现）→ 上述 render 主循环。
