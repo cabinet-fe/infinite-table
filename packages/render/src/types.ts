@@ -39,6 +39,7 @@ export interface RenderContext {
   clip(): void;
   clearRect(x: number, y: number, width: number, height: number): void;
   fillRect(x: number, y: number, width: number, height: number): void;
+  fillText(text: string, x: number, y: number): void;
   drawImage(image: RenderImageSource, dx: number, dy: number): void;
   drawImage(image: RenderImageSource, dx: number, dy: number, dw: number, dh: number): void;
   drawImage(

@@ -2,7 +2,7 @@
 
 ## 树
 
-> `packages/render` 已实现（P2 渲染引擎）；`packages/core`、`packages/utils` 骨架已建（P1 工程底座）；`packages/formulas`、`packages/plugins` 与 `apps/` 仍为规划目录；`vtable-core/` 为旧代码，仅作迁移参考，迁移完成后删除。
+> `packages/render` 已实现（P2 渲染引擎）；`packages/core` 已实现表格骨架（P3：ListTable/ScrollManager/虚拟滚动窗口/行列头/数据供给三形态）；`packages/utils` 骨架已建（P1 工程底座）；`packages/formulas`、`packages/plugins` 与 `apps/` 仍为规划目录；`vtable-core/` 为旧代码，仅作迁移参考，迁移完成后删除。
 
 ```text
 infinite-table/
@@ -64,4 +64,4 @@ graph TD
 
 ## 关键路径
 
-render 侧主循环已实现：`submitInvalidation` 三档失效登记（cell/row-band/full，按层合并）→ FrameScheduler 单帧收敛 → 各层按策略消费脏区（ground 仅 band/full、body/media 逐 region 增量补画、sky 整层重绘；`translateBy` 走 blit 自拷贝 + 暴露带补画）→ 四层 canvas 由浏览器合成上屏。规划中的完整链路：core 侧 ScrollManager 滚动/交互（未实现）→ 上述 render 主循环。
+render 侧主循环已实现：`submitInvalidation` 三档失效登记（cell/row-band/full，按层合并）→ FrameScheduler 单帧收敛 → 各层按策略消费脏区（ground 仅 band/full、body/media 逐 region 增量补画、sky 整层重绘；`translateBy` 走 blit 自拷贝 + 暴露带补画）→ 四层 canvas 由浏览器合成上屏。core 侧滚动链路已实现（P3）：ScrollManager 唯一滚动状态源 → ListTable 重建可视窗口场景（窗口外行列不进场景树）→ body 层 band 失效登记接入上述 render 主循环；core 侧交互（选区/hover/resize 等）未实现。

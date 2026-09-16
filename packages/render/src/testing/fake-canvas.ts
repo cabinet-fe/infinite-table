@@ -48,6 +48,9 @@ export class FakeContext implements RenderContext {
   fillRect(x: number, y: number, width: number, height: number): void {
     this.record('fillRect', x, y, width, height);
   }
+  fillText(text: string, x: number, y: number): void {
+    this.record('fillText', text, x, y);
+  }
   drawImage(...args: unknown[]): void {
     this.record('drawImage', ...args);
   }
