@@ -4,7 +4,7 @@
 
 - 包名：`@infinite-table/<name>`；目录 `packages/<name>`（render、core、formulas、plugins、utils）
 - 文件 kebab-case；类型/类 PascalCase；变量/函数 camelCase
-- 测试文件 `*.test.ts`，与源码同目录就近放置
+- 测试文件 `*.test.ts`，统一放包内 `tests/` 目录（与 `src/` 平级、子目录结构镜像），禁止与源码混放
 
 ## 目录与代码结构
 
@@ -19,7 +19,7 @@
 
 ## 测试
 
-- vitest；单测与源码同目录
+- vitest；单测放包内 `tests/` 目录，测试专用辅助（fake/stub）放 `tests/testing/`
 - 渲染相关行为用浏览器冒烟（apps/demo）验证；性能基准场景在 apps/bench，性能回归不许进 main
 
 ## 明确禁止

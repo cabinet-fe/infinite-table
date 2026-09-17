@@ -600,7 +600,8 @@ async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void>
     )
     table.scrollBy(0, -10)
     await frames(2)
-    assert(input.style.top === '36px', `滚回后浮层未跟随：top=${input.style.top}`)
+    const topAfter: string = input.style.top
+    assert(topAfter === '36px', `滚回后浮层未跟随：top=${topAfter}`)
   })
 
   await checker.step('编辑滚出视口：按 Enter 语义自动提交，内容不丢', async () => {

@@ -16,6 +16,6 @@ export default defineConfig({
     ignorePatterns: ['**/dist/**'],
   },
   test: {
-    include: ['packages/*/src/**/*.test.ts'],
+    include: ['packages/*/tests/**/*.test.ts'],
   },
 })

@@ -11,6 +11,10 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
-    "@infinite-table/core": "workspace:*"
+    "@infinite-table/core": "workspace:*",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0"
   }
 }
