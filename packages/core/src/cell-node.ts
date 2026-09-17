@@ -111,6 +111,7 @@ export class CellNode extends SceneNode {
       ctx.fillRect(0, 0, this.width, this.height)
     }
     const renderer = this.renderer ?? BUILTIN_CELL_RENDERERS[this.cellType]
+    const textWidth = this.measureTextWidth(ctx)
     renderer({
       ctx,
       col: this.col,
@@ -120,22 +121,22 @@ export class CellNode extends SceneNode {
       text: this.text,
       value: this.value,
       style: this.style,
-      textWidth: this.measureTextWidth(ctx),
+      textWidth,
+      // 内置 text 路径已在测量内经 resolveFont 推导并缓存 font 串，直接复用
+      // 同一结果（测量 font = 绘制 font，渲染器不再重复组装）；其它路径传
+      // undefined，由渲染器回退 cellStyleFont(style)（R3-2）
+      font: textWidth === undefined ? undefined : this.measureFont,
       textMaxX: this.textMaxX,
     })
     this.paintBorders(ctx)
   }
 
-  /** 内置 text 路径的文本测量宽（缓存）；其它路径不需要测量 */
-  private measureTextWidth(ctx: RenderContext): number | undefined {
-    if (this.renderer || this.cellType !== 'text' || !this.text) {
-      return undefined
-    }
-    // 命中判定按 font 串/text 值，font 或 text 任一变化即失效重测：style 引用变化
-    // 只重算 font 串并与缓存值比较，font 串变了才使宽度失效（仅换 style 引用而
-    // font 结果不变不重测）；style 引用未变时 font 串复用免重组装——重绘热路径
-    // （style/text 均未变）零字符串分配。与绘制侧同一 font 组装规则，保证测量宽
-    // 与实际绘制一致。
+  /**
+   * font 串推导的单一私有路径（R3-2）：命中判定按 R2-8 口径——style 引用变化
+   * 只重算 font 串并与缓存比较，变了才使宽度失效；paint 内测量缓存与渲染器
+   * 入参共用同一推导结果，消除同帧对同一 style 的重复组装。
+   */
+  private resolveFont(): string {
     if (this.measureStyle !== this.style) {
       this.measureStyle = this.style
       const font = cellStyleFont(this.style)
@@ -144,6 +145,20 @@ export class CellNode extends SceneNode {
         this.measureText = null
       }
     }
+    return this.measureFont
+  }
+
+  /** 内置 text 路径的文本测量宽（缓存）；其它路径不需要测量 */
+  private measureTextWidth(ctx: RenderContext): number | undefined {
+    if (this.renderer || this.cellType !== 'text' || !this.text) {
+      return undefined
+    }
+    // font 或 text 任一变化即失效重测：style 引用变化只重算 font 串并与缓存值
+    // 比较，font 串变了才使宽度失效（仅换 style 引用而 font 结果不变不重测）；
+    // style 引用未变时 font 串复用免重组装——重绘热路径（style/text 均未变）
+    // 零字符串分配。推导唯一入口 resolveFont，绘制侧复用同一结果，保证测量宽
+    // 与实际绘制一致。
+    this.resolveFont()
     if (this.measureText !== this.text) {
       this.measureText = this.text
       ctx.font = this.measureFont

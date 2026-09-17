@@ -267,6 +267,12 @@ describe('renderTextCell 字体与对齐', () => {
     expect(paintText({}).fonts).toEqual(['12px sans-serif'])
   })
 
+  it('入参 font 优先：直接生效、不按 style 重组装（缺省回退 cellStyleFont，R3-2）', () => {
+    const ctx = new RecordingContext()
+    renderTextCell({ ...TEXT_RENDER_BASE, ctx, style: { fontWeight: 700 }, font: '9px custom' })
+    expect(ctx.fonts).toEqual(['9px custom'])
+  })
+
   it('缺省锚点：左对齐 + 垂直居中（既有语义不回归）', () => {
     expect(paintText({}).texts).toEqual([{ text: 'hello', x: 8, y: 20 }])
   })

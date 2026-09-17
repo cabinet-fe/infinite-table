@@ -57,6 +57,27 @@ export class SceneNode {
     this.parent?.removeChild(this)
   }
 
+  /**
+   * 批量摘除子节点：predicate 命中的全部摘除。写指针单趟原地压实，
+   * O(children) 一次完成（对比逐个 removeChild 的 O(命中 × children)），
+   * children 相对顺序不变（z 序语义不受影响），返回被摘除节点（parent 已置空）。
+   */
+  removeChildren(predicate: (child: SceneNode) => boolean): SceneNode[] {
+    const removed: SceneNode[] = []
+    let write = 0
+    for (let read = 0; read < this.children.length; read++) {
+      const child = this.children[read]!
+      if (predicate(child)) {
+        child.parent = null
+        removed.push(child)
+      } else {
+        this.children[write++] = child
+      }
+    }
+    this.children.length = write
+    return removed
+  }
+
   /** 全局（层）坐标下的包围盒 */
   getGlobalBounds(): Region {
     let x = this.x

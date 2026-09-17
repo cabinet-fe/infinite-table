@@ -324,6 +324,11 @@ DOM 事件（container）→ EventSystem 归一化（场景坐标 + 触点/键�
 - **改动范围**：`packages/render/src/scene/scene-node.ts`（新增批量摘除原语，如 `removeChildren(predicate)`：写指针单趟原地压实、保序、O(children) 一次完成，返回被摘除节点；`children` 相对顺序不变，z 序语义不受影响）；`packages/core/src/list-table-scene.ts`（`sweepWindowNodes` 收集滚出节点后按父节点一次性批摘——数据格与图片格父节点不同，各批一次；存活平移与 `onSweep` 回调时序保持「摘除后回调」不变）。补测试：`packages/render/tests/scene/scene.test.ts`（批量摘除保序、只摘命中项、parent 置空）；全量回归 + bench 对照。
 - **正向论证**：性能——滚动帧清扫从 O(滚出 × 窗口) 降为 O(窗口)，与 R2-1/R2-5 同方向的滚动帧热点收尾；语义等价（单趟压实保序），不改任何 z 序契约。
 - **风险评估**：低。改动局限在 SceneNode 一个原语 + sweep 一处接线；既有 z 序/窗口测试（横向滚动增量补建保溢出 z 序、带内按列降序建节点、表头容器断言）直接护航。
+- **实施记录（P6，2026-09-18）**：
+  - 实际改动范围：`packages/render/src/scene/scene-node.ts`（新增 `removeChildren(predicate)` 批量摘除原语：写指针单趟原地压实、保序、O(children) 一次完成，返回被摘除节点并置空其 parent）；`packages/core/src/list-table-scene.ts`（`sweepWindowNodes` 收集滚出节点后按父节点一次批摘——数据格（body root）与图片格（media root）父节点不同各批一次，命中判定用 Set O(1) 查询；media 未建（parent 为 null）时跳过摘除只出索引，与原逐节点 `parent?.removeChild` 等价；存活平移与 `onSweep` 时序保持「摘除后回调」不变）。测试侧：`packages/render/tests/scene/scene.test.ts` 补 2 项（批量摘除保序压实、只摘命中项、parent 置空；无命中返回空数组且 children 原样）。
+  - 正向论证：性能——滚动帧清扫从 O(滚出 × 窗口子节点数) 降为 O(窗口子节点数)（§「现状」的 bench 口径约 56 × 320 ≈ 1.8 万次 indexOf 比较/帧 → 单趟约 320 次判定），滚动帧剩余的最大数组操作项收尾；语义等价（单趟压实保序），未触碰 R2-6 z 序契约的步骤 ②③⑤。
+  - 无退化说明：既有 z 序/窗口测试（横向滚动增量补建保溢出 z 序、带内按列降序建节点、表头容器断言）与全量回归直接护航；bench 稳态/hover body 失效面积 0.950、full 0/0/0 与基线逐项持平。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 351 项全过（含新增 2 项）；`bun src/headless.ts`（apps/bench）三场景达标，同代码复跑 3 次 JS 侧帧耗时 P95 0.06/0.07/0.07ms、稳态滚动平均 FPS 21577.8/20730.8/20361.8（基线 0.07ms / 21467.7，处噪声带内；实施后首次运行 P95 0.08ms / FPS 17910.1 为预热离群，复跑即回基线带）。
 
 ### R3-2 renderTextCell font 串复用节点缓存（消除同帧重复组装）
 
@@ -331,6 +336,11 @@ DOM 事件（container）→ EventSystem 归一化（场景坐标 + 触点/键�
 - **改动范围**：`packages/core/src/cell-node.ts`（font 串推导收敛为单一私有路径：paint 时推导一次，测量缓存与渲染器入参共用；`CellRenderTarget` 增加可选 `font` 字段传递推导结果）；`packages/core/src/cell-renderer.ts`（`renderTextCell` 优先使用入参 `font`，缺省回退 `cellStyleFont(style)`——自定义渲染器不感知该字段，向后兼容）。补断言：font 串与绘制实际生效值一致（结构化字段样式下不重复推导）。
 - **正向论证**：性能（次要）——结构化字体样式下每文本格每次重绘省一次串组装与分配；结构——同帧内「测量 font = 绘制 font」由同一推导保证，消除两处口径漂移的可能；改动局限于单文件。
 - **风险评估**：低。`CellRenderTarget.font` 为可选新增字段，公共类型向后兼容；测量语义（R2-8 口径）不变。
+- **实施记录（P6，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/cell-node.ts`（font 串推导收敛为单一私有路径 `resolveFont`——沿用 R2-8「style 引用变化只重算比较」缓存口径，`measureTextWidth` 改调之；`paint` 把测量路径已推导的缓存串经新增入参带给渲染器，非内置 text 路径传 undefined，零新增分配）；`packages/core/src/cell-renderer.ts`（`CellRenderTarget` 增可选 `font` 字段；`renderTextCell` 改 `ctx.font = font ?? cellStyleFont(style)`，自定义渲染器不感知该字段，向后兼容）。测试侧：`packages/core/tests/cell-node.test.ts`（StubContext 记录测量/绘制时刻生效 font，补 1 项断言：结构化字段样式下测量与绘制 font 同源一致均为唯一推导结果、style/text 未变重绘零重复推导）；`packages/core/tests/cell-style.test.ts` 补 1 项（入参 `font` 优先直接生效、不按 style 重组装）。
+  - 正向论证：性能（次要）——结构化字体样式下每文本格每次重绘省一次 `cellStyleFont` 串组装与数组 join 分配（缺省 `style.font` 早退分支不受影响）；结构——同帧「测量 font = 绘制 font」由同一推导保证，消除两处口径漂移的可能。
+  - 无退化说明：`CellRenderTarget.font` 为可选新增字段（公共类型向后兼容）；测量语义（R2-8 口径）不变——既有 renderTextCell 字体/对齐/溢出/换行全部断言与全量回归通过。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 353 项全过（含新增 2 项）。
 
 ### R3-3 评估后不实施项（复查记录，防止后续重复排查）
 
@@ -353,3 +363,11 @@ DOM 事件（container）→ EventSystem 归一化（场景坐标 + 触点/键�
 - 性能防回归：`apps/bench` headless（`bun src/headless.ts`，三场景阈值：TTFF P50 ≤ 80ms、滚动 ≥55fps、body 失效面积 ≤1× 视口、full=0）+ 浏览器入口；demo 冒烟 `bun run smoke`（apps/demo 下，32 项断言含像素级）。基线对照 §1 末尾（results/bench-2026-09-17T20-44-19-412Z.json：TTFF P50 0.6ms、FPS 21467.7、JS 帧耗时 P95 0.07ms、面积 0.950、full 0/0/0）。
 - 每项优化记录：改动 diff、上述命令结果、与基线 bench 报告对比；退化即回滚并记入本文（P6 实施时补「实施记录」小节，格式同 round-1 §6 / round-2 §6）。
 - 实施顺序建议：R3-1（滚动帧热点，bench 可测）→ R3-2（微优化，单测护航）；两项均低风险，无需单独隔离验证，但保持逐项提交、逐项跑 R3-4 全套命令。
+
+### R3-4 统一验证手段（P6 收尾执行记录，2026-09-18）
+
+- 全量单测：`bun run test` —— 35 个测试文件 / 353 项全部通过（P4 返工后 349 → 新增 R3-1 批量摘除断言 2 项、R3-2 font 单一推导断言 2 项；无既有断言删除）。
+- 类型与构建：`bun run typecheck`（tsc -b）退出 0；`bun run build` 退出 0。
+- 静态检查：`bun run lint`（vp lint 0 告警 0 错误 + check:deps 通过）。
+- 性能防回归：`bun src/headless.ts`（apps/bench）三场景全部达标，对比基线 results/bench-2026-09-17T20-44-19-412Z.json——TTFF P50 0.7ms（基线 0.6ms）、稳态滚动平均 FPS 21046.0（基线 21467.7）、JS 侧帧耗时 P95 0.07ms（持平）、稳态/hover body 失效面积 0.950（持平）、full 次数 0/0/0（持平）；TTFF/FPS 差异处于同代码复跑噪声带内（本轮同代码 3 连跑 TTFF 0.5~0.7ms、FPS 20361.8~21577.8），无一项退化。本轮报告 results/bench-2026-09-17T21-46-41-187Z.json。浏览器入口经 playwright-cli 驱动（apps/bench `vp build` + `vp preview` + 页面加载完成后读取 `window.__BENCH_REPORT__`）实测 passed=true（TTFF P50 10.0ms、稳态滚动平均 FPS 60.0、JS 侧帧耗时 P95 0.30ms、面积 0.950、full 0/0/0，三场景达标）。demo 冒烟 `bun run smoke`（apps/demo）32 项断言全部通过（含像素级显示能力、图片加载与无闪回滚、浮动对象跟随）。
+- 实施顺序：R3-1 → R3-2（按清单顺序；R3-1 实施后先行跑 typecheck / test / headless bench 确认无退化再进 R3-2）；R3-3 为「评估后不实施」记录项，无代码改动。2 项全部落地，无一项回滚。

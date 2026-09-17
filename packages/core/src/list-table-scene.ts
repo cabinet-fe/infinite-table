@@ -260,7 +260,9 @@ export function updateSceneWindow(table: ListTable): void {
 /**
  * 窗口滑动清扫：不满足保留条件的节点从父节点摘除并出索引，
  * 存活节点按新滚动位置原地平移（数据格、图片格通用）；
- * onSweep 在节点摘除后回调（图片格释放 ImageService 引用的接线点）。
+ * 滚出节点先收集、再按父节点一次批摘（SceneNode.removeChildren 单趟压实，
+ * 清扫从 O(滚出 × 窗口子节点数) 降为 O(窗口子节点数)，R3-1）；
+ * onSweep 保持「摘除后回调」时序（图片格释放 ImageService 引用的接线点）。
  */
 function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly row: number }>(
   table: ListTable,
@@ -271,6 +273,7 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
   top: number,
   onSweep?: (node: T) => void,
 ): void {
+  const swept: T[] = []
   for (const [key, node] of nodes) {
     if (keep(node.col, node.row)) {
       node.x = resolveCellX(node.col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth)
@@ -282,8 +285,16 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
         table.headerHeight,
       )
     } else {
-      parent?.removeChild(node)
       nodes.delete(key)
+      swept.push(node)
+    }
+  }
+  if (swept.length > 0) {
+    if (parent) {
+      const sweptSet = new Set<SceneNode>(swept)
+      parent.removeChildren((child) => sweptSet.has(child))
+    }
+    for (const node of swept) {
       onSweep?.(node)
     }
   }

@@ -29,6 +29,8 @@ export interface CellRenderTarget {
   style: CellStyle
   /** 文本测量宽（内置 text 渲染路径由节点测量传入） */
   textWidth?: number
+  /** 节点已推导的 font 串（内置 text 路径由 CellNode 与测量同源传入）；缺省时渲染器自行 cellStyleFont(style) */
+  font?: string
   /** 文本可绘制的局部右界：等于 width 即裁剪在本格，更大表示可溢出到右侧空格 */
   textMaxX?: number
 }
@@ -112,13 +114,16 @@ export const renderTextCell: CellRenderer = ({
   text,
   style,
   textWidth,
+  font,
   textMaxX,
 }) => {
   if (!text) {
     return
   }
   ctx.fillStyle = style.color ?? '#1f2329'
-  ctx.font = cellStyleFont(style)
+  // 入参 font 优先（与节点测量同源，免同帧重复组装，R3-2）；缺省回退自组装，
+  // 自定义渲染器不感知该字段，向后兼容
+  ctx.font = font ?? cellStyleFont(style)
   const box = contentBox(style, width, height)
   const measured = textWidth ?? ctx.measureText(text).width
   const baselineY = textBaselineY(style.verticalAlign, box)

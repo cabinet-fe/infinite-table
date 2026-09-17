@@ -36,6 +36,30 @@ describe('场景树节点模型', () => {
     expect(b.children).toHaveLength(0)
   })
 
+  it('removeChildren 批量摘除：保序压实、只摘命中项、parent 置空', () => {
+    const root = new SceneNode()
+    const nodes = [new SceneNode(), new SceneNode(), new SceneNode(), new SceneNode()]
+    for (const node of nodes) {
+      root.appendChild(node)
+    }
+    const removed = root.removeChildren((child) => child === nodes[0] || child === nodes[2])
+    expect(removed).toEqual([nodes[0], nodes[2]])
+    expect(root.children).toEqual([nodes[1], nodes[3]])
+    expect(nodes[0]!.parent).toBeNull()
+    expect(nodes[2]!.parent).toBeNull()
+    expect(nodes[1]!.parent).toBe(root)
+    expect(nodes[3]!.parent).toBe(root)
+  })
+
+  it('removeChildren 无命中：返回空数组，children 原样', () => {
+    const root = new SceneNode()
+    const child = new SceneNode()
+    root.appendChild(child)
+    expect(root.removeChildren(() => false)).toEqual([])
+    expect(root.children).toEqual([child])
+    expect(child.parent).toBe(root)
+  })
+
   it('getGlobalBounds 累加父链坐标', () => {
     const root = new SceneNode({ x: 10, y: 20, width: 800, height: 600 })
     const group = new SceneNode({ x: 5, y: 5, width: 100, height: 100 })

@@ -12,14 +12,28 @@ interface RectCall {
   fill: unknown
 }
 
-/** 最小记录型 2D 上下文：只关心 fillRect/fillText 调用序列 */
+/** 最小记录型 2D 上下文：只关心 fillRect/fillText 调用序列与测量/绘制时刻的生效 font */
 class StubContext implements RenderContext {
   fillStyle: string | CanvasGradient | CanvasPattern = '#000'
   strokeStyle: string | CanvasGradient | CanvasPattern = '#000'
   lineWidth = 1
-  font = ''
+  /** font 赋值序列（按赋值顺序） */
+  readonly fonts: string[] = []
+  /** measureText 时刻的生效 font */
+  readonly measureFonts: string[] = []
+  /** fillText 时刻的生效 font */
+  readonly drawFonts: string[] = []
   readonly rects: RectCall[] = []
   readonly texts: string[] = []
+
+  private fontValue = ''
+  get font(): string {
+    return this.fontValue
+  }
+  set font(value: string) {
+    this.fontValue = value
+    this.fonts.push(value)
+  }
 
   save(): void {}
   restore(): void {}
@@ -31,6 +45,7 @@ class StubContext implements RenderContext {
   clearRect(): void {}
   drawImage(): void {}
   measureText(): { width: number } {
+    this.measureFonts.push(this.fontValue)
     return { width: 0 }
   }
 
@@ -40,6 +55,7 @@ class StubContext implements RenderContext {
 
   fillText(text: string): void {
     this.texts.push(text)
+    this.drawFonts.push(this.fontValue)
   }
 }
 
@@ -95,6 +111,29 @@ describe('CellNode 绘制', () => {
     })
     node.paint(ctx)
     expect(ctx.rects).toEqual([{ x: 0, y: 0, width: 1, height: 32, fill: '#f00' }])
+  })
+
+  it('内置 text 路径：font 串单一推导，测量与绘制共用（结构化字段样式，R3-2）', () => {
+    const ctx = new StubContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'hello',
+      style: { fontStyle: 'italic', fontWeight: 600, fontSize: 14, fontFamily: 'Arial' },
+    })
+    node.paint(ctx)
+    // 测量与绘制的生效 font 同源一致，均为 cellStyleFont(style) 的唯一推导结果
+    expect(ctx.measureFonts).toEqual(['italic 600 14px Arial'])
+    expect(ctx.drawFonts).toEqual(['italic 600 14px Arial'])
+    // style/text 未变重绘：测量缓存命中不再重设 font，绘制 font 仍与推导值一致
+    ctx.fonts.length = 0
+    ctx.measureFonts.length = 0
+    ctx.drawFonts.length = 0
+    node.paint(ctx)
+    expect(ctx.measureFonts).toEqual([])
+    expect(ctx.drawFonts).toEqual(['italic 600 14px Arial'])
   })
 
   it('checkbox 类型：未勾选只画框，勾选加实心块', () => {
