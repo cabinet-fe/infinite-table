@@ -24,6 +24,10 @@ export interface ColumnDefine {
   cellType?: CellType;
   /** 该列单元格的编辑器注册名（EditorRegistry 格级路由的列级来源） */
   editor?: string;
+  /** 该列编辑器多行形态：true 走 textarea（缺省单行 input） */
+  editorMultiline?: boolean;
+  /** 该列文本自动换行：开启后超宽文本在格内断行，不向右侧空格溢出（可被逐格样式 hook 覆盖） */
+  textWrap?: boolean;
 }
 
 /**
@@ -36,6 +40,10 @@ export type ResolveDisplayValue = (col: number, row: number, value: unknown) => 
 export interface CellChangeEvent {
   col: number;
   row: number;
+  /** 变更前取值（外部模型给不出时为 undefined） */
+  oldValue: unknown;
+  /** 变更后取值 */
+  newValue: unknown;
 }
 
 /** 格坐标引用（图片加载窗口、浮动对象锚点共用） */
@@ -82,6 +90,8 @@ export interface ListTableOptions {
   resolveCellRenderer?: ResolveCellRenderer;
   /** 按格图片 hook：返回 URL 的格在 L2 media 层按图片渲染（ImageService 窗口化加载 + 无闪协议） */
   resolveCellImage?: ResolveCellImage;
+  /** 格级可编判定：返回 false 该格不可编（缺省全部可编） */
+  resolveEditable?: (col: number, row: number) => boolean;
   /** ImageService 配置（位图 LRU 预算/并发/占位延迟/加载器注入等） */
   imageServiceOptions?: ImageServiceOptions;
   /** 左侧冻结列数（数据列，不含行号列；缺省 0） */

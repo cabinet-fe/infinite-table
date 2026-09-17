@@ -19,8 +19,9 @@ class EchoModel implements TableModel {
   }
 
   setCellValue(col: number, row: number, value: unknown): void {
+    const oldValue = this.data.get(`${col}:${row}`);
     this.data.set(`${col}:${row}`, value);
-    this.emit({ col, row });
+    this.emit({ col, row, oldValue, newValue: value });
   }
 
   onCellChange(listener: (change: CellChangeEvent) => void): () => void {
@@ -252,13 +253,14 @@ describe('ListTable 批量更新', () => {
       table.updateCell(0, 1, 'c');
     });
     expect(table.getCellText(0, 0)).toBe('a');
+    // 各格失效区并入各自溢出走廊（批内写入时右邻尚空，走廊到表缘），并集到表缘
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'band', region: { x: 48, y: 36, width: 200, height: 64 } } },
+      { kind: 'body', inv: { type: 'band', region: { x: 48, y: 36, width: 1000, height: 64 } } },
     ]);
 
-    // 批外恢复单格 cell 失效
+    // 批外恢复单格 cell 失效；右邻已有内容，无溢出走廊
     host.submitted.length = 0;
-    model.emit({ col: 0, row: 0 });
+    model.emit({ col: 0, row: 0, oldValue: undefined, newValue: undefined });
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
     ]);
@@ -274,8 +276,9 @@ describe('ListTable 批量更新', () => {
       });
       table.updateCell(2, 0, 'c');
     });
+    // 各格失效区（含溢出走廊与来源格重算区）的并集到表缘
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'band', region: { x: 48, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'band', region: { x: 48, y: 36, width: 1000, height: 32 } } },
     ]);
   });
 });

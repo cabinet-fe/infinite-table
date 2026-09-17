@@ -19,8 +19,9 @@ class EchoModel implements TableModel {
 
   setCellValue(col: number, row: number, value: unknown): void {
     this.setCalls++;
+    const oldValue = this.data.get(`${col}:${row}`);
     this.data.set(`${col}:${row}`, value);
-    this.emit({ col, row });
+    this.emit({ col, row, oldValue, newValue: value });
   }
 
   onCellChange(listener: (change: CellChangeEvent) => void): () => void {
@@ -87,11 +88,12 @@ describe('ListTable 数据供给三形态', () => {
 
     host.submitted.length = 0;
     model.data.set('0:0', 'ext');
-    model.emit({ col: 0, row: 0 });
+    model.emit({ col: 0, row: 0, oldValue: undefined, newValue: undefined });
     expect(table.getCellText(0, 0)).toBe('ext');
     expect(findNode(host, 0, 0)?.text).toBe('ext');
+    // 右邻全空：失效区并入溢出走廊（右扩到表缘）
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 1000, height: 32 } } },
     ]);
   });
 
@@ -99,7 +101,7 @@ describe('ListTable 数据供给三形态', () => {
     const model = new EchoModel(100);
     const { host } = createTable({ model });
     host.submitted.length = 0;
-    model.emit({ col: 0, row: 99 });
+    model.emit({ col: 0, row: 99, oldValue: undefined, newValue: undefined });
     expect(host.submitted).toEqual([]);
   });
 
@@ -134,9 +136,9 @@ describe('ListTable 回驱防递归', () => {
     expect(model.setCalls).toBe(1);
     expect(model.getCellValue(0, 0)).toBe('x');
     expect(findNode(host, 0, 0)?.text).toBe('x');
-    // 仅 updateCell 自己的局部刷新一次，echo 没有触发第二次
+    // 仅 updateCell 自己的局部刷新一次，echo 没有触发第二次；失效区并入溢出走廊
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 1000, height: 32 } } },
     ]);
   });
 });

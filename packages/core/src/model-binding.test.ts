@@ -16,8 +16,9 @@ class EchoModel implements TableModel {
 
   setCellValue(col: number, row: number, value: unknown): void {
     this.setCalls++;
+    const oldValue = this.data.get(`${col}:${row}`);
     this.data.set(`${col}:${row}`, value);
-    this.emit({ col, row });
+    this.emit({ col, row, oldValue, newValue: value });
   }
 
   onCellChange(listener: (change: CellChangeEvent) => void): () => void {
@@ -38,7 +39,7 @@ describe('ModelBinding 模型事件订阅与回驱防递归', () => {
     const received: CellChangeEvent[] = [];
     const binding = new ModelBinding(model, (change) => received.push(change));
     binding.attach();
-    model.emit({ col: 1, row: 2 });
+    model.emit({ col: 1, row: 2, oldValue: undefined, newValue: undefined });
     expect(received).toEqual([{ col: 1, row: 2 }]);
     binding.dispose();
   });
@@ -63,7 +64,7 @@ describe('ModelBinding 模型事件订阅与回驱防递归', () => {
       binding.writeBack(change.col, change.row, 'handled');
     });
     binding.attach();
-    model.emit({ col: 3, row: 4 });
+    model.emit({ col: 3, row: 4, oldValue: undefined, newValue: undefined });
     expect(received).toEqual([{ col: 3, row: 4 }]);
     expect(model.setCalls).toBe(1);
     expect(model.getCellValue(3, 4)).toBe('handled');
@@ -76,7 +77,7 @@ describe('ModelBinding 模型事件订阅与回驱防递归', () => {
     binding.attach();
     binding.attach();
     binding.dispose();
-    model.emit({ col: 0, row: 0 });
+    model.emit({ col: 0, row: 0, oldValue: undefined, newValue: undefined });
     expect(received).toEqual([]);
   });
 

@@ -5,6 +5,7 @@ export { ListTable } from './list-table';
 export { ScrollManager } from './scroll-manager';
 export type { ScrollDelta, ScrollListener, ScrollState } from './scroll-manager';
 export { ModelBinding } from './model-binding';
+export { SheetModel } from './sheet-model';
 export { CellValuePipeline } from './cell-value';
 export type { CellValuePipelineInit } from './cell-value';
 export { CellNode } from './cell-node';

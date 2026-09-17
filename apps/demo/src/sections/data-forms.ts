@@ -24,10 +24,11 @@ export class DemoModel implements TableModel {
   }
 
   setCellValue(col: number, row: number, value: unknown): void {
+    const oldValue = this.values.get(`${col}:${row}`);
     this.values.set(`${col}:${row}`, value);
     this.changeCount++;
     for (const listener of this.listeners) {
-      listener({ col, row });
+      listener({ col, row, oldValue, newValue: value });
     }
   }
 
