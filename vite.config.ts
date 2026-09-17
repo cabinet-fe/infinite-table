@@ -5,6 +5,7 @@ export default defineConfig({
   fmt: {
     singleQuote: true,
     printWidth: 100,
+    semi: false,
     ignorePatterns: ['vtable-core/**', 'docs/**', '.agents/**', 'AGENTS.md'],
   },
   lint: {

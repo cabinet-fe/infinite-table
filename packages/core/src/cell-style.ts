@@ -21,6 +21,8 @@ export interface CellStyle {
   background?: string;
   color?: string;
   font?: string;
+  /** 文本自动换行：开启后超宽文本在格内断行，不向右侧空格溢出 */
+  textWrap?: boolean;
   border?: CellBorder;
 }
 
@@ -44,6 +46,7 @@ export function projectCellStyle(
     background: override?.background ?? base.background,
     color: override?.color ?? base.color,
     font: override?.font ?? base.font,
+    textWrap: override?.textWrap ?? base.textWrap,
   };
   let border: CellBorder | undefined;
   for (const edge of BORDER_EDGES) {

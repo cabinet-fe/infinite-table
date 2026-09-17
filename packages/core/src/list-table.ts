@@ -294,6 +294,8 @@ export class ListTable {
   /**
    * 局部刷新单格：被合并覆盖的坐标路由到主格节点；窗口内则更新节点内容、
    * 重投影样式并登记 cell 失效（合并区失效为主格包围盒），窗口外忽略；
+   * 失效区并入溢出 extents：旧溢出区防文字变短残影、新溢出区补画；本格变空时
+   * 向左扩到最近溢出来源格，让它的溢出收回；
    * 批量更新（batchUpdate）期间失效区域改为收集，批末合并为一次 band 提交
    */
   refreshCell(col: number, row: number): void {
@@ -305,13 +307,59 @@ export class ListTable {
     if (!node) {
       return;
     }
+    const prevBounds = node.getGlobalBounds();
+    const prevMaxX = node.textMaxX;
+    const prevHasText = node.text !== '';
     node.setContent(
       this.pipeline.resolveText(masterCol, masterRow),
       this.pipeline.resolveValue(masterCol, masterRow),
     );
     node.style = this.resolveStyle(masterCol, masterRow);
     node.renderer = this.options.resolveCellRenderer?.(masterCol, masterRow) ?? null;
-    const region = node.getGlobalBounds();
+    const limitX = this.textOverflowLimitX(
+      masterCol,
+      masterRow,
+      node.style,
+      this.scroll.state.left,
+    );
+    node.textMaxX = limitX === null ? node.width : limitX - node.x;
+    const regions: Region[] = [node.getGlobalBounds()];
+    if (prevMaxX > node.width) {
+      regions.push({
+        x: prevBounds.x,
+        y: prevBounds.y,
+        width: prevMaxX,
+        height: prevBounds.height,
+      });
+    }
+    if (node.textMaxX > node.width) {
+      const bounds = regions[0]!;
+      regions.push({ x: bounds.x, y: bounds.y, width: node.textMaxX, height: bounds.height });
+    }
+    // 左侧溢出来源联动：本格变空（来源格穿过本格继续溢出）、变非空（来源格溢出收回）、
+    // 保持为空（本格重绘会擦掉来源格经过本格的文本）时，重算来源格右界并并入其新旧溢出区
+    if (!node.text || prevHasText !== (node.text !== '')) {
+      const sourceCol = this.overflowSourceCol(masterCol, masterRow);
+      const sourceNode =
+        sourceCol !== null ? this.cellNodes.get(`${sourceCol}:${masterRow}`) : undefined;
+      if (sourceCol !== null && sourceNode) {
+        const oldExtent = sourceNode.textMaxX;
+        const sourceLimit = this.textOverflowLimitX(
+          sourceCol,
+          masterRow,
+          sourceNode.style,
+          this.scroll.state.left,
+        );
+        sourceNode.textMaxX = sourceLimit === null ? sourceNode.width : sourceLimit - sourceNode.x;
+        regions.push({
+          x: sourceNode.x,
+          y: sourceNode.y,
+          width: Math.max(oldExtent, sourceNode.textMaxX),
+          height: sourceNode.height,
+        });
+      }
+    }
+    const region = unionRegions(regions) ?? regions[0]!;
     if (this.batchDepth > 0) {
       this.batchRegions.push(region);
       return;
@@ -458,9 +506,12 @@ export class ListTable {
     return (this.rowOffsets[row + 1] ?? 0) - (this.rowOffsets[row] ?? 0);
   }
 
-  /** 数据格样式投影：主题 body token 为基础样式，resolveCellStyle hook 逐字段/逐边覆盖 */
+  /** 数据格样式投影：列级 textWrap 先并入主题 body token，再由 resolveCellStyle hook 逐字段/逐边覆盖 */
   private resolveStyle(col: number, row: number): CellStyle {
-    return projectCellStyle(this.theme.body, this.options.resolveCellStyle?.(col, row));
+    const base = this.options.columns[col]?.textWrap
+      ? { ...this.theme.body, textWrap: true }
+      : this.theme.body;
+    return projectCellStyle(base, this.options.resolveCellStyle?.(col, row));
   }
 
   /**
@@ -543,10 +594,10 @@ export class ListTable {
     this.appendHeaders(left, top, frozenRows, scrollableRows, frozenCols, scrollableCols);
   }
 
-  /** 建一个行列带内的数据格节点 */
+  /** 建一个行列带内的数据格节点；同行按列降序建（后画在上），左格溢出文本不被右格背景盖住 */
   private appendCellBand(rows: WindowRange, cols: WindowRange, left: number, top: number): void {
     for (let row = rows.start; row < rows.end; row++) {
-      for (let col = cols.start; col < cols.end; col++) {
+      for (let col = cols.end - 1; col >= cols.start; col--) {
         this.appendCell(col, row, left, top);
       }
     }
@@ -562,6 +613,7 @@ export class ListTable {
     const endRow = range?.endRow ?? row;
     // 图片格：body 节点只画背景/边框（文本留空），图片内容在 L2 media 层渲染
     const imageUrl = this.options.resolveCellImage?.(col, row);
+    const style = this.resolveStyle(col, row);
     const node = new CellNode({
       col,
       row,
@@ -572,14 +624,78 @@ export class ListTable {
       text: imageUrl ? '' : this.pipeline.resolveText(col, row),
       value: this.pipeline.resolveValue(col, row),
       cellType: this.options.columns[col]?.cellType,
-      style: this.resolveStyle(col, row),
+      style,
       renderer: this.options.resolveCellRenderer?.(col, row) ?? null,
     });
+    // 文本溢出右界（Excel 式溢出到右侧空格；换行/表头/合并/图片/自定义渲染格不溢出）
+    const limitX = imageUrl ? null : this.textOverflowLimitX(col, row, style, left);
+    node.textMaxX = limitX === null ? node.width : limitX - node.x;
     this.body.root.appendChild(node);
     this.cellNodes.set(`${col}:${row}`, node);
     if (imageUrl) {
       this.appendImageCell(col, row, imageUrl, node.x, node.y, node.width, node.height);
     }
+  }
+
+  /** 空文本数据格判定（溢出邻居扫描用）：text 类型、无图片/自定义渲染/合并覆盖、取值文本为空 */
+  private isEmptyTextCell(col: number, row: number): boolean {
+    return (
+      (this.options.columns[col]?.cellType ?? 'text') === 'text' &&
+      !this.options.resolveCellRenderer?.(col, row) &&
+      !this.options.resolveCellImage?.(col, row) &&
+      !this.mergeCells.rangeAt(col, row) &&
+      !this.pipeline.resolveText(col, row)
+    );
+  }
+
+  /**
+   * 文本溢出允许的层坐标右界；null 表示该格不溢出（裁剪在本格内）。
+   * Excel 规则：只溢出到右侧相邻空格，遇非空格停；换行、checkbox、合并、图片、
+   * 自定义渲染格不溢出；冻结列带不越过带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
+   */
+  private textOverflowLimitX(
+    col: number,
+    row: number,
+    style: CellStyle,
+    left: number,
+  ): number | null {
+    if (
+      style.textWrap === true ||
+      (this.options.columns[col]?.cellType ?? 'text') !== 'text' ||
+      this.options.resolveCellRenderer?.(col, row) ||
+      this.options.resolveCellImage?.(col, row) ||
+      this.mergeCells.rangeAt(col, row) ||
+      !this.pipeline.resolveText(col, row)
+    ) {
+      return null;
+    }
+    const inFrozenBand = col < this.frozenColCount;
+    const bandEnd = inFrozenBand ? this.frozenColCount : this.options.columns.length;
+    let end = col + 1;
+    while (end < bandEnd && this.isEmptyTextCell(end, row)) {
+      end++;
+    }
+    if (end === col + 1) {
+      return null;
+    }
+    // 列左缘的层坐标（冻结带内不随滚动位移）
+    return inFrozenBand
+      ? this.rowHeaderWidth + (this.colOffsets[end] ?? 0)
+      : this.rowHeaderWidth + (this.colOffsets[end] ?? 0) - left;
+  }
+
+  /**
+   * 左侧最近的非空格列号（溢出来源候选）：从左邻向带首扫，中间全空格无文本不可溢出，
+   * 再往左被首个非空格挡住。返回后由调用方重算其溢出右界（不可溢出则收敛回本格宽）
+   */
+  private overflowSourceCol(col: number, row: number): number | null {
+    const bandStart = col < this.frozenColCount ? 0 : this.frozenColCount;
+    for (let c = col - 1; c >= bandStart; c--) {
+      if (!this.isEmptyTextCell(c, row)) {
+        return c;
+      }
+    }
+    return null;
   }
 
   /** L2 media 层惰性创建（无图片格不建层） */

@@ -85,10 +85,10 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
     const node = imageNodeAt(host, 0, 0);
     expect(node).toBeDefined();
     const mediaInv = host.submitted.filter((s) => s.kind === 'media');
-    // 逐格 cell 失效，无 full/band
+    // 逐格 cell 失效，无 full/band（带内按列降序建节点，逐格顺序不敏感断言）
     expect(mediaInv.length).toBeGreaterThan(0);
     expect(mediaInv.every((s) => s.inv.type === 'cell')).toBe(true);
-    expect(mediaInv[0]).toEqual({
+    expect(mediaInv).toContainEqual({
       kind: 'media',
       inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
     });

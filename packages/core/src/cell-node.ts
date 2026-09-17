@@ -17,6 +17,8 @@ export interface CellNodeInit extends SceneNodeInit {
   style?: CellStyle;
   /** 自定义渲染 hook：接管格内容绘制（背景/边框仍由节点负责） */
   renderer?: CellRenderer | null;
+  /** 文本可绘制局部右界（≥ width 表示可溢出到右侧空格；缺省= width，裁剪在本格） */
+  textMaxX?: number;
 }
 
 export class CellNode extends SceneNode {
@@ -27,6 +29,11 @@ export class CellNode extends SceneNode {
   cellType: CellType;
   style: CellStyle;
   renderer: CellRenderer | null;
+  /** 文本可绘制局部右界；等于 width 表示不溢出 */
+  textMaxX: number;
+  /** 文本测量宽缓存（text+font 组合键，变更即失效重测） */
+  private textWidthKey: string | null = null;
+  private textWidthPx = 0;
 
   constructor(init: CellNodeInit) {
     super(init);
@@ -37,12 +44,14 @@ export class CellNode extends SceneNode {
     this.cellType = init.cellType ?? 'text';
     this.style = init.style ?? {};
     this.renderer = init.renderer ?? null;
+    this.textMaxX = init.textMaxX ?? init.width ?? 0;
   }
 
   /** 刷新管线产物（文本与基础值） */
   setContent(text: string, value: unknown): void {
     this.text = text;
     this.value = value;
+    this.textWidthKey = null;
   }
 
   override paint(ctx: RenderContext): void {
@@ -60,8 +69,25 @@ export class CellNode extends SceneNode {
       text: this.text,
       value: this.value,
       style: this.style,
+      textWidth: this.measureTextWidth(ctx),
+      textMaxX: this.textMaxX,
     });
     this.paintBorders(ctx);
+  }
+
+  /** 内置 text 路径的文本测量宽（缓存）；其它路径不需要测量 */
+  private measureTextWidth(ctx: RenderContext): number | undefined {
+    if (this.renderer || this.cellType !== 'text' || !this.text) {
+      return undefined;
+    }
+    const font = this.style.font ?? '12px sans-serif';
+    const key = `${font}\u0000${this.text}`;
+    if (this.textWidthKey !== key) {
+      this.textWidthKey = key;
+      ctx.font = font;
+      this.textWidthPx = ctx.measureText(this.text).width;
+    }
+    return this.textWidthPx;
   }
 
   /** 逐边边框：fillRect 细线保证像素对齐，后画压在内容之上 */
