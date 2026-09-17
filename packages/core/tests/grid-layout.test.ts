@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { computeColOffsets, computeColWindow, computeRowWindow } from '../src/grid-layout'
+import {
+  computeColOffsets,
+  computeColWindow,
+  computeRowOffsets,
+  computeRowWindow,
+  findColAt,
+  findRowAt,
+} from '../src/grid-layout'
 
 describe('computeRowWindow', () => {
   it('顶部起点：含底部部分可见行', () => {
@@ -41,5 +48,36 @@ describe('computeColOffsets / computeColWindow', () => {
 
   it('空列：空窗口', () => {
     expect(computeColWindow(0, 100, computeColOffsets([]))).toEqual({ start: 0, end: 0 })
+  })
+})
+
+describe('findRowAt / findColAt', () => {
+  it('内容坐标命中行/列；越界与空表返回 -1', () => {
+    const rowOffsets = computeRowOffsets(50, 32)
+    expect(findRowAt(rowOffsets, 0)).toBe(0)
+    expect(findRowAt(rowOffsets, 31.5)).toBe(0)
+    expect(findRowAt(rowOffsets, 32)).toBe(1)
+    expect(findRowAt(rowOffsets, 50 * 32 - 1)).toBe(49)
+    expect(findRowAt(rowOffsets, 50 * 32)).toBe(-1)
+    expect(findRowAt(rowOffsets, -1)).toBe(-1)
+    expect(findRowAt(computeRowOffsets(0, 32), 0)).toBe(-1)
+    expect(findColAt(computeColOffsets([100, 50, 200]), 149)).toBe(1)
+    expect(findColAt(computeColOffsets([100, 50, 200]), 350)).toBe(-1)
+  })
+
+  it('大表深处命中：二分定位不随行数线性增长', () => {
+    const rowOffsets = computeRowOffsets(100000, 32)
+    expect(findRowAt(rowOffsets, 99999 * 32 + 16)).toBe(99999)
+    expect(findRowAt(rowOffsets, 50000 * 32)).toBe(50000)
+    const colOffsets = computeColOffsets(Array.from({ length: 5000 }, () => 80))
+    expect(findColAt(colOffsets, 4999 * 80 + 1)).toBe(4999)
+  })
+
+  it('并列前缀和（零宽列）：命中取起点不超过坐标的最右索引', () => {
+    const offsets = [0, 10, 10, 10, 30]
+    expect(findColAt(offsets, 9.5)).toBe(0)
+    expect(findColAt(offsets, 10)).toBe(3)
+    expect(findColAt(offsets, 29)).toBe(3)
+    expect(findColAt(offsets, 30)).toBe(-1)
   })
 })

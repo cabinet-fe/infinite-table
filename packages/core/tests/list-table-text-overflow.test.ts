@@ -387,6 +387,34 @@ describe('ListTable 溢出右界', () => {
     expect(dataCols).toEqual([7, 6, 5, 4, 3, 2, 1, 0])
   })
 
+  it('横向滚动增量补建保持溢出 z 序：左格溢出文本后画于新滚入格背景', () => {
+    const { host, table } = createTable({
+      columns: Array.from({ length: 10 }, (_, i) => ({ field: `f${i}`, title: 'C' })),
+      records: [{ f3: LONG_TEXT }],
+      rowCount: 1,
+    })
+    // 溢出格 col 3：右界延伸穿过后右侧全部空格（文本 200px > 格宽 100px）
+    const before = findNode(host, 3, 0)
+    expect(before?.textMaxX).toBeGreaterThan(before!.width)
+
+    table.scrollTo(100, 0) // 窗口 [0,8) → [1,9)：col 8 滚入、col 0 滚出
+    const body = host.layers.get('body')
+    const cols = body?.root.children
+      .filter(
+        (child): child is CellNode =>
+          child instanceof CellNode && child.row === 0 && child.col >= 0,
+      )
+      .map((child) => child.col)
+    expect(cols).toContain(8)
+    // 溢出格必须后画于其溢出走廊上的全部空格（含增量补建的 col 8），文本不被新格背景盖住
+    expect(cols!.indexOf(3)).toBeGreaterThan(cols!.indexOf(8))
+    expect(cols!.indexOf(3)).toBeGreaterThan(cols!.indexOf(7))
+    expect(cols!.indexOf(3)).toBeGreaterThan(cols!.indexOf(4))
+    // 存活格溢出右界随滚动平移保持不变（limitX 与 x 同步位移）
+    const after = findNode(host, 3, 0)
+    expect(after?.textMaxX).toBe(before?.textMaxX)
+  })
+
   it('列级 textWrap 进样式投影，逐格 hook 可覆盖', () => {
     const column = createTable({
       columns: [{ field: 'a', textWrap: true }, { field: 'b' }],

@@ -10,7 +10,6 @@
     "build": "vp build"
   },
   "dependencies": {
-    "@infinite-table/render": "workspace:*",
-    "@infinite-table/utils": "workspace:*"
+    "@infinite-table/render": "workspace:*"
   }
 }

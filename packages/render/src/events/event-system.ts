@@ -88,10 +88,15 @@ const TOUCH_TYPES: readonly SceneEventType[] = [
  */
 export class EventSystem {
   private readonly domListeners = new Map<SceneEventType, DomListener>()
+  /** 层根缓存：高频派发路径复用同一数组，层集合变化时由宿主通知失效 */
+  private rootsCache: readonly SceneNode[] | null = null
 
+  /**
+   * @param rootsTopDown 自顶向下（sky → media → body → ground）返回各层场景根；
+   *   结果经缓存复用，层集合变化时宿主须调 invalidateRoots 失效
+   */
   constructor(
     private readonly target: EventTargetLike,
-    /** 自顶向下（sky → media → body → ground）返回各层场景根 */
     private readonly rootsTopDown: () => readonly SceneNode[],
   ) {
     for (const type of EVENT_TYPES) {
@@ -101,8 +106,13 @@ export class EventSystem {
     }
   }
 
+  /** 层集合变化（建层/移除层）时由 RenderHost 通知：下一次派发重建层根缓存 */
+  invalidateRoots(): void {
+    this.rootsCache = null
+  }
+
   private dispatch(type: SceneEventType, domEvent: DomEventLike): void {
-    const roots = this.rootsTopDown()
+    const roots = (this.rootsCache ??= this.rootsTopDown())
     const isKeyboard = type === 'keydown' || type === 'keyup'
     const touch = TOUCH_TYPES.includes(type) ? domEvent.changedTouches?.[0] : undefined
     let x = 0

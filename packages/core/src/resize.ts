@@ -41,6 +41,25 @@ export const MIN_COL_WIDTH = 20
 export const MIN_ROW_HEIGHT = 20
 
 /**
+ * 阈值带内最近的行/列边缘二分定位：在单调不减的 offsets 中找第一个满足
+ * offsets[i+1] >= target 的 i（下界，i ∈ [0, count]）。与线性扫描「首个命中边缘」
+ * 逐点等价：更早的边缘都 < target − threshold，不可能落带内。
+ */
+function firstEdgeAtLeast(offsets: readonly number[], count: number, target: number): number {
+  let lo = 0
+  let hi = count
+  while (lo < hi) {
+    const mid = lo + ((hi - lo) >> 1)
+    if ((offsets[mid + 1] ?? 0) < target) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  return lo
+}
+
+/**
  * 命中 resize 手柄：列手柄在列头区的列右缘，行手柄在行号列区的行下缘。
  * 返回 null 表示未命中或该行列被 canResize 能力禁止。
  */
@@ -54,27 +73,25 @@ export function hitResizeHandle(
   // 列手柄：指针在列头带内，接近某列右缘的视口位置
   if (y >= 0 && y <= geo.headerHeight && x >= geo.rowHeaderWidth) {
     const contentX = geo.toContentX(x)
-    for (let col = 0; col < geo.colOffsets.length - 1; col++) {
-      const edge = geo.colOffsets[col + 1] ?? 0
-      if (Math.abs(contentX - edge) <= threshold) {
-        if (capability.canResizeCol && !capability.canResizeCol(col)) {
-          return null
-        }
-        return { kind: 'col', index: col }
+    const colCount = geo.colOffsets.length - 1
+    const first = firstEdgeAtLeast(geo.colOffsets, colCount, contentX - threshold)
+    if (first < colCount && (geo.colOffsets[first + 1] ?? 0) <= contentX + threshold) {
+      if (capability.canResizeCol && !capability.canResizeCol(first)) {
+        return null
       }
+      return { kind: 'col', index: first }
     }
   }
   // 行手柄：指针在行号列带内，接近某行下缘的视口位置
   if (x >= 0 && x <= geo.rowHeaderWidth && y >= geo.headerHeight) {
     const contentY = geo.toContentY(y)
-    for (let row = 0; row < geo.rowOffsets.length - 1; row++) {
-      const edge = geo.rowOffsets[row + 1] ?? 0
-      if (Math.abs(contentY - edge) <= threshold) {
-        if (capability.canResizeRow && !capability.canResizeRow(row)) {
-          return null
-        }
-        return { kind: 'row', index: row }
+    const rowCount = geo.rowOffsets.length - 1
+    const first = firstEdgeAtLeast(geo.rowOffsets, rowCount, contentY - threshold)
+    if (first < rowCount && (geo.rowOffsets[first + 1] ?? 0) <= contentY + threshold) {
+      if (capability.canResizeRow && !capability.canResizeRow(first)) {
+        return null
       }
+      return { kind: 'row', index: first }
     }
   }
   return null

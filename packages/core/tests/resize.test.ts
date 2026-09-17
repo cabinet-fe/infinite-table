@@ -56,6 +56,22 @@ describe('hitResizeHandle 手柄命中', () => {
     const scrolled = makeGeometry({ toContentX: (x) => x - 48 + 50 })
     expect(hitResizeHandle(198, 10, scrolled)).toEqual({ kind: 'col', index: 1 })
   })
+
+  it('大偏移表深处边缘命中：二分定位不随行数线性增长', () => {
+    const bigRowOffsets = Array.from({ length: 100001 }, (_, i) => i * 32)
+    const geo = makeGeometry({ rowOffsets: bigRowOffsets })
+    // 第 49999 行下缘：内容 y = 50000 × 32
+    expect(hitResizeHandle(20, 36 + 50000 * 32, geo)).toEqual({ kind: 'row', index: 49999 })
+    expect(hitResizeHandle(20, 36 + 50000 * 32 + 5, geo)).toBeNull()
+  })
+
+  it('并列前缀和（零宽列）：阈值带内命中首个不越过阈值上界的右缘', () => {
+    const geo = makeGeometry({ colOffsets: [0, 100, 200, 200, 300] })
+    // 列 1、2 右缘重合在 200：contentX 200/204 均命中首个落在带内的列 1
+    expect(hitResizeHandle(48 + 200, 10, geo)).toEqual({ kind: 'col', index: 1 })
+    expect(hitResizeHandle(48 + 204, 10, geo)).toEqual({ kind: 'col', index: 1 })
+    expect(hitResizeHandle(48 + 196, 10, geo)).toEqual({ kind: 'col', index: 1 })
+  })
 })
 
 describe('ResizeSession 尺寸计算', () => {

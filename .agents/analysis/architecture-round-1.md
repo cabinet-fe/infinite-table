@@ -294,60 +294,106 @@ DOM 事件（container）→ EventSystem 归一化（场景坐标 + 触点/键�
 - **现状**：`grid-layout.ts` 的 `findRowAt/findColAt` 从 0 起线性推进；`resize.ts` 的 `hitResizeHandle` 行分支对 `rowOffsets` 全表线性扫。`ListTable.onPointerMove` 每次 pointermove 无条件调 `cellAt` → `findRowAt`：鼠标在 10 万行表中下部悬停/移动时每事件 O(行号) 次迭代（5 万行附近约 5 万次）；行号列带内移动还叠加 `hitResizeHandle` 的 O(全行数) 扫描。bench 场景 hover 采样点在视口顶部（行号小），未暴露此项。
 - **改动范围**：`packages/core/src/grid-layout.ts`（findRowAt/findColAt 改二分）、`packages/core/src/resize.ts`（hitResizeHandle 用二分定位边缘行/列）；对应单测补充 `packages/core/tests/grid-layout*.test.ts`、`packages/core/tests/resize.test.ts`。
 - **正向论证**：性能——pointermove 为最高频事件，命中计算降为 O(log n)，10 万行场景消除与视口位置成正比的每事件开销；行为完全等价（前缀和单调），无结构改动。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/grid-layout.ts`（findRowAt/findColAt 收敛到共享二分内核 findIndexAt，含并列前缀和取右端语义）、`packages/core/src/resize.ts`（hitResizeHandle 行/列分支改 firstEdgeAtLeast 二分下界，与线性「首个命中边缘」逐点等价）；补测试 `packages/core/tests/grid-layout.test.ts`（3 项：边界/越界、10 万行深处命中、零宽并列）、`packages/core/tests/resize.test.ts`（2 项：大偏移表深处命中、零宽并列列阈值带）。
+  - 正向论证：性能——pointermove 命中与 resize 手柄命中从 O(n) 降为 O(log n)；结构——命中语义收敛到单一内核函数，消除两处重复线性扫描。
+  - 无退化说明：命中结果与原线性扫描逐点等价（含零宽并列前缀和取最右索引、阈值带首个命中边缘），现有交互/resize/查询测试全部通过，无行为差异。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 337 项全过（含新增 5 项）；`bun run lint` 0 告警 0 错误。
 
 ### 6.2 rebuildScene 滚动帧整树重建 → 节点复用的增量窗口
 
 - **现状**：`list-table.ts` 每次滚动 `rebuildScene` 清空 body root 全量重建：每个可见格 `new CellNode` + `resolveStyle`（两级 `projectCellStyle` 对象分配）+ `resolveText/resolveValue` + 模板串 key + `textOverflowLimitX` 邻格扫描；表头/行号格同样每帧重建。稳态滚动每帧数百节点 × 300 帧/s 的分配压力全部落在 GC（bench headless JS 帧 P95 约 0.6ms，分配占比可观）。
 - **改动范围**：`packages/core/src/list-table.ts`（rebuildScene/appendCellBand/cellNodes 索引改为窗口滑动的增删补：滚出行/列摘除节点、滚入行/列建节点或从池复用；表头格按列/行复用更新位置）。保持 band 失效语义不变。
 - **正向论证**：性能——滚动帧节点分配与样式投影次数从 O(窗口格数) 降到 O(滚入格数)；无退化验证依赖 bench 场景 2/3（FPS 与失效面积）+ 全量单测。风险最高的一项，单独实施、单独验证。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/list-table.ts`（新增 updateSceneWindow/sweepWindowNodes：滚动帧只摘除滚出行列、补建滚入行列、存活节点原地平移；appendCell 加已存在守卫并返回是否新建；表头节点入 colHeaderNodes/rowHeaderNodes/cornerNode 索引做增量维护；onScroll 由 rebuildScene 改调 updateSceneWindow，band 失效提交不变；构造与 applyGeometryChange 仍走全量 rebuildScene）；补测试 `packages/core/tests/list-table-text-overflow.test.ts`（1 项：横向滚动增量补建保持溢出 z 序——溢出格后画于新滚入格背景、存活格溢出右界平移不变）。
+  - 正向论证：性能——bench headless 场景 2 JS 侧帧耗时 P95 0.13ms → 0.07ms（-46%）、稳态滚动平均 FPS 8408 → 19543；每帧仅新增 O(滚入格数) 次节点构造，存活节点只做属性平移。
+  - 无退化说明：z 序等价性由「整行列降序补建 + 左侧溢出存活格升序重挂 + 新建数据格后重挂表头」三条规则保持（合并主格上缘可伸进列头带的场景由表头重挂覆盖）；失效面积/视口（0.950）与 body full 次数（稳态/快跳/hover 全 0）与改动前完全一致；全量单测、页内冒烟 32 项像素级断言通过。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 337→338 项全过（含新增用例）；`bun src/headless.ts`（apps/bench）三场景全部达标（对比基线报告 results/bench-2026-09-17T19-01-08-309Z.json，本轮报告 results/bench-2026-09-17T19-21-59-756Z.json）；`bun run smoke`（apps/demo）32 项断言全部通过。
 
 ### 6.3 列级样式投影缓存
 
 - **现状**：`resolveStyle` 每格执行 `projectCellStyle(projectCellStyle(themeToken, column.style), hook?)`：无列级样式、无按格 hook 命中的格也各分配两层投影对象；同一列全部数据行的 token+列级投影结果完全相同却被逐行重算。
 - **改动范围**：`packages/core/src/list-table.ts`（`resolveStyle` 拆两级：token+列级结果按列缓存（几何/主题不可变期间有效），仅 hook 返回非 null 时再做第二级投影）；`packages/core/tests/list-table-display.test.ts` 补投影等价断言。
 - **正向论证**：性能——rebuildScene 与 refreshCell 的对象分配显著减少（与 6.2 叠乘）；结构上把「三级覆盖链」的执行显式化，可读性不降。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/list-table.ts`（resolveStyle 拆两级：token+列级合成按列缓存 columnStyles，仅 hook 返回非空才做第二级投影）；补测试 `packages/core/tests/list-table-display.test.ts`（新增「列级样式投影缓存」describe，2 项投影等价断言：同列未命中 hook 共享同一投影对象、hook 命中才走二级投影且值与三级链逐字段等价）。
+  - 正向论证：性能——同列全部数据行复用一次列级投影，滚动帧与 refreshCell 每格两层投影对象分配降为 0～1 层（与 6.2 叠乘）；结构——三级覆盖链的两级执行显式化。
+  - 无退化说明：CellStyle 全仓按不可变约定使用（核实无就地写入点），共享缓存对象与逐格新建深值等价；列定义为构造期快照（既有契约），缓存不引入新失效面。投影等价断言与全部样式/显示测试通过。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 全过（含新增 2 项）；`bun run lint` 0 告警 0 错误。
 
 ### 6.4 格索引字符串 key → 数值 key
 
 - **现状**：`cellNodes`/`imageCellNodes` 以 `${col}:${row}` 模板串为 key，每次重建窗口对每格分配字符串；`MergeCellMap.byCoord`、`ImageService.refs` 同模式。
 - **改动范围**：`packages/core/src/list-table.ts`（两处索引）、`packages/core/src/cell-range.ts`（byCoord）；如收益过小可只做 list-table 两处。
 - **正向论证**：性能（次要）——消除滚动热路径上的字符串分配与哈希；改动局部、行为等价（key 编码 `row * 2^21 + col` 一类需要注释边界）。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/list-table.ts`（cellNodes/imageCellNodes 两处索引改数值 key）、`packages/core/src/cell-range.ts`（MergeCellMap.byCoord 改数值 key）；两处以共享 `cellKey`（`row * 2^21 + col`，边界注释：col < 2^21、row < 2^32 内唯一精确，坐标非负）实现，后随 6.6 收敛到 `list-table-internal.ts`。
+  - 正向论证：性能（次要）——滚动热路径（增量窗口的清扫/补建/查询）与合并区逐格索引不再分配模板串。
+  - 无退化说明：编码在边界内双射，非负数据格坐标全覆盖（表头 -1 坐标不入索引）；全量单测与冒烟通过，无行为差异。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 全过；`bun run lint` 0 告警 0 错误。
 
 ### 6.5 依赖面真实化：移除未消费声明与占位边
 
 - **现状**：core package.json 声明 `@infinite-table/utils` 但 src 零 import；render → utils 仅剩 `RENDER_DEPENDENCY_CHAIN`/`UTILS_PACKAGE_NAME` 占位常量一条人为 import 边（utils 本身无内容可依赖）。
 - **改动范围**：`packages/core/package.json`（删 utils 声明）；`packages/render/src/index.ts`、`packages/core/src/index.ts`、`packages/utils/src/index.ts`（删 `*_DEPENDENCY_CHAIN`/`*_PACKAGE_NAME` 占位导出；若担心公共 API 破坏可保留常量但把 render→utils 的 import 改为本地字面量）；根 `bun run check:deps`、`tsc -b`、全量测试回归。注意：CODE-MAP 依赖图与此相关的行需随动（见 §7）。
 - **正向论证**：结构——包依赖图如实反映功能耦合（render 成为真正的零依赖底层），降低 utils 未来演进对 render 的牵连面；删除的是纯展示性死代码（SMELLS：死代码）。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/package.json`（删 `@infinite-table/utils` 依赖声明）；`packages/render/src/index.ts`（删 UTILS_PACKAGE_NAME 导入与 RENDER_PACKAGE_NAME/RENDER_DEPENDENCY_CHAIN 占位导出）；`packages/core/src/index.ts`（删 RENDER_PACKAGE_NAME 导入与 CORE_PACKAGE_NAME/CORE_DEPENDENCY_CHAIN 占位导出）；`packages/utils/src/index.ts`（按本文预留的回退案保留 utils 自身 `UTILS_PACKAGE_NAME` 常量——纯注释空入口触发 lint no-empty-file）；`packages/core/tests/index.test.ts`（占位常量断言改为「core/render 公共入口可解析」冒烟）。唯二消费方核实：三个常量全仓仅 `tests/index.test.ts` 与 dist 产物引用，无应用/公共 API 消费。
+  - 正向论证：结构——core 对 render 之外零依赖声明、render 对 utils 零 import，包依赖图与功能耦合一致；删除展示性死代码。
+  - 无退化说明：被删导出无任何真实消费方（grep 全仓核实）；测试改为等价的入口可解析断言；构建产物 core.js 69.66 kB → 69.53 kB。
+  - 验证命令及结果：`bun run typecheck`（tsc -b）退出 0；`bun run build` 退出 0；`bun run test` 330 项全过；`bun run lint`（vp lint + check:deps）0 告警 0 错误（首次运行报 utils 空文件 1 错，按回退案保留常量后归零）。
 
 ### 6.6 list-table.ts 按职责拆分
 
 - **现状**：1679 行单文件承载场景重建、溢出联动、图片窗口、浮动层、选区/hover/resize/填充柄/触控/键盘交互接线、编辑接线、几何变更、运行时冻结合并——至少六类变更理由汇聚（SMELLS：巨型文件、发散式变化）。
 - **改动范围**：`packages/core/src/list-table.ts` 拆出内聚协作模块（建议：场景重建与溢出（rebuildScene/appendCell*/textOverflow*/refreshCell 支撑）、媒体集成（media/imageService 接线）、交互接线（pointer/touch/key/resize/fill 事件处理）），以「接受 ListTable 实例或内部上下文为参数的模块文件」形式纯移动，不改行为、不改公共 API；全量单测与冒烟回归。
 - **正向论证**：可维护性——每模块单一变更理由，后续轮次优化（尤其 6.2）的改动面收窄；无行为差异。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/list-table.ts` 拆出四个包内协作模块（均为「以 ListTable 实例为参数的函数」纯移动，不改行为、不改公共入口导出）：`list-table-scene.ts`（场景全量重建与滚动帧增量窗口、分带建格、行列头装配、溢出右界支撑）、`list-table-media.ts`（media 层与 ImageService 接线）、`list-table-interaction.ts`（指针/触摸/键盘/contextmenu 接线、命中与坐标换算、sky 浮层刷新）、`list-table-internal.ts`（共享常量与纯辅助：cellKey/HEADER_COORD/合并边界校验）。主类保留公共 API、装配（构造/几何变更/滚动主循环）与 refreshCell；协作模块触达的内部成员统一标注 `@internal`（公共 API 以 src/index.ts 导出为准）。
+  - 正向论证：可维护性——主类从约 1930 行降到约 1000 行（API 与装配），场景/媒体/交互各自单一变更理由；本轮 6.2/6.3/6.4 的热点改动先行完成，拆分按最终形态纯移动。
+  - 无退化说明：纯移动无行为改动，全量单测、bench 三场景、页内冒烟 32 项全部通过。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 338 项全过；`bun run lint` 0 告警 0 错误；`bun run build` 退出 0；`bun src/headless.ts` 三场景全部达标（results/bench-2026-09-17T19-34-25-089Z.json）；`bun run smoke`（apps/demo）32 项断言全部通过。
 
 ### 6.7 ImageService.pump 与 evictWithinBudget 全表扫描 → 就绪队列
 
 - **现状**：`pump()` 每次补位遍历全部 entries 找「窗口内 idle」；`updateWindow`/`invalidate`/每次加载完成后都触发。图片条目数大（长列表滚动累计）时单次 O(n) 且高频。
 - **改动范围**：`packages/core/src/media/image-service.ts`（维护窗口内 idle 队列/索引，updateWindow 增量修正）；`packages/core/tests/media/image-service.test.ts` 保持语义断言（并发上限、LRU 序、取消降级）不变。
 - **正向论证**：性能——图片密集场景的调度开销从 O(n)/事件降到均摊 O(1)；行为语义（并发、优先级、代际）不变。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/core/src/media/image-service.ts`（新增 idleQueue：窗口内 idle 待加载队列；pump 按登记序消费队列补位，出队时惰性清理失效成员；request 入队、updateWindow 单趟重估全条目同步队列成员并降级滚出 loading、invalidate/dispose 出队清空）；语义断言测试 `packages/core/tests/media/image-service.test.ts` 未改、全部通过。
+  - 正向论证：性能——加载完成/请求/invalidate 触发的补位从全表扫描 O(n) 降到队列消费均摊 O(1)；updateWindow 的全条目重估与原 pump 扫描合并为单趟，高频滚动路径少一趟 O(n)。
+  - 无退化说明：并发上限、窗口内外进出队、代际取消、LRU 逐出语义不变（idle 队列只影响补位遍历来源，登记序与原 LRU 序在连续请求场景一致）；image-service 15 项语义断言（并发排队补发、窗口提权/取消降级、LRU 预算逐出、invalidate/dispose）全部通过。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 全过；`bun run lint` 0 告警 0 错误。
 
 ### 6.8 render 预留面处置：translateBy/setSize 接入或显式标记
 
 - **现状**：`CanvasLayer.translateBy`、`LayerHandle.setSize` 实现完整、测试覆盖，但 core 无调用方；ground 层全仓未创建。预留能力无消费方时是维护税（每次改失效逻辑都要兼顾 blit 路径）。
 - **改动范围**（二选一，P2 决策）：a) 保持预留但在 `types.ts`/`canvas-layer.ts` 注释显式标注「预留，当前无调用方」；b) 若第 1 轮实施了 6.2 且滚动路线改为平移复用，则接入 translateBy 作为 body 层滚动快路径。删除 ground kind 是更激进的选项，涉及「四层」设计承诺与 CODE-MAP/ARCHITECTURE 叙述，**本轮不做**，仅记录。
 - **正向论证**：可维护性——a) 消除「这段代码是否有人用」的排查成本；b) 性能——滚动帧 body 层免整带重绘（blit + 暴露带补画）。
+- **实施记录（P2，2026-09-18）**：选 a)（6.2 实施后滚动路线仍为重建/增量窗口 + band 失效，b) 的接入前提不成立）。实际改动范围：`packages/render/src/types.ts`（LayerHandle.setSize/translateBy 补「预留能力：当前 core 无调用方」注释，translateBy 注明为未来滚动快路径接入点）、`packages/render/src/layers/canvas-layer.ts`（setSize/translateBy 同步标注）；删除 ground kind 的激进选项按本文记录不做。无退化说明：纯注释无行为改动。验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 全过；`bun run lint` 0 告警 0 错误。
 
 ### 6.9 demo Vue 包装组件缺 destroy
 
 - **现状**：`apps/demo/src/components/InfiniteTable.vue` 的 `onUnmounted` 只置空引用，未调 `table.destroy()`：组件卸载后 RenderHost canvas、场景事件监听、ImageService 全部泄漏（视图切换/重复挂载场景持续累积）。
 - **改动范围**：`apps/demo/src/components/InfiniteTable.vue`（onUnmounted 调 `tableInstance?.destroy()`）。
 - **正向论证**：可维护性/正确性——修复资源泄漏，对齐 core `destroy` 的设计契约；演示应用行为变化仅为泄漏消失。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`apps/demo/src/components/InfiniteTable.vue`（onUnmounted 调 `tableInstance?.destroy()`；同点移除组件自接的容器 wheel 监听）。
+  - 正向论证：正确性/可维护性——组件卸载后 RenderHost canvas、场景事件监听、ImageService 随 destroy 释放，对齐 destroy 设计契约。
+  - 无退化说明：卸载语义仅为「泄漏消失」；演示应用行为不变（视图切换/冒烟模式挂载-卸载路径回归通过）。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 全过；`bun run lint` 0 告警 0 错误；`bun run smoke`（apps/demo，收尾统一跑）32 项断言全部通过。
 
 ### 6.10 EventSystem 每派发分配 roots 数组
 
 - **现状**：`EventSystem.dispatch` 每个事件调 `rootsTopDown()` 新建数组；pointermove 高频下为纯垃圾。
 - **改动范围**：`packages/render/src/events/event-system.ts`（缓存 roots 列表，层集合变化时失效——经 RenderHost 建层时通知，或每次派发复用预分配数组）。
 - **正向论证**：性能（次要）——高频事件路径零分配；改动局限于单文件。
+- **实施记录（P2，2026-09-18）**：
+  - 实际改动范围：`packages/render/src/events/event-system.ts`（rootsCache 缓存层根数组，dispatch 复用；新增 invalidateRoots）、`packages/render/src/render-host.ts`（createLayer 建层时调 `eventSystem?.invalidateRoots()` 失效缓存，即本文「经 RenderHost 建层时通知」变体）；事件测试 `packages/render/tests/events/event-system.test.ts` 未改、全部通过。
+  - 正向论证：性能（次要）——pointermove 等高频派发路径不再每次分配 roots 数组。
+  - 无退化说明：缓存只在层集合变化时失效（建层通知、destroy 随宿主销毁），命中遍历的层序与内容实时性不变（场景树节点变化不经此缓存）；event-system 7 项归一化/命中/冒泡/退订断言全部通过。
+  - 验证命令及结果：`bun run typecheck` 退出 0；`bun run test` 全过；`bun run lint` 0 告警 0 错误。
 
 ### 6.11 每项优化的统一验证手段（无退化证明口径）
 
@@ -356,6 +402,13 @@ DOM 事件（container）→ EventSystem 归一化（场景坐标 + 触点/键�
 - 静态检查：`bun run lint`（vp lint + check:deps）。
 - 性能防回归：`apps/bench` headless（`bun src/headless.ts`，三场景阈值：TTFF P50 ≤ 80ms、滚动 ≥55fps、body 失效面积 ≤1× 视口、full=0）+ 浏览器入口；demo 冒烟 `bun run smoke`（apps/demo 下，页内 20+ 项断言含像素级）。
 - 每项优化记录：改动 diff、上述命令结果、与改动前 bench 报告对比；退化即回滚并记入轮次文件。
+
+### 6.12 P2 实施总结（2026-09-18）
+
+- 第 1 轮优化清单 6.1～6.10 全部实施，无退化项、无回滚。实施顺序按本文建议从低风险到高风险：6.5 → 6.9 → 6.4 → 6.10 → 6.8 → 6.7 → 6.3 → 6.1 → 6.2 → 6.6（6.6 按 6.2/6.3/6.4 落地后的最终形态纯移动）。
+- 基线（改动前）bench headless：TTFF P50 1.0ms、稳态滚动 8408 fps、JS 帧 P95 0.13ms、失效面积/视口 0.950、full 0/0/0（results/bench-2026-09-17T19-01-08-309Z.json）。收尾复测全部达标，热点项（6.2/6.3/6.4）后 JS 帧 P95 0.07ms、FPS 19543（results/bench-2026-09-17T19-21-59-756Z.json），6.6 拆分后无退化（results/bench-2026-09-17T19-34-25-089Z.json）。
+- 收尾验证：`bun run typecheck` 0、`bun run build` 0、`bun run test` 35 文件 338 项全过、`bun run lint`（vp lint + check:deps）0 告警 0 错误、`bun run smoke`（apps/demo）32 项断言全过。
+- 随动文档：6.5 实施后 CODE-MAP「依赖」节已同步修正（@cat-kit 三条既有偏差边一并按仓库实况修正，见 §7）。
 
 ## 7. 与既有文档/规划包的关系（P2 实施时的随动项）
 

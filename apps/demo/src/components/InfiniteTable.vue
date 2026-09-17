@@ -15,6 +15,7 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLDivElement | null>(null)
 let tableInstance: ListTable | null = null
+let handleWheel: ((e: WheelEvent) => void) | null = null
 
 onMounted(() => {
   const container = containerRef.value
@@ -27,7 +28,7 @@ onMounted(() => {
   })
   tableInstance = table
 
-  const handleWheel = (e: WheelEvent) => {
+  handleWheel = (e: WheelEvent) => {
     e.preventDefault()
     table.scrollBy(e.deltaX, e.deltaY)
   }
@@ -38,6 +39,13 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 卸载即释放表格资源：RenderHost canvas、场景事件监听、ImageService 全部随 destroy 清理
+  const container = containerRef.value
+  if (container && handleWheel) {
+    container.removeEventListener('wheel', handleWheel)
+  }
+  handleWheel = null
+  tableInstance?.destroy()
   tableInstance = null
 })
 

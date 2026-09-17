@@ -104,6 +104,8 @@ function cellKey(cell: CellRef): string {
 export class ImageService {
   /** Map 迭代序即 LRU 序：ready 条目被取用/完成时移到末尾（最新） */
   private readonly entries = new Map<string, Entry>()
+  /** 窗口内 idle 待加载队列（登记序）：pump 按序补位，免去每次补位的全表扫描 */
+  private readonly idleQueue = new Set<string>()
   private readonly loadImage: ImageLoader
   private readonly estimateBytes: (image: LoadedImage) => number
   private readonly loadListeners = new Set<(e: ImageLoadEvent) => void>()
@@ -167,23 +169,38 @@ export class ImageService {
       this.touch(resolved, entry)
       return 'ready'
     }
-    if (entry.state === 'idle' && this.isInWindow(entry)) {
-      this.pump()
+    if (entry.state === 'idle') {
+      if (this.isInWindow(entry)) {
+        this.idleQueue.add(resolved)
+        this.pump()
+      }
+      return entry.state
     }
     return entry.state
   }
 
   /**
    * 窗口化调度：以「视口+余量」谓词重估所有条目——
-   * 窗口内 idle 条目提权加载；滚出窗口的 loading 条目取消降级为 idle（迟到的结果按代际丢弃）。
+   * 窗口内 idle 条目入队提权加载；滚出窗口的 loading 条目取消降级为 idle
+   * （迟到的结果按代际丢弃）、滚出窗口的 idle 条目出队。
    */
   updateWindow(predicate: WindowPredicate): void {
     this.window = predicate
-    for (const entry of this.entries.values()) {
-      if (entry.state === 'loading' && !this.isInWindow(entry)) {
-        entry.generation++
-        entry.state = 'idle'
-        this.activeLoads--
+    for (const [url, entry] of this.entries) {
+      if (entry.state === 'loading') {
+        if (!this.isInWindow(entry)) {
+          entry.generation++
+          entry.state = 'idle'
+          this.activeLoads--
+        }
+        continue
+      }
+      if (entry.state === 'idle' && entry.refs.size > 0) {
+        if (this.isInWindow(entry)) {
+          this.idleQueue.add(url)
+        } else {
+          this.idleQueue.delete(url)
+        }
       }
     }
     this.pump()
@@ -199,6 +216,7 @@ export class ImageService {
       entry.generation++
       this.activeLoads--
     }
+    this.idleQueue.delete(url)
     this.untrackReady(entry)
     this.entries.delete(url)
     this.pump()
@@ -245,6 +263,7 @@ export class ImageService {
       entry.generation++
     }
     this.entries.clear()
+    this.idleQueue.clear()
     this.activeLoads = 0
     this.readyBytes = 0
     this.readyCount = 0
@@ -297,16 +316,18 @@ export class ImageService {
     }
   }
 
-  /** 填充空闲并发槽：按 LRU 序找最旧的窗口内 idle 条目发起加载 */
+  /** 填充空闲并发槽：按登记序消费窗口内 idle 队列发起加载（槽满即返回，均摊每条目 O(1)） */
   private pump(): void {
     if (this.disposed) {
       return
     }
-    for (const [url, entry] of this.entries) {
+    for (const url of this.idleQueue) {
       if (this.activeLoads >= this.concurrency) {
         return
       }
-      if (entry.state === 'idle' && entry.refs.size > 0 && this.isInWindow(entry)) {
+      this.idleQueue.delete(url)
+      const entry = this.entries.get(url)
+      if (entry && entry.state === 'idle' && entry.refs.size > 0 && this.isInWindow(entry)) {
         this.startLoad(url, entry)
       }
     }

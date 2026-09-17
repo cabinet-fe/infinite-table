@@ -91,11 +91,18 @@ export interface LayerHandle {
   readonly root: SceneNode
   /** 该层画布（上屏模式下即挂载在容器中的 canvas 元素） */
   readonly canvasElement: RenderCanvas
-  /** 调整层尺寸（w/h 为 CSS 像素，dpr 缺省沿用当前值） */
+  /**
+   * 调整层尺寸（w/h 为 CSS 像素，dpr 缺省沿用当前值）。
+   * 预留能力：当前 core 无调用方（滚动走重建+band 路线，层尺寸随宿主创建固定），仅测试覆盖。
+   */
   setSize(width: number, height: number, dpr?: number): void
   /** 对本层声明三档失效，等价于 host.submitInvalidation(kind, inv) */
   invalidate(inv: Invalidation): void
-  /** 层内容整体平移的 blit 快路径：位图自拷贝 + 暴露带转 band 失效 */
+  /**
+   * 层内容整体平移的 blit 快路径：位图自拷贝 + 暴露带转 band 失效。
+   * 预留能力：当前 core 无调用方（滚动走重建+band 路线），仅测试覆盖；
+   * 若未来滚动路线切换为平移复用，此处即 body 层快路径接入点。
+   */
   translateBy(dx: number, dy: number): void
 }
 

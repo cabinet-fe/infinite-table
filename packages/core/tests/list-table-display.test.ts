@@ -268,6 +268,53 @@ describe('ListTable 逐格样式 hook', () => {
   })
 })
 
+describe('ListTable 列级样式投影缓存', () => {
+  it('列级投影按列缓存：同列未命中 hook 的格共享同一投影对象且值等价', () => {
+    const { host } = createTable({
+      records: records100(),
+      columns: Array.from({ length: 10 }, (_, i) => ({
+        field: 'name',
+        title: `C${i}`,
+        textWrap: i === 1,
+        style:
+          i === 1
+            ? { color: '#ff0000', border: { left: { width: 2, color: '#f00' } } }
+            : undefined,
+      })),
+    })
+    const a = findNode(host, 1, 0)
+    const b = findNode(host, 1, 5)
+    // 列级 textWrap 旗标并入主题层、列级样式覆盖生效，同列共享缓存对象
+    expect(a?.style.textWrap).toBe(true)
+    expect(a?.style.color).toBe('#ff0000')
+    expect(a?.style.border).toEqual({ left: { width: 2, color: '#f00' } })
+    expect(b?.style).toBe(a?.style)
+    // 无列级样式的列同样按列缓存（共享主题投影对象）
+    expect(findNode(host, 0, 0)?.style).toBe(findNode(host, 0, 9)?.style)
+  })
+
+  it('按格 hook 命中才做第二级投影：值与三级覆盖链等价，未命中格不受影响', () => {
+    const { host } = createTable({
+      records: records100(),
+      columns: Array.from({ length: 10 }, (_, i) => ({
+        field: 'name',
+        title: `C${i}`,
+        style: i === 1 ? { color: '#ff0000' } : undefined,
+      })),
+      resolveCellStyle: (col, row) =>
+        col === 1 && row === 3 ? { background: '#00ff00' } : null,
+    })
+    const hooked = findNode(host, 1, 3)
+    // 三级链逐字段等价：hook 覆盖 background，未给字段沿用列级/主题
+    expect(hooked?.style.background).toBe('#00ff00')
+    expect(hooked?.style.color).toBe('#ff0000')
+    // hook 命中格与未命中格对象不同，未命中格仍共享列级缓存
+    const plain = findNode(host, 1, 0)
+    expect(hooked?.style).not.toBe(plain?.style)
+    expect(findNode(host, 1, 5)?.style).toBe(plain?.style)
+  })
+})
+
 describe('ListTable 自定义渲染 hook 与单元格类型', () => {
   it('resolveCellRenderer 接管任意格内容绘制（与取值管线解耦）', () => {
     const { host } = createTable({

@@ -46,13 +46,23 @@ function isSingleCell(range: CellRange): boolean {
 }
 
 /**
+ * 格坐标数值 key：`row * 2^21 + col`，替代模板串 key 消除逐格索引的字符串分配。
+ * 边界：col < 2^21（约 209 万列）、row < 2^32（约 42 亿行）内编码唯一精确；
+ * 合并区坐标为非负格坐标，负坐标不在支持范围。
+ */
+const CELL_KEY_COL_BITS = 21
+function cellKey(col: number, row: number): number {
+  return row * 2 ** CELL_KEY_COL_BITS + col
+}
+
+/**
  * 合并区集合：按覆盖格索引到所属区间。
  * 构造时归一化并校验互不重叠（重叠属配置错误，直接抛错而非静默错绘）。
  */
 export class MergeCellMap {
   /** 归一化后的合并区列表 */
   readonly ranges: readonly CellRange[]
-  private readonly byCoord = new Map<string, CellRange>()
+  private readonly byCoord = new Map<number, CellRange>()
 
   constructor(ranges: readonly CellRange[] = []) {
     const normalized: CellRange[] = []
@@ -63,7 +73,7 @@ export class MergeCellMap {
       }
       for (let row = range.startRow; row <= range.endRow; row++) {
         for (let col = range.startCol; col <= range.endCol; col++) {
-          const key = `${col}:${row}`
+          const key = cellKey(col, row)
           if (this.byCoord.has(key)) {
             throw new Error(
               `merge ranges overlap at (${col}, ${row}): ` +
@@ -80,7 +90,7 @@ export class MergeCellMap {
 
   /** 覆盖 (col, row) 的合并区；未覆盖返回 null */
   rangeAt(col: number, row: number): CellRange | null {
-    return this.byCoord.get(`${col}:${row}`) ?? null
+    return this.byCoord.get(cellKey(col, row)) ?? null
   }
 
   /** (col, row) 所属合并区的主格（左上角）坐标；未被任何合并区覆盖返回 null */

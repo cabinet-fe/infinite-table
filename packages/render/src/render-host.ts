@@ -92,6 +92,8 @@ class CanvasRenderHost implements RenderHost {
       () => this.scheduler.request(this.flushTask),
     )
     this.layers.set(opts.kind, layer)
+    // 层集合变化：事件系统的层根缓存失效，下一次派发重建
+    this.eventSystem?.invalidateRoots()
     this.mount(opts.kind, canvas)
     return layer
   }

@@ -1,5 +1,3 @@
-import { RENDER_PACKAGE_NAME } from '@infinite-table/render'
-
 // 表格主体公共入口：公共 API 显式导出（禁止 export *）
 export { ListTable } from './list-table'
 export { ScrollManager } from './scroll-manager'
@@ -118,8 +116,3 @@ export type {
   TableContextMenuEvent,
   TableModel,
 } from './types'
-
-export const CORE_PACKAGE_NAME = '@infinite-table/core'
-
-// 依赖边占位：core → render
-export const CORE_DEPENDENCY_CHAIN = `${CORE_PACKAGE_NAME} -> ${RENDER_PACKAGE_NAME}`

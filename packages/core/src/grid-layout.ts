@@ -97,30 +97,39 @@ export function computeRowWindowFromOffsets(
   return { start, end }
 }
 
-/** 内容坐标 y 命中的行；未命中（越界）返回 -1 */
-export function findRowAt(rowOffsets: readonly number[], contentY: number): number {
-  const rowCount = rowOffsets.length - 1
-  if (rowCount <= 0 || contentY < 0 || contentY >= (rowOffsets[rowCount] ?? 0)) {
+/**
+ * 命中定位共享内核：在单调不减前缀和 offsets 中求内容坐标命中的索引——
+ * 返回满足 offsets[i] <= content 的最大 i（夹取到 [0, count-1]）。
+ * 二分实现：pointermove 为最高频事件，命中计算 O(log n)，不随视口位置线性增长；
+ * 含并列前缀和（零宽列/零高行）时取右端，与原线性扫描语义逐点等价。
+ */
+function findIndexAt(offsets: readonly number[], content: number): number {
+  const count = offsets.length - 1
+  if (count <= 0 || content < 0 || content >= (offsets[count] ?? 0)) {
     return -1
   }
-  let row = 0
-  while (row < rowCount - 1 && (rowOffsets[row + 1] ?? 0) <= contentY) {
-    row++
+  // 不变式：offsets[lo] <= content；取上中位保证 lo=mid 时区间仍收缩
+  let lo = 0
+  let hi = count - 1
+  while (lo < hi) {
+    const mid = lo + ((hi - lo + 1) >> 1)
+    if ((offsets[mid] ?? 0) <= content) {
+      lo = mid
+    } else {
+      hi = mid - 1
+    }
   }
-  return row
+  return lo
+}
+
+/** 内容坐标 y 命中的行；未命中（越界）返回 -1 */
+export function findRowAt(rowOffsets: readonly number[], contentY: number): number {
+  return findIndexAt(rowOffsets, contentY)
 }
 
 /** 内容坐标 x 命中的列；未命中（越界）返回 -1 */
 export function findColAt(colOffsets: readonly number[], contentX: number): number {
-  const colCount = colOffsets.length - 1
-  if (colCount <= 0 || contentX < 0 || contentX >= (colOffsets[colCount] ?? 0)) {
-    return -1
-  }
-  let col = 0
-  while (col < colCount - 1 && (colOffsets[col + 1] ?? 0) <= contentX) {
-    col++
-  }
-  return col
+  return findIndexAt(colOffsets, contentX)
 }
 
 // ---- 冻结：冻结行/列的区域划分（冻结区固定，滚动区随滚动位置平移） ----

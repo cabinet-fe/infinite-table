@@ -44,6 +44,10 @@ export class CanvasLayer implements LayerHandle {
     this.root = new SceneNode({ width, height, pickable: false })
   }
 
+  /**
+   * 调整层尺寸并整层失效。
+   * 预留能力：当前 core 无调用方（层尺寸随宿主创建固定），仅测试覆盖。
+   */
   setSize(width: number, height: number, dpr?: number): void {
     this.width = width
     this.height = height
@@ -62,6 +66,10 @@ export class CanvasLayer implements LayerHandle {
     this.scheduleFlush()
   }
 
+  /**
+   * 平移本层位图的 blit 快路径：经池化临时画布自拷贝，暴露带转 band 失效增量补画。
+   * 预留能力：当前 core 无调用方（滚动走重建+band 路线），仅测试覆盖。
+   */
   translateBy(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) {
       return
