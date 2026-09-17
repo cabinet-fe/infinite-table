@@ -2,10 +2,12 @@
 // 同一时刻至多一个编辑会话；初值取基础值（resolveValue 口径，未过 resolveDisplayValue）；
 // 提交经回写目标落数据源（records 改 field / model 经 ModelBinding.writeBack），
 // 随后局部刷新该格并抛 onCellChange（col/row/oldValue/newValue）。
+// 编辑中订阅滚动帧：浮层逐帧对齐锚定格最新视口矩形，锚定格滚出视口按 Enter 语义自动提交。
 
 import type { Region } from '@infinite-table/render';
 
 import type { EditorRegistry } from '../editor-registry';
+import type { ScrollState } from '../scroll-manager';
 import type { CellChangeEvent, CellRef, ColumnDefine } from '../types';
 import {
   createTextEditor,
@@ -51,6 +53,8 @@ export interface EditManagerInit {
   host?: TextEditorHost;
   /** 元素创建源；缺省取 globalThis.document（无 DOM 环境必须注入） */
   doc?: TextEditorDoc;
+  /** 订阅滚动帧（复用 ListTable.onScrollFrame）：编辑中逐帧跟随锚定格，滚出视口自动提交 */
+  subscribeScrollFrame?: (listener: (state: ScrollState) => void) => () => void;
 }
 
 /** 离屏宿主：编辑器元素不落 DOM（测试/无容器注入时） */
@@ -70,9 +74,13 @@ interface EditSession {
 export class EditManager {
   private session: EditSession | null = null;
   private readonly host: TextEditorHost;
+  /** 滚动帧退订（dispose 时解绑） */
+  private unsubscribeScrollFrame: (() => void) | null = null;
 
   constructor(private readonly init: EditManagerInit) {
     this.host = init.host ?? detachedHost;
+    this.unsubscribeScrollFrame =
+      init.subscribeScrollFrame?.(() => this.followAnchor()) ?? null;
   }
 
   /** 当前是否处于编辑会话中 */
@@ -163,9 +171,28 @@ export class EditManager {
     this.init.restoreFocus();
   }
 
-  /** 销毁：结束当前会话（如有） */
+  /** 销毁：退订滚动帧并结束当前会话（如有） */
   dispose(): void {
+    this.unsubscribeScrollFrame?.();
+    this.unsubscribeScrollFrame = null;
     this.cancelEdit();
+  }
+
+  /**
+   * 滚动帧：编辑中浮层逐帧对齐锚定格最新视口矩形；
+   * 锚定格滚出视口（cellRect null）按 Enter 语义自动提交并关闭（不丢编辑内容）。
+   */
+  private followAnchor(): void {
+    const session = this.session;
+    if (!session) {
+      return;
+    }
+    const rect = this.init.cellRect(session.col, session.row);
+    if (!rect) {
+      this.commitEdit('down');
+      return;
+    }
+    session.editor.moveTo(rect);
   }
 
   private onEditorKey(action: TextEditorKeyAction): void {

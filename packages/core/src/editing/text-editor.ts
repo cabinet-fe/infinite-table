@@ -53,6 +53,8 @@ export interface TextEditorInit {
 export interface TextEditor {
   /** 打开浮层：挂载到宿主、按视口矩形定位、赋初值并聚焦 */
   open(host: TextEditorHost, rect: Region, initialValue: string): void;
+  /** 滚动跟随：按锚定格最新视口矩形重新定位（不重挂载、不抢焦点、不改值） */
+  moveTo(rect: Region): void;
   /** 当前编辑值（提交口径） */
   getValue(): string;
   /** 关闭浮层：摘除元素、解绑键盘并清空状态；重复调用幂等 */
@@ -89,6 +91,13 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     keyHandler?.(action);
   };
 
+  const moveTo = (rect: Region): void => {
+    element.style.left = `${rect.x}px`;
+    element.style.top = `${rect.y}px`;
+    element.style.width = `${rect.width}px`;
+    element.style.height = `${rect.height}px`;
+  };
+
   return {
     onKey(handler) {
       keyHandler = handler;
@@ -96,10 +105,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     open(hostElement, rect, initialValue) {
       host = hostElement;
       element.style.position = 'absolute';
-      element.style.left = `${rect.x}px`;
-      element.style.top = `${rect.y}px`;
-      element.style.width = `${rect.width}px`;
-      element.style.height = `${rect.height}px`;
+      moveTo(rect);
       element.value = initialValue;
       if (!opened) {
         host.appendChild(element);
@@ -108,6 +114,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
       }
       element.focus();
     },
+    moveTo,
     getValue() {
       return element.value;
     },

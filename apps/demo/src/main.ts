@@ -1,4 +1,4 @@
-// apps/demo 入口：装配四个演示区（数据三形态 / 显示能力 / 交互能力 / 图片与浮动对象）；
+// apps/demo 入口：装配五个演示区（数据三形态 / 显示能力 / 交互能力 / 图片与浮动对象 / 单元格编辑）；
 // ?smoke=1 时运行页内冒烟自检（结果写 window.__SMOKE__，供 scripts/smoke.mjs 轮询）。
 
 import './style.css';
@@ -6,6 +6,7 @@ import './style.css';
 import { isSmokeMode } from './mount';
 import { mountDataForms, type DataFormsDemo } from './sections/data-forms';
 import { mountDisplay, type DisplayDemo } from './sections/display';
+import { mountEditing, type EditingDemo } from './sections/editing';
 import { mountInteraction, type InteractionDemo } from './sections/interaction';
 import { mountMedia, type MediaDemo } from './sections/media';
 import { runSmoke } from './smoke';
@@ -15,6 +16,7 @@ export interface DemoHandles {
   display: DisplayDemo;
   interaction: InteractionDemo;
   media: MediaDemo;
+  editing: EditingDemo;
 }
 
 declare global {
@@ -37,6 +39,7 @@ const demos: DemoHandles = {
   display: mountDisplay(app),
   interaction: mountInteraction(app),
   media: mountMedia(app),
+  editing: mountEditing(app),
 };
 window.__DEMO__ = demos;
 

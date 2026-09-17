@@ -1,9 +1,10 @@
-// 页内冒烟自检（?smoke=1 由 main.ts 触发）：对四个演示区逐项断言——
+// 页内冒烟自检（?smoke=1 由 main.ts 触发）：对五个演示区逐项断言——
 // 层结构、取值管线、像素级显示能力（冻结/合并/逐边边框/自定义渲染/checkbox/主题）、
 // 合成事件驱动的交互（拖选/整行整列/hover/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
-// 图片加载与无闪回滚、浮动对象跟随。结果写 window.__SMOKE__ 与 document.title。
+// 图片加载与无闪回滚、浮动对象跟随、编辑闭环（双击/键盘/API/滚动跟随与滚出提交）。
+// 结果写 window.__SMOKE__ 与 document.title。
 
-import { normalizeRange, type ListTable } from '@infinite-table/core';
+import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinite-table/core';
 
 import type { DemoHandles } from './main';
 import {
@@ -15,6 +16,7 @@ import {
   MERGED_BACKGROUND,
   RATING_BAR_COLOR,
 } from './sections/display';
+import { DISABLED_CELL, DISPLAY_COL } from './sections/editing';
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media';
 
 export interface SmokeResult {
@@ -142,6 +144,16 @@ function dispatchTouch(
   // EventSystem 按结构化类型读取 changedTouches[0]
   Object.assign(event, { changedTouches: [{ clientX: rect.left + x, clientY: rect.top + y }] });
   container.dispatchEvent(event);
+}
+
+/** 双击进编辑：同一格两次落点（指针事件流判定，时长与位移均在阈值内） */
+function doubleTapCell(container: HTMLElement, table: ListTable, col: number, row: number): void {
+  const x = colCenterX(table, col);
+  const y = rowCenterY(table, row);
+  dispatchPointer(container, 'pointerdown', x, y);
+  dispatchPointer(container, 'pointerup', x, y);
+  dispatchPointer(container, 'pointerdown', x, y);
+  dispatchPointer(container, 'pointerup', x, y);
 }
 
 // ---- 非冻结表的格几何（含滚动偏移） ----
@@ -505,6 +517,129 @@ async function checkMedia(checker: Checker, demos: DemoHandles): Promise<void> {
   });
 }
 
+async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void> {
+  const { table, container } = demos.editing.mount;
+  const { model, status } = demos.editing;
+
+  await checker.step('编辑：双击可编格出现浮层，初值为基础值且聚焦', () => {
+    doubleTapCell(container, table, 0, 0);
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert(input, '双击后编辑浮层未出现');
+    assert(input.value === '名称-0', `编辑初值 ${input.value}，期望 名称-0`);
+    assert(document.activeElement === input, '编辑浮层未聚焦');
+  });
+
+  await checker.step('编辑：Esc 取消不回写、浮层关闭', () => {
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert(input, '编辑浮层丢失');
+    input.value = '不该写入';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert(!table.isEditing(), 'Esc 后仍在编辑态');
+    assert(!container.querySelector('input'), 'Esc 后浮层未关闭');
+    assert(model.getCellValue(0, 0) === '名称-0', 'Esc 后数据被回写');
+  });
+
+  await checker.step('编辑：Enter 提交回写并下移一格；Tab 提交回写并右移一格', () => {
+    doubleTapCell(container, table, 0, 0);
+    let input = container.querySelector<HTMLInputElement>('input');
+    assert(input, '双击后浮层未出现');
+    input.value = '名称-0改';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert(model.getCellValue(0, 0) === '名称-0改', `Enter 未回写：${model.getCellValue(0, 0)}`);
+    let focus = table.getSelection().focus;
+    assert(focus?.col === 0 && focus?.row === 1, `Enter 后焦点 (${focus?.col},${focus?.row})`);
+    assert(!container.querySelector('input'), 'Enter 提交后浮层未关闭');
+
+    doubleTapCell(container, table, 0, 1);
+    input = container.querySelector<HTMLInputElement>('input');
+    assert(input, '第二次双击浮层未出现');
+    input.value = '名称-1改';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    assert(model.getCellValue(0, 1) === '名称-1改', `Tab 未回写：${model.getCellValue(0, 1)}`);
+    focus = table.getSelection().focus;
+    assert(focus?.col === 1 && focus?.row === 1, `Tab 后焦点 (${focus?.col},${focus?.row})`);
+  });
+
+  await checker.step('编辑：格级禁编格与纯展示列双击无反应，startEdit 返回 false', () => {
+    doubleTapCell(container, table, DISABLED_CELL.col, DISABLED_CELL.row);
+    assert(!container.querySelector('input'), '格级禁编格出现浮层');
+    assert(
+      !table.startEdit(DISABLED_CELL.col, DISABLED_CELL.row),
+      '格级禁编格 startEdit 未返回 false',
+    );
+    doubleTapCell(container, table, DISPLAY_COL, 0);
+    assert(!container.querySelector('input'), '纯展示列出现浮层');
+    assert(!table.startEdit(DISPLAY_COL, 0), '纯展示列 startEdit 未返回 false');
+  });
+
+  await checker.step('编辑：API 按钮 startEdit/commitEdit/cancelEdit', () => {
+    const section = container.parentElement;
+    assert(section, '编辑区容器不在 section 内');
+    const buttons = section.querySelectorAll<HTMLButtonElement>('.toolbar button');
+    assert(buttons.length >= 3, `API 按钮数 ${buttons.length}`);
+    buttons[0]!.click();
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert(input, 'startEdit 按钮未打开浮层');
+    assert(input.value === '名称-3', `API 编辑初值 ${input.value}，期望 名称-3`);
+    input.value = 'API-改';
+    buttons[1]!.click();
+    assert(model.getCellValue(0, 3) === 'API-改', `commitEdit 未回写：${model.getCellValue(0, 3)}`);
+    assert(status.textContent?.includes('已提交 (0,3)') === true, `状态行：${status.textContent}`);
+    buttons[0]!.click();
+    assert(container.querySelector('input'), '再次 startEdit 未打开浮层');
+    buttons[2]!.click();
+    assert(!container.querySelector('input'), 'cancelEdit 未关闭浮层');
+    assert(model.getCellValue(0, 3) === 'API-改', 'cancelEdit 改动了数据');
+    assert(status.textContent?.includes('已取消') === true, `状态行：${status.textContent}`);
+  });
+
+  await checker.step('编辑滚动跟随：滚动帧上浮层逐帧对齐锚定格', async () => {
+    assert(table.startEdit(0, 0), 'startEdit 失败');
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert(input, '浮层未出现');
+    table.scrollBy(0, 10);
+    await frames(2);
+    assert(
+      input.style.left === '48px' && input.style.top === '26px',
+      `浮层未跟随：left=${input.style.left} top=${input.style.top}`,
+    );
+    table.scrollBy(0, -10);
+    await frames(2);
+    assert(input.style.top === '36px', `滚回后浮层未跟随：top=${input.style.top}`);
+  });
+
+  await checker.step('编辑滚出视口：按 Enter 语义自动提交，内容不丢', async () => {
+    const input = container.querySelector<HTMLInputElement>('input');
+    assert(input, '浮层丢失');
+    input.value = '滚动提交';
+    const received: { change: CellChangeEvent | null } = { change: null };
+    const unsubscribe = table.onCellChange((event) => {
+      received.change = event;
+    });
+    // 视口体高 184：滚动 184 后行 0 完全滚出
+    table.scrollBy(0, 184);
+    await frames(3);
+    unsubscribe();
+    assert(!table.isEditing(), '滚出视口后仍在编辑态');
+    assert(!container.querySelector('input'), '滚出视口后浮层未关闭');
+    const change = received.change;
+    assert(
+      change !== null &&
+        change.col === 0 &&
+        change.row === 0 &&
+        change.oldValue === '名称-0改' &&
+        change.newValue === '滚动提交',
+      `滚出提交事件不符：${JSON.stringify(received.change)}`,
+    );
+    assert(model.getCellValue(0, 0) === '滚动提交', '滚出自动提交未写入模型');
+    const focus = table.getSelection().focus;
+    assert(
+      focus?.col === 0 && focus?.row === 1,
+      `Enter 语义选区未下移 (${focus?.col},${focus?.row})`,
+    );
+  });
+}
+
 /** 页内冒烟入口：逐项跑完后把结果写到 window.__SMOKE__ 与 document.title */
 export async function runSmoke(demos: DemoHandles): Promise<void> {
   const checker = new Checker();
@@ -513,6 +648,7 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkDisplay(checker, demos);
   await checkInteraction(checker, demos);
   await checkMedia(checker, demos);
+  await checkEditing(checker, demos);
   const result: SmokeResult = {
     done: true,
     pass: checker.failures.length === 0,

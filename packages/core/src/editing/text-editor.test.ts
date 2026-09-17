@@ -46,6 +46,24 @@ describe('文本编辑器', () => {
     expect(editor.getValue()).toBe('edited');
   });
 
+  it('moveTo 滚动跟随重定位：不重挂载、不抢焦点、不改值', () => {
+    const { doc, created } = createFakeDoc();
+    const host = new FakeEditorHost();
+    const editor = createTextEditor({ doc });
+    editor.open(host, { x: 148, y: 36, width: 100, height: 32 }, 'a');
+    const element = created[0]!;
+    element.value = '输入中';
+    editor.moveTo({ x: 20, y: 200, width: 80, height: 24 });
+    expect(element.style.left).toBe('20px');
+    expect(element.style.top).toBe('200px');
+    expect(element.style.width).toBe('80px');
+    expect(element.style.height).toBe('24px');
+    expect(element.style.position).toBe('absolute');
+    expect(host.children).toEqual([element]);
+    expect(element.focusCalls).toBe(1);
+    expect(element.value).toBe('输入中');
+  });
+
   it('键盘语义：Esc 取消、Enter 提交下移、Tab 提交右移，均拦截默认行为与冒泡', () => {
     const { doc, created } = createFakeDoc();
     const editor = createTextEditor({ doc });

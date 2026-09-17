@@ -7,8 +7,9 @@
 // 键盘导航、触控惯性滚动、contextmenu 事件、onScrollFrame 帧级同步、批量更新合并失效。
 // 图片（P7）：格内图片在 L2 media 层渲染（ImageService 窗口化加载 + cell 级位图 LRU +
 // 无闪协议），浮动对象层挂 sky 层最顶、随滚动帧级跟随。
-// 编辑（P2）：双击（含触控双击）进入编辑，EditManager 为编辑状态唯一源，
-// DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位。
+// 编辑（P2/P3）：双击（含触控双击）进入编辑，EditManager 为编辑状态唯一源，
+// DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位；
+// 编辑中滚动浮层逐帧跟随锚定格，锚定格滚出视口按 Enter 语义自动提交。
 
 import {
   createRenderHost,
@@ -250,6 +251,8 @@ export class ListTable {
       restoreFocus: () => this.container?.focus(),
       // 真实容器运行时满足最小宿主结构（编辑器元素本就是真 Node）
       host: this.container as TextEditorHost | undefined,
+      // 滚动帧驱动编辑跟随：浮层逐帧对齐锚定格，滚出视口自动提交
+      subscribeScrollFrame: (listener) => this.onScrollFrame(listener),
     });
     this.bindInteractionEvents();
     this.rebuildScene();
