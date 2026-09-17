@@ -40,7 +40,7 @@ export function clampFrozenCount(count: number, total: number): number {
   return Math.min(Math.max(count, 0), total)
 }
 
-/** 按滚动位置求可见列窗口（含边缘部分可见列）；列数有限，线性扫描即可 */
+/** 按滚动位置求可见列窗口（含边缘部分可见列）；start 二分定位，end 短程扫描 */
 export function computeColWindow(
   scrollLeft: number,
   viewportWidth: number,
@@ -50,10 +50,7 @@ export function computeColWindow(
   if (colCount <= 0 || viewportWidth <= 0) {
     return { start: 0, end: 0 }
   }
-  let start = 0
-  while (start < colCount - 1 && (colOffsets[start + 1] ?? 0) <= scrollLeft) {
-    start++
-  }
+  const start = lowerBoundIndex(colOffsets, scrollLeft)
   const right = scrollLeft + viewportWidth
   let end = start
   while (end < colCount && (colOffsets[end] ?? 0) < right) {
@@ -85,10 +82,7 @@ export function computeRowWindowFromOffsets(
   if (rowCount <= 0 || viewportHeight <= 0) {
     return { start: 0, end: 0 }
   }
-  let start = 0
-  while (start < rowCount - 1 && (rowOffsets[start + 1] ?? 0) <= scrollTop) {
-    start++
-  }
+  const start = lowerBoundIndex(rowOffsets, scrollTop)
   const bottom = scrollTop + viewportHeight
   let end = start
   while (end < rowCount && (rowOffsets[end] ?? 0) < bottom) {
@@ -98,28 +92,38 @@ export function computeRowWindowFromOffsets(
 }
 
 /**
- * 命中定位共享内核：在单调不减前缀和 offsets 中求内容坐标命中的索引——
- * 返回满足 offsets[i] <= content 的最大 i（夹取到 [0, count-1]）。
- * 二分实现：pointermove 为最高频事件，命中计算 O(log n)，不随视口位置线性增长；
- * 含并列前缀和（零宽列/零高行）时取右端，与原线性扫描语义逐点等价。
+ * 二分下界共享内核（窗口 start 定位与命中定位共用）：在单调不减前缀和 offsets 中
+ * 求满足 offsets[i] <= target 的最大 i（夹取到 [0, count-1]）。
+ * 滚动帧窗口计算与 pointermove 命中均为 O(log n)，不随滚动深度线性增长；
+ * 含并列前缀和（零宽列/零高行）时取右端，与线性扫描语义逐点等价。
  */
-function findIndexAt(offsets: readonly number[], content: number): number {
+function lowerBoundIndex(offsets: readonly number[], target: number): number {
   const count = offsets.length - 1
-  if (count <= 0 || content < 0 || content >= (offsets[count] ?? 0)) {
-    return -1
-  }
-  // 不变式：offsets[lo] <= content；取上中位保证 lo=mid 时区间仍收缩
+  // 不变式：offsets[lo] <= target（target 为负时与线性扫描同样停在 0）；取上中位保证 lo=mid 时区间仍收缩
   let lo = 0
   let hi = count - 1
   while (lo < hi) {
     const mid = lo + ((hi - lo + 1) >> 1)
-    if ((offsets[mid] ?? 0) <= content) {
+    if ((offsets[mid] ?? 0) <= target) {
       lo = mid
     } else {
       hi = mid - 1
     }
   }
   return lo
+}
+
+/**
+ * 命中定位共享内核：在单调不减前缀和 offsets 中求内容坐标命中的索引——
+ * 返回满足 offsets[i] <= content 的最大 i（夹取到 [0, count-1]）。
+ * 二分实现（复用 lowerBoundIndex）；越界与空表返回 -1。
+ */
+function findIndexAt(offsets: readonly number[], content: number): number {
+  const count = offsets.length - 1
+  if (count <= 0 || content < 0 || content >= (offsets[count] ?? 0)) {
+    return -1
+  }
+  return lowerBoundIndex(offsets, content)
 }
 
 /** 内容坐标 y 命中的行；未命中（越界）返回 -1 */

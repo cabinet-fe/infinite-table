@@ -28,6 +28,7 @@ import {
   type LayerHandle,
   type Region,
   type RenderHost,
+  type SceneNode,
 } from '@infinite-table/render'
 
 import type { CellNode } from './cell-node'
@@ -153,6 +154,11 @@ export class ListTable {
   readonly rowHeaderNodes = new Map<number, CellNode>()
   /** @internal 左上角占位节点（几何固定，首次建后复用） */
   cornerNode: CellNode | null = null
+  /**
+   * @internal body 表头容器（R2-5）：恒为 body root 末子节点，表头整体在全部数据格之上；
+   * 滚动帧有新建数据格时仅重挂此单节点，替代原先逐表头 removeChild+appendChild
+   */
+  headerGroup: SceneNode | null = null
   /** @internal 当前滚动窗口（[start, end) 行列区间，不含冻结区） */
   rows: WindowRange = { start: 0, end: 0 }
   cols: WindowRange = { start: 0, end: 0 }
@@ -823,7 +829,7 @@ export class ListTable {
   }
 
   /**
-   * 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 按格 hook」逐字段覆盖——
+   * @internal 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 按格 hook」逐字段覆盖——
    * 上层给了的字段被下层覆盖、未给的沿用上层，边框逐边独立合并。
    * 列级 textWrap 旗标并入主题层（先于列级样式片段）。
    * 性能：token+列级的合成结果按列缓存（主题构造期固定、列定义为构造期快照，

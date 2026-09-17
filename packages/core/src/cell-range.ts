@@ -46,12 +46,14 @@ function isSingleCell(range: CellRange): boolean {
 }
 
 /**
- * 格坐标数值 key：`row * 2^21 + col`，替代模板串 key 消除逐格索引的字符串分配。
+ * 格坐标数值 key（全仓唯一定义）：`row * 2^21 + col`，替代模板串 key
+ * 消除逐格索引的字符串分配。合并区索引（本文件）与场景/媒体格索引
+ * （list-table-internal 转出）共用同一实现，编码边界与语义由编译器保证一致。
  * 边界：col < 2^21（约 209 万列）、row < 2^32（约 42 亿行）内编码唯一精确；
- * 合并区坐标为非负格坐标，负坐标不在支持范围。
+ * 坐标为非负格坐标（表头/行号格 -1 坐标不入索引，负坐标不在支持范围）。
  */
 const CELL_KEY_COL_BITS = 21
-function cellKey(col: number, row: number): number {
+export function cellKey(col: number, row: number): number {
   return row * 2 ** CELL_KEY_COL_BITS + col
 }
 

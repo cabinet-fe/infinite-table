@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import type { SceneNode } from '@infinite-table/render'
+
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
+import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'
 
@@ -17,26 +20,37 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
   return { host, table }
 }
 
-/** 在 body 场景树中按坐标找节点 */
+/** 在 body 场景树中按坐标找节点（递归：表头节点在表头容器内） */
 function findNode(host: StubHost, col: number, row: number): CellNode | undefined {
   const body = host.layers.get('body')
-  return body?.root.children.find(
-    (child): child is CellNode =>
-      child instanceof CellNode && child.col === col && child.row === row,
-  )
+  return body ? findCellNode(body.root, col, row) : undefined
 }
 
-/** 命中：找包围盒包含层坐标点的最浅数据格节点（合并区命中即主格节点） */
+/** 命中：找包围盒包含层坐标点的最浅数据格节点（合并区命中即主格节点，递归含表头容器） */
 function findNodeAt(host: StubHost, x: number, y: number): CellNode | undefined {
   const body = host.layers.get('body')
-  return body?.root.children.find(
-    (child): child is CellNode =>
-      child instanceof CellNode &&
-      x >= child.x &&
-      x < child.x + child.width &&
-      y >= child.y &&
-      y < child.y + child.height,
-  )
+  if (!body) {
+    return undefined
+  }
+  const search = (node: SceneNode): CellNode | undefined => {
+    for (const child of node.children) {
+      if (
+        child instanceof CellNode &&
+        x >= child.x &&
+        x < child.x + child.width &&
+        y >= child.y &&
+        y < child.y + child.height
+      ) {
+        return child
+      }
+      const found = search(child)
+      if (found) {
+        return found
+      }
+    }
+    return undefined
+  }
+  return search(body.root)
 }
 
 const records100 = () => Array.from({ length: 100 }, (_, i) => ({ name: `r${i}` }))

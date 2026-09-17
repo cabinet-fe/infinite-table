@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
+import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { CellChangeEvent, ListTableOptions, TableModel } from '../src/types'
 
@@ -49,13 +50,10 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
   return { host, table }
 }
 
-/** 在 body 场景树中按坐标找节点 */
+/** 在 body 场景树中按坐标找节点（递归：表头节点在表头容器内） */
 function findNode(host: StubHost, col: number, row: number): CellNode | undefined {
   const body = host.layers.get('body')
-  return body?.root.children.find(
-    (child): child is CellNode =>
-      child instanceof CellNode && child.col === col && child.row === row,
-  )
+  return body ? findCellNode(body.root, col, row) : undefined
 }
 
 describe('ListTable 数据供给三形态', () => {
@@ -153,7 +151,10 @@ describe('ListTable 虚拟滚动窗口', () => {
       cols: { start: 0, end: 8 },
     })
     const body = host.layers.get('body')
-    expect(body?.root.children).toHaveLength(144 + 27)
+    // 144 个数据格 + 表头容器单节点（8 列头 + 18 行号 + 1 左上角共 27 个表头收进容器）
+    expect(body?.root.children).toHaveLength(144 + 1)
+    const headerGroup = body?.root.children.at(-1)
+    expect(headerGroup?.children).toHaveLength(27)
     expect(findNode(host, 0, 0)?.text).toBe('row-0')
     expect(findNode(host, 0, 18)).toBeUndefined()
 
@@ -164,7 +165,7 @@ describe('ListTable 虚拟滚动窗口', () => {
     expect(table.getVisibleRange().rows).toEqual({ start: 99_982, end: 100_000 })
     expect(findNode(host, 0, 99_999)?.text).toBe('row-99999')
     expect(findNode(host, 0, 0)).toBeUndefined()
-    expect(body?.root.children).toHaveLength(144 + 27)
+    expect(body?.root.children).toHaveLength(144 + 1)
     // 滚动 → band 失效登记的主循环（无冻结时纵向滚动带为列头以下整个视口）
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 0, y: 36, width: 800, height: 564 } } },

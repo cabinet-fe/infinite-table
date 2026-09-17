@@ -3,7 +3,7 @@
 // 分带建格与行列头装配、Excel 式文本溢出右界支撑（refreshCell 的溢出联动依赖）。
 // 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
-import type { SceneNode } from '@infinite-table/render'
+import { SceneNode } from '@infinite-table/render'
 
 import { CellNode } from './cell-node'
 import type { CellStyle } from './cell-style'
@@ -28,6 +28,7 @@ export function rebuildScene(table: ListTable): void {
   table.colHeaderNodes.clear()
   table.rowHeaderNodes.clear()
   table.cornerNode = null
+  table.headerGroup = null
   if (table.media) {
     const mediaRoot = table.media.root
     while (mediaRoot.children.length > 0) {
@@ -62,14 +63,42 @@ export function rebuildScene(table: ListTable): void {
   appendCellBand(table, scrollableRows, frozenCols, left, top)
   appendCellBand(table, frozenRows, scrollableCols, left, top)
   appendCellBand(table, frozenRows, frozenCols, left, top)
-  appendHeaders(table, left, top, frozenRows, scrollableRows, frozenCols, scrollableCols)
+  // 表头收进单一容器节点（R2-5）：容器恒为 root 末子节点，表头整体在全部数据格之上；
+  // 滚动帧有新建数据格时只需重挂容器单节点（原先逐表头 removeChild+appendChild，
+  // 单节点 removeChild 含 indexOf+splice，整体为 O(表头数×窗口节点数)）。
+  // 容器自带全表包围盒且 pickable:false：paintTree 的 cull 与 hitTest 都按节点自身
+  // 包围盒判定，零尺寸容器会让表头被 cull 剔除或无法命中；pickable:false 使未命中
+  // 表头子节点时穿透到数据格。
+  const headerGroup = newHeaderGroup(table)
+  table.headerGroup = headerGroup
+  root.appendChild(headerGroup)
+  appendHeaders(table, headerGroup, left, top, frozenRows, scrollableRows, frozenCols, scrollableCols)
 }
 
 /**
  * 滚动帧增量窗口：摘除滚出行列的节点、补建滚入行列，存活节点原地平移（零重建）。
  * 滚动帧的节点分配与样式投影从 O(窗口格数) 降到 O(滚入格数)；场景内容与全量重建
- * 逐点等价——「滚动区在下、冻结居中、表头最上、同行左格后画」的层内 z 序由
- * 整行列降序补建 + 左侧溢出存活格重挂 + 新建数据格后重挂表头共同保持；
+ * （rebuildScene）逐点等价。层内 z 序契约（R2-6 固化，改动步骤 ②③⑤ 前必读）：
+ * 1. 滚动区在下、冻结条带居中：两带几何不相交，带间绘制顺序无语义，
+ *    「新节点挂树尾」不会破坏带间关系；全量重建带序为
+ *    滚动带 → 部分可见合并区 → 冻结列带 → 冻结行带 → 冻结角 → 表头容器。
+ * 2. 同行左格后画（Excel 式溢出文本不被右侧格背景盖住）：
+ *    全量重建 = 带内按列降序建格（左格最后画）；增量侧 = 新滚入行整行降序补建
+ *    （步骤 ②，含冻结列）+ 滚入列降序补建（步骤 ③ 前半）+ 对 `[0, firstEntering)`
+ *    × 全部行带中 `textMaxX > width` 的存活格按列升序 removeChild+appendChild
+ *    重挂树尾（步骤 ③ 后半）。等价性逐点对照：
+ *    - 升序重挂保持「越靠左越后画」；重挂格后画于本帧新补建的滚入格，
+ *      覆盖「溢出格穿过新滚入列」的组合（横向右滚的典型形态）；
+ *    - 向左滚动时滚入列在左缘：滚入格挂树尾即在其右侧存活格之上，
+ *      与全量重建「小列号后画」一致；右侧存活格不向左溢出，无需重挂；
+ *    - 溢出格同行内被 ≥1 个空格隔开（溢出走廊必然全空，且文本右缘止于下一
+ *      非空格左缘），重挂集合内部两两无绘制交叠——升序与全量重建的降序虽非
+ *      字面同序，可见输出等价；升序保证重挂格整体后画于本帧滚入格。
+ *    步骤 ③ 扫描口径的边界：对「新行已在步骤 ② 整行补建」的行跳过（整行降序
+ *    已内含左格后画）；对冻结带行不跳过——冻结「行」上的滚动区列格仍可向右
+ *    溢出进滚入列（冻结只按「列」带截断溢出，见 textOverflowLimitX）。
+ * 3. 表头最上（合并主格上缘可伸进列头带）：表头收进单一容器节点且恒为 root
+ *    末子节点（R2-5，见 rebuildScene）；bodyChanged 时仅把容器重挂树尾一次。
  * band 失效语义不变（onScroll 维持原横/纵带提交）。
  */
 export function updateSceneWindow(table: ListTable): void {
@@ -114,7 +143,11 @@ export function updateSceneWindow(table: ListTable): void {
   }
   // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移（数据格与图片格同条件）
   sweepWindowNodes(table, table.cellNodes, table.body.root, keepCell, left, top)
-  sweepWindowNodes(table, table.imageCellNodes, table.media?.root ?? null, keepCell, left, top)
+  sweepWindowNodes(table, table.imageCellNodes, table.media?.root ?? null, keepCell, left, top, (node) => {
+    // 引用裁剪接线（R2-7）：滚出窗口的图片格释放 ImageService 格引用，
+    // 无引用条目脱离窗口调度扫描面（重入由 appendImageCell 的 request 重登记）
+    table.imageService.releaseRef(node.url, { col: node.col, row: node.row })
+  })
   let bodyChanged = false
   // 2) 新滚入行整行补建：先滚动区列降序、再冻结列降序（同行左格后画）
   for (let row = scrollableRows.start; row < scrollableRows.end; row++) {
@@ -164,15 +197,21 @@ export function updateSceneWindow(table: ListTable): void {
   }
   // 4) 主格窗外但区间部分可见的合并主格补建（已存在则跳过）
   bodyChanged = appendPartiallyVisibleMerges(table, left, top, rowBands, colBands) || bodyChanged
-  // 5) 表头增量维护：存活节点平移、滚出摘除、滚入补建；有新建数据格时把表头
-  //    重挂到树尾，保持「表头最上」的既有 z 序（合并主格上缘可能伸进列头带）
+  // 5) 表头增量维护：存活节点平移、滚出摘除、滚入补建，全部发生在表头容器内
+  //    （容器恒在数据格之上，见 rebuildScene）；有新建数据格时把容器重挂到树尾，
+  //    保持「表头最上」的既有 z 序（合并主格上缘可能伸进列头带）
   const root = table.body.root
   const style = headerStyle(table)
+  if (!table.headerGroup) {
+    table.headerGroup = newHeaderGroup(table)
+    root.appendChild(table.headerGroup)
+  }
+  const headerGroup = table.headerGroup
   for (const [col, node] of table.colHeaderNodes) {
     if (inRange(col, frozenCols) || inRange(col, scrollableCols)) {
       node.x = resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth)
     } else {
-      root.removeChild(node)
+      headerGroup.removeChild(node)
       table.colHeaderNodes.delete(col)
     }
   }
@@ -186,7 +225,7 @@ export function updateSceneWindow(table: ListTable): void {
         table.headerHeight,
       )
     } else {
-      root.removeChild(node)
+      headerGroup.removeChild(node)
       table.rowHeaderNodes.delete(row)
     }
   }
@@ -194,7 +233,7 @@ export function updateSceneWindow(table: ListTable): void {
     for (let col = cols.start; col < cols.end; col++) {
       if (!table.colHeaderNodes.has(col)) {
         const node = newColHeaderNode(table, col, left, style)
-        root.appendChild(node)
+        headerGroup.appendChild(node)
         table.colHeaderNodes.set(col, node)
       }
     }
@@ -203,34 +242,25 @@ export function updateSceneWindow(table: ListTable): void {
     for (let row = rows.start; row < rows.end; row++) {
       if (!table.rowHeaderNodes.has(row)) {
         const node = newRowHeaderNode(table, row, top, style)
-        root.appendChild(node)
+        headerGroup.appendChild(node)
         table.rowHeaderNodes.set(row, node)
       }
     }
   }
   if (!table.cornerNode) {
     table.cornerNode = newCornerNode(table, style)
-    root.appendChild(table.cornerNode)
+    headerGroup.appendChild(table.cornerNode)
   }
   if (bodyChanged) {
-    for (const node of table.colHeaderNodes.values()) {
-      root.removeChild(node)
-      root.appendChild(node)
-    }
-    for (const node of table.rowHeaderNodes.values()) {
-      root.removeChild(node)
-      root.appendChild(node)
-    }
-    if (table.cornerNode) {
-      root.removeChild(table.cornerNode)
-      root.appendChild(table.cornerNode)
-    }
+    // appendChild 自带摘除重挂：单节点定位替代原先逐表头搬移
+    root.appendChild(headerGroup)
   }
 }
 
 /**
  * 窗口滑动清扫：不满足保留条件的节点从父节点摘除并出索引，
- * 存活节点按新滚动位置原地平移（数据格、图片格通用）。
+ * 存活节点按新滚动位置原地平移（数据格、图片格通用）；
+ * onSweep 在节点摘除后回调（图片格释放 ImageService 引用的接线点）。
  */
 function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly row: number }>(
   table: ListTable,
@@ -239,6 +269,7 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
   keep: (col: number, row: number) => boolean,
   left: number,
   top: number,
+  onSweep?: (node: T) => void,
 ): void {
   for (const [key, node] of nodes) {
     if (keep(node.col, node.row)) {
@@ -253,6 +284,7 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
     } else {
       parent?.removeChild(node)
       nodes.delete(key)
+      onSweep?.(node)
     }
   }
 }
@@ -401,9 +433,15 @@ function appendPartiallyVisibleMerges(
   return created
 }
 
+/** 表头容器节点：恒为 body root 末子节点（见 rebuildScene 的 z 序说明） */
+function newHeaderGroup(table: ListTable): SceneNode {
+  return new SceneNode({ pickable: false, width: table.width, height: table.height })
+}
+
 /** 列头（冻结列固定、其余随横向滚动）+ 行号列（冻结行固定、其余随纵向滚动）+ 左上角 */
 function appendHeaders(
   table: ListTable,
+  headerGroup: SceneNode,
   left: number,
   top: number,
   frozenRows: WindowRange,
@@ -411,25 +449,24 @@ function appendHeaders(
   frozenCols: WindowRange,
   scrollableCols: WindowRange,
 ): void {
-  const root = table.body.root
   const style = headerStyle(table)
   // 滚动条带先画、冻结条带后画：滑动的行/列头被冻结头覆盖
   for (const cols of [scrollableCols, frozenCols]) {
     for (let col = cols.start; col < cols.end; col++) {
       const node = newColHeaderNode(table, col, left, style)
-      root.appendChild(node)
+      headerGroup.appendChild(node)
       table.colHeaderNodes.set(col, node)
     }
   }
   for (const rows of [scrollableRows, frozenRows]) {
     for (let row = rows.start; row < rows.end; row++) {
       const node = newRowHeaderNode(table, row, top, style)
-      root.appendChild(node)
+      headerGroup.appendChild(node)
       table.rowHeaderNodes.set(row, node)
     }
   }
   table.cornerNode = newCornerNode(table, style)
-  root.appendChild(table.cornerNode)
+  headerGroup.appendChild(table.cornerNode)
 }
 
 /** 列头/行号列缺省 ellipsis（超宽标题省略号截断）；主题 header 分区显式给了 textOverflow 则以主题为准 */

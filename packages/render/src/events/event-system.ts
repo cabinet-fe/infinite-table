@@ -5,6 +5,7 @@ export type SceneEventType =
   | 'pointerdown'
   | 'pointermove'
   | 'pointerup'
+  /** 预留事件：当前无场景级订阅方，滚轮由宿主直连容器接线 scrollBy（对齐 6.8 预留面口径） */
   | 'wheel'
   | 'keydown'
   | 'keyup'
@@ -64,6 +65,7 @@ const EVENT_TYPES: readonly SceneEventType[] = [
   'pointerdown',
   'pointermove',
   'pointerup',
+  // 预留事件：无场景级订阅方，仍参与归一化派发（每次 wheel 执行一次跨层命中后无人消费）
   'wheel',
   'keydown',
   'keyup',

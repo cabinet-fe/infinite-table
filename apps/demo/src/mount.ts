@@ -14,6 +14,24 @@ export function isSmokeMode(): boolean {
   return new URLSearchParams(location.search).has('smoke')
 }
 
+/** dpr 解析：冒烟模式锁 1（页内像素断言确定性），否则取设备 dpr */
+export function resolveDpr(): number {
+  return isSmokeMode() ? 1 : window.devicePixelRatio || 1
+}
+
+/**
+ * 鼠标滚轮 → scrollBy 接线（core 侧滚动接线为触控/键盘，滚轮由宿主负责）；
+ * 返回退订函数（组件卸载时解绑）。
+ */
+export function attachWheel(container: HTMLElement, table: ListTable): () => void {
+  const handler = (e: WheelEvent): void => {
+    e.preventDefault()
+    table.scrollBy(e.deltaX, e.deltaY)
+  }
+  container.addEventListener('wheel', handler, { passive: false })
+  return () => container.removeEventListener('wheel', handler)
+}
+
 export function createSection(root: HTMLElement, title: string, desc: string): HTMLElement {
   const section = document.createElement('section')
   const heading = document.createElement('h2')
@@ -45,16 +63,9 @@ export function mountTable(section: HTMLElement, options: ListTableOptions): Dem
   section.appendChild(container)
   const table = new ListTable({
     ...options,
-    hostOptions: { container, dpr: isSmokeMode() ? 1 : window.devicePixelRatio || 1 },
+    hostOptions: { container, dpr: resolveDpr() },
   })
-  container.addEventListener(
-    'wheel',
-    (e) => {
-      e.preventDefault()
-      table.scrollBy(e.deltaX, e.deltaY)
-    },
-    { passive: false },
-  )
+  attachWheel(container, table)
   return { container, table }
 }
 

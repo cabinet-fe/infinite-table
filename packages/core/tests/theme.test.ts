@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
+import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'
 import { defaultTheme, extendsTheme } from '../src/theme'
@@ -27,11 +28,8 @@ function createTable(
 }
 
 function findCell(host: StubHost, col: number, row: number): CellNode | undefined {
-  return host.layers
-    .get('body')
-    ?.root.children.find(
-      (n): n is CellNode => n instanceof CellNode && n.col === col && n.row === row,
-    )
+  const body = host.layers.get('body')
+  return body ? findCellNode(body.root, col, row) : undefined
 }
 
 describe('主题系统', () => {

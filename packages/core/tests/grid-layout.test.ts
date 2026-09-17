@@ -5,8 +5,10 @@ import {
   computeColWindow,
   computeRowOffsets,
   computeRowWindow,
+  computeRowWindowFromOffsets,
   findColAt,
   findRowAt,
+  type WindowRange,
 } from '../src/grid-layout'
 
 describe('computeRowWindow', () => {
@@ -79,5 +81,61 @@ describe('findRowAt / findColAt', () => {
     expect(findColAt(offsets, 10)).toBe(3)
     expect(findColAt(offsets, 29)).toBe(3)
     expect(findColAt(offsets, 30)).toBe(-1)
+  })
+})
+
+describe('深滚动位置窗口（start 二分定位）', () => {
+  /** 旧线性扫描参照（start 自 0 推进 + end 短程扫描），作二分实现的逐点等价基准 */
+  function linearWindow(scroll: number, viewport: number, offsets: readonly number[]): WindowRange {
+    const count = offsets.length - 1
+    let start = 0
+    while (start < count - 1 && (offsets[start + 1] ?? 0) <= scroll) {
+      start++
+    }
+    let end = start
+    const bound = scroll + viewport
+    while (end < count && (offsets[end] ?? 0) < bound) {
+      end++
+    }
+    return { start, end }
+  }
+
+  it('大表深处滚动：行窗口与线性扫描逐点等价（顶/中/底/越界）', () => {
+    const rowOffsets = computeRowOffsets(100000, 32)
+    const scrolls = [
+      0,
+      1,
+      31.9,
+      32,
+      50000 * 32,
+      99999 * 32,
+      100000 * 32 - 100,
+      100000 * 32,
+      100000 * 32 + 500,
+      -5,
+    ]
+    for (const top of scrolls) {
+      expect(computeRowWindowFromOffsets(top, 100, rowOffsets)).toEqual(
+        linearWindow(top, 100, rowOffsets),
+      )
+    }
+  })
+
+  it('深滚动抽样扫描 10 万行等行高前缀和：全区间与线性扫描等价', () => {
+    const rowOffsets = computeRowOffsets(100000, 32)
+    const total = 100000 * 32
+    for (let top = 0; top <= total; top += 997) {
+      expect(computeRowWindowFromOffsets(top, 100, rowOffsets)).toEqual(
+        linearWindow(top, 100, rowOffsets),
+      )
+    }
+  })
+
+  it('变宽列与零宽列（并列前缀和）深处：列窗口与线性扫描逐点等价', () => {
+    const colWidths = Array.from({ length: 2000 }, (_, i) => (i % 50 === 0 ? 0 : 80))
+    const colOffsets = computeColOffsets(colWidths)
+    for (let left = 0; left <= 2000 * 80; left += 997) {
+      expect(computeColWindow(left, 300, colOffsets)).toEqual(linearWindow(left, 300, colOffsets))
+    }
   })
 })

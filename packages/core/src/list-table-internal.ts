@@ -7,15 +7,10 @@ import { rangeCrossesBoundary, type CellRange } from './cell-range'
 export const HEADER_COORD = -1
 
 /**
- * 格索引数值 key：`row * 2^21 + col`，替代模板串 key 消除滚动热路径上的字符串分配。
- * 边界：col < 2^21（约 209 万列）、row < 2^32（约 42 亿行）内编码唯一精确；
- * 行列坐标为非负数据格坐标（表头/行号格 -1 坐标不入索引）。
+ * 格索引数值 key：唯一定义在 cell-range.ts（无依赖底层模块，避免 import 成环），
+ * 此处转出以维持协作模块的既有 import 路径。
  */
-const CELL_KEY_COL_BITS = 21
-
-export function cellKey(col: number, row: number): number {
-  return row * 2 ** CELL_KEY_COL_BITS + col
-}
+export { cellKey } from './cell-range'
 
 /** 「合并不跨冻结边界」校验（构造期语义，运行时冻结/合并变更同样适用）；违规抛错，调用方保持原状 */
 export function assertMergesWithinBoundary(

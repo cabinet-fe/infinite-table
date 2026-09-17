@@ -180,6 +180,29 @@ export class ImageService {
   }
 
   /**
+   * 引用裁剪原语（R2-7）：格滚出窗口被清扫时由宿主接线调用，移除该格引用；
+   * idle/error 态条目随之无引用时立即脱离跟踪面（重入由格重建时 request 重登记），
+   * 图片密集长会话中滚动帧的窗口调度扫描面从 O(累计条目) 收窄到 O(活跃窗口引用)。
+   * 浮动对象引用（request 带 onSettled）生命周期跟随对象本身、不可随窗口裁剪
+   * （否则滚回后 onSettled 丢失导致浮动图永不加载），本原语对其不做移除。
+   */
+  releaseRef(url: string, cell: CellRef): void {
+    const entry = this.entries.get(url)
+    if (!entry) {
+      return
+    }
+    const ref = entry.refs.get(cellKey(cell))
+    if (!ref || ref.onSettled !== undefined) {
+      return
+    }
+    entry.refs.delete(cellKey(cell))
+    if (entry.refs.size === 0 && (entry.state === 'idle' || entry.state === 'error')) {
+      this.idleQueue.delete(url)
+      this.entries.delete(url)
+    }
+  }
+
+  /**
    * 窗口化调度：以「视口+余量」谓词重估所有条目——
    * 窗口内 idle 条目入队提权加载；滚出窗口的 loading 条目取消降级为 idle
    * （迟到的结果按代际丢弃）、滚出窗口的 idle 条目出队。
@@ -192,6 +215,10 @@ export class ImageService {
           entry.generation++
           entry.state = 'idle'
           this.activeLoads--
+          // 引用已随清扫裁剪光：取消降级后直接脱离跟踪面，重入由格重建重登记
+          if (entry.refs.size === 0) {
+            this.entries.delete(url)
+          }
         }
         continue
       }

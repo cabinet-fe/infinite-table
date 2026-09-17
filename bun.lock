@@ -34,15 +34,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinite-table/render": "workspace:*",
-        "@infinite-table/utils": "workspace:*",
       },
     },
     "packages/render": {
       "name": "@infinite-table/render",
       "version": "0.0.0",
-      "dependencies": {
-        "@infinite-table/utils": "workspace:*",
-      },
     },
     "packages/utils": {
       "name": "@infinite-table/utils",

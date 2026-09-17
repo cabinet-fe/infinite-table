@@ -81,8 +81,10 @@ export class CellNode extends SceneNode {
   renderer: CellRenderer | null
   /** 文本可绘制局部右界；等于 width 表示不溢出 */
   textMaxX: number
-  /** 文本测量宽缓存（text+font 组合键，变更即失效重测） */
-  private textWidthKey: string | null = null
+  /** 文本测量宽缓存：font 串/text 值任一变化即失效重测，免每次 paint 拼键；style 引用仅用于免重复组装 font 串 */
+  private measureStyle: CellStyle | null = null
+  private measureFont = ''
+  private measureText: string | null = null
   private textWidthPx = 0
 
   constructor(init: CellNodeInit) {
@@ -97,11 +99,10 @@ export class CellNode extends SceneNode {
     this.textMaxX = init.textMaxX ?? init.width ?? 0
   }
 
-  /** 刷新管线产物（文本与基础值） */
+  /** 刷新管线产物（文本与基础值）；测量缓存按 text 值变更自动失效 */
   setContent(text: string, value: unknown): void {
     this.text = text
     this.value = value
-    this.textWidthKey = null
   }
 
   override paint(ctx: RenderContext): void {
@@ -130,12 +131,22 @@ export class CellNode extends SceneNode {
     if (this.renderer || this.cellType !== 'text' || !this.text) {
       return undefined
     }
-    // 与绘制侧同一 font 组装规则，保证测量宽与实际绘制一致
-    const font = cellStyleFont(this.style)
-    const key = `${font}\u0000${this.text}`
-    if (this.textWidthKey !== key) {
-      this.textWidthKey = key
-      ctx.font = font
+    // 命中判定按 font 串/text 值，font 或 text 任一变化即失效重测：style 引用变化
+    // 只重算 font 串并与缓存值比较，font 串变了才使宽度失效（仅换 style 引用而
+    // font 结果不变不重测）；style 引用未变时 font 串复用免重组装——重绘热路径
+    // （style/text 均未变）零字符串分配。与绘制侧同一 font 组装规则，保证测量宽
+    // 与实际绘制一致。
+    if (this.measureStyle !== this.style) {
+      this.measureStyle = this.style
+      const font = cellStyleFont(this.style)
+      if (font !== this.measureFont) {
+        this.measureFont = font
+        this.measureText = null
+      }
+    }
+    if (this.measureText !== this.text) {
+      this.measureText = this.text
+      ctx.font = this.measureFont
       this.textWidthPx = ctx.measureText(this.text).width
     }
     return this.textWidthPx

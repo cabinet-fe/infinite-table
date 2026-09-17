@@ -8,8 +8,5 @@
   },
   "scripts": {
     "build": "vp build"
-  },
-  "dependencies": {
-    "@infinite-table/utils": "workspace:*"
   }
 }

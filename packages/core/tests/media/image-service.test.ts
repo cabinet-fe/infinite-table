@@ -220,3 +220,68 @@ describe('ImageService 位图 LRU 与失效', () => {
     expect(loaded).toEqual([])
   })
 })
+
+describe('ImageService 引用裁剪（R2-7）', () => {
+  it('releaseRef 后无引用 idle 条目脱离跟踪面；滚回由 request 重登记重载', () => {
+    const loader = controllableLoader()
+    const service = new ImageService({ loadImage: loader.loadImage })
+    service.updateWindow(() => true)
+    service.request('a.png', { col: 0, row: 0 })
+    expect(loader.started).toEqual(['a.png'])
+    service.releaseRef('a.png', { col: 0, row: 0 })
+    // 无引用条目已脱离跟踪面：窗口重估不再调度它
+    service.updateWindow(() => true)
+    expect(loader.started).toEqual(['a.png'])
+    // 格滚回窗口重建：request 重登记 → 重新发起加载
+    service.request('a.png', { col: 0, row: 1 })
+    expect(loader.started).toEqual(['a.png', 'a.png'])
+  })
+
+  it('多格引用释放其一：条目仍按剩余引用参与窗口调度与缓存', async () => {
+    const loader = controllableLoader()
+    const service = new ImageService({ loadImage: loader.loadImage })
+    service.updateWindow(() => true)
+    service.request('a.png', { col: 0, row: 0 })
+    service.request('a.png', { col: 0, row: 100 })
+    service.releaseRef('a.png', { col: 0, row: 0 })
+    // 剩余引用在窗口内：loading 不取消
+    service.updateWindow((cell) => cell.row >= 100)
+    loader.resolve('a.png')
+    await flush()
+    expect(service.hasResource('a.png')).toBe(true)
+    // ready 条目引用裁光仍保留位图缓存（LRU 预算管理），不受脱离跟踪面影响
+    service.releaseRef('a.png', { col: 0, row: 100 })
+    expect(service.hasResource('a.png')).toBe(true)
+  })
+
+  it('loading 条目引用全部释放：滚出窗口取消降级后脱离跟踪面，迟到结果丢弃', async () => {
+    const loader = controllableLoader()
+    const service = new ImageService({ loadImage: loader.loadImage })
+    service.updateWindow(() => true)
+    service.request('a.png', { col: 0, row: 0 })
+    service.releaseRef('a.png', { col: 0, row: 0 })
+    // 引用已空 → 不在窗口 → 取消降级并脱离跟踪面
+    service.updateWindow((cell) => cell.row >= 50)
+    loader.resolve('a.png')
+    await flush()
+    expect(service.hasResource('a.png')).toBe(false)
+    service.updateWindow(() => true)
+    expect(loader.started).toEqual(['a.png'])
+  })
+
+  it('浮动对象引用（带 onSettled）不随引用裁剪：滚回窗口后 onSettled 仍触发', async () => {
+    const loader = controllableLoader()
+    const service = new ImageService({ loadImage: loader.loadImage })
+    const settled: string[] = []
+    service.updateWindow((cell) => cell.row < 10)
+    service.request('a.png', { col: 0, row: 100 }, (s) => settled.push(s))
+    expect(loader.started).toEqual([])
+    // 浮动对象引用不可被引用裁剪移除（生命周期跟随对象本身）
+    service.releaseRef('a.png', { col: 0, row: 100 })
+    service.updateWindow((cell) => cell.row >= 90) // 划入窗口 → 提权加载
+    expect(loader.started).toEqual(['a.png'])
+    loader.resolve('a.png')
+    await flush()
+    expect(settled).toEqual(['ready'])
+  })
+})

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
+import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { CellChangeEvent, ListTableOptions, TableModel } from '../src/types'
 
@@ -103,10 +104,7 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
 
 function findNode(host: StubHost, col: number, row: number): CellNode | undefined {
   const body = host.layers.get('body')
-  return body?.root.children.find(
-    (child): child is CellNode =>
-      child instanceof CellNode && child.col === col && child.row === row,
-  )
+  return body ? findCellNode(body.root, col, row) : undefined
 }
 
 describe('renderTextCell 溢出与换行', () => {
@@ -239,6 +237,50 @@ describe('renderTextCell 溢出与换行', () => {
       cellType: 'checkbox',
     }).paint(checkboxCtx)
     expect(checkboxCtx.measureCalls).toBe(0)
+  })
+
+  it('文本测量缓存按 font 串失效：style 引用替换且 font 变化、text 不变时重测', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'hello',
+      style: { fontWeight: 400 },
+    })
+    node.paint(ctx)
+    node.paint(ctx)
+    expect(ctx.measureCalls).toBe(1)
+    // refreshCell 经 projectCellStyle 产新 style 对象整引用替换：font 结果变化必须
+    // 重测，否则 textAlign 锚点与溢出判定拿到旧 font 下的陈旧宽
+    node.style = { fontWeight: 700 }
+    node.paint(ctx)
+    expect(ctx.measureCalls).toBe(2)
+    // 仅换 style 引用而 font 串结果不变：命中缓存不重测
+    node.style = { fontWeight: 700, color: '#f00' }
+    node.paint(ctx)
+    expect(ctx.measureCalls).toBe(2)
+  })
+
+  it('空文本往返后 font 变化仍重测：setContent(\'\') 早退不吞掉样式失效', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'hello',
+      style: { fontWeight: 400 },
+    })
+    node.paint(ctx)
+    expect(ctx.measureCalls).toBe(1)
+    node.setContent('', undefined)
+    node.style = { fontWeight: 700 } // 空文本期 paint 早退，样式替换未被观察
+    node.paint(ctx)
+    node.setContent('hello', undefined)
+    node.paint(ctx)
+    expect(ctx.measureCalls).toBe(2)
   })
 })
 
@@ -492,5 +534,39 @@ describe('refreshCell 溢出联动失效', () => {
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
+  })
+})
+
+describe('表头容器 z 序（R2-5）', () => {
+  it('纵向滚动半行：顶部半可见数据格仍在表头容器之下（表头覆盖半格）', () => {
+    const { host, table } = createTable({
+      records: Array.from({ length: 100 }, (_, i) => ({ name: `r${i}` })),
+      rowCount: 100,
+    })
+    table.scrollTo(0, 16) // 半行：行 0 上缘 = 36 - 16 = 20，顶部 16px 滑入列头带（0..36）
+    const root = host.layers.get('body')!.root
+    const headerGroup = root.children.at(-1)!
+    const row0 = findNode(host, 0, 0)!
+    // 半可见格确与列头带相交（覆盖关系有几何前提）
+    expect(row0.y).toBeLessThan(36)
+    expect(row0.y + row0.height).toBeGreaterThan(36)
+    // 数据格在表头容器之前 → paintTree 后画表头，半格被表头覆盖
+    expect(root.children.indexOf(row0)).toBeLessThan(root.children.indexOf(headerGroup))
+  })
+
+  it('滚动后合并主格上缘伸进列头带：主格仍在表头容器之下（表头最上）', () => {
+    const { host, table } = createTable({
+      records: Array.from({ length: 100 }, (_, i) => ({ name: `r${i}` })),
+      rowCount: 100,
+      mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 3 }],
+    })
+    table.scrollTo(0, 32) // 主格 (0,0) 上缘 = 36 - 32 = 4，伸进列头带
+    const root = host.layers.get('body')!.root
+    const headerGroup = root.children.at(-1)!
+    const master = findNode(host, 0, 0)!
+    expect(master.y).toBeLessThan(36)
+    expect(master.height).toBe(4 * 32) // 主格跨 4 行取完整尺寸
+    expect(root.children.indexOf(master)).toBeLessThan(root.children.indexOf(headerGroup))
+    expect(headerGroup.children.length).toBeGreaterThan(0)
   })
 })
