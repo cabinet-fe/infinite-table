@@ -1,11 +1,16 @@
 // 逐格样式：hook 投影（含逐边边框）。纯函数，便于单测。
 // 基础样式由表格侧给出（默认主题接入前用常量兜底），hook 返回值逐字段覆盖。
 
+/** 边框线型；缺省 solid */
+export type CellBorderStyle = 'solid' | 'dashed' | 'dotted' | 'double'
+
 /** 单边边框样式 */
 export interface CellBorderEdge {
   /** 边线宽（CSS 像素） */
   width: number
   color: string
+  /** 线型：solid 实线（缺省）、dashed 长虚线段、dotted 点段、double 双线 */
+  style?: CellBorderStyle
 }
 
 /** 四边独立边框；缺省的边不绘制 */
@@ -21,6 +26,12 @@ export type CellTextAlign = 'left' | 'center' | 'right'
 
 /** 垂直对齐 */
 export type CellVerticalAlign = 'top' | 'middle' | 'bottom'
+
+/** 超宽文本处理；缺省保持 Excel 式溢出到右侧空格 */
+export type CellTextOverflow = 'ellipsis' | 'clip'
+
+/** 格内边距 [上,右,下,左]（CSS 像素） */
+export type CellPadding = [top: number, right: number, bottom: number, left: number]
 
 /** 单元格样式（逐格投影的最终形态） */
 export interface CellStyle {
@@ -45,6 +56,10 @@ export interface CellStyle {
   lineThrough?: boolean
   /** 文本自动换行：开启后超宽文本在格内断行，不向右侧空格溢出 */
   textWrap?: boolean
+  /** 超宽文本处理：ellipsis 以省略号截断、clip 直接裁剪；缺省 Excel 式溢出到右侧空格 */
+  textOverflow?: CellTextOverflow
+  /** 格内边距 [上,右,下,左]；缺省 [0, 8, 0, 8] */
+  padding?: CellPadding
   border?: CellBorder
 }
 
@@ -101,6 +116,8 @@ export function projectCellStyle(
     underline: override?.underline ?? base.underline,
     lineThrough: override?.lineThrough ?? base.lineThrough,
     textWrap: override?.textWrap ?? base.textWrap,
+    textOverflow: override?.textOverflow ?? base.textOverflow,
+    padding: override?.padding ?? base.padding,
   }
   let border: CellBorder | undefined
   for (const edge of BORDER_EDGES) {

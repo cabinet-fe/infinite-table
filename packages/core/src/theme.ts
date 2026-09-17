@@ -1,12 +1,18 @@
 // 主题系统：默认主题全套 token（颜色/字体/边框/行高）+ extends 深覆盖派生。
 // 派生主题经 ListTableOptions.theme 接入样式管线；显式 options（rowHeight 等）仍优先于主题。
 
+import type { CellPadding, CellTextOverflow } from './cell-style'
+
 /** 单元格样式 token（body 数据格与 header 行列头各一份） */
 export interface CellStyleTokens {
   font: string
   color: string
   background: string
   borderColor: string
+  /** 超宽文本处理；缺省数据格保持 Excel 式溢出，行列头由表侧兜底 ellipsis */
+  textOverflow?: CellTextOverflow
+  /** 格内边距 [上,右,下,左]；缺省 [0, 8, 0, 8] */
+  padding?: CellPadding
 }
 
 /** 表格主题：几何尺寸 + 数据格/行列头样式 */

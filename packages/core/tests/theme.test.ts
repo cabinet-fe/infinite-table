@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
 import { StubHost } from './testing/stub-host'
+import type { ListTableOptions } from '../src/types'
 import { defaultTheme, extendsTheme } from '../src/theme'
 
-function createTable(theme?: Parameters<typeof extendsTheme>[0], rowHeight?: number) {
+function createTable(
+  theme?: Parameters<typeof extendsTheme>[0],
+  rowHeight?: number,
+  resolveCellStyle?: ListTableOptions['resolveCellStyle'],
+) {
   const host = new StubHost()
   const table = new ListTable({
     width: 800,
@@ -14,6 +19,7 @@ function createTable(theme?: Parameters<typeof extendsTheme>[0], rowHeight?: num
     records: Array.from({ length: 100 }, (_, i) => ({ name: `r${i}` })),
     theme,
     rowHeight,
+    resolveCellStyle,
     host,
   })
   return { host, table }
@@ -70,5 +76,49 @@ describe('主题系统', () => {
     const { table } = createTable({ rowHeight: 20 }, 30)
     // 行高取显式 30：视口 564 → ceil(564/30) = 19 行
     expect(table.getVisibleRange().rows).toEqual({ start: 0, end: 19 })
+  })
+
+  it('extends 深覆盖新 token：padding/textOverflow 按键覆盖，未覆盖的继承', () => {
+    const theme = extendsTheme({
+      body: { padding: [1, 2, 3, 4] },
+      header: { textOverflow: 'clip' },
+    })
+    expect(theme.body.padding).toEqual([1, 2, 3, 4])
+    expect(theme.body.textOverflow).toBeUndefined()
+    expect(theme.body.color).toBe(defaultTheme.body.color)
+    expect(theme.header.textOverflow).toBe('clip')
+    expect(theme.header.padding).toBeUndefined()
+  })
+})
+
+describe('主题分区 textOverflow/padding token', () => {
+  it('body 分区 token 进数据格样式；ellipsis 数据格不再 Excel 式溢出', () => {
+    const { host } = createTable({
+      body: { textOverflow: 'ellipsis', padding: [4, 8, 4, 8] },
+    })
+    const cell = findCell(host, 0, 0)
+    expect(cell?.style.textOverflow).toBe('ellipsis')
+    expect(cell?.style.padding).toEqual([4, 8, 4, 8])
+    expect(cell?.textMaxX).toBe(100)
+  })
+
+  it('列头/行号列缺省 ellipsis；header 分区显式 token 覆盖缺省', () => {
+    const fallback = createTable()
+    expect(findCell(fallback.host, 0, -1)?.style.textOverflow).toBe('ellipsis')
+    expect(findCell(fallback.host, -1, 0)?.style.textOverflow).toBe('ellipsis')
+
+    const themed = createTable({ header: { textOverflow: 'clip' } })
+    expect(findCell(themed.host, 0, -1)?.style.textOverflow).toBe('clip')
+  })
+
+  it('格级 hook 逐字段覆盖主题级 textOverflow/padding', () => {
+    const { host } = createTable(
+      { body: { textOverflow: 'ellipsis', padding: [4, 8, 4, 8] } },
+      undefined,
+      (col) => (col === 0 ? { textOverflow: 'clip', padding: [1, 2, 3, 4] } : null),
+    )
+    const cell = findCell(host, 0, 0)
+    expect(cell?.style.textOverflow).toBe('clip')
+    expect(cell?.style.padding).toEqual([1, 2, 3, 4])
   })
 })

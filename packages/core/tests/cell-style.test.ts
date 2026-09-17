@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { projectCellStyle, type CellStyle } from '../src/cell-style'
 import { renderCheckboxCell, renderTextCell, type CellRenderTarget } from '../src/cell-renderer'
+import { CellNode } from '../src/cell-node'
 
 const BASE: CellStyle = {
   background: '#ffffff',
@@ -41,6 +42,23 @@ describe('projectCellStyle 样式投影', () => {
     const base: CellStyle = { border: { top: { width: 1, color: '#ddd' } } }
     const result = projectCellStyle(base, { border: { top: { width: 3, color: '#000' } } })
     expect(result.border?.top).toEqual({ width: 3, color: '#000' })
+  })
+
+  it('边框线型逐边独立合并：线型随边框整体覆盖与保留', () => {
+    const base: CellStyle = {
+      border: {
+        top: { width: 1, color: '#ddd', style: 'dashed' },
+        bottom: { width: 1, color: '#ddd' },
+      },
+    }
+    const result = projectCellStyle(base, {
+      border: { left: { width: 2, color: '#f00', style: 'double' } },
+    })
+    expect(result.border).toEqual({
+      top: { width: 1, color: '#ddd', style: 'dashed' },
+      bottom: { width: 1, color: '#ddd' },
+      left: { width: 2, color: '#f00', style: 'double' },
+    })
   })
 
   it('不改入参（投影产出新对象）', () => {
@@ -118,9 +136,10 @@ interface RectCall {
   y: number
   width: number
   height: number
+  fill: unknown
 }
 
-/** 记录型假 ctx：记录 font 赋值序列与 fillText/fillRect 调用 */
+/** 记录型假 ctx：记录 font 赋值序列与 fillText/fillRect 调用（fillRect 附带 fillStyle） */
 class RecordingContext implements RenderContext {
   fillStyle: string | CanvasGradient | CanvasPattern = '#000'
   strokeStyle: string | CanvasGradient | CanvasPattern = '#000'
@@ -147,11 +166,11 @@ class RecordingContext implements RenderContext {
   clip(): void {}
   clearRect(): void {}
   drawImage(): void {}
-  measureText(): { width: number } {
-    return { width: 0 }
+  measureText(text: string): { width: number } {
+    return { width: text.length * 10 }
   }
   fillRect(x: number, y: number, width: number, height: number): void {
-    this.rects.push({ x, y, width, height })
+    this.rects.push({ x, y, width, height, fill: this.fillStyle })
   }
   fillText(text: string, x: number, y: number): void {
     this.texts.push({ text, x, y })
@@ -221,8 +240,8 @@ describe('renderTextCell 字体与对齐', () => {
     const ctx = paintText({ underline: true, lineThrough: true })
     expect(ctx.texts).toEqual([{ text: 'hello', x: 8, y: 20 }])
     expect(ctx.rects).toEqual([
-      { x: 8, y: 22, width: 40, height: 1 },
-      { x: 8, y: 16, width: 40, height: 1 },
+      { x: 8, y: 22, width: 40, height: 1, fill: '#1f2329' },
+      { x: 8, y: 16, width: 40, height: 1, fill: '#1f2329' },
     ])
   })
 
@@ -239,7 +258,7 @@ describe('renderTextCell 字体与对齐', () => {
       style: { textAlign: 'center' },
     })
     // 首条 fillRect 为框体顶边（size 14，y 垂直居中 9）
-    expect(centered.rects[0]).toEqual({ x: 43, y: 9, width: 14, height: 1 })
+    expect(centered.rects[0]).toEqual({ x: 43, y: 9, width: 14, height: 1, fill: '#8f959e' })
 
     const left = new RecordingContext()
     renderCheckboxCell({
@@ -252,6 +271,136 @@ describe('renderTextCell 字体与对齐', () => {
       value: false,
       style: {},
     })
-    expect(left.rects[0]).toEqual({ x: 8, y: 9, width: 14, height: 1 })
+    expect(left.rects[0]).toEqual({ x: 8, y: 9, width: 14, height: 1, fill: '#8f959e' })
+  })
+})
+
+describe('CellNode 边框线型绘制痕迹', () => {
+  /** 绘制只含边框的空文本节点（文本为空时内置渲染不产生绘制痕迹） */
+  function paintBorder(border: CellStyle['border']): RecordingContext {
+    const ctx = new RecordingContext()
+    new CellNode({ col: 0, row: 0, width: 100, height: 32, style: { border } }).paint(ctx)
+    return ctx
+  }
+
+  it('solid（含缺省）：全长实线', () => {
+    const ctx = paintBorder({
+      top: { width: 1, color: '#a00' },
+      bottom: { width: 2, color: '#0b0', style: 'solid' },
+    })
+    expect(ctx.rects).toEqual([
+      { x: 0, y: 0, width: 100, height: 1, fill: '#a00' },
+      { x: 0, y: 30, width: 100, height: 2, fill: '#0b0' },
+    ])
+  })
+
+  it('dashed：沿边按段绘制（段长 6、间隔 4）', () => {
+    const ctx = paintBorder({ top: { width: 1, color: '#a00', style: 'dashed' } })
+    expect(ctx.rects).toEqual(
+      Array.from({ length: 10 }, (_, i) => ({
+        x: i * 10,
+        y: 0,
+        width: 6,
+        height: 1,
+        fill: '#a00',
+      })),
+    )
+  })
+
+  it('dotted：沿边按点段绘制（段长 1、间隔 2，厚度方向整带宽）', () => {
+    const ctx = paintBorder({ left: { width: 2, color: '#0b0', style: 'dotted' } })
+    expect(ctx.rects).toEqual(
+      Array.from({ length: 11 }, (_, i) => ({
+        x: 0,
+        y: i * 3,
+        width: 2,
+        height: 1,
+        fill: '#0b0',
+      })),
+    )
+  })
+
+  it('double：双线绘制痕迹（两条平行实线各占约 1/3 厚度），非 dash 近似', () => {
+    const ctx = paintBorder({ top: { width: 3, color: '#00c', style: 'double' } })
+    expect(ctx.rects).toEqual([
+      { x: 0, y: 0, width: 100, height: 1, fill: '#00c' },
+      { x: 0, y: 2, width: 100, height: 1, fill: '#00c' },
+    ])
+  })
+
+  it('四边线型独立生效：solid/dashed/dotted/double 并存且 width/color 各随各边', () => {
+    const ctx = paintBorder({
+      top: { width: 1, color: '#a00', style: 'dashed' },
+      bottom: { width: 2, color: '#0b0', style: 'dotted' },
+      left: { width: 3, color: '#00c', style: 'double' },
+      right: { width: 1, color: '#d40', style: 'solid' },
+    })
+    expect(ctx.rects).toEqual([
+      // top：dashed 10 段
+      ...Array.from({ length: 10 }, (_, i) => ({
+        x: i * 10,
+        y: 0,
+        width: 6,
+        height: 1,
+        fill: '#a00',
+      })),
+      // bottom：dotted 34 点
+      ...Array.from({ length: 34 }, (_, i) => ({
+        x: i * 3,
+        y: 30,
+        width: 1,
+        height: 2,
+        fill: '#0b0',
+      })),
+      // left：double 双线
+      { x: 0, y: 0, width: 1, height: 32, fill: '#00c' },
+      { x: 2, y: 0, width: 1, height: 32, fill: '#00c' },
+      // right：solid 实线
+      { x: 99, y: 0, width: 1, height: 32, fill: '#d40' },
+    ])
+  })
+})
+
+describe('renderTextCell 换行符强制断行', () => {
+  /** textWrap 模式绘制（测量宽按每字符 10px） */
+  function paintWrapped(text: string, width = 100, height = 32): RecordingContext {
+    const ctx = new RecordingContext()
+    renderTextCell({
+      ...TEXT_RENDER_BASE,
+      ctx,
+      text,
+      width,
+      height,
+      textWidth: undefined,
+      style: { textWrap: true },
+    })
+    return ctx
+  }
+
+  it('含 \\n：按换行符强制断行，逐段一行', () => {
+    const ctx = paintWrapped('ab\ncd')
+    expect(ctx.texts).toEqual([
+      { text: 'ab', x: 8, y: 12 },
+      { text: 'cd', x: 8, y: 28 },
+    ])
+  })
+
+  it('连续 \\n 产生空行占位（行高保留）', () => {
+    const ctx = paintWrapped('a\n\nb')
+    // 格高 32 最多 2 行：'a' 与空行，'b' 舍弃
+    expect(ctx.texts).toEqual([
+      { text: 'a', x: 8, y: 12 },
+      { text: '', x: 8, y: 28 },
+    ])
+  })
+
+  it('与 textWrap 自动换行叠加：先按 \\n 分段，段内再贪心断行', () => {
+    // 内容盒宽 44（格宽 60 - 左右内边距 8）：段 'aaaaaa'（宽 60）贪心断为 'aaaa'+'aa'
+    const ctx = paintWrapped('aaaaaa\nbb', 60, 48)
+    expect(ctx.texts).toEqual([
+      { text: 'aaaa', x: 8, y: 12 },
+      { text: 'aa', x: 8, y: 28 },
+      { text: 'bb', x: 8, y: 44 },
+    ])
   })
 })

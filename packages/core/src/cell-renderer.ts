@@ -6,6 +6,7 @@ import type { RenderContext } from '@infinite-table/render'
 
 import {
   cellStyleFont,
+  type CellPadding,
   type CellStyle,
   type CellTextAlign,
   type CellVerticalAlign,
@@ -41,43 +42,69 @@ export type CellRenderer = (target: CellRenderTarget) => void
  */
 export type ResolveCellRenderer = (col: number, row: number) => CellRenderer | null
 
-const TEXT_PADDING_X = 8
+/** 缺省格内边距：左右 8px、上下 0（历史缺省，与既有锚点行为一致） */
+const DEFAULT_PADDING: CellPadding = [0, 8, 0, 8]
 /** 换行模式行高（12px 字体） */
 const TEXT_LINE_HEIGHT = 16
 /** 基线相对行盒中线的下移量（12px 字体近似） */
 const BASELINE_OFFSET = 4
 /** 下划线相对基线的下移量 */
 const UNDERLINE_GAP = 2
+/** ellipsis 截断符 */
+const ELLIPSIS_CHAR = '…'
 const CHECKBOX_SIZE = 14
 const CHECKBOX_BORDER_COLOR = '#8f959e'
 const CHECKBOX_CHECK_COLOR = '#3370ff'
 
+/** 绘制内容盒：格内边距内缩后的局部矩形（文本与 checkbox 的定位/截断基准） */
+interface ContentBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** 格内边距内缩出内容盒：宽高夹到非负，防负 padding 把内容推出格外 */
+function contentBox(style: CellStyle, width: number, height: number): ContentBox {
+  const [paddingTop, paddingRight, paddingBottom, paddingLeft] = style.padding ?? DEFAULT_PADDING
+  return {
+    x: paddingLeft,
+    y: paddingTop,
+    width: Math.max(0, width - paddingLeft - paddingRight),
+    height: Math.max(0, height - paddingTop - paddingBottom),
+  }
+}
+
 /**
- * 水平对齐锚点：left（缺省）走左内边距，center/right 按内容宽定位。
+ * 水平对齐锚点：left（缺省）贴内容盒左缘，center/right 在盒内按内容宽定位。
  * 文本与 checkbox 等非文本内置内容共用。
  */
-function alignedX(align: CellTextAlign | undefined, width: number, contentWidth: number): number {
+function alignedX(align: CellTextAlign | undefined, box: ContentBox, contentWidth: number): number {
   if (align === 'center') {
-    return (width - contentWidth) / 2
+    return box.x + (box.width - contentWidth) / 2
   }
   if (align === 'right') {
-    return width - TEXT_PADDING_X - contentWidth
+    return box.x + box.width - contentWidth
   }
-  return TEXT_PADDING_X
+  return box.x
 }
 
-/** 垂直基线：以 TEXT_LINE_HEIGHT 行盒为基准；top 贴顶、bottom 贴底、middle（缺省）居中 */
-function textBaselineY(align: CellVerticalAlign | undefined, height: number): number {
+/** 垂直基线：以 TEXT_LINE_HEIGHT 行盒为基准，在内容盒竖带内定位；top 贴顶、bottom 贴底、middle（缺省）居中 */
+function textBaselineY(align: CellVerticalAlign | undefined, box: ContentBox): number {
   if (align === 'top') {
-    return TEXT_LINE_HEIGHT - BASELINE_OFFSET
+    return box.y + TEXT_LINE_HEIGHT - BASELINE_OFFSET
   }
   if (align === 'bottom') {
-    return height - BASELINE_OFFSET
+    return box.y + box.height - BASELINE_OFFSET
   }
-  return height / 2 + BASELINE_OFFSET
+  return box.y + box.height / 2 + BASELINE_OFFSET
 }
 
-/** 内置 text 渲染：对齐与字体随样式（缺省左对齐垂直居中）；超宽文本 Excel 式溢出（clip 到允许右界）或格内换行 */
+/**
+ * 内置 text 渲染：对齐与字体随样式（缺省左对齐垂直居中），绘制区内缩 padding。
+ * 超宽文本按 textOverflow：ellipsis 以省略号截断、clip 在内容盒内直接裁剪；
+ * 未设置保持既有 Excel 式溢出（左对齐溢出到右侧空格，clip 到允许右界）或格内换行。
+ */
 export const renderTextCell: CellRenderer = ({
   ctx,
   width,
@@ -92,16 +119,25 @@ export const renderTextCell: CellRenderer = ({
   }
   ctx.fillStyle = style.color ?? '#1f2329'
   ctx.font = cellStyleFont(style)
+  const box = contentBox(style, width, height)
   const measured = textWidth ?? ctx.measureText(text).width
-  const x = alignedX(style.textAlign, width, measured)
-  const baselineY = textBaselineY(style.verticalAlign, height)
+  const baselineY = textBaselineY(style.verticalAlign, box)
   if (style.textWrap === true) {
-    drawWrappedText(ctx, text, width, height)
+    drawWrappedText(ctx, text, box, width, height)
     return
   }
-  if (measured > width - TEXT_PADDING_X) {
-    // 超宽：左对齐（缺省）溢出画进右侧空格（textMaxX > width），中/右对齐裁剪在本格
+  if (measured > box.width) {
+    if (style.textOverflow === 'ellipsis') {
+      drawEllipsizedText(ctx, text, box, baselineY, style)
+      return
+    }
+    if (style.textOverflow === 'clip') {
+      drawClippedText(ctx, text, box, baselineY, measured, style)
+      return
+    }
+    // 未设置：左对齐（缺省）溢出画进右侧空格（textMaxX > width），中/右对齐裁剪在本格
     const canOverflow = (style.textAlign ?? 'left') === 'left'
+    const x = alignedX(style.textAlign, box, measured)
     ctx.save()
     ctx.beginPath()
     ctx.rect(0, 0, canOverflow ? Math.max(width, textMaxX ?? width) : width, height)
@@ -111,6 +147,7 @@ export const renderTextCell: CellRenderer = ({
     ctx.restore()
     return
   }
+  const x = alignedX(style.textAlign, box, measured)
   ctx.fillText(text, x, baselineY)
   drawTextDecorations(ctx, x, baselineY, measured, style)
 }
@@ -131,26 +168,84 @@ function drawTextDecorations(
   }
 }
 
-/** 换行绘制：逐字贪心断行，行块垂直居中，clip 在本格内（超出格高的行被裁掉） */
-function drawWrappedText(ctx: RenderContext, text: string, width: number, height: number): void {
+/** ellipsis 截断：找「最长前缀 + 省略号」在内缩盒内放得下的组合，按对齐锚点绘制（截断后必在盒内，无需 clip） */
+function drawEllipsizedText(
+  ctx: RenderContext,
+  text: string,
+  box: ContentBox,
+  baselineY: number,
+  style: CellStyle,
+): void {
+  const truncated = ellipsizedText(ctx, text, box.width)
+  const truncatedWidth = ctx.measureText(truncated).width
+  const x = alignedX(style.textAlign, box, truncatedWidth)
+  ctx.fillText(truncated, x, baselineY)
+  drawTextDecorations(ctx, x, baselineY, truncatedWidth, style)
+}
+
+/**
+ * 二分找「前缀 + 省略号」宽不超 maxWidth 的最长前缀；
+ * 连省略号自身都放不下时返回裸省略号（极窄内容盒的退化场景，允许压线绘制）。
+ */
+function ellipsizedText(ctx: RenderContext, text: string, maxWidth: number): string {
+  let lo = 0
+  let hi = text.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (ctx.measureText(text.slice(0, mid) + ELLIPSIS_CHAR).width <= maxWidth) {
+      lo = mid
+    } else {
+      hi = mid - 1
+    }
+  }
+  return text.slice(0, lo) + ELLIPSIS_CHAR
+}
+
+/** clip 裁剪：clip 在内缩内容盒上，超盒文本与修饰线不绘制 */
+function drawClippedText(
+  ctx: RenderContext,
+  text: string,
+  box: ContentBox,
+  baselineY: number,
+  measured: number,
+  style: CellStyle,
+): void {
+  const x = alignedX(style.textAlign, box, measured)
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(box.x, box.y, box.width, box.height)
+  ctx.clip()
+  ctx.fillText(text, x, baselineY)
+  drawTextDecorations(ctx, x, baselineY, measured, style)
+  ctx.restore()
+}
+
+/** 换行绘制：逐字贪心断行，行块在内容盒内垂直居中，clip 在本格（超出格高的行被裁掉） */
+function drawWrappedText(
+  ctx: RenderContext,
+  text: string,
+  box: ContentBox,
+  width: number,
+  height: number,
+): void {
   const maxLines = Math.max(1, Math.ceil(height / TEXT_LINE_HEIGHT))
-  const lines = wrapTextLines(ctx, text, width - TEXT_PADDING_X, maxLines)
-  const startY = Math.max(0, (height - lines.length * TEXT_LINE_HEIGHT) / 2)
+  const lines = wrapTextLines(ctx, text, box.width, maxLines)
+  const startY = box.y + Math.max(0, (box.height - lines.length * TEXT_LINE_HEIGHT) / 2)
   ctx.save()
   ctx.beginPath()
   ctx.rect(0, 0, width, height)
   ctx.clip()
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(
-      lines[i]!,
-      TEXT_PADDING_X,
-      startY + i * TEXT_LINE_HEIGHT + TEXT_LINE_HEIGHT / 2 + 4,
-    )
+    ctx.fillText(lines[i]!, box.x, startY + i * TEXT_LINE_HEIGHT + TEXT_LINE_HEIGHT / 2 + 4)
   }
   ctx.restore()
 }
 
-/** 逐字贪心断行（CJK 无空格断点，统一逐字）；超过 maxLines 的剩余文本舍弃 */
+/**
+ * 断行：先按 \n 强制分段（连续换行产生空行），段内再逐字贪心断行
+ * （CJK 无空格断点，统一逐字）——换行符强制断行与自动换行叠加；
+ * 超过 maxLines 的剩余行舍弃。
+ */
 function wrapTextLines(
   ctx: RenderContext,
   text: string,
@@ -158,29 +253,33 @@ function wrapTextLines(
   maxLines: number,
 ): string[] {
   const lines: string[] = []
-  let current = ''
-  for (const char of text) {
-    if (current && ctx.measureText(current + char).width > maxWidth) {
-      lines.push(current)
-      if (lines.length >= maxLines) {
-        return lines
+  for (const segment of text.split('\n')) {
+    let current = ''
+    for (const char of segment) {
+      if (current && ctx.measureText(current + char).width > maxWidth) {
+        lines.push(current)
+        if (lines.length >= maxLines) {
+          return lines
+        }
+        current = char
+      } else {
+        current += char
       }
-      current = char
-    } else {
-      current += char
     }
-  }
-  if (current) {
     lines.push(current)
+    if (lines.length >= maxLines) {
+      return lines
+    }
   }
   return lines
 }
 
-/** 内置 checkbox 渲染：方框（fillRect 细线保证像素对齐）+ 勾选态实心块；value 即状态，不绘制取值文本；水平位置跟随 textAlign（缺省左） */
+/** 内置 checkbox 渲染：方框（fillRect 细线保证像素对齐）+ 勾选态实心块；value 即状态，不绘制取值文本；水平/垂直位置跟随 textAlign 与 padding 内缩（缺省左、垂直居中） */
 export const renderCheckboxCell: CellRenderer = ({ ctx, width, height, value, style }) => {
   const size = Math.min(CHECKBOX_SIZE, height - 8)
-  const x = alignedX(style.textAlign, width, size)
-  const y = (height - size) / 2
+  const box = contentBox(style, width, height)
+  const x = alignedX(style.textAlign, box, size)
+  const y = box.y + (box.height - size) / 2
   ctx.fillStyle = CHECKBOX_BORDER_COLOR
   ctx.fillRect(x, y, size, 1)
   ctx.fillRect(x, y + size - 1, size, 1)

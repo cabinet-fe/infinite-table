@@ -6,6 +6,56 @@ import { SceneNode, type RenderContext, type SceneNodeInit } from '@infinite-tab
 import { BUILTIN_CELL_RENDERERS, type CellRenderer, type CellType } from './cell-renderer'
 import { cellStyleFont, type CellBorderEdge, type CellStyle } from './cell-style'
 
+/** dashed 线型段：段长 6、间隔 4（CSS 像素） */
+const DASHED_SEGMENT = { on: 6, off: 4 } as const
+/** dotted 线型段：段长 1、间隔 2（CSS 像素） */
+const DOTTED_SEGMENT = { on: 1, off: 2 } as const
+
+/**
+ * 画一条边线：solid（含缺省）全长实线；dashed/dotted 沿边按段绘制（末段可截短）；
+ * double 为厚度带内贴两外侧的两条平行实线（各占约 1/3 厚度）。
+ * x/y 为边带外角坐标，run 为边长，horizontal 表示边沿水平方向延伸。
+ */
+function paintEdge(
+  ctx: RenderContext,
+  edge: CellBorderEdge,
+  x: number,
+  y: number,
+  run: number,
+  horizontal: boolean,
+): void {
+  const thickness = edge.width
+  // along 沿边方向、cross 垂直边方向（厚度带内）
+  const fillSegment = (
+    alongStart: number,
+    alongLength: number,
+    crossStart: number,
+    crossLength: number,
+  ): void => {
+    ctx.fillStyle = edge.color
+    ctx.fillRect(
+      horizontal ? x + alongStart : x + crossStart,
+      horizontal ? y + crossStart : y + alongStart,
+      horizontal ? alongLength : crossLength,
+      horizontal ? crossLength : alongLength,
+    )
+  }
+  if (edge.style === 'double') {
+    const line = Math.max(1, Math.floor(thickness / 3))
+    fillSegment(0, run, 0, line)
+    fillSegment(0, run, thickness - line, line)
+    return
+  }
+  if (edge.style === 'dashed' || edge.style === 'dotted') {
+    const { on, off } = edge.style === 'dashed' ? DASHED_SEGMENT : DOTTED_SEGMENT
+    for (let start = 0; start < run; start += on + off) {
+      fillSegment(start, Math.min(on, run - start), 0, thickness)
+    }
+    return
+  }
+  fillSegment(0, run, 0, thickness)
+}
+
 export interface CellNodeInit extends SceneNodeInit {
   col: number
   row: number
@@ -91,28 +141,27 @@ export class CellNode extends SceneNode {
     return this.textWidthPx
   }
 
-  /** 逐边边框：fillRect 细线保证像素对齐，后画压在内容之上 */
+  /**
+   * 逐边边框：按各边线型绘制（fillRect 保证像素对齐），后画压在内容之上。
+   * 四边各自 width/color/style 独立生效。
+   */
   private paintBorders(ctx: RenderContext): void {
     const border = this.style.border
     if (!border) {
       return
     }
     const { width, height } = this
-    const edge = (style: CellBorderEdge, x: number, y: number, w: number, h: number): void => {
-      ctx.fillStyle = style.color
-      ctx.fillRect(x, y, w, h)
-    }
     if (border.top) {
-      edge(border.top, 0, 0, width, border.top.width)
+      paintEdge(ctx, border.top, 0, 0, width, true)
     }
     if (border.bottom) {
-      edge(border.bottom, 0, height - border.bottom.width, width, border.bottom.width)
+      paintEdge(ctx, border.bottom, 0, height - border.bottom.width, width, true)
     }
     if (border.left) {
-      edge(border.left, 0, 0, border.left.width, height)
+      paintEdge(ctx, border.left, 0, 0, height, false)
     }
     if (border.right) {
-      edge(border.right, width - border.right.width, 0, border.right.width, height)
+      paintEdge(ctx, border.right, width - border.right.width, 0, height, false)
     }
   }
 }

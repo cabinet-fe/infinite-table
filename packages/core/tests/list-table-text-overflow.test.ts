@@ -147,12 +147,76 @@ describe('renderTextCell 溢出与换行', () => {
       style: { textWrap: true },
     })
     node.paint(ctx)
-    // maxWidth 92 → 每行 9 字符；格高 32 → 最多 2 行，超出舍弃
+    // 内容盒宽 84 → 每行 8 字符；格高 32 → 最多 2 行，超出舍弃
     expect(ctx.texts).toEqual([
-      { text: 'A'.repeat(9), x: 8, y: 12 },
-      { text: 'A'.repeat(9), x: 8, y: 28 },
+      { text: 'A'.repeat(8), x: 8, y: 12 },
+      { text: 'A'.repeat(8), x: 8, y: 28 },
     ])
     expect(ctx.clips).toEqual([{ x: 0, y: 0, width: 100, height: 32 }])
+  })
+
+  it('textOverflow ellipsis：超宽文本以省略号截断，不裁剪不溢出', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: LONG_TEXT,
+      style: { textOverflow: 'ellipsis' },
+    })
+    node.paint(ctx)
+    // 内容盒宽 84：7 字符 + 省略号 80px 放得下，8 字符 + 省略号 90px 放不下
+    expect(ctx.texts).toEqual([{ text: `${'A'.repeat(7)}…`, x: 8, y: 20 }])
+    expect(ctx.clips).toEqual([])
+    expect(ctx.saves).toBe(0)
+  })
+
+  it('textOverflow ellipsis + center：锚点按截断后宽居中', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: LONG_TEXT,
+      style: { textOverflow: 'ellipsis', textAlign: 'center' },
+    })
+    node.paint(ctx)
+    // 截断后 80px：x = 8 + (84 - 80) / 2 = 10
+    expect(ctx.texts).toEqual([{ text: `${'A'.repeat(7)}…`, x: 10, y: 20 }])
+  })
+
+  it('textOverflow clip：clip 在内缩内容盒，文本不截断不溢出', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: LONG_TEXT,
+      style: { textOverflow: 'clip' },
+    })
+    node.paint(ctx)
+    expect(ctx.clips).toEqual([{ x: 8, y: 0, width: 84, height: 32 }])
+    expect(ctx.texts).toEqual([{ text: LONG_TEXT, x: 8, y: 20 }])
+    expect(ctx.saves).toBe(1)
+    expect(ctx.restores).toBe(1)
+  })
+
+  it('padding 内缩绘制区：锚点与垂直定位按 [上,右,下,左] 生效', () => {
+    const ctx = new MeasureStubContext()
+    new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'hello',
+      style: { padding: [4, 10, 6, 12] },
+    }).paint(ctx)
+    // 内容盒 x=12 宽 78（'hello' 50px 放得下）；垂直居中基线 = 4 + 22/2 + 4 = 19
+    expect(ctx.texts).toEqual([{ text: 'hello', x: 12, y: 19 }])
+    expect(ctx.clips).toEqual([])
   })
 
   it('文本测量按 text+font 缓存：同内容重复绘制只测一次，setContent 后重测', () => {
@@ -246,6 +310,49 @@ describe('ListTable 溢出右界', () => {
     // 合并主格（宽 200）不溢出；列头不溢出
     expect(findNode(host, 0, 0)?.textMaxX).toBe(200)
     expect(findNode(host, 0, -1)?.textMaxX).toBe(100)
+  })
+
+  it('数据格设置 textOverflow 后不溢出：走廊收敛回本格', () => {
+    const table = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 0 ? { textOverflow: 'ellipsis' } : null),
+    })
+    expect(findNode(table.host, 0, 0)?.textMaxX).toBe(100)
+
+    const clipped = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 0 ? { textOverflow: 'clip' } : null),
+    })
+    expect(findNode(clipped.host, 0, 0)?.textMaxX).toBe(100)
+  })
+
+  it('列头与行号列缺省 ellipsis，数据格未设置保持 Excel 式溢出', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: LONG_TEXT }],
+      rowCount: 1,
+    })
+    expect(findNode(host, 0, -1)?.style.textOverflow).toBe('ellipsis')
+    expect(findNode(host, -1, 0)?.style.textOverflow).toBe('ellipsis')
+    // 数据格未设置：仍走 Excel 式溢出（右邻空格走廊）
+    expect(findNode(host, 0, 0)?.style.textOverflow).toBeUndefined()
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(300)
+  })
+
+  it('列头超宽标题按缺省 ellipsis 截断绘制', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a', title: LONG_TEXT }],
+      records: [{ a: 'x' }],
+      rowCount: 1,
+    })
+    const ctx = new MeasureStubContext()
+    findNode(host, 0, -1)?.paint(ctx)
+    // 列头宽 100 → 内容盒 84：7 字符 + 省略号；表头高 36 → 居中基线 22
+    expect(ctx.texts).toEqual([{ text: `${'A'.repeat(7)}…`, x: 8, y: 22 }])
   })
 
   it('冻结列带边界截断：冻结格不越界溢出，带内空格可溢出', () => {

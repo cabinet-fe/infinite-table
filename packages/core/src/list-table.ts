@@ -949,8 +949,8 @@ export class ListTable {
 
   /**
    * 文本溢出允许的层坐标右界；null 表示该格不溢出（裁剪在本格内）。
-   * Excel 规则：只溢出到右侧相邻空格，遇非空格停；换行、checkbox、合并、图片、
-   * 自定义渲染格不溢出；冻结列带不越过带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
+ * Excel 规则：只溢出到右侧相邻空格，遇非空格停；换行、ellipsis/clip、checkbox、合并、图片、
+ * 自定义渲染格不溢出；冻结列带不越过带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
    */
   private textOverflowLimitX(
     col: number,
@@ -959,6 +959,7 @@ export class ListTable {
     left: number,
   ): number | null {
     if (
+      style.textOverflow !== undefined ||
       style.textWrap === true ||
       (this.options.columns[col]?.cellType ?? 'text') !== 'text' ||
       this.options.resolveCellRenderer?.(col, row) ||
@@ -1151,7 +1152,8 @@ export class ListTable {
     scrollableCols: WindowRange,
   ): void {
     const root = this.body.root
-    const headerStyle: CellStyle = this.theme.header
+    // 列头/行号列缺省 ellipsis（超宽标题省略号截断）；主题 header 分区显式给了 textOverflow 则以主题为准
+    const headerStyle: CellStyle = { textOverflow: 'ellipsis', ...this.theme.header }
     // 滚动条带先画、冻结条带后画：滑动的行/列头被冻结头覆盖
     for (const cols of [scrollableCols, frozenCols]) {
       for (let col = cols.start; col < cols.end; col++) {

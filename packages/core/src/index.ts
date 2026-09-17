@@ -18,8 +18,11 @@ export { projectCellStyle } from './cell-style'
 export type {
   CellBorder,
   CellBorderEdge,
+  CellBorderStyle,
+  CellPadding,
   CellStyle,
   CellTextAlign,
+  CellTextOverflow,
   CellVerticalAlign,
   ResolveCellStyle,
 } from './cell-style'
