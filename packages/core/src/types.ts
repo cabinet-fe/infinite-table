@@ -4,7 +4,7 @@ import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinite-table/
 
 import type { CellRange } from './cell-range'
 import type { CellType, ResolveCellRenderer } from './cell-renderer'
-import type { ResolveCellStyle } from './cell-style'
+import type { CellStyle, ResolveCellStyle } from './cell-style'
 import type { EditorRegistry } from './editor-registry'
 import type { ImageServiceOptions } from './media/image-service'
 import type { TablePlugin } from './plugin'
@@ -29,6 +29,12 @@ export interface ColumnDefine {
   editorMultiline?: boolean
   /** 该列文本自动换行：开启后超宽文本在格内断行，不向右侧空格溢出（可被逐格样式 hook 覆盖） */
   textWrap?: boolean
+  /**
+   * 列级样式来源：该列数据格的基础样式片段（字段全部可选）。
+   * 覆盖链「主题分区 token → 列级 → 按格 hook」：逐字段覆盖主题分区 token、被按格 hook 覆盖，
+   * 边框逐边独立合并（只作用于数据格，列头样式走 header 分区 token）。
+   */
+  style?: CellStyle
 }
 
 /**

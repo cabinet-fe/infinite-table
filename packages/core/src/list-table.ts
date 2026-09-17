@@ -805,12 +805,20 @@ export class ListTable {
     return (this.rowOffsets[row + 1] ?? 0) - (this.rowOffsets[row] ?? 0)
   }
 
-  /** 数据格样式投影：列级 textWrap 先并入主题 body token，再由 resolveCellStyle hook 逐字段/逐边覆盖 */
+  /**
+   * 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 按格 hook」逐字段覆盖——
+   * 上层给了的字段被下层覆盖、未给的沿用上层，边框逐边独立合并。
+   * 列级 textWrap 旗标并入主题层（先于列级样式片段）。
+   */
   private resolveStyle(col: number, row: number): CellStyle {
-    const base = this.options.columns[col]?.textWrap
+    const column = this.options.columns[col]
+    const base: CellStyle = column?.textWrap
       ? { ...this.theme.body, textWrap: true }
       : this.theme.body
-    return projectCellStyle(base, this.options.resolveCellStyle?.(col, row))
+    return projectCellStyle(
+      projectCellStyle(base, column?.style),
+      this.options.resolveCellStyle?.(col, row),
+    )
   }
 
   /**
@@ -949,8 +957,8 @@ export class ListTable {
 
   /**
    * 文本溢出允许的层坐标右界；null 表示该格不溢出（裁剪在本格内）。
- * Excel 规则：只溢出到右侧相邻空格，遇非空格停；换行、ellipsis/clip、checkbox、合并、图片、
- * 自定义渲染格不溢出；冻结列带不越过带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
+   * Excel 规则：只溢出到右侧相邻空格，遇非空格停；换行、ellipsis/clip、checkbox、合并、图片、
+   * 自定义渲染格不溢出；冻结列带不越过带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
    */
   private textOverflowLimitX(
     col: number,

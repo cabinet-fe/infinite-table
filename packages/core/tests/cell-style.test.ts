@@ -125,6 +125,57 @@ describe('projectCellStyle 文本样式字段逐字段覆盖', () => {
   })
 })
 
+describe('三层覆盖链：主题分区 token → 列级 → 按格 hook', () => {
+  // 链路经两次 projectCellStyle 组合：projectCellStyle(projectCellStyle(主题分区, 列级), hook)
+  const THEME_BODY: CellStyle = {
+    color: '#1f2329',
+    textAlign: 'right',
+    verticalAlign: 'bottom',
+    padding: [1, 2, 3, 4],
+    border: {
+      top: { width: 1, color: '#ddd', style: 'dashed' },
+      left: { width: 1, color: '#ddd' },
+    },
+  }
+  const COLUMN: CellStyle = {
+    textAlign: 'center',
+    fontSize: 14,
+    underline: true,
+    border: { left: { width: 2, color: '#f00', style: 'double' } },
+  }
+  const HOOK: CellStyle = {
+    fontSize: 16,
+    border: { top: { width: 3, color: '#00c' } },
+  }
+
+  const merged = projectCellStyle(projectCellStyle(THEME_BODY, COLUMN), HOOK)
+
+  it('列级压主题分区', () => {
+    expect(merged.textAlign).toBe('center')
+    expect(merged.border?.left).toEqual({ width: 2, color: '#f00', style: 'double' })
+  })
+
+  it('按格 hook 压列级', () => {
+    expect(merged.fontSize).toBe(16)
+    expect(merged.border?.top).toEqual({ width: 3, color: '#00c' })
+  })
+
+  it('未给的沿用上层', () => {
+    expect(merged.color).toBe('#1f2329')
+    expect(merged.verticalAlign).toBe('bottom')
+    expect(merged.padding).toEqual([1, 2, 3, 4])
+    expect(merged.underline).toBe(true)
+  })
+
+  it('边框逐边跨层合并：线型随所在边整体覆盖或保留', () => {
+    // top：hook 给了 → 整边覆盖主题的 dashed（线型回落 solid）；left：hook 未给 → 保留列级的 double
+    expect(merged.border).toEqual({
+      top: { width: 3, color: '#00c' },
+      left: { width: 2, color: '#f00', style: 'double' },
+    })
+  })
+})
+
 interface TextCall {
   text: string
   x: number
