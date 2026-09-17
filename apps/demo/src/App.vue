@@ -14,6 +14,7 @@ import DisplayView from './views/DisplayView.vue'
 import InteractionView from './views/InteractionView.vue'
 import MediaView from './views/MediaView.vue'
 import EditingView from './views/EditingView.vue'
+import SheetView from './views/SheetView.vue'
 import SmokeView from './views/SmokeView.vue'
 
 interface MenuItem {
@@ -61,6 +62,14 @@ const menuItems: MenuItem[] = [
     icon: '✏️',
     desc: 'SheetModel 内存模型、双击编辑、快捷键流、滚出提交',
     component: EditingView,
+  },
+  {
+    key: 'sheet',
+    label: 'sheet 电子表格',
+    icon: '🧮',
+    badge: '样式矩阵',
+    desc: '样式覆盖链、\\n 多行、合并、填充柄、运行时冻结合并、Enter 编辑',
+    component: SheetView,
   },
   {
     key: 'smoke',

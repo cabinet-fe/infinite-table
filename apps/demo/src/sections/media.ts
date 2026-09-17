@@ -2,9 +2,14 @@
 // FloatObjectLayer 承载格上浮动图片、随滚动帧级跟随。
 // 加载器注入本地生成的彩色位图（40ms 人工延迟），零网络、可重复。
 
-import type { LoadedImage } from '@infinite-table/core'
-
-import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount'
+import {
+  addButton,
+  addStatus,
+  createSection,
+  demoLoadImage,
+  mountTable,
+  type DemoMount,
+} from '../mount'
 
 export const MEDIA_COL_COUNT = 6
 export const MEDIA_ROW_COUNT = 500
@@ -16,34 +21,6 @@ export function imageUrlForRow(row: number): string {
 
 export const FLOAT_OBJECT_ID = 'float-1'
 export const FLOAT_IMAGE_URL = 'demo://float/main'
-
-const IMAGE_WIDTH = 96
-const IMAGE_HEIGHT = 28
-
-function hashCode(text: string): number {
-  let hash = 0
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + text.charCodeAt(i)) | 0
-  }
-  return Math.abs(hash)
-}
-
-/** 本地图片加载器：按 URL 生成确定色的 canvas 位图，40ms 人工延迟模拟异步加载 */
-async function demoLoadImage(url: string): Promise<LoadedImage> {
-  await new Promise((resolve) => setTimeout(resolve, 40))
-  const canvas = document.createElement('canvas')
-  canvas.width = IMAGE_WIDTH
-  canvas.height = IMAGE_HEIGHT
-  const ctx = canvas.getContext('2d')
-  if (ctx) {
-    ctx.fillStyle = `hsl(${hashCode(url) % 360} 70% 55%)`
-    ctx.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
-    ctx.fillStyle = '#ffffff'
-    ctx.font = '11px sans-serif'
-    ctx.fillText(url.split('/').pop() ?? url, 6, 18)
-  }
-  return { source: canvas, width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
-}
 
 export interface MediaDemo {
   mount: DemoMount

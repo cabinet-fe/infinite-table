@@ -1,4 +1,6 @@
-// 演示区装配的公共件：建 section DOM、挂表（滚轮接线）、按钮与状态行。
+// 演示区装配的公共件：建 section DOM、挂表（滚轮接线）、按钮与状态行、本地演示图片加载器。
+
+import type { LoadedImage } from '@infinite-table/core'
 
 import { ListTable, type ListTableOptions } from '@infinite-table/core'
 
@@ -78,4 +80,32 @@ export function addStatus(section: HTMLElement, initial = ''): HTMLElement {
   status.textContent = initial
   section.appendChild(status)
   return status
+}
+
+const IMAGE_WIDTH = 96
+const IMAGE_HEIGHT = 28
+
+function hashCode(text: string): number {
+  let hash = 0
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash)
+}
+
+/** 本地图片加载器（演示区共享）：按 URL 生成确定色的 canvas 位图，40ms 人工延迟模拟异步加载 */
+export async function demoLoadImage(url: string): Promise<LoadedImage> {
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  const canvas = document.createElement('canvas')
+  canvas.width = IMAGE_WIDTH
+  canvas.height = IMAGE_HEIGHT
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    ctx.fillStyle = `hsl(${hashCode(url) % 360} 70% 55%)`
+    ctx.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = '11px sans-serif'
+    ctx.fillText(url.split('/').pop() ?? url, 6, 18)
+  }
+  return { source: canvas, width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
 }

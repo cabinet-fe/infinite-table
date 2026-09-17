@@ -1,4 +1,4 @@
-// 基准数据集：docs/perf-redesign 07 §1.1 口径的 10 万行 × 20 列固定尺寸表
+// 基准数据集：10 万行 × 20 列固定尺寸表
 
 import type { ColumnDefine, DataRecord } from '@infinite-table/core'
 
