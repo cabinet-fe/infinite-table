@@ -2,51 +2,51 @@
 // FloatObjectLayer 承载格上浮动图片、随滚动帧级跟随。
 // 加载器注入本地生成的彩色位图（40ms 人工延迟），零网络、可重复。
 
-import type { LoadedImage } from '@infinite-table/core';
+import type { LoadedImage } from '@infinite-table/core'
 
-import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount';
+import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount'
 
-export const MEDIA_COL_COUNT = 6;
-export const MEDIA_ROW_COUNT = 500;
+export const MEDIA_COL_COUNT = 6
+export const MEDIA_ROW_COUNT = 500
 
 /** 图片格规则：第 1 列偶数行；URL 为本地伪协议（由注入的 loadImage 生成位图） */
 export function imageUrlForRow(row: number): string {
-  return `demo://img/${row}`;
+  return `demo://img/${row}`
 }
 
-export const FLOAT_OBJECT_ID = 'float-1';
-export const FLOAT_IMAGE_URL = 'demo://float/main';
+export const FLOAT_OBJECT_ID = 'float-1'
+export const FLOAT_IMAGE_URL = 'demo://float/main'
 
-const IMAGE_WIDTH = 96;
-const IMAGE_HEIGHT = 28;
+const IMAGE_WIDTH = 96
+const IMAGE_HEIGHT = 28
 
 function hashCode(text: string): number {
-  let hash = 0;
+  let hash = 0
   for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+    hash = (hash * 31 + text.charCodeAt(i)) | 0
   }
-  return Math.abs(hash);
+  return Math.abs(hash)
 }
 
 /** 本地图片加载器：按 URL 生成确定色的 canvas 位图，40ms 人工延迟模拟异步加载 */
 async function demoLoadImage(url: string): Promise<LoadedImage> {
-  await new Promise((resolve) => setTimeout(resolve, 40));
-  const canvas = document.createElement('canvas');
-  canvas.width = IMAGE_WIDTH;
-  canvas.height = IMAGE_HEIGHT;
-  const ctx = canvas.getContext('2d');
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  const canvas = document.createElement('canvas')
+  canvas.width = IMAGE_WIDTH
+  canvas.height = IMAGE_HEIGHT
+  const ctx = canvas.getContext('2d')
   if (ctx) {
-    ctx.fillStyle = `hsl(${hashCode(url) % 360} 70% 55%)`;
-    ctx.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '11px sans-serif';
-    ctx.fillText(url.split('/').pop() ?? url, 6, 18);
+    ctx.fillStyle = `hsl(${hashCode(url) % 360} 70% 55%)`
+    ctx.fillRect(0, 0, IMAGE_WIDTH, IMAGE_HEIGHT)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = '11px sans-serif'
+    ctx.fillText(url.split('/').pop() ?? url, 6, 18)
   }
-  return { source: canvas, width: IMAGE_WIDTH, height: IMAGE_HEIGHT };
+  return { source: canvas, width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
 }
 
 export interface MediaDemo {
-  mount: DemoMount;
+  mount: DemoMount
 }
 
 export function mountMedia(root: HTMLElement): MediaDemo {
@@ -55,7 +55,7 @@ export function mountMedia(root: HTMLElement): MediaDemo {
     '图片与浮动对象',
     '第 1 列偶数行为格内图片（L2 media 层 + 窗口化加载 + 位图 LRU，滚动来回无闪）；' +
       '一个浮动图片对象锚在 (2,1)~(4,3)，随滚动帧级跟随。',
-  );
+  )
 
   const mount: DemoMount = mountTable(section, {
     width: 720,
@@ -68,18 +68,18 @@ export function mountMedia(root: HTMLElement): MediaDemo {
     resolveDisplayValue: (col, row) => `m-${col}-${row}`,
     resolveCellImage: (col, row) => (col === 1 && row % 2 === 0 ? imageUrlForRow(row) : null),
     imageServiceOptions: { loadImage: demoLoadImage },
-  });
-  const { table } = mount;
+  })
+  const { table } = mount
 
-  let loadedCount = 0;
-  const status = addStatus(section, '图片已加载 0 张');
+  let loadedCount = 0
+  const status = addStatus(section, '图片已加载 0 张')
   table.imageService.onImageLoad(() => {
-    loadedCount++;
-    status.textContent = `图片已加载 ${loadedCount} 张`;
-  });
+    loadedCount++
+    status.textContent = `图片已加载 ${loadedCount} 张`
+  })
   table.imageService.onImageError((event) => {
-    status.textContent = `图片加载失败：${event.url}`;
-  });
+    status.textContent = `图片加载失败：${event.url}`
+  })
 
   const addFloat = () => {
     table.floatObjects.add({
@@ -88,16 +88,16 @@ export function mountMedia(root: HTMLElement): MediaDemo {
       anchor: { from: { col: 2, row: 1 }, to: { col: 4, row: 3 }, offsetX: 8, offsetY: 8 },
       src: FLOAT_IMAGE_URL,
       title: '浮动图片',
-    });
-  };
-  addFloat();
+    })
+  }
+  addFloat()
   addButton(section, '移除/重建浮动对象', () => {
     if (table.floatObjects.get(FLOAT_OBJECT_ID)) {
-      table.floatObjects.remove(FLOAT_OBJECT_ID);
+      table.floatObjects.remove(FLOAT_OBJECT_ID)
     } else {
-      addFloat();
+      addFloat()
     }
-  });
+  })
 
-  return { mount };
+  return { mount }
 }

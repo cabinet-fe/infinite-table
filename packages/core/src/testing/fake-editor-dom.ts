@@ -6,87 +6,87 @@ import type {
   TextEditorElement,
   TextEditorElementStyle,
   TextEditorHost,
-} from '../editing/text-editor';
+} from '../editing/text-editor'
 
 export class FakeEditorElement implements TextEditorElement {
-  value = '';
+  value = ''
   readonly style: TextEditorElementStyle = {
     position: '',
     left: '',
     top: '',
     width: '',
     height: '',
-  };
-  focusCalls = 0;
-  readonly listeners = new Map<string, Set<(event: EditorKeyEvent) => void>>();
+  }
+  focusCalls = 0
+  readonly listeners = new Map<string, Set<(event: EditorKeyEvent) => void>>()
 
   constructor(readonly tagName: 'input' | 'textarea') {}
 
   focus(): void {
-    this.focusCalls++;
+    this.focusCalls++
   }
 
   addEventListener(type: string, listener: (event: EditorKeyEvent) => void): void {
-    let set = this.listeners.get(type);
+    let set = this.listeners.get(type)
     if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
+      set = new Set()
+      this.listeners.set(type, set)
     }
-    set.add(listener);
+    set.add(listener)
   }
 
   removeEventListener(type: string, listener: (event: EditorKeyEvent) => void): void {
-    this.listeners.get(type)?.delete(listener);
+    this.listeners.get(type)?.delete(listener)
   }
 
   /** 派发键盘事件；返回拦截行为记录（preventDefault/stopPropagation 是否被调用） */
   dispatchKey(key: string): { prevented: boolean; stopped: boolean } {
-    let prevented = false;
-    let stopped = false;
+    let prevented = false
+    let stopped = false
     for (const listener of this.listeners.get('keydown') ?? []) {
       listener({
         key,
         preventDefault: () => {
-          prevented = true;
+          prevented = true
         },
         stopPropagation: () => {
-          stopped = true;
+          stopped = true
         },
-      });
+      })
     }
-    return { prevented, stopped };
+    return { prevented, stopped }
   }
 }
 
 export class FakeEditorHost implements TextEditorHost {
-  readonly children: FakeEditorElement[] = [];
-  focusCalls = 0;
+  readonly children: FakeEditorElement[] = []
+  focusCalls = 0
 
   focus(): void {
-    this.focusCalls++;
+    this.focusCalls++
   }
 
   appendChild(child: FakeEditorElement): void {
-    this.children.push(child);
+    this.children.push(child)
   }
 
   removeChild(child: FakeEditorElement): void {
-    const index = this.children.indexOf(child);
+    const index = this.children.indexOf(child)
     if (index >= 0) {
-      this.children.splice(index, 1);
+      this.children.splice(index, 1)
     }
   }
 }
 
 /** 建假文档：记录创建过的元素，供测试取回编辑器元素 */
 export function createFakeDoc(): { doc: TextEditorDoc; created: FakeEditorElement[] } {
-  const created: FakeEditorElement[] = [];
+  const created: FakeEditorElement[] = []
   const doc: TextEditorDoc = {
     createElement: (tag) => {
-      const element = new FakeEditorElement(tag);
-      created.push(element);
-      return element;
+      const element = new FakeEditorElement(tag)
+      created.push(element)
+      return element
     },
-  };
-  return { doc, created };
+  }
+  return { doc, created }
 }

@@ -1,11 +1,11 @@
 // 网格几何：行列偏移与虚拟滚动窗口计算（纯函数，便于单测）
 
-import type { Region } from '@infinite-table/render';
+import type { Region } from '@infinite-table/render'
 
 /** 窗口区间 [start, end) */
 export interface WindowRange {
-  start: number;
-  end: number;
+  start: number
+  end: number
 }
 
 /** 等行高下按滚动位置求可见行窗口（含边缘部分可见行） */
@@ -16,28 +16,28 @@ export function computeRowWindow(
   rowHeight: number,
 ): WindowRange {
   if (rowCount <= 0 || rowHeight <= 0 || viewportHeight <= 0) {
-    return { start: 0, end: 0 };
+    return { start: 0, end: 0 }
   }
-  const start = Math.min(Math.max(Math.floor(scrollTop / rowHeight), 0), rowCount - 1);
+  const start = Math.min(Math.max(Math.floor(scrollTop / rowHeight), 0), rowCount - 1)
   const end = Math.min(
     Math.max(Math.ceil((scrollTop + viewportHeight) / rowHeight), start),
     rowCount,
-  );
-  return { start, end };
+  )
+  return { start, end }
 }
 
 /** 列宽前缀和：offsets[i] 为第 i 列左缘的内容坐标，length = 列数 + 1 */
 export function computeColOffsets(colWidths: readonly number[]): number[] {
-  const offsets: number[] = [0];
+  const offsets: number[] = [0]
   for (const width of colWidths) {
-    offsets.push((offsets[offsets.length - 1] ?? 0) + width);
+    offsets.push((offsets[offsets.length - 1] ?? 0) + width)
   }
-  return offsets;
+  return offsets
 }
 
 /** 夹取冻结数量到 [0, total] */
 export function clampFrozenCount(count: number, total: number): number {
-  return Math.min(Math.max(count, 0), total);
+  return Math.min(Math.max(count, 0), total)
 }
 
 /** 按滚动位置求可见列窗口（含边缘部分可见列）；列数有限，线性扫描即可 */
@@ -46,20 +46,20 @@ export function computeColWindow(
   viewportWidth: number,
   colOffsets: readonly number[],
 ): WindowRange {
-  const colCount = colOffsets.length - 1;
+  const colCount = colOffsets.length - 1
   if (colCount <= 0 || viewportWidth <= 0) {
-    return { start: 0, end: 0 };
+    return { start: 0, end: 0 }
   }
-  let start = 0;
+  let start = 0
   while (start < colCount - 1 && (colOffsets[start + 1] ?? 0) <= scrollLeft) {
-    start++;
+    start++
   }
-  const right = scrollLeft + viewportWidth;
-  let end = start;
+  const right = scrollLeft + viewportWidth
+  let end = start
   while (end < colCount && (colOffsets[end] ?? 0) < right) {
-    end++;
+    end++
   }
-  return { start, end };
+  return { start, end }
 }
 
 /** 行高前缀和：支持逐行高度覆盖（行 resize 产物），length = 行数 + 1 */
@@ -68,11 +68,11 @@ export function computeRowOffsets(
   defaultRowHeight: number,
   rowHeights?: ReadonlyMap<number, number>,
 ): number[] {
-  const offsets: number[] = [0];
+  const offsets: number[] = [0]
   for (let row = 0; row < rowCount; row++) {
-    offsets.push((offsets[offsets.length - 1] ?? 0) + (rowHeights?.get(row) ?? defaultRowHeight));
+    offsets.push((offsets[offsets.length - 1] ?? 0) + (rowHeights?.get(row) ?? defaultRowHeight))
   }
-  return offsets;
+  return offsets
 }
 
 /** 按行高前缀和求可见行窗口（含边缘部分可见行），语义同 computeRowWindow */
@@ -81,46 +81,46 @@ export function computeRowWindowFromOffsets(
   viewportHeight: number,
   rowOffsets: readonly number[],
 ): WindowRange {
-  const rowCount = rowOffsets.length - 1;
+  const rowCount = rowOffsets.length - 1
   if (rowCount <= 0 || viewportHeight <= 0) {
-    return { start: 0, end: 0 };
+    return { start: 0, end: 0 }
   }
-  let start = 0;
+  let start = 0
   while (start < rowCount - 1 && (rowOffsets[start + 1] ?? 0) <= scrollTop) {
-    start++;
+    start++
   }
-  const bottom = scrollTop + viewportHeight;
-  let end = start;
+  const bottom = scrollTop + viewportHeight
+  let end = start
   while (end < rowCount && (rowOffsets[end] ?? 0) < bottom) {
-    end++;
+    end++
   }
-  return { start, end };
+  return { start, end }
 }
 
 /** 内容坐标 y 命中的行；未命中（越界）返回 -1 */
 export function findRowAt(rowOffsets: readonly number[], contentY: number): number {
-  const rowCount = rowOffsets.length - 1;
+  const rowCount = rowOffsets.length - 1
   if (rowCount <= 0 || contentY < 0 || contentY >= (rowOffsets[rowCount] ?? 0)) {
-    return -1;
+    return -1
   }
-  let row = 0;
+  let row = 0
   while (row < rowCount - 1 && (rowOffsets[row + 1] ?? 0) <= contentY) {
-    row++;
+    row++
   }
-  return row;
+  return row
 }
 
 /** 内容坐标 x 命中的列；未命中（越界）返回 -1 */
 export function findColAt(colOffsets: readonly number[], contentX: number): number {
-  const colCount = colOffsets.length - 1;
+  const colCount = colOffsets.length - 1
   if (colCount <= 0 || contentX < 0 || contentX >= (colOffsets[colCount] ?? 0)) {
-    return -1;
+    return -1
   }
-  let col = 0;
+  let col = 0
   while (col < colCount - 1 && (colOffsets[col + 1] ?? 0) <= contentX) {
-    col++;
+    col++
   }
-  return col;
+  return col
 }
 
 // ---- 冻结：冻结行/列的区域划分（冻结区固定，滚动区随滚动位置平移） ----
@@ -138,18 +138,18 @@ export function computeScrollableRowWindow(
   frozenRowCount: number,
 ): WindowRange {
   if (frozenRowCount === 0) {
-    return computeRowWindow(scrollTop, viewportHeight, rowCount, rowHeight);
+    return computeRowWindow(scrollTop, viewportHeight, rowCount, rowHeight)
   }
   const window = computeRowWindow(
     scrollTop + frozenRowCount * rowHeight,
     viewportHeight,
     rowCount,
     rowHeight,
-  );
+  )
   return {
     start: Math.max(window.start, frozenRowCount),
     end: Math.max(window.end, frozenRowCount),
-  };
+  }
 }
 
 /** 非冻结列的可见窗口（列索引区间），语义同 computeScrollableRowWindow */
@@ -160,14 +160,14 @@ export function computeScrollableColWindow(
   frozenColCount: number,
 ): WindowRange {
   if (frozenColCount === 0) {
-    return computeColWindow(scrollLeft, viewportWidth, colOffsets);
+    return computeColWindow(scrollLeft, viewportWidth, colOffsets)
   }
-  const frozenWidth = colOffsets[frozenColCount] ?? 0;
-  const window = computeColWindow(scrollLeft + frozenWidth, viewportWidth, colOffsets);
+  const frozenWidth = colOffsets[frozenColCount] ?? 0
+  const window = computeColWindow(scrollLeft + frozenWidth, viewportWidth, colOffsets)
   return {
     start: Math.max(window.start, frozenColCount),
     end: Math.max(window.end, frozenColCount),
-  };
+  }
 }
 
 /** 数据列左缘的层坐标 x：冻结列固定，非冻结列随 scrollLeft 平移 */
@@ -178,7 +178,7 @@ export function resolveCellX(
   frozenColCount: number,
   rowHeaderWidth: number,
 ): number {
-  return rowHeaderWidth + (colOffsets[col] ?? 0) - (col < frozenColCount ? 0 : scrollLeft);
+  return rowHeaderWidth + (colOffsets[col] ?? 0) - (col < frozenColCount ? 0 : scrollLeft)
 }
 
 /** 数据行上缘的层坐标 y：冻结行固定，非冻结行随 scrollTop 平移 */
@@ -189,7 +189,7 @@ export function resolveCellY(
   frozenRowCount: number,
   headerHeight: number,
 ): number {
-  return headerHeight + row * rowHeight - (row < frozenRowCount ? 0 : scrollTop);
+  return headerHeight + row * rowHeight - (row < frozenRowCount ? 0 : scrollTop)
 }
 
 /**
@@ -203,17 +203,17 @@ export function computeScrollableRowWindowFromOffsets(
   frozenRowCount: number,
 ): WindowRange {
   if (frozenRowCount === 0) {
-    return computeRowWindowFromOffsets(scrollTop, viewportHeight, rowOffsets);
+    return computeRowWindowFromOffsets(scrollTop, viewportHeight, rowOffsets)
   }
   const window = computeRowWindowFromOffsets(
     scrollTop + (rowOffsets[frozenRowCount] ?? 0),
     viewportHeight,
     rowOffsets,
-  );
+  )
   return {
     start: Math.max(window.start, frozenRowCount),
     end: Math.max(window.end, frozenRowCount),
-  };
+  }
 }
 
 /** 数据行上缘的层坐标 y（逐行高度版）：冻结行固定，非冻结行随 scrollTop 平移 */
@@ -224,23 +224,23 @@ export function resolveCellYFromOffsets(
   frozenRowCount: number,
   headerHeight: number,
 ): number {
-  return headerHeight + (rowOffsets[row] ?? 0) - (row < frozenRowCount ? 0 : scrollTop);
+  return headerHeight + (rowOffsets[row] ?? 0) - (row < frozenRowCount ? 0 : scrollTop)
 }
 
 /** 多个矩形的最小包围盒；空数组返回 null（批量更新合并失效用） */
 export function unionRegions(regions: readonly Region[]): Region | null {
   if (regions.length === 0) {
-    return null;
+    return null
   }
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
   for (const region of regions) {
-    minX = Math.min(minX, region.x);
-    minY = Math.min(minY, region.y);
-    maxX = Math.max(maxX, region.x + region.width);
-    maxY = Math.max(maxY, region.y + region.height);
+    minX = Math.min(minX, region.x)
+    minY = Math.min(minY, region.y)
+    maxX = Math.max(maxX, region.x + region.width)
+    maxY = Math.max(maxY, region.y + region.height)
   }
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }

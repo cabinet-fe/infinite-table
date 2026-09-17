@@ -1,12 +1,12 @@
 // 模型事件订阅绑定：外部模型变更 → 表格局部刷新；
 // 表格回驱（writeBack）期间模型同步 echo 回来的事件被吞掉，防回环。
 
-import type { CellChangeEvent, TableModel } from './types';
+import type { CellChangeEvent, TableModel } from './types'
 
 export class ModelBinding {
   /** 回驱深度：> 0 期间收到的事件视为 echo，一律吞掉 */
-  private echoDepth = 0;
-  private unsubscribe: (() => void) | null = null;
+  private echoDepth = 0
+  private unsubscribe: (() => void) | null = null
 
   constructor(
     private readonly model: TableModel,
@@ -16,14 +16,14 @@ export class ModelBinding {
   /** 开始订阅模型变更；重复调用幂等 */
   attach(): void {
     if (this.unsubscribe) {
-      return;
+      return
     }
     this.unsubscribe = this.model.onCellChange((change) => {
       if (this.echoDepth > 0) {
-        return;
+        return
       }
-      this.onExternalChange(change);
-    });
+      this.onExternalChange(change)
+    })
   }
 
   /**
@@ -32,18 +32,18 @@ export class ModelBinding {
    */
   writeBack(col: number, row: number, value: unknown): void {
     if (!this.model.setCellValue || this.echoDepth > 0) {
-      return;
+      return
     }
-    this.echoDepth++;
+    this.echoDepth++
     try {
-      this.model.setCellValue(col, row, value);
+      this.model.setCellValue(col, row, value)
     } finally {
-      this.echoDepth--;
+      this.echoDepth--
     }
   }
 
   dispose(): void {
-    this.unsubscribe?.();
-    this.unsubscribe = null;
+    this.unsubscribe?.()
+    this.unsubscribe = null
   }
 }

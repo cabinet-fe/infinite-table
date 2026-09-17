@@ -4,35 +4,35 @@
 /** 单边边框样式 */
 export interface CellBorderEdge {
   /** 边线宽（CSS 像素） */
-  width: number;
-  color: string;
+  width: number
+  color: string
 }
 
 /** 四边独立边框；缺省的边不绘制 */
 export interface CellBorder {
-  top?: CellBorderEdge;
-  right?: CellBorderEdge;
-  bottom?: CellBorderEdge;
-  left?: CellBorderEdge;
+  top?: CellBorderEdge
+  right?: CellBorderEdge
+  bottom?: CellBorderEdge
+  left?: CellBorderEdge
 }
 
 /** 单元格样式（逐格投影的最终形态） */
 export interface CellStyle {
-  background?: string;
-  color?: string;
-  font?: string;
+  background?: string
+  color?: string
+  font?: string
   /** 文本自动换行：开启后超宽文本在格内断行，不向右侧空格溢出 */
-  textWrap?: boolean;
-  border?: CellBorder;
+  textWrap?: boolean
+  border?: CellBorder
 }
 
 /**
  * 按格样式 hook：纯函数、同步、O(1)。
  * 返回 null 表示该格沿用基础样式。
  */
-export type ResolveCellStyle = (col: number, row: number) => CellStyle | null;
+export type ResolveCellStyle = (col: number, row: number) => CellStyle | null
 
-const BORDER_EDGES = ['top', 'right', 'bottom', 'left'] as const;
+const BORDER_EDGES = ['top', 'right', 'bottom', 'left'] as const
 
 /**
  * 样式投影：override 逐字段覆盖 base；边框逐边独立合并
@@ -47,17 +47,17 @@ export function projectCellStyle(
     color: override?.color ?? base.color,
     font: override?.font ?? base.font,
     textWrap: override?.textWrap ?? base.textWrap,
-  };
-  let border: CellBorder | undefined;
+  }
+  let border: CellBorder | undefined
   for (const edge of BORDER_EDGES) {
-    const style = override?.border?.[edge] ?? base.border?.[edge];
+    const style = override?.border?.[edge] ?? base.border?.[edge]
     if (style) {
-      border = border ?? {};
-      border[edge] = style;
+      border = border ?? {}
+      border[edge] = style
     }
   }
   if (border) {
-    result.border = border;
+    result.border = border
   }
-  return result;
+  return result
 }

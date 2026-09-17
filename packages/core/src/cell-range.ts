@@ -3,10 +3,10 @@
 
 /** 单元格区间（闭区间，归一化后 start ≤ end） */
 export interface CellRange {
-  startCol: number;
-  startRow: number;
-  endCol: number;
-  endRow: number;
+  startCol: number
+  startRow: number
+  endCol: number
+  endRow: number
 }
 
 /** 归一化：交换使 start ≤ end */
@@ -16,14 +16,14 @@ export function normalizeCellRange(range: CellRange): CellRange {
     startRow: Math.min(range.startRow, range.endRow),
     endCol: Math.max(range.startCol, range.endCol),
     endRow: Math.max(range.startRow, range.endRow),
-  };
+  }
 }
 
 /** (col, row) 是否落在区间内 */
 export function rangeContains(range: CellRange, col: number, row: number): boolean {
   return (
     col >= range.startCol && col <= range.endCol && row >= range.startRow && row <= range.endRow
-  );
+  )
 }
 
 /**
@@ -35,14 +35,14 @@ export function rangeCrossesBoundary(
   frozenColCount: number,
   frozenRowCount: number,
 ): boolean {
-  const crossCol = range.startCol < frozenColCount !== range.endCol < frozenColCount;
-  const crossRow = range.startRow < frozenRowCount !== range.endRow < frozenRowCount;
-  return crossCol || crossRow;
+  const crossCol = range.startCol < frozenColCount !== range.endCol < frozenColCount
+  const crossRow = range.startRow < frozenRowCount !== range.endRow < frozenRowCount
+  return crossCol || crossRow
 }
 
 /** 单格区间不算合并（跨域为 1x1 时无意义） */
 function isSingleCell(range: CellRange): boolean {
-  return range.startCol === range.endCol && range.startRow === range.endRow;
+  return range.startCol === range.endCol && range.startRow === range.endRow
 }
 
 /**
@@ -51,47 +51,47 @@ function isSingleCell(range: CellRange): boolean {
  */
 export class MergeCellMap {
   /** 归一化后的合并区列表 */
-  readonly ranges: readonly CellRange[];
-  private readonly byCoord = new Map<string, CellRange>();
+  readonly ranges: readonly CellRange[]
+  private readonly byCoord = new Map<string, CellRange>()
 
   constructor(ranges: readonly CellRange[] = []) {
-    const normalized: CellRange[] = [];
+    const normalized: CellRange[] = []
     for (const raw of ranges) {
-      const range = normalizeCellRange(raw);
+      const range = normalizeCellRange(raw)
       if (isSingleCell(range)) {
-        continue;
+        continue
       }
       for (let row = range.startRow; row <= range.endRow; row++) {
         for (let col = range.startCol; col <= range.endCol; col++) {
-          const key = `${col}:${row}`;
+          const key = `${col}:${row}`
           if (this.byCoord.has(key)) {
             throw new Error(
               `merge ranges overlap at (${col}, ${row}): ` +
                 `[${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}]`,
-            );
+            )
           }
-          this.byCoord.set(key, range);
+          this.byCoord.set(key, range)
         }
       }
-      normalized.push(range);
+      normalized.push(range)
     }
-    this.ranges = normalized;
+    this.ranges = normalized
   }
 
   /** 覆盖 (col, row) 的合并区；未覆盖返回 null */
   rangeAt(col: number, row: number): CellRange | null {
-    return this.byCoord.get(`${col}:${row}`) ?? null;
+    return this.byCoord.get(`${col}:${row}`) ?? null
   }
 
   /** (col, row) 所属合并区的主格（左上角）坐标；未被任何合并区覆盖返回 null */
   masterOf(col: number, row: number): { col: number; row: number } | null {
-    const range = this.rangeAt(col, row);
-    return range ? { col: range.startCol, row: range.startRow } : null;
+    const range = this.rangeAt(col, row)
+    return range ? { col: range.startCol, row: range.startRow } : null
   }
 
   /** (col, row) 是否为合并区主格（未被覆盖时视为自身即主格，返回 false） */
   isMaster(col: number, row: number): boolean {
-    const range = this.rangeAt(col, row);
-    return range !== null && range.startCol === col && range.startRow === row;
+    const range = this.rangeAt(col, row)
+    return range !== null && range.startCol === col && range.startRow === row
   }
 }

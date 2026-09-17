@@ -1,6 +1,6 @@
-import type { Region, RenderContext } from '../types';
-import { intersects } from '../region';
-import type { SceneNode } from './scene-node';
+import type { Region, RenderContext } from '../types'
+import { intersects } from '../region'
+import type { SceneNode } from './scene-node'
 
 /**
  * 绘制遍历：先绘自身再按 children 顺序绘子节点（后者在上）。
@@ -14,18 +14,18 @@ export function paintTree(
   offsetY = 0,
 ): void {
   if (!node.visible) {
-    return;
+    return
   }
-  const gx = offsetX + node.x;
-  const gy = offsetY + node.y;
+  const gx = offsetX + node.x
+  const gy = offsetY + node.y
   if (cull && !intersects({ x: gx, y: gy, width: node.width, height: node.height }, cull)) {
-    return;
+    return
   }
-  ctx.save();
-  ctx.translate(node.x, node.y);
-  node.paint(ctx);
+  ctx.save()
+  ctx.translate(node.x, node.y)
+  node.paint(ctx)
   for (const child of node.children) {
-    paintTree(child, ctx, cull, gx, gy);
+    paintTree(child, ctx, cull, gx, gy)
   }
-  ctx.restore();
+  ctx.restore()
 }

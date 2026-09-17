@@ -1,4 +1,4 @@
-import type { SceneNode } from './scene-node';
+import type { SceneNode } from './scene-node'
 
 /**
  * 命中测试：x/y 为 node 父坐标系下的点（根节点即层坐标），
@@ -6,21 +6,21 @@ import type { SceneNode } from './scene-node';
  */
 export function hitTest(node: SceneNode, x: number, y: number): SceneNode | null {
   if (!node.visible) {
-    return null;
+    return null
   }
-  const lx = x - node.x;
-  const ly = y - node.y;
+  const lx = x - node.x
+  const ly = y - node.y
   if (lx < 0 || ly < 0 || lx >= node.width || ly >= node.height) {
-    return null;
+    return null
   }
   for (let i = node.children.length - 1; i >= 0; i--) {
-    const child = node.children[i];
+    const child = node.children[i]
     if (child) {
-      const hit = hitTest(child, lx, ly);
+      const hit = hitTest(child, lx, ly)
       if (hit) {
-        return hit;
+        return hit
       }
     }
   }
-  return node.pickable ? node : null;
+  return node.pickable ? node : null
 }

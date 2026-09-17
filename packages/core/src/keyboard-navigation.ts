@@ -1,6 +1,6 @@
 // 键盘导航：方向键/Tab 移动活动格与滚动跟随（纯函数，便于单测）
 
-import type { CellRef } from './types';
+import type { CellRef } from './types'
 
 /**
  * 按按键求下一个活动格；无法处理的键返回 null。
@@ -14,25 +14,25 @@ export function nextActiveCell(
   shiftKey = false,
 ): CellRef | null {
   if (colCount <= 0 || rowCount <= 0) {
-    return null;
+    return null
   }
-  const clampCol = (col: number) => Math.min(Math.max(col, 0), colCount - 1);
-  const clampRow = (row: number) => Math.min(Math.max(row, 0), rowCount - 1);
+  const clampCol = (col: number) => Math.min(Math.max(col, 0), colCount - 1)
+  const clampRow = (row: number) => Math.min(Math.max(row, 0), rowCount - 1)
   switch (key) {
     case 'ArrowUp':
-      return { col: current.col, row: clampRow(current.row - 1) };
+      return { col: current.col, row: clampRow(current.row - 1) }
     case 'ArrowDown':
-      return { col: current.col, row: clampRow(current.row + 1) };
+      return { col: current.col, row: clampRow(current.row + 1) }
     case 'ArrowLeft':
-      return { col: clampCol(current.col - 1), row: current.row };
+      return { col: clampCol(current.col - 1), row: current.row }
     case 'ArrowRight':
-      return { col: clampCol(current.col + 1), row: current.row };
+      return { col: clampCol(current.col + 1), row: current.row }
     case 'Tab':
       return shiftKey
         ? { col: clampCol(current.col - 1), row: current.row }
-        : { col: clampCol(current.col + 1), row: current.row };
+        : { col: clampCol(current.col + 1), row: current.row }
     default:
-      return null;
+      return null
   }
 }
 
@@ -47,10 +47,10 @@ export function revealAxis(
   size: number,
 ): number {
   if (start < scrollPos) {
-    return start;
+    return start
   }
   if (start + size > scrollPos + viewportSize) {
-    return start + size - viewportSize;
+    return start + size - viewportSize
   }
-  return scrollPos;
+  return scrollPos
 }
