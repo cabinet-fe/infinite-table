@@ -5,6 +5,7 @@ import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinite-table/
 import type { CellRange } from './cell-range';
 import type { CellType, ResolveCellRenderer } from './cell-renderer';
 import type { ResolveCellStyle } from './cell-style';
+import type { EditorRegistry } from './editor-registry';
 import type { ImageServiceOptions } from './media/image-service';
 import type { TablePlugin } from './plugin';
 import type { ThemeOverride } from './theme';
@@ -92,6 +93,8 @@ export interface ListTableOptions {
   resolveCellImage?: ResolveCellImage;
   /** 格级可编判定：返回 false 该格不可编（缺省全部可编） */
   resolveEditable?: (col: number, row: number) => boolean;
+  /** 编辑器注册表（可编第一级判定与格级路由）；缺省为空表，也可事后经 table.editorRegistry 注册 */
+  editorRegistry?: EditorRegistry;
   /** ImageService 配置（位图 LRU 预算/并发/占位延迟/加载器注入等） */
   imageServiceOptions?: ImageServiceOptions;
   /** 左侧冻结列数（数据列，不含行号列；缺省 0） */

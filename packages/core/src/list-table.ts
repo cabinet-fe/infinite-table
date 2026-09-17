@@ -7,6 +7,8 @@
 // 键盘导航、触控惯性滚动、contextmenu 事件、onScrollFrame 帧级同步、批量更新合并失效。
 // 图片（P7）：格内图片在 L2 media 层渲染（ImageService 窗口化加载 + cell 级位图 LRU +
 // 无闪协议），浮动对象层挂 sky 层最顶、随滚动帧级跟随。
+// 编辑（P2）：双击（含触控双击）进入编辑，EditManager 为编辑状态唯一源，
+// DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位。
 
 import {
   createRenderHost,
@@ -20,6 +22,9 @@ import { CellNode } from './cell-node';
 import { MergeCellMap, rangeCrossesBoundary } from './cell-range';
 import { projectCellStyle, type CellStyle } from './cell-style';
 import { CellValuePipeline } from './cell-value';
+import { EditManager, type EditCommitMove } from './editing/edit-manager';
+import type { TextEditorHost } from './editing/text-editor';
+import { EditorRegistry } from './editor-registry';
 import {
   clampFrozenCount,
   computeColOffsets,
@@ -54,6 +59,7 @@ import { SelectionState, type SelectionListener, type SelectionSnapshot } from '
 import { extendsTheme, type TableTheme } from './theme';
 import { InertiaScroller, TouchScrollTracker } from './touch-scroll';
 import type {
+  CellChangeEvent,
   CellRef,
   ContextMenuListener,
   ListTableOptions,
@@ -68,6 +74,10 @@ export type ScrollFrameListener = (state: ScrollState) => void;
 
 /** 图片加载窗口余量（px）：视口外扩，对齐 docs/perf-redesign 04 的 240 预挂值 */
 const IMAGE_WINDOW_MARGIN = 240;
+
+/** 双击/双触判定窗口与位移阈值（鼠标双击与触控双击统一走指针事件流） */
+const DOUBLE_TAP_MS = 400;
+const DOUBLE_TAP_SLOP = 10;
 
 export class ListTable {
   private readonly host: RenderHost;
@@ -123,6 +133,18 @@ export class ListTable {
   private readonly batchRegions: Region[] = [];
   private readonly contextMenuListeners = new Set<ContextMenuListener>();
   private readonly scrollFrameListeners = new Set<ScrollFrameListener>();
+  /** 编辑提交事件订阅（col/row/oldValue/newValue） */
+  private readonly cellChangeListeners = new Set<(change: CellChangeEvent) => void>();
+  /** 编辑状态唯一源：进入/提交/取消生命周期 */
+  private readonly editManager: EditManager;
+  /** 编辑器注册表（可编第一级判定与格级路由），可注入或事后注册 */
+  readonly editorRegistry: EditorRegistry;
+  /** 编辑器浮层挂载容器（hostOptions.container）；缺省离屏不落 DOM */
+  private readonly container: HTMLElement | undefined;
+  /** 双击/双触检测：上一次落点（同格、时长与位移阈值内判定连击进编辑） */
+  private lastTap: { col: number; row: number; x: number; y: number; time: number } | null = null;
+  /** pointerdown 落点（连击位移阈值判定用） */
+  private pointerDownAt: { x: number; y: number } | null = null;
   /** 挂在场景根上的事件退订（注入 host 共享场景树时销毁必须解绑） */
   private readonly eventUnsubscribers: Array<() => void> = [];
   /** 稳定引用：同帧内多次滚动只收敛出一次 onScrollFrame 广播 */
@@ -206,6 +228,29 @@ export class ListTable {
       );
       this.binding.attach();
     }
+    this.container = options.hostOptions?.container;
+    this.editorRegistry = options.editorRegistry ?? new EditorRegistry();
+    this.editManager = new EditManager({
+      columns: options.columns,
+      registry: this.editorRegistry,
+      resolveEditable: options.resolveEditable,
+      writeTarget: {
+        canWrite: (col, row) => this.canWriteCell(col, row),
+        write: (col, row, value) => this.writeCell(col, row, value),
+      },
+      resolveValue: (col, row) => this.pipeline.resolveValue(col, row),
+      cellRect: (col, row) => this.cellRectInViewport(col, row),
+      refreshCell: (col, row) => this.refreshCell(col, row),
+      emitChange: (change) => {
+        for (const listener of this.cellChangeListeners) {
+          listener(change);
+        }
+      },
+      moveSelection: (col, row, move) => this.moveSelectionAfterCommit(col, row, move),
+      restoreFocus: () => this.container?.focus(),
+      // 真实容器运行时满足最小宿主结构（编辑器元素本就是真 Node）
+      host: this.container as TextEditorHost | undefined,
+    });
     this.bindInteractionEvents();
     this.rebuildScene();
     this.host.submitInvalidation('body', { type: 'full' });
@@ -464,12 +509,50 @@ export class ListTable {
     return () => this.scrollFrameListeners.delete(listener);
   }
 
+  // ---- 编辑（P2） ----
+
+  /**
+   * 进入编辑：可编三级判定（editor 声明/路由 ∧ 格级 editable ∧ 有回写目标）全通过才
+   * 打开浮层并返回 true；不可编返回 false 且无浮层。已编辑中同格幂等。
+   */
+  startEdit(col: number, row: number): boolean {
+    if (!this.editManager.isEditable(col, row)) {
+      return false;
+    }
+    // 锚定格先滚动跟随到完整可见（冻结轴恒可见），再按视口矩形打开浮层
+    this.selection.selectCell(col, row);
+    this.ensureCellVisible(col, row);
+    return this.editManager.startEdit(col, row);
+  }
+
+  /** 提交当前编辑：值回写数据源、该格 cell 级失效、抛 onCellChange；无会话返回 false */
+  commitEdit(): boolean {
+    return this.editManager.commitEdit();
+  }
+
+  /** 取消当前编辑：不回写不抛事件，焦点交还表格；无会话为空操作 */
+  cancelEdit(): void {
+    this.editManager.cancelEdit();
+  }
+
+  /** 当前是否处于编辑会话中 */
+  isEditing(): boolean {
+    return this.editManager.isEditing();
+  }
+
+  /** 订阅编辑提交事件（col/row/oldValue/newValue，undo 可据此实现）；返回退订函数 */
+  onCellChange(listener: (change: CellChangeEvent) => void): () => void {
+    this.cellChangeListeners.add(listener);
+    return () => this.cellChangeListeners.delete(listener);
+  }
+
   destroy(): void {
     if (this.destroyed) {
       return;
     }
     this.destroyed = true;
     this.inertia.stop();
+    this.editManager.dispose();
     for (const unsubscribe of this.eventUnsubscribers) {
       unsubscribe();
     }
@@ -924,6 +1007,13 @@ export class ListTable {
   }
 
   private onPointerDown(event: SceneEvent): void {
+    this.pointerDownAt = { x: event.x, y: event.y };
+    // 编辑中点击其它格/空白：先提交当前会话（同一时刻至多一个编辑会话）
+    const hit = this.cellAt(event.x, event.y);
+    const editing = this.editManager.editingCell();
+    if (editing && (!hit || hit.col !== editing.col || hit.row !== editing.row)) {
+      this.editManager.commitEdit();
+    }
     const handle = hitResizeHandle(event.x, event.y, this.resizeGeometry(), {
       canResizeCol: this.options.canResizeCol,
       canResizeRow: this.options.canResizeRow,
@@ -999,6 +1089,24 @@ export class ListTable {
     }
     this.selecting = false;
     this.selection.endDrag();
+    this.detectDoubleTap(event);
+  }
+
+  /** 双击/双触进编辑：两次同格落点、时长与位移均在阈值内（拖拽/滚动滚出阈值不触发） */
+  private detectDoubleTap(event: SceneEvent): void {
+    const down = this.pointerDownAt;
+    const cell = this.cellAt(event.x, event.y);
+    const time = Date.now();
+    if (!down || !cell || Math.hypot(event.x - down.x, event.y - down.y) > DOUBLE_TAP_SLOP) {
+      this.lastTap = null;
+      return;
+    }
+    const prev = this.lastTap;
+    this.lastTap = { col: cell.col, row: cell.row, x: event.x, y: event.y, time };
+    if (prev && prev.col === cell.col && prev.row === cell.row && time - prev.time <= DOUBLE_TAP_MS) {
+      this.lastTap = null;
+      this.startEdit(cell.col, cell.row);
+    }
   }
 
   /** resize 拖拽指示线跟手：目标边线随夹取后的尺寸位移，提交在 pointerup 一次生效 */
@@ -1041,6 +1149,10 @@ export class ListTable {
   }
 
   private onKeyDown(event: SceneEvent): void {
+    // 编辑中按键由编辑器处理（Esc/Enter/Tab 已在编辑器内拦截冒泡），场景导航让位
+    if (this.editManager.isEditing()) {
+      return;
+    }
     const focus = this.selection.snapshot.focus;
     if (!focus || !event.key) {
       return;
@@ -1162,6 +1274,42 @@ export class ListTable {
       );
     }
     this.scroll.scrollTo(nextLeft, nextTop);
+  }
+
+  /** 该格回写目标判定：model 形态即有回写目标；records 形态需列有 field 且行对象存在 */
+  private canWriteCell(col: number, row: number): boolean {
+    if (this.binding) {
+      return true;
+    }
+    const field = this.options.columns[col]?.field;
+    return field !== undefined && this.options.records?.[row] != null;
+  }
+
+  /** 写回数据源：model 形态经 ModelBinding（echo 防回环）；records 形态改行对象 field 字段 */
+  private writeCell(col: number, row: number, value: unknown): void {
+    if (this.binding) {
+      this.binding.writeBack(col, row, value);
+      return;
+    }
+    const field = this.options.columns[col]?.field;
+    const record = this.options.records?.[row];
+    if (field !== undefined && record) {
+      record[field] = value;
+    }
+  }
+
+  /** 提交后选区移动：复用键盘导航求邻格（Enter 下移 / Tab 右移），越界夹取到表缘 */
+  private moveSelectionAfterCommit(col: number, row: number, move: EditCommitMove): void {
+    const next = nextActiveCell(
+      move === 'down' ? 'ArrowDown' : 'Tab',
+      { col, row },
+      this.options.columns.length,
+      this.pipeline.rowCount,
+    );
+    if (next) {
+      this.selection.selectCell(next.col, next.row);
+      this.ensureCellVisible(next.col, next.row);
+    }
   }
 
   private resizeGeometry(): ResizeGeometry {

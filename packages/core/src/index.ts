@@ -48,6 +48,19 @@ export { defaultTheme, extendsTheme } from './theme';
 export type { CellStyleTokens, TableTheme, ThemeOverride } from './theme';
 export { EditorRegistry } from './editor-registry';
 export type { CellEditor, EditorRoute } from './editor-registry';
+export { EditManager } from './editing/edit-manager';
+export type { EditCommitMove, EditManagerInit, EditWriteTarget } from './editing/edit-manager';
+export { createTextEditor } from './editing/text-editor';
+export type {
+  EditorKeyEvent,
+  TextEditor,
+  TextEditorDoc,
+  TextEditorElement,
+  TextEditorElementStyle,
+  TextEditorHost,
+  TextEditorInit,
+  TextEditorKeyAction,
+} from './editing/text-editor';
 export type { TablePlugin } from './plugin';
 export { SelectionState, normalizeRange } from './selection';
 export type {

@@ -1,11 +1,18 @@
 import { SceneNode } from '@infinite-table/render';
 import type { SceneEvent, SceneEventType } from '@infinite-table/render';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { EditorRegistry } from './editor-registry';
 import { ListTable } from './list-table';
 import type { SelectionSnapshot } from './selection';
+import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom';
 import { StubHost } from './testing/stub-host';
-import type { CellChangeEvent, ListTableOptions, TableModel } from './types';
+import type {
+  CellChangeEvent,
+  DataRecord,
+  ListTableOptions,
+  TableModel,
+} from './types';
 
 /** 同步 echo 的假模型：setCellValue 内同步发变更事件 */
 class EchoModel implements TableModel {
@@ -329,5 +336,224 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     fireBody(host, 'touchcancel', {});
     fireBody(host, 'touchmove', { x: 190, y: 100 });
     expect(table.getScrollState()).toEqual({ left: 10, top: 20 });
+  });
+});
+
+// ---- 编辑（P2）：ListTable 集成（假容器 + 假文档，node 环境无真实 DOM） ----
+
+describe('ListTable 编辑', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const EDIT_COLUMNS = [
+    { field: 'name', title: 'Name', editor: 'text' },
+    { field: 'age', title: 'Age', editor: 'text' },
+    { title: 'Note' },
+  ];
+
+  function createEditingTable(extra: Partial<ListTableOptions> = {}) {
+    const host = new StubHost();
+    const container = new FakeEditorHost();
+    const { doc, created } = createFakeDoc();
+    vi.stubGlobal('document', doc);
+    const registry = new EditorRegistry();
+    registry.registerEditor('text', {});
+    const records: DataRecord[] = [
+      { name: 'Ada', age: '36' },
+      { name: 'Bob', age: '25' },
+    ];
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      columns: EDIT_COLUMNS,
+      records,
+      host,
+      hostOptions: { container: container as unknown as HTMLElement },
+      editorRegistry: registry,
+      ...extra,
+    });
+    host.submitted.length = 0;
+    return { host, container, table, created, records };
+  }
+
+  function fireDoubleTap(host: StubHost, col: number, row: number): void {
+    const x = cellX(col);
+    const y = cellY(row);
+    fireBody(host, 'pointerdown', { x, y });
+    fireBody(host, 'pointerup', { x, y });
+    fireBody(host, 'pointerdown', { x, y });
+    fireBody(host, 'pointerup', { x, y });
+  }
+
+  it('双击可编格出浮层：初值为基础值（未过 resolveDisplayValue），定位含行号列/列头偏移', () => {
+    const { host, container, table, created } = createEditingTable({
+      resolveDisplayValue: () => 'DISPLAY',
+    });
+    fireDoubleTap(host, 0, 0);
+    expect(table.isEditing()).toBe(true);
+    const element = created[0]!;
+    expect(container.children).toEqual([element]);
+    expect(element.value).toBe('Ada');
+    // 视口矩形：x = 行号列 48，y = 列头 36，宽高 = 列宽 100 / 行高 32
+    expect(element.style.left).toBe('48px');
+    expect(element.style.top).toBe('36px');
+    expect(element.style.width).toBe('100px');
+    expect(element.style.height).toBe('32px');
+  });
+
+  it('双击不可编格（列未声明 editor）无浮层；双击列头/行头也不进编辑', () => {
+    const { host, container, table } = createEditingTable();
+    // 第 2 列无 editor 且无路由命中
+    fireDoubleTap(host, 2, 0);
+    expect(table.isEditing()).toBe(false);
+    expect(container.children).toEqual([]);
+    // 列头带（y < headerHeight）与行号列带（x < rowHeaderWidth）不进编辑
+    fireBody(host, 'pointerdown', { x: cellX(0), y: 10 });
+    fireBody(host, 'pointerup', { x: cellX(0), y: 10 });
+    fireBody(host, 'pointerdown', { x: cellX(0), y: 10 });
+    fireBody(host, 'pointerup', { x: cellX(0), y: 10 });
+    fireBody(host, 'pointerdown', { x: 10, y: cellY(0) });
+    fireBody(host, 'pointerup', { x: 10, y: cellY(0) });
+    fireBody(host, 'pointerdown', { x: 10, y: cellY(0) });
+    fireBody(host, 'pointerup', { x: 10, y: cellY(0) });
+    expect(table.isEditing()).toBe(false);
+  });
+
+  it('Enter 提交并选区下移：records 行对象回写、cell 级失效、onCellChange 带 oldValue/newValue', () => {
+    const { host, table, created, records } = createEditingTable();
+    const changes: CellChangeEvent[] = [];
+    table.onCellChange((change) => changes.push(change));
+
+    fireDoubleTap(host, 0, 0);
+    created[0]!.value = 'Ada2';
+    created[0]!.dispatchKey('Enter');
+
+    expect(records[0]!.name).toBe('Ada2');
+    expect(table.getSelection().focus).toEqual({ col: 0, row: 1 });
+    expect(changes).toEqual([{ col: 0, row: 0, oldValue: 'Ada', newValue: 'Ada2' }]);
+    // 提交只产生该格 cell 失效（非 full 重绘）
+    expect(host.submitted).toContainEqual({
+      kind: 'body',
+      inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
+    });
+    expect(table.isEditing()).toBe(false);
+  });
+
+  it('Tab 提交并选区右移；Esc 取消不回写不抛事件且焦点交还容器', () => {
+    const { host, container, table, created, records } = createEditingTable();
+    const changes: CellChangeEvent[] = [];
+    table.onCellChange((change) => changes.push(change));
+
+    fireDoubleTap(host, 0, 0);
+    created[0]!.value = 'Ada2';
+    created[0]!.dispatchKey('Tab');
+    expect(records[0]!.name).toBe('Ada2');
+    expect(table.getSelection().focus).toEqual({ col: 1, row: 0 });
+    expect(changes).toHaveLength(1);
+
+    fireDoubleTap(host, 0, 0);
+    created[1]!.value = 'ZZZ';
+    created[1]!.dispatchKey('Escape');
+    expect(records[0]!.name).toBe('Ada2');
+    expect(changes).toHaveLength(1);
+    expect(table.isEditing()).toBe(false);
+    expect(container.children).toEqual([]);
+    expect(container.focusCalls).toBeGreaterThan(0);
+  });
+
+  it('API：startEdit 可编 true/不可编 false；重复 startEdit 幂等；commitEdit/cancelEdit 一致', () => {
+    const { table, container, records } = createEditingTable({
+      resolveEditable: (col) => col === 0,
+    });
+    expect(table.startEdit(1, 0)).toBe(false);
+    expect(table.isEditing()).toBe(false);
+
+    expect(table.startEdit(0, 0)).toBe(true);
+    expect(table.startEdit(0, 0)).toBe(true);
+    expect(container.children).toHaveLength(1);
+    table.cancelEdit();
+    expect(records[0]!.name).toBe('Ada');
+
+    expect(table.startEdit(0, 0)).toBe(true);
+    const element = container.children[0]!;
+    element.value = 'Ada2';
+    expect(table.commitEdit()).toBe(true);
+    expect(records[0]!.name).toBe('Ada2');
+    expect(table.commitEdit()).toBe(false);
+    expect(table.cancelEdit()).toBeUndefined();
+  });
+
+  it('API：无回写目标的格（列无 field 且非 model 形态）startEdit 返回 false', () => {
+    const { table } = createEditingTable({
+      columns: [
+        { field: 'name', title: 'Name', editor: 'text' },
+        { title: 'NoField', editor: 'text' },
+      ],
+    });
+    expect(table.startEdit(1, 0)).toBe(false);
+    expect(table.startEdit(0, 0)).toBe(true);
+  });
+
+  it('API：远格 startEdit 滚动跟随，浮层按视口矩形定位（含表头偏移）', () => {
+    const records = Array.from({ length: 1000 }, (_, i) => ({
+      name: `r${i}`,
+      age: String(i),
+    }));
+    const { table, created } = createEditingTable({ records });
+    expect(table.startEdit(0, 30)).toBe(true);
+    // 行 30 完整进入视口：top = 30*32 + 32 - 564 = 428
+    expect(table.getScrollState().top).toBe(428);
+    // y = 行 30 内容偏移 960 - 428 + 列头 36 = 568
+    expect(created[0]!.style.top).toBe('568px');
+  });
+
+  it('model 形态经 ModelBinding 回写（echo 不回环，只一次本格刷新）', () => {
+    const model = new EchoModel(10);
+    model.data.set('0:0', 'Ada');
+    const { host, container, created } = createEditingTable({ model, records: undefined });
+
+    fireDoubleTap(host, 0, 0);
+    created[0]!.value = 'Zed';
+    created[0]!.dispatchKey('Enter');
+
+    expect(model.data.get('0:0')).toBe('Zed');
+    expect(container.children).toEqual([]);
+    // 编辑提交只产生一次本格 cell 失效：模型 echo 被 ModelBinding 吞掉，无回环二次刷新
+    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(1);
+  });
+
+  it('model 形态 onCellChange 事件带 oldValue/newValue', () => {
+    const model = new EchoModel(10);
+    model.data.set('0:0', 'Ada');
+    const { host, created, table } = createEditingTable({ model, records: undefined });
+    const changes: CellChangeEvent[] = [];
+    table.onCellChange((change) => changes.push(change));
+
+    fireDoubleTap(host, 0, 0);
+    created[0]!.value = 'Zed';
+    created[0]!.dispatchKey('Enter');
+    expect(changes).toEqual([{ col: 0, row: 0, oldValue: 'Ada', newValue: 'Zed' }]);
+  });
+
+  it('编辑中点击其它格：先提交当前会话；场景键盘让位给编辑器', () => {
+    const { host, table, records, container } = createEditingTable();
+    table.startEdit(0, 0);
+    container.children[0]!.value = 'Ada2';
+    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(0) });
+    expect(records[0]!.name).toBe('Ada2');
+    expect(table.isEditing()).toBe(false);
+
+    // 编辑中方向键不再驱动选区导航（Esc/Enter/Tab 由编辑器拦截，其余键让位）
+    table.startEdit(0, 0);
+    fireSky(host, 'keydown', { key: 'ArrowDown' });
+    expect(table.getSelection().focus).toEqual({ col: 0, row: 0 });
+  });
+
+  it('destroy 结束编辑会话：浮层摘除', () => {
+    const { table, container } = createEditingTable();
+    table.startEdit(0, 0);
+    expect(container.children).toHaveLength(1);
+    table.destroy();
+    expect(container.children).toEqual([]);
   });
 });
