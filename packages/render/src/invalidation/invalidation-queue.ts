@@ -1,15 +1,15 @@
 import { ceil, equals, intersects, spread, union } from '../region'
 import type { Invalidation, LayerKind, Region } from '../types'
 
-/** cell 失效区域四边外扩像素数（防残影，对照 docs/perf-redesign 03：spread(10)） */
+/** cell 失效区域四边外扩像素数（防增量补画边缘残影） */
 const CELL_SPREAD = 10
-/** band 数量上限，超过则升级为 full（docs/perf-redesign 03：MAX_BANDS=8） */
+/** band 数量上限，超过则升级为 full（整层重绘） */
 const MAX_BANDS = 8
 
 /** 层的重绘计划：整层重绘，或逐 region 增量补画 */
 export type RepaintPlan = { full: true } | { full: false; regions: Region[] }
 
-/** 各层消费策略（docs/perf-redesign 03 §2.2 repaint plan） */
+/** 各层消费策略：帧末按层语义把失效队列收敛为重绘计划 */
 type Consumption = 'band-full-only' | 'regions' | 'always-full'
 
 const LAYER_CONSUMPTION: Record<LayerKind, Consumption> = {

@@ -1,4 +1,4 @@
-// cell 级位图缓存（docs/perf-redesign 03 §2.4 MediaCache）：
+// cell 级位图缓存（MediaCache）：
 // 按格 key 缓存解码位图，LRU 淘汰，容量受 bytes 与条数双重预算约束。
 // media 层滚动帧只 blit 命中位图，不重算格内容。
 

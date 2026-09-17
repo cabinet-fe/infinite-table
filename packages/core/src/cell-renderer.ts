@@ -4,7 +4,12 @@
 
 import type { RenderContext } from '@infinite-table/render'
 
-import type { CellStyle } from './cell-style'
+import {
+  cellStyleFont,
+  type CellStyle,
+  type CellTextAlign,
+  type CellVerticalAlign,
+} from './cell-style'
 
 /** 内置单元格类型 */
 export type CellType = 'text' | 'checkbox'
@@ -39,11 +44,40 @@ export type ResolveCellRenderer = (col: number, row: number) => CellRenderer | n
 const TEXT_PADDING_X = 8
 /** 换行模式行高（12px 字体） */
 const TEXT_LINE_HEIGHT = 16
+/** 基线相对行盒中线的下移量（12px 字体近似） */
+const BASELINE_OFFSET = 4
+/** 下划线相对基线的下移量 */
+const UNDERLINE_GAP = 2
 const CHECKBOX_SIZE = 14
 const CHECKBOX_BORDER_COLOR = '#8f959e'
 const CHECKBOX_CHECK_COLOR = '#3370ff'
 
-/** 内置 text 渲染：左对齐垂直居中；超宽文本 Excel 式溢出（clip 到允许右界）或格内换行 */
+/**
+ * 水平对齐锚点：left（缺省）走左内边距，center/right 按内容宽定位。
+ * 文本与 checkbox 等非文本内置内容共用。
+ */
+function alignedX(align: CellTextAlign | undefined, width: number, contentWidth: number): number {
+  if (align === 'center') {
+    return (width - contentWidth) / 2
+  }
+  if (align === 'right') {
+    return width - TEXT_PADDING_X - contentWidth
+  }
+  return TEXT_PADDING_X
+}
+
+/** 垂直基线：以 TEXT_LINE_HEIGHT 行盒为基准；top 贴顶、bottom 贴底、middle（缺省）居中 */
+function textBaselineY(align: CellVerticalAlign | undefined, height: number): number {
+  if (align === 'top') {
+    return TEXT_LINE_HEIGHT - BASELINE_OFFSET
+  }
+  if (align === 'bottom') {
+    return height - BASELINE_OFFSET
+  }
+  return height / 2 + BASELINE_OFFSET
+}
+
+/** 内置 text 渲染：对齐与字体随样式（缺省左对齐垂直居中）；超宽文本 Excel 式溢出（clip 到允许右界）或格内换行 */
 export const renderTextCell: CellRenderer = ({
   ctx,
   width,
@@ -57,22 +91,44 @@ export const renderTextCell: CellRenderer = ({
     return
   }
   ctx.fillStyle = style.color ?? '#1f2329'
-  ctx.font = style.font ?? '12px sans-serif'
+  ctx.font = cellStyleFont(style)
+  const measured = textWidth ?? ctx.measureText(text).width
+  const x = alignedX(style.textAlign, width, measured)
+  const baselineY = textBaselineY(style.verticalAlign, height)
   if (style.textWrap === true) {
     drawWrappedText(ctx, text, width, height)
     return
   }
-  if (textWidth !== undefined && textWidth > width - TEXT_PADDING_X) {
-    // Excel 式：不省略不挤压，溢出画进右侧空格（textMaxX > width），否则裁剪在本格
+  if (measured > width - TEXT_PADDING_X) {
+    // 超宽：左对齐（缺省）溢出画进右侧空格（textMaxX > width），中/右对齐裁剪在本格
+    const canOverflow = (style.textAlign ?? 'left') === 'left'
     ctx.save()
     ctx.beginPath()
-    ctx.rect(0, 0, Math.max(width, textMaxX ?? width), height)
+    ctx.rect(0, 0, canOverflow ? Math.max(width, textMaxX ?? width) : width, height)
     ctx.clip()
-    ctx.fillText(text, TEXT_PADDING_X, height / 2 + 4)
+    ctx.fillText(text, x, baselineY)
+    drawTextDecorations(ctx, x, baselineY, measured, style)
     ctx.restore()
     return
   }
-  ctx.fillText(text, TEXT_PADDING_X, height / 2 + 4)
+  ctx.fillText(text, x, baselineY)
+  drawTextDecorations(ctx, x, baselineY, measured, style)
+}
+
+/** 文本修饰线：下划线紧贴基线下方、删除线在小写字母中部（字号 30% 上方），随文本色绘制 */
+function drawTextDecorations(
+  ctx: RenderContext,
+  x: number,
+  baselineY: number,
+  textWidth: number,
+  style: CellStyle,
+): void {
+  if (style.underline) {
+    ctx.fillRect(x, baselineY + UNDERLINE_GAP, textWidth, 1)
+  }
+  if (style.lineThrough) {
+    ctx.fillRect(x, baselineY - Math.round((style.fontSize ?? 12) * 0.3), textWidth, 1)
+  }
 }
 
 /** 换行绘制：逐字贪心断行，行块垂直居中，clip 在本格内（超出格高的行被裁掉） */
@@ -120,10 +176,10 @@ function wrapTextLines(
   return lines
 }
 
-/** 内置 checkbox 渲染：方框（fillRect 细线保证像素对齐）+ 勾选态实心块；value 即状态，不绘制取值文本 */
-export const renderCheckboxCell: CellRenderer = ({ ctx, height, value }) => {
+/** 内置 checkbox 渲染：方框（fillRect 细线保证像素对齐）+ 勾选态实心块；value 即状态，不绘制取值文本；水平位置跟随 textAlign（缺省左） */
+export const renderCheckboxCell: CellRenderer = ({ ctx, width, height, value, style }) => {
   const size = Math.min(CHECKBOX_SIZE, height - 8)
-  const x = TEXT_PADDING_X
+  const x = alignedX(style.textAlign, width, size)
   const y = (height - size) / 2
   ctx.fillStyle = CHECKBOX_BORDER_COLOR
   ctx.fillRect(x, y, size, 1)

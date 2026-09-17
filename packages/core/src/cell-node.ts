@@ -4,7 +4,7 @@
 import { SceneNode, type RenderContext, type SceneNodeInit } from '@infinite-table/render'
 
 import { BUILTIN_CELL_RENDERERS, type CellRenderer, type CellType } from './cell-renderer'
-import type { CellBorderEdge, CellStyle } from './cell-style'
+import { cellStyleFont, type CellBorderEdge, type CellStyle } from './cell-style'
 
 export interface CellNodeInit extends SceneNodeInit {
   col: number
@@ -80,7 +80,8 @@ export class CellNode extends SceneNode {
     if (this.renderer || this.cellType !== 'text' || !this.text) {
       return undefined
     }
-    const font = this.style.font ?? '12px sans-serif'
+    // 与绘制侧同一 font 组装规则，保证测量宽与实际绘制一致
+    const font = cellStyleFont(this.style)
     const key = `${font}\u0000${this.text}`
     if (this.textWidthKey !== key) {
       this.textWidthKey = key

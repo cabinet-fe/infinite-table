@@ -28,6 +28,8 @@ export interface DomEventLike {
   deltaY?: number
   key?: string
   shiftKey?: boolean
+  ctrlKey?: boolean
+  metaKey?: boolean
   /** 触摸事件的触点列表（取第一个触点归一化坐标） */
   changedTouches?: ArrayLike<TouchPointLike>
 }
@@ -44,6 +46,8 @@ export interface SceneEvent {
   readonly deltaY: number
   readonly key: string | undefined
   readonly shiftKey: boolean
+  readonly ctrlKey: boolean
+  readonly metaKey: boolean
   readonly originalEvent: DomEventLike
 }
 
@@ -124,6 +128,8 @@ export class EventSystem {
       deltaY: domEvent.deltaY ?? 0,
       key: domEvent.key,
       shiftKey: domEvent.shiftKey ?? false,
+      ctrlKey: domEvent.ctrlKey ?? false,
+      metaKey: domEvent.metaKey ?? false,
       originalEvent: domEvent,
     }
     // 冒泡：命中节点 → 父链直至层根；未命中/键盘事件从最顶层根开始

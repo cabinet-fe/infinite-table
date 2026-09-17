@@ -1,5 +1,5 @@
-// ImageService（docs/perf-redesign 04 §3）：
-// URL 级图片资源服务——窗口化加载（视口+余量内才发起/保持请求，滚出即取消降级）、
+// ImageService：URL 级图片资源服务——
+// 窗口化加载（视口+余量内才发起/保持请求，滚出即取消降级）、
 // 解码位图 LRU（bytes 计量、超预算逐出最久未用且不在窗口内的条目）、
 // hasResource 同步查询支撑首帧无闪、error 态必触发 onImageError（消灭"永远 loading"）。
 

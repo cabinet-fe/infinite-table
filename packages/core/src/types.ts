@@ -93,6 +93,11 @@ export interface ListTableOptions {
   resolveCellImage?: ResolveCellImage
   /** 格级可编判定：返回 false 该格不可编（缺省全部可编） */
   resolveEditable?: (col: number, row: number) => boolean
+  /**
+   * Enter 键位开关：开启后非编辑态按 Enter 进入焦点格编辑（提交后仍按 Enter 语义下移）；
+   * 缺省关闭，Enter 行为保持现状（非编辑态无操作）。
+   */
+  editCellOnEnter?: boolean
   /** 编辑器注册表（可编第一级判定与格级路由）；缺省为空表，也可事后经 table.editorRegistry 注册 */
   editorRegistry?: EditorRegistry
   /** ImageService 配置（位图 LRU 预算/并发/占位延迟/加载器注入等） */
@@ -121,6 +126,8 @@ export interface ListTableOptions {
   canResizeCol?: (col: number) => boolean
   /** 行高调整能力：返回 false 禁止该行拖拽改高（canResizeRow 补丁行为，缺省全部允许） */
   canResizeRow?: (row: number) => boolean
+  /** Ctrl/Cmd 点选多选：开启后 Ctrl/Cmd 点数据格在既有选区上追加选区段（缺省 false，点选替换选区） */
+  ctrlMultiSelect?: boolean
 }
 
 /** contextmenu 事件（右键菜单 UI 为非目标，仅保留事件） */

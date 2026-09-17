@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createRenderHost, type RenderHostOptions } from '../src/render-host'
 import { SceneNode } from '../src/scene/scene-node'
@@ -197,5 +197,55 @@ describe('RenderHost 窄接口', () => {
     host.destroy()
     expect(scheduler.cancelled).toEqual([1])
     expect(() => host.destroy()).not.toThrow()
+  })
+
+  it('mount 按 LAYER_ORDER 叠放：先建 body/sky、惰性创建的 media 仍落在 sky 之下', () => {
+    // node 测试环境无 DOM：以最小桩顶替 HTMLCanvasElement 与 container（只记录子节点顺序）
+    class StubDomCanvas extends FakeCanvas {
+      style: Record<string, string> = {}
+      dataset: Record<string, string> = {}
+      remove(): void {}
+    }
+    const children: StubDomCanvas[] = []
+    const container = {
+      children,
+      appendChild(child: StubDomCanvas): void {
+        children.push(child)
+      },
+      insertBefore(child: StubDomCanvas, anchor: StubDomCanvas): void {
+        children.splice(children.indexOf(anchor), 0, child)
+      },
+      contains(child: StubDomCanvas): boolean {
+        return children.includes(child)
+      },
+      addEventListener(): void {},
+      removeEventListener(): void {},
+    }
+    vi.stubGlobal('HTMLCanvasElement', StubDomCanvas)
+    try {
+      const host = createRenderHost({
+        width: 800,
+        height: 600,
+        container: container as unknown as HTMLElement,
+        createCanvas: () => new StubDomCanvas(),
+      })
+      // 实际用例：构造期只建 body/sky，media 由首个图片格惰性创建
+      host.createLayer({ kind: 'body' })
+      host.createLayer({ kind: 'sky' })
+      host.createLayer({ kind: 'media' })
+      expect(children.map((canvas) => canvas.dataset.layerKind)).toEqual(['body', 'media', 'sky'])
+      // ground 最后创建也排最底；幂等 createLayer 不改变叠放
+      host.createLayer({ kind: 'ground' })
+      host.createLayer({ kind: 'body' })
+      expect(children.map((canvas) => canvas.dataset.layerKind)).toEqual([
+        'ground',
+        'body',
+        'media',
+        'sky',
+      ])
+      host.destroy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

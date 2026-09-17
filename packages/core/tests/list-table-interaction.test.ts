@@ -66,6 +66,8 @@ function fire(root: SceneNode, type: SceneEventType, init: Partial<SceneEvent>):
     deltaY: 0,
     key: undefined,
     shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
     originalEvent: {},
     ...init,
   })
@@ -133,6 +135,48 @@ describe('ListTable 选区', () => {
     fireBody(host, 'pointerdown', { x: 10, y: 10 })
     expect(table.getSelection().ranges).toEqual([
       { start: { col: 0, row: 0 }, end: { col: 9, row: 0 } },
+    ])
+  })
+
+  it('selectCells 多段选中：快照含多个选区段、sky 浮层同帧失效；getSelectedCellRanges 返回全部段', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    table.selectCells([
+      { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
+      { start: { col: 3, row: 0 }, end: { col: 4, row: 0 } },
+    ])
+    expect(table.getSelection().ranges).toHaveLength(2)
+    // 焦点落在末段焦点格（填充柄挂在焦点段上）
+    expect(table.getSelection().focus).toEqual({ col: 4, row: 0 })
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
+      { start: { col: 3, row: 0 }, end: { col: 4, row: 0 } },
+    ])
+    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+  })
+
+  it('ctrlMultiSelect 开关两态：开启后 Ctrl/Cmd 点选在既有选区上追加选区段；关闭时点选替换选区', () => {
+    const records = [{ name: 'a' }, { name: 'b' }, { name: 'c' }]
+    const { host, table } = createTable({ records, ctrlMultiSelect: true })
+    table.selectCell(0, 0)
+    // Ctrl 点选 (2,1)：追加选区段，焦点同步到新段
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(1), ctrlKey: true })
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(1) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 0, row: 0 } },
+      { start: { col: 2, row: 1 }, end: { col: 2, row: 1 } },
+    ])
+    // Cmd 点选 (4,2) 同样追加
+    fireBody(host, 'pointerdown', { x: cellX(4), y: cellY(2), metaKey: true })
+    fireBody(host, 'pointerup', { x: cellX(4), y: cellY(2) })
+    expect(table.getSelection().ranges).toHaveLength(3)
+
+    // 关闭（缺省 false）：Ctrl 点选仍替换选区（现状行为）
+    const fallback = createTable({ records })
+    fallback.table.selectCell(0, 0)
+    fireBody(fallback.host, 'pointerdown', { x: cellX(2), y: cellY(1), ctrlKey: true })
+    fireBody(fallback.host, 'pointerup', { x: cellX(2), y: cellY(1) })
+    expect(fallback.table.getSelection().ranges).toEqual([
+      { start: { col: 2, row: 1 }, end: { col: 2, row: 1 } },
     ])
   })
 
@@ -225,6 +269,39 @@ describe('ListTable 行列 resize', () => {
     fireBody(host, 'pointerup', { x: 178, y: 10 })
     expect(table.getColWidth(0)).toBe(130)
     expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
+  })
+
+  it('拖拽会话成功结束抛 onColResizeEnd/onRowResizeEnd：载荷带索引与最终尺寸，退订后不再触发', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    const colEnds: Array<{ col: number; width: number }> = []
+    const rowEnds: Array<{ row: number; height: number }> = []
+    const offCol = table.onColResizeEnd((event) => colEnds.push(event))
+    const offRow = table.onRowResizeEnd((event) => rowEnds.push(event))
+
+    // 列：第 0 列右缘 148 拖到 178，最终宽 130
+    fireBody(host, 'pointerdown', { x: 148, y: 10 })
+    fireBody(host, 'pointermove', { x: 178, y: 10 })
+    fireBody(host, 'pointerup', { x: 178, y: 10 })
+    expect(colEnds).toEqual([{ col: 0, width: 130 }])
+    expect(table.getColWidth(0)).toBe(130)
+    expect(rowEnds).toEqual([])
+
+    // 行：第 0 行下缘 68（手柄区内取 66）拖到 96，最终高 62
+    fireBody(host, 'pointerdown', { x: 20, y: 66 })
+    fireBody(host, 'pointermove', { x: 20, y: 96 })
+    fireBody(host, 'pointerup', { x: 20, y: 96 })
+    expect(rowEnds).toEqual([{ row: 0, height: 62 }])
+    expect(table.getRowHeight(0)).toBe(62)
+
+    // 退订后拖拽仍生效，但不再收到事件
+    offCol()
+    offRow()
+    // 列 0 新右缘 48 + 130 = 178
+    fireBody(host, 'pointerdown', { x: 178, y: 10 })
+    fireBody(host, 'pointerup', { x: 208, y: 10 })
+    expect(table.getColWidth(0)).toBe(160)
+    expect(colEnds).toEqual([{ col: 0, width: 130 }])
+    expect(rowEnds).toEqual([{ row: 0, height: 62 }])
   })
 
   it('canResizeRow 返回 false：行手柄禁用，按下落在行号列走整行选择', () => {
@@ -432,6 +509,28 @@ describe('ListTable 编辑', () => {
       inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
     })
     expect(table.isEditing()).toBe(false)
+  })
+
+  it('editCellOnEnter 开启：非编辑态按 Enter 进入焦点格编辑，编辑器内 Enter 提交并下移', () => {
+    const { host, table, created, records } = createEditingTable({ editCellOnEnter: true })
+    table.selectCell(0, 0)
+    fireSky(host, 'keydown', { key: 'Enter' })
+    expect(table.isEditing()).toBe(true)
+    expect(created[0]!.value).toBe('Ada')
+
+    created[0]!.value = 'Ada2'
+    created[0]!.dispatchKey('Enter')
+    expect(records[0]!.name).toBe('Ada2')
+    expect(table.getSelection().focus).toEqual({ col: 0, row: 1 })
+    expect(table.isEditing()).toBe(false)
+  })
+
+  it('editCellOnEnter 关闭（缺省）：非编辑态按 Enter 保持现状不进编辑', () => {
+    const { host, table } = createEditingTable()
+    table.selectCell(0, 0)
+    fireSky(host, 'keydown', { key: 'Enter' })
+    expect(table.isEditing()).toBe(false)
+    expect(table.getSelection().focus).toEqual({ col: 0, row: 0 })
   })
 
   it('Tab 提交并选区右移；Esc 取消不回写不抛事件且焦点交还容器', () => {

@@ -15,7 +15,14 @@ export type { CellRange } from './cell-range'
 export { BUILTIN_CELL_RENDERERS, renderCheckboxCell, renderTextCell } from './cell-renderer'
 export type { CellRenderTarget, CellRenderer, CellType, ResolveCellRenderer } from './cell-renderer'
 export { projectCellStyle } from './cell-style'
-export type { CellBorder, CellBorderEdge, CellStyle, ResolveCellStyle } from './cell-style'
+export type {
+  CellBorder,
+  CellBorderEdge,
+  CellStyle,
+  CellTextAlign,
+  CellVerticalAlign,
+  ResolveCellStyle,
+} from './cell-style'
 export {
   clampFrozenCount,
   computeColOffsets,
@@ -34,6 +41,8 @@ export {
   unionRegions,
 } from './grid-layout'
 export type { WindowRange } from './grid-layout'
+// 查询 API（getCellRelativeRect/getDrawRange）返回的矩形类型（渲染窄接口复用）
+export type { Region } from '@infinite-table/render'
 export { defaultTheme, extendsTheme } from './theme'
 export type { CellStyleTokens, TableTheme, ThemeOverride } from './theme'
 export { EditorRegistry } from './editor-registry'
@@ -58,9 +67,23 @@ export { HoverState } from './hover-state'
 export type { HoverListener } from './hover-state'
 export { InteractionOverlay } from './interaction-overlay'
 export type { OverlayContent, OverlayGeometry, ResizeLine } from './interaction-overlay'
+// 填充柄交互原语：画柄几何 + 命中 + 按下/拖拽结束两个公开事件（填充生成不在内核）
+export { FILL_HANDLE_SIZE, fillHandleRect, hitFillHandle, resolveFocusRange } from './fill-handle'
+export type {
+  FillDragEndEvent,
+  FillDragEndListener,
+  FillHandleDownEvent,
+  FillHandleDownListener,
+} from './fill-handle'
 export { nextActiveCell, revealAxis } from './keyboard-navigation'
 export { hitResizeHandle, ResizeSession } from './resize'
-export type { ResizeCapability, ResizeGeometry, ResizeTarget } from './resize'
+export type {
+  ColResizeEndEvent,
+  ResizeCapability,
+  ResizeGeometry,
+  ResizeTarget,
+  RowResizeEndEvent,
+} from './resize'
 export { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 export type { InertiaVelocity, ScrollDelta2D, TouchPoint } from './touch-scroll'
 export type { ScrollFrameListener } from './list-table'

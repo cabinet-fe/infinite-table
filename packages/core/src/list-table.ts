@@ -5,11 +5,15 @@
 // （冻结区不随滚动重绘）。
 // 交互（P5）：选区/hover/resize 指示线绘制在 sky 浮层（不触发 body 重绘），
 // 键盘导航、触控惯性滚动、contextmenu 事件、onScrollFrame 帧级同步、批量更新合并失效。
+// 多选区与填充柄（P0-5/P0-6）：selectCells 多段选中、ctrlMultiSelect 开关（Ctrl/Cmd 加选），
+// 填充柄挂焦点段右下角（按下/拖拽结束两个公开事件，填充生成不在内核）。
 // 图片（P7）：格内图片在 L2 media 层渲染（ImageService 窗口化加载 + cell 级位图 LRU +
 // 无闪协议），浮动对象层挂 sky 层最顶、随滚动帧级跟随。
 // 编辑（P2/P3）：双击（含触控双击）进入编辑，EditManager 为编辑状态唯一源，
 // DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位；
 // 编辑中滚动浮层逐帧跟随锚定格，锚定格滚出视口按 Enter 语义自动提交。
+// 运行时可变（P8）：冻结列数/行数与合并区开放运行时修改（「合并不跨冻结边界」
+// 构造期校验延伸到运行时），resize 拖拽会话补结束事件，editCellOnEnter 键位开关。
 
 import {
   createRenderHost,
@@ -20,12 +24,21 @@ import {
 } from '@infinite-table/render'
 
 import { CellNode } from './cell-node'
-import { MergeCellMap, rangeCrossesBoundary } from './cell-range'
+import { MergeCellMap, normalizeCellRange, rangeCrossesBoundary } from './cell-range'
+import type { CellRange } from './cell-range'
 import { projectCellStyle, type CellStyle } from './cell-style'
 import { CellValuePipeline } from './cell-value'
 import { EditManager, type EditCommitMove } from './editing/edit-manager'
 import type { TextEditorHost } from './editing/text-editor'
 import { EditorRegistry } from './editor-registry'
+import {
+  hitFillHandle,
+  resolveFocusRange,
+  type FillDragEndEvent,
+  type FillDragEndListener,
+  type FillHandleDownEvent,
+  type FillHandleDownListener,
+} from './fill-handle'
 import {
   clampFrozenCount,
   computeColOffsets,
@@ -53,10 +66,19 @@ import {
   MIN_COL_WIDTH,
   MIN_ROW_HEIGHT,
   ResizeSession,
+  type ColResizeEndEvent,
   type ResizeGeometry,
+  type ResizeTarget,
+  type RowResizeEndEvent,
 } from './resize'
 import { ScrollManager, type ScrollDelta, type ScrollState } from './scroll-manager'
-import { SelectionState, type SelectionListener, type SelectionSnapshot } from './selection'
+import {
+  normalizeRange,
+  SelectionState,
+  type SelectionListener,
+  type SelectionRange,
+  type SelectionSnapshot,
+} from './selection'
 import { extendsTheme, type TableTheme } from './theme'
 import { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 import type {
@@ -73,12 +95,28 @@ const HEADER_COORD = -1
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
 
-/** 图片加载窗口余量（px）：视口外扩，对齐 docs/perf-redesign 04 的 240 预挂值 */
+/** 图片加载窗口余量（px）：可视区域四周外扩的预挂范围，滚出即取消降级 */
 const IMAGE_WINDOW_MARGIN = 240
 
 /** 双击/双触判定窗口与位移阈值（鼠标双击与触控双击统一走指针事件流） */
 const DOUBLE_TAP_MS = 400
 const DOUBLE_TAP_SLOP = 10
+
+/** 「合并不跨冻结边界」校验（构造期语义，运行时冻结/合并变更同样适用）；违规抛错，调用方保持原状 */
+function assertMergesWithinBoundary(
+  ranges: readonly CellRange[],
+  frozenColCount: number,
+  frozenRowCount: number,
+): void {
+  for (const range of ranges) {
+    if (rangeCrossesBoundary(range, frozenColCount, frozenRowCount)) {
+      throw new Error(
+        `merge range [${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}] ` +
+          'crosses the frozen boundary',
+      )
+    }
+  }
+}
 
 export class ListTable {
   private readonly host: RenderHost
@@ -96,11 +134,11 @@ export class ListTable {
   private readonly rowHeight: number
   private readonly headerHeight: number
   private readonly rowHeaderWidth: number
-  private readonly frozenColCount: number
-  private readonly frozenRowCount: number
+  private frozenColCount: number
+  private frozenRowCount: number
   private frozenColsWidth: number
   private frozenRowsHeight: number
-  private readonly mergeCells: MergeCellMap
+  private mergeCells: MergeCellMap
   /** 图片资源服务：窗口化加载 + 位图 LRU + 无闪协议状态源（public 供宿主配置/订阅事件） */
   readonly imageService: ImageService
   /** cell 级位图 LRU：按格缓存已就绪位图引用，滚动重建时命中即首帧无闪 */
@@ -136,6 +174,16 @@ export class ListTable {
   private readonly scrollFrameListeners = new Set<ScrollFrameListener>()
   /** 编辑提交事件订阅（col/row/oldValue/newValue） */
   private readonly cellChangeListeners = new Set<(change: CellChangeEvent) => void>()
+  /** 列宽拖拽会话结束事件订阅（col/width） */
+  private readonly colResizeEndListeners = new Set<(event: ColResizeEndEvent) => void>()
+  /** 行高拖拽会话结束事件订阅（row/height） */
+  private readonly rowResizeEndListeners = new Set<(event: RowResizeEndEvent) => void>()
+  /** 填充柄按下事件订阅（携带柄所在选区段） */
+  private readonly fillHandleDownListeners = new Set<FillHandleDownListener>()
+  /** 填充柄拖拽结束事件订阅（锚定段范围 + 拖拽目标格范围） */
+  private readonly fillDragEndListeners = new Set<FillDragEndListener>()
+  /** 填充柄拖拽会话：柄所在选区段 + 拖拽起点（锚定段右下角格）与终点格（填充生成不在内核） */
+  private fillDrag: { range: SelectionRange; origin: CellRef; current: CellRef } | null = null
   /** 编辑状态唯一源：进入/提交/取消生命周期 */
   private readonly editManager: EditManager
   /** 编辑器注册表（可编第一级判定与格级路由），可注入或事后注册 */
@@ -181,14 +229,7 @@ export class ListTable {
     this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
     this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
     this.mergeCells = new MergeCellMap(options.mergeCells)
-    for (const range of this.mergeCells.ranges) {
-      if (rangeCrossesBoundary(range, this.frozenColCount, this.frozenRowCount)) {
-        throw new Error(
-          `merge range [${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}] ` +
-            'crosses the frozen boundary',
-        )
-      }
-    }
+    assertMergesWithinBoundary(this.mergeCells.ranges, this.frozenColCount, this.frozenRowCount)
     this.host =
       options.host ??
       createRenderHost({ width: this.width, height: this.height, ...options.hostOptions })
@@ -204,12 +245,7 @@ export class ListTable {
     )
     this.overlay = new InteractionOverlay(this.sky.root, {
       cellRect: (col, row) => this.cellRectInViewport(col, row),
-      bodyViewport: {
-        x: this.rowHeaderWidth,
-        y: this.headerHeight,
-        width: this.viewportWidth,
-        height: this.viewportHeight,
-      },
+      bodyViewport: this.bodyViewport,
     })
     // 滚动位置定义在可滚动内容（总内容扣除冻结区）上
     this.scroll.setViewportSize(
@@ -443,6 +479,19 @@ export class ListTable {
     this.ensureCellVisible(col, row)
   }
 
+  /** 程序化多段选中：整组替换选区段（快照含多个段，sky 浮层同帧绘制全部段），焦点落在末段焦点格 */
+  selectCells(ranges: readonly SelectionRange[]): void {
+    this.selection.selectCells(ranges)
+  }
+
+  /** 当前全部选区段（start 锚点 / end 焦点，可反向；返回副本） */
+  getSelectedCellRanges(): SelectionRange[] {
+    return this.selection.snapshot.ranges.map((range) => ({
+      start: { ...range.start },
+      end: { ...range.end },
+    }))
+  }
+
   selectRow(row: number): void {
     this.selection.selectRow(row, this.options.columns.length)
   }
@@ -493,6 +542,141 @@ export class ListTable {
     this.applyGeometryChange()
   }
 
+  // ---- 几何/滚动查询（P0-7） ----
+
+  /** 数据格在视口中的矩形（CSS 像素）；行/列在可视窗口外返回 null */
+  getCellRelativeRect(col: number, row: number): Region | null {
+    return this.cellRectInViewport(col, row)
+  }
+
+  /** 视口坐标命中的数据格；点在行列头/空白处返回 null */
+  getCellAtRelativePosition(x: number, y: number): CellRef | null {
+    return this.cellAt(x, y)
+  }
+
+  /** 滚动到目标格完整可见（复用键盘导航 revealAxis 语义；冻结轴恒可见，跳过） */
+  scrollToCell(cell: CellRef): void {
+    this.ensureCellVisible(cell.col, cell.row)
+  }
+
+  getScrollLeft(): number {
+    return this.scroll.state.left
+  }
+
+  getScrollTop(): number {
+    return this.scroll.state.top
+  }
+
+  /** 设置横向滚动位置（自动夹取到 [0, max]，另一轴不变） */
+  setScrollLeft(left: number): void {
+    this.scroll.scrollTo(left, this.scroll.state.top)
+  }
+
+  /** 设置纵向滚动位置（自动夹取到 [0, max]，另一轴不变） */
+  setScrollTop(top: number): void {
+    this.scroll.scrollTo(this.scroll.state.left, top)
+  }
+
+  /** 画布内容区矩形（CSS 像素）：扣除行号列与列头后的数据区可绘制范围 */
+  getDrawRange(): Region {
+    return this.bodyViewport
+  }
+
+  /** 当前可视数据格范围（[start, end)，恒可见的冻结行列并入可视范围） */
+  getBodyVisibleCellRange(): { rows: WindowRange; cols: WindowRange } {
+    return {
+      rows: {
+        start: this.frozenRowCount > 0 ? 0 : this.rows.start,
+        end: Math.max(this.rows.end, this.frozenRowCount),
+      },
+      cols: {
+        start: this.frozenColCount > 0 ? 0 : this.cols.start,
+        end: Math.max(this.cols.end, this.frozenColCount),
+      },
+    }
+  }
+
+  /** (col,row) 是否行号列格 */
+  isSeriesNumber(col: number, row: number): boolean {
+    return col === HEADER_COORD && row >= 0 && row < this.pipeline.rowCount
+  }
+
+  /** 表头层数：本表列头固定 1 层 */
+  getHeaderLevelCount(): number {
+    return 1
+  }
+
+  // ---- 冻结与合并运行时可变（P8） ----
+
+  /** 当前冻结列数（数据列，不含行号列） */
+  getFrozenColCount(): number {
+    return this.frozenColCount
+  }
+
+  /** 当前冻结行数（数据行，不含列头） */
+  getFrozenRowCount(): number {
+    return this.frozenRowCount
+  }
+
+  /** 运行时修改冻结列数：夹取到 [0, 列数]；会使既有合并区跨冻结边界时抛错并保持原状 */
+  setFrozenColCount(count: number): void {
+    this.applyFrozenCounts(count, this.frozenRowCount)
+  }
+
+  /** 运行时修改冻结行数：夹取到 [0, 行数]；会使既有合并区跨冻结边界时抛错并保持原状 */
+  setFrozenRowCount(count: number): void {
+    this.applyFrozenCounts(this.frozenColCount, count)
+  }
+
+  /**
+   * 运行时整体替换合并区：重叠/跨冻结边界等校验全部通过才生效（否则抛错保持原状），
+   * 生效即全量重建，合并渲染与命中即时反映新集合。
+   */
+  setMergeCells(ranges: readonly CellRange[]): void {
+    this.replaceMergeCells(new MergeCellMap(ranges))
+  }
+
+  /** 运行时新增一个合并区：与既有区间重叠或跨冻结边界时抛错并保持原状 */
+  addMergeCell(range: CellRange): void {
+    this.replaceMergeCells(new MergeCellMap([...this.mergeCells.ranges, range]))
+  }
+
+  /** 运行时移除一个合并区（按归一化后精确匹配）；未命中为空操作 */
+  removeMergeCell(range: CellRange): void {
+    const target = normalizeCellRange(range)
+    const next = this.mergeCells.ranges.filter(
+      (r) =>
+        r.startCol !== target.startCol ||
+        r.startRow !== target.startRow ||
+        r.endCol !== target.endCol ||
+        r.endRow !== target.endRow,
+    )
+    if (next.length === this.mergeCells.ranges.length) {
+      return
+    }
+    this.replaceMergeCells(new MergeCellMap(next))
+  }
+
+  /** 冻结数运行时变更：先校验既有合并区（失败抛错原状不变），落地后走几何变更全量重建 */
+  private applyFrozenCounts(frozenColCount: number, frozenRowCount: number): void {
+    const nextCols = clampFrozenCount(frozenColCount, this.options.columns.length)
+    const nextRows = clampFrozenCount(frozenRowCount, this.pipeline.rowCount)
+    if (nextCols === this.frozenColCount && nextRows === this.frozenRowCount) {
+      return
+    }
+    assertMergesWithinBoundary(this.mergeCells.ranges, nextCols, nextRows)
+    this.frozenColCount = nextCols
+    this.frozenRowCount = nextRows
+    this.applyGeometryChange()
+  }
+
+  /** 合并区集合运行时替换：先校验（失败抛错原状不变），落地后走几何变更全量重建 */
+  private replaceMergeCells(next: MergeCellMap): void {
+    assertMergesWithinBoundary(next.ranges, this.frozenColCount, this.frozenRowCount)
+    this.mergeCells = next
+    this.applyGeometryChange()
+  }
+
   // ---- 事件（P5） ----
 
   /** 订阅 contextmenu 事件（右键菜单 UI 为非目标，仅保留事件）；返回退订函数 */
@@ -505,6 +689,30 @@ export class ListTable {
   onScrollFrame(listener: ScrollFrameListener): () => void {
     this.scrollFrameListeners.add(listener)
     return () => this.scrollFrameListeners.delete(listener)
+  }
+
+  /** 订阅列宽拖拽会话结束事件（col/width，width 为夹取后的最终生效值）；返回退订函数 */
+  onColResizeEnd(listener: (event: ColResizeEndEvent) => void): () => void {
+    this.colResizeEndListeners.add(listener)
+    return () => this.colResizeEndListeners.delete(listener)
+  }
+
+  /** 订阅行高拖拽会话结束事件（row/height，height 为夹取后的最终生效值）；返回退订函数 */
+  onRowResizeEnd(listener: (event: RowResizeEndEvent) => void): () => void {
+    this.rowResizeEndListeners.add(listener)
+    return () => this.rowResizeEndListeners.delete(listener)
+  }
+
+  /** 订阅填充柄按下事件（range 为柄所在选区段）；返回退订函数 */
+  onFillHandleDown(listener: FillHandleDownListener): () => void {
+    this.fillHandleDownListeners.add(listener)
+    return () => this.fillHandleDownListeners.delete(listener)
+  }
+
+  /** 订阅填充柄拖拽结束事件（anchor 锚定段范围 + target 拖拽目标格范围，均为 min/max 序）；返回退订函数 */
+  onFillDragEnd(listener: FillDragEndListener): () => void {
+    this.fillDragEndListeners.add(listener)
+    return () => this.fillDragEndListeners.delete(listener)
   }
 
   // ---- 编辑（P2） ----
@@ -573,6 +781,16 @@ export class ListTable {
 
   private get viewportHeight(): number {
     return Math.max(0, this.height - this.headerHeight)
+  }
+
+  /** 数据区在层坐标中的可绘制矩形（扣除行号列与列头，CSS 像素） */
+  private get bodyViewport(): Region {
+    return {
+      x: this.rowHeaderWidth,
+      y: this.headerHeight,
+      width: this.viewportWidth,
+      height: this.viewportHeight,
+    }
   }
 
   private get contentWidth(): number {
@@ -811,6 +1029,8 @@ export class ListTable {
       height,
       url,
       placeholderAfter: Date.now() + this.imageService.placeholderDelay,
+      // 边缘半格图片经 body 视口裁剪，不越界画进表头/行号列区域
+      bodyViewport: this.bodyViewport,
     })
     const cacheKey = this.imageCacheKey(col, row, width, height)
     const cached = this.mediaCache.get(cacheKey)
@@ -1026,6 +1246,18 @@ export class ListTable {
       )
       return
     }
+    // 填充柄按下：开启拖拽会话并抛按下事件（不改选区，填充生成不在内核）
+    const fillRange = this.fillHandleHit(event.x, event.y)
+    if (fillRange) {
+      const bounds = normalizeRange(fillRange)
+      const origin = { col: bounds.maxCol, row: bounds.maxRow }
+      this.fillDrag = { range: fillRange, origin, current: origin }
+      const down: FillHandleDownEvent = { range: fillRange }
+      for (const listener of this.fillHandleDownListeners) {
+        listener(down)
+      }
+      return
+    }
     if (event.x < this.rowHeaderWidth && event.y < this.headerHeight) {
       // 左上角：全选
       this.selection.selectAll(this.options.columns.length, this.pipeline.rowCount)
@@ -1047,8 +1279,16 @@ export class ListTable {
     }
     const cell = this.cellAt(event.x, event.y)
     if (cell) {
+      // ctrlMultiSelect：Ctrl/Cmd 点选在既有选区上追加选区段（后续拖拽扩展该段）；缺省替换选区
+      if (this.options.ctrlMultiSelect === true && (event.ctrlKey || event.metaKey)) {
+        this.selection.addRange({
+          start: { col: cell.col, row: cell.row },
+          end: { col: cell.col, row: cell.row },
+        })
+      } else {
+        this.selection.beginDrag(cell.col, cell.row)
+      }
       this.selecting = true
-      this.selection.beginDrag(cell.col, cell.row)
     }
   }
 
@@ -1058,6 +1298,13 @@ export class ListTable {
       return
     }
     const cell = this.cellAt(event.x, event.y)
+    if (this.fillDrag) {
+      // 填充拖拽：只跟踪扫过的终点格（不更新选区，无写值）
+      if (cell) {
+        this.fillDrag.current = cell
+      }
+      return
+    }
     if (this.selecting) {
       if (cell) {
         this.selection.updateDrag(cell.col, cell.row)
@@ -1083,11 +1330,40 @@ export class ListTable {
       } else {
         this.setRowHeight(session.target.index, session.sizeAt(pointer))
       }
+      // 拖拽会话成功结束：尺寸落地后按目标抛列/行结束事件（尺寸为夹取后的生效值）
+      this.emitResizeEnd(session.target)
+      return
+    }
+    if (this.fillDrag) {
+      const drag = this.fillDrag
+      this.fillDrag = null
+      // 拖拽结束：抛锚定段范围 + 拖拽目标格范围（内核不产生任何写值行为）
+      const event: FillDragEndEvent = {
+        anchor: normalizeRange(drag.range),
+        target: normalizeRange({ start: drag.origin, end: drag.current }),
+      }
+      for (const listener of this.fillDragEndListeners) {
+        listener(event)
+      }
       return
     }
     this.selecting = false
     this.selection.endDrag()
     this.detectDoubleTap(event)
+  }
+
+  /** 指针是否落在填充柄上：命中返回柄所在的焦点段；焦点段右下角格不可见即无柄 */
+  private fillHandleHit(x: number, y: number): SelectionRange | null {
+    const range = resolveFocusRange(this.selection.snapshot)
+    if (!range) {
+      return null
+    }
+    const bounds = normalizeRange(range)
+    const cell = this.cellRectInViewport(bounds.maxCol, bounds.maxRow)
+    if (!cell) {
+      return null
+    }
+    return hitFillHandle(x, y, cell) ? range : null
   }
 
   /** 双击/双触进编辑：两次同格落点、时长与位移均在阈值内（拖拽/滚动滚出阈值不触发） */
@@ -1151,6 +1427,21 @@ export class ListTable {
     this.refreshOverlay()
   }
 
+  /** 按拖拽目标抛列/行结束事件（订阅者集合为空时零开销） */
+  private emitResizeEnd(target: ResizeTarget): void {
+    if (target.kind === 'col') {
+      const event: ColResizeEndEvent = { col: target.index, width: this.getColWidth(target.index) }
+      for (const listener of this.colResizeEndListeners) {
+        listener(event)
+      }
+      return
+    }
+    const event: RowResizeEndEvent = { row: target.index, height: this.rowHeightAt(target.index) }
+    for (const listener of this.rowResizeEndListeners) {
+      listener(event)
+    }
+  }
+
   private onKeyDown(event: SceneEvent): void {
     // 编辑中按键由编辑器处理（Esc/Enter/Tab 已在编辑器内拦截冒泡），场景导航让位
     if (this.editManager.isEditing()) {
@@ -1158,6 +1449,12 @@ export class ListTable {
     }
     const focus = this.selection.snapshot.focus
     if (!focus || !event.key) {
+      return
+    }
+    // editCellOnEnter 键位开关：开启后非编辑态按 Enter 进入焦点格编辑（编辑器内 Enter 提交
+    // 并按 Enter 语义下移的既有行为不变）；关闭时非编辑态 Enter 保持现状（无操作）
+    if (event.key === 'Enter' && this.options.editCellOnEnter) {
+      this.startEdit(focus.col, focus.row)
       return
     }
     const next = nextActiveCell(
@@ -1332,6 +1629,8 @@ export class ListTable {
       selection: this.selection.snapshot,
       hover: this.hoverState.cell,
       resizeLine: this.resizeLine,
+      // 填充柄挂在焦点段右下角（无选区为 null）
+      fillHandleRange: resolveFocusRange(this.selection.snapshot),
       // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末
       window: {
         rows: { start: 0, end: Math.max(this.rows.end, this.frozenRowCount) },
@@ -1344,7 +1643,7 @@ export class ListTable {
     this.overlayHadContent = has
   }
 
-  /** resize 提交后的几何变更：冻结区尺寸/滚动边界重算，全量重建一次 */
+  /** 几何变更（行列尺寸/冻结数/合并区运行时变更）后：冻结区尺寸/滚动边界重算，全量重建一次 */
   private applyGeometryChange(): void {
     this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
     this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0

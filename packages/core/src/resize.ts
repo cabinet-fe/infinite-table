@@ -19,6 +19,18 @@ export type ResizeTarget =
   | { readonly kind: 'col'; readonly index: number }
   | { readonly kind: 'row'; readonly index: number }
 
+/** 列宽拖拽会话结束事件：列索引与最终宽度（夹取后的生效值） */
+export interface ColResizeEndEvent {
+  col: number
+  width: number
+}
+
+/** 行高拖拽会话结束事件：行索引与最终高度（夹取后的生效值） */
+export interface RowResizeEndEvent {
+  row: number
+  height: number
+}
+
 export interface ResizeCapability {
   canResizeCol?(col: number): boolean
   canResizeRow?(row: number): boolean

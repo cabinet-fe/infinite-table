@@ -104,6 +104,52 @@ describe('ListTable 冻结', () => {
       }),
     ).toThrow(/frozen boundary/)
   })
+
+  it('冻结数运行时可变：setFrozenColCount/setFrozenRowCount 后冻结区、窗口与下一帧渲染即时反映', () => {
+    const { host, table } = createTable({ records: records100() })
+    host.submitted.length = 0
+    table.setFrozenColCount(1)
+    table.setFrozenRowCount(1)
+    expect(table.getFrozenColCount()).toBe(1)
+    expect(table.getFrozenRowCount()).toBe(1)
+    // 几何变更走全量重建（两次修改各一次）
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'full' } },
+      { kind: 'body', inv: { type: 'full' } },
+    ])
+    // 冻结角固定在行号列/列头内侧，可见窗口扣除冻结行列
+    expect(findNode(host, 0, 0)).toMatchObject({ x: 48, y: 36 })
+    expect(table.getVisibleRange()).toEqual({
+      rows: { start: 1, end: 18 },
+      cols: { start: 1, end: 8 },
+    })
+
+    // 滚动带从新冻结边界起（纵向带顶 = 列头 36 + 冻结行高 32）
+    host.submitted.length = 0
+    table.scrollTo(0, 64)
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'band', region: { x: 0, y: 68, width: 800, height: 532 } } },
+    ])
+    expect(findNode(host, 0, 0)).toMatchObject({ x: 48, y: 36 })
+
+    // 夹取到 [0, 总数]
+    table.setFrozenColCount(99)
+    expect(table.getFrozenColCount()).toBe(10)
+    table.setFrozenColCount(-3)
+    expect(table.getFrozenColCount()).toBe(0)
+  })
+
+  it('运行时改冻结数使既有合并区跨边界：抛错并保持原状', () => {
+    const { host, table } = createTable({
+      records: records100(),
+      mergeCells: [{ startCol: 1, startRow: 0, endCol: 2, endRow: 0 }],
+    })
+    expect(() => table.setFrozenColCount(2)).toThrow(/frozen boundary/)
+    expect(table.getFrozenColCount()).toBe(0)
+    // 原状：合并区仍为 [1,0 ~ 2,0]（主格宽 200，覆盖格无节点）
+    expect(findNode(host, 1, 0)).toMatchObject({ x: 148, y: 36, width: 200 })
+    expect(findNode(host, 2, 0)).toBeUndefined()
+  })
 })
 
 describe('ListTable 合并单元格', () => {
@@ -154,6 +200,51 @@ describe('ListTable 合并单元格', () => {
     expect(master).toBeDefined()
     expect(master).toMatchObject({ width: 200, height: 64, text: 'r20' })
     expect(findNode(host, 1, 21)).toBeUndefined()
+  })
+
+  it('合并区运行时整体替换：setMergeCells 后渲染、取值与命中即时反映', () => {
+    const { host, table } = createTable({ records: records100() })
+    table.setMergeCells([{ startCol: 1, startRow: 1, endCol: 3, endRow: 2 }])
+    expect(findNode(host, 1, 1)).toMatchObject({
+      x: 148,
+      y: 68,
+      width: 300,
+      height: 64,
+      text: 'r1',
+    })
+    expect(findNode(host, 2, 1)).toBeUndefined()
+    expect(table.getCellText(3, 2)).toBe('r1')
+    expect(findNodeAt(host, 200, 80)).toBe(findNode(host, 1, 1))
+
+    // 清空集合恢复逐格布局
+    table.setMergeCells([])
+    expect(findNode(host, 2, 1)).toBeDefined()
+    expect(findNode(host, 3, 2)).toBeDefined()
+  })
+
+  it('合并区运行时增删：重叠或跨冻结边界抛错并保持原状，删除按归一化匹配', () => {
+    const { host, table } = createTable({ records: records100(), frozenColCount: 1 })
+    table.addMergeCell({ startCol: 2, startRow: 1, endCol: 3, endRow: 2 })
+    expect(findNode(host, 2, 1)).toMatchObject({ width: 200, height: 64 })
+    expect(findNode(host, 3, 2)).toBeUndefined()
+
+    // 与既有区间重叠：抛错（overlap），集合原状
+    expect(() => table.addMergeCell({ startCol: 3, startRow: 2, endCol: 4, endRow: 2 })).toThrow(
+      /overlap/,
+    )
+    expect(findNode(host, 4, 2)).toBeDefined()
+
+    // 跨冻结边界（冻结列 0 与滚动列 1 之间）：抛错，集合原状
+    expect(() => table.addMergeCell({ startCol: 0, startRow: 5, endCol: 1, endRow: 5 })).toThrow(
+      /frozen boundary/,
+    )
+    expect(findNode(host, 0, 5)).toMatchObject({ width: 100 })
+    expect(findNode(host, 1, 5)).toBeDefined()
+
+    // 逆序坐标删除同一区间（归一化匹配），逐格恢复
+    table.removeMergeCell({ startCol: 3, startRow: 2, endCol: 2, endRow: 1 })
+    expect(findNode(host, 2, 1)).toBeDefined()
+    expect(findNode(host, 3, 2)).toBeDefined()
   })
 })
 

@@ -63,6 +63,24 @@ export class SelectionState {
     this.emit()
   }
 
+  /** 程序化多段选中：整组替换选区段，焦点落在末段焦点格（填充柄挂在焦点段上） */
+  selectCells(ranges: readonly SelectionRange[]): void {
+    this.ranges = ranges.map((range) => ({
+      start: { ...range.start },
+      end: { ...range.end },
+    }))
+    const last = this.ranges[this.ranges.length - 1]
+    this.focus = last ? { ...last.end } : null
+    this.emit()
+  }
+
+  /** 在既有选区上追加一段（ctrlMultiSelect 的 Ctrl/Cmd 点选），焦点同步到新段焦点格 */
+  addRange(range: SelectionRange): void {
+    this.ranges = [...this.ranges, { start: { ...range.start }, end: { ...range.end } }]
+    this.focus = { ...range.end }
+    this.emit()
+  }
+
   /** 拖选开始：锚定单格 */
   beginDrag(col: number, row: number): void {
     this.dragging = true

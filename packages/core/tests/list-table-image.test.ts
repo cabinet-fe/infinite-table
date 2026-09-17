@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { ListTable } from '../src/list-table'
 import { ImageCellNode } from '../src/media/image-cell-node'
 import type { LoadedImage } from '../src/media/image-service'
+import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'
 
@@ -92,6 +93,22 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
       kind: 'media',
       inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
     })
+  })
+
+  it('边缘半格图片经 body 视口裁剪：滚动半行后不画进列头区域', async () => {
+    const { host, loader, table } = createImageTable({
+      resolveCellImage: () => 'a.png',
+    })
+    loader.resolveAll()
+    await flush()
+    // 滚动半行（16px）：格 (0,0) 顶部越过列头下缘 y=36，越界部分不得绘制
+    table.scrollTo(0, 16)
+    const node = imageNodeAt(host, 0, 0)
+    expect(node?.y).toBe(20)
+    const ctx = new RecordingContext()
+    node?.paint(ctx)
+    expect(ctx.callsOf('rect')[0]?.args).toEqual([0, 16, 100, 16])
+    expect(ctx.callsOf('clip')).toHaveLength(1)
   })
 
   it('位图就绪后滚回：cell 级 LRU / ImageService 命中，首帧直接持图（无闪），不重复加载', async () => {

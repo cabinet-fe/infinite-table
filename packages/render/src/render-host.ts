@@ -173,6 +173,20 @@ class CanvasRenderHost implements RenderHost {
     canvas.style.width = `${this.width}px`
     canvas.style.height = `${this.height}px`
     canvas.dataset.layerKind = kind
+    // 按 LAYER_ORDER 声明 z 序插入：插到首个已挂载的更上层之前，
+    // 使「先创建 body、后惰性创建 media」的实际用例下 DOM 叠放仍为 ground→body→media→sky
+    for (let i = LAYER_ORDER.indexOf(kind) + 1; i < LAYER_ORDER.length; i++) {
+      const laterKind = LAYER_ORDER[i]
+      const later = laterKind ? this.layers.get(laterKind) : undefined
+      if (
+        later &&
+        later.canvasElement instanceof HTMLCanvasElement &&
+        container.contains(later.canvasElement)
+      ) {
+        container.insertBefore(canvas, later.canvasElement)
+        return
+      }
+    }
     container.appendChild(canvas)
   }
 

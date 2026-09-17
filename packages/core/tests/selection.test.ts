@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeRange, SelectionState, type SelectionSnapshot } from '../src/selection'
+import {
+  normalizeRange,
+  SelectionState,
+  type SelectionRange,
+  type SelectionSnapshot,
+} from '../src/selection'
 
 describe('SelectionState 拖选与整行整列', () => {
   it('拖选：beginDrag 锚定单格，updateDrag 扩展并同步焦点，支持反向拖拽', () => {
@@ -79,6 +84,49 @@ describe('SelectionState 拖选与整行整列', () => {
       { start: { col: 2, row: 2 }, end: { col: 1, row: 0 } },
     ])
     expect(selection.snapshot.focus).toEqual({ col: 1, row: 0 })
+  })
+
+  it('selectCells 多段选中：整组替换选区段，焦点落在末段焦点格，入参段被复制', () => {
+    const selection = new SelectionState()
+    const seen: SelectionSnapshot[] = []
+    selection.onChange((snapshot) => seen.push(snapshot))
+    selection.selectCell(9, 9)
+
+    const input: SelectionRange[] = [
+      { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
+      { start: { col: 3, row: 2 }, end: { col: 4, row: 5 } },
+    ]
+    selection.selectCells(input)
+    expect(selection.snapshot.ranges).toEqual(input)
+    expect(selection.snapshot.ranges).not.toBe(input)
+    expect(selection.snapshot.ranges[0]).not.toBe(input[0])
+    // 焦点落在末段焦点格（填充柄挂在焦点段上）
+    expect(selection.snapshot.focus).toEqual({ col: 4, row: 5 })
+    expect(seen).toHaveLength(2)
+
+    // 空数组整组清空，焦点同步清空
+    selection.selectCells([])
+    expect(selection.snapshot.ranges).toEqual([])
+    expect(selection.snapshot.focus).toBeNull()
+  })
+
+  it('addRange 在既有选区上追加一段（ctrlMultiSelect 的 Ctrl/Cmd 点选），焦点同步到新段焦点格', () => {
+    const selection = new SelectionState()
+    selection.selectCell(0, 0)
+    selection.addRange({ start: { col: 2, row: 1 }, end: { col: 3, row: 1 } })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 0, row: 0 } },
+      { start: { col: 2, row: 1 }, end: { col: 3, row: 1 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 3, row: 1 })
+    // 入参段被复制：外部改动不影响内部状态
+    const appended: SelectionRange = { start: { col: 5, row: 5 }, end: { col: 6, row: 6 } }
+    selection.addRange(appended)
+    appended.end = { col: 9, row: 9 }
+    expect(selection.snapshot.ranges[2]).toEqual({
+      start: { col: 5, row: 5 },
+      end: { col: 6, row: 6 },
+    })
   })
 
   it('clear 清空选区并广播一次', () => {

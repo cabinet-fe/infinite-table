@@ -131,6 +131,12 @@ describe('EventSystem 事件归一化', () => {
     expect(menuEvents[0]).toMatchObject({ x: 30, y: 40 })
     target.emit('keydown', { key: 'ArrowRight', shiftKey: true })
     expect(keyEvents[0]?.shiftKey).toBe(true)
+    // Ctrl/Cmd 修饰键同样归一化透传，缺省 false
+    expect(keyEvents[0]?.ctrlKey).toBe(false)
+    expect(keyEvents[0]?.metaKey).toBe(false)
+    target.emit('keydown', { key: 'a', ctrlKey: true, metaKey: true })
+    expect(keyEvents[1]?.ctrlKey).toBe(true)
+    expect(keyEvents[1]?.metaKey).toBe(true)
   })
 
   it('触摸事件取第一个触点归一化为层坐标', () => {

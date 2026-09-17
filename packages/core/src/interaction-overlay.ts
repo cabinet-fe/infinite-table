@@ -3,13 +3,15 @@
 
 import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
 
+import { fillHandleRect } from './fill-handle'
 import type { WindowRange } from './grid-layout'
-import { normalizeRange, type SelectionSnapshot } from './selection'
+import { normalizeRange, type SelectionRange, type SelectionSnapshot } from './selection'
 import type { CellRef } from './types'
 
 const SELECTION_FILL = 'rgba(46, 106, 219, 0.08)'
 const SELECTION_BORDER = '#2e6adb'
 const SELECTION_BORDER_WIDTH = 2
+const FILL_HANDLE_COLOR = '#2e6adb'
 const HOVER_CELL_FILL = 'rgba(31, 35, 41, 0.08)'
 const HOVER_BAND_FILL = 'rgba(31, 35, 41, 0.04)'
 const RESIZE_LINE_COLOR = '#2e6adb'
@@ -33,6 +35,8 @@ export interface OverlayContent {
   readonly selection: SelectionSnapshot
   readonly hover: CellRef | null
   readonly resizeLine: ResizeLine | null
+  /** 填充柄所在焦点段（无选区为 null）；柄绘制在焦点段右下角格的角点上 */
+  readonly fillHandleRange: SelectionRange | null
   /** 可视窗口（选区裁剪用，[start, end)） */
   readonly window: { rows: WindowRange; cols: WindowRange }
 }
@@ -56,6 +60,7 @@ class OverlayNode extends SceneNode {
     ctx.clip()
     this.paintHover(ctx, content)
     this.paintSelection(ctx, content)
+    this.paintFillHandle(ctx, content)
     this.paintResizeLine(ctx, content, viewport)
     ctx.restore()
   }
@@ -94,6 +99,22 @@ class OverlayNode extends SceneNode {
       ctx.fillRect(rect.x, rect.y, w, rect.height)
       ctx.fillRect(rect.x + rect.width - w, rect.y, w, rect.height)
     }
+  }
+
+  /** 填充柄方点：挂在焦点段右下角格的角点上；该格在可视窗口外则不画 */
+  private paintFillHandle(ctx: RenderContext, content: OverlayContent): void {
+    const range = content.fillHandleRange
+    if (!range) {
+      return
+    }
+    const bounds = normalizeRange(range)
+    const cell = this.geometry.cellRect(bounds.maxCol, bounds.maxRow)
+    if (!cell) {
+      return
+    }
+    const handle = fillHandleRect(cell)
+    ctx.fillStyle = FILL_HANDLE_COLOR
+    ctx.fillRect(handle.x, handle.y, handle.width, handle.height)
   }
 
   private paintResizeLine(ctx: RenderContext, content: OverlayContent, viewport: Region): void {

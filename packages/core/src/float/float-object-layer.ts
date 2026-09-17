@@ -1,4 +1,4 @@
-// FloatObjectLayer（docs/perf-redesign 04 §4）：格上浮动对象（图片/图表）的承载、定位与滚动跟随。
+// FloatObjectLayer：格上浮动对象（图片/图表）的承载、定位与滚动跟随。
 // 浮动对象不进 cell 数据流，持有独立对象树（宿主层 root 下的一个容器子树，最后挂载 = 层内最顶）；
 // 锚点（from 格 + 像素偏移 → to 格）经 FloatGeometry 换算层坐标，滚动/结构变更后 syncPositions 帧级重排。
 // 变更以事件抛出（onChange），undo/历史由宿主入库，本层不内置历史栈。
