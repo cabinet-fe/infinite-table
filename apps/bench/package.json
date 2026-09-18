@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@infinite-table/core": "workspace:*",
+    "@infinite-table/plugins": "workspace:*",
     "@infinite-table/render": "workspace:*"
   }
 }

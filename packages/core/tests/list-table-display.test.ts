@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SceneNode } from '@infinite-table/render'
 
 import { CellNode } from '../src/cell-node'
+import { FrameNode, UnderlayNode } from '../src/list-table-scene'
 import { ListTable } from '../src/list-table'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
@@ -291,9 +292,7 @@ describe('ListTable 列级样式投影缓存', () => {
         title: `C${i}`,
         textWrap: i === 1,
         style:
-          i === 1
-            ? { color: '#ff0000', border: { left: { width: 2, color: '#f00' } } }
-            : undefined,
+          i === 1 ? { color: '#ff0000', border: { left: { width: 2, color: '#f00' } } } : undefined,
       })),
     })
     const a = findNode(host, 1, 0)
@@ -315,8 +314,7 @@ describe('ListTable 列级样式投影缓存', () => {
         title: `C${i}`,
         style: i === 1 ? { color: '#ff0000' } : undefined,
       })),
-      resolveCellStyle: (col, row) =>
-        col === 1 && row === 3 ? { background: '#00ff00' } : null,
+      resolveCellStyle: (col, row) => (col === 1 && row === 3 ? { background: '#00ff00' } : null),
     })
     const hooked = findNode(host, 1, 3)
     // 三级链逐字段等价：hook 覆盖 background，未给字段沿用列级/主题
@@ -355,5 +353,28 @@ describe('ListTable 自定义渲染 hook 与单元格类型', () => {
     expect(findNode(host, 0, 1)).toMatchObject({ cellType: 'checkbox', value: false })
     // 缺省 text 类型
     expect(findNode(host, 1, 0)?.cellType).toBe('text')
+  })
+})
+
+describe('表头分区样式与 underlay/外框节点', () => {
+  it('滚动帧增量补建的行号格用 rowHeader 分区样式，列头仍用 header 分区', () => {
+    const { host, table } = createTable({
+      records: records100(),
+      theme: { rowHeader: { background: '#123456' } },
+    })
+    table.scrollTo(0, 32) // 窗口 0..17 → 1..18：行 18 为新补建行号格，样式来自 rowHeader 分区
+    expect(findNode(host, -1, 18)?.style.background).toBe('#123456')
+    expect(findNode(host, -1, 1)?.style.background).toBe('#123456')
+    expect(findNode(host, 0, -1)?.style.background).toBe('#f5f6f7')
+  })
+
+  it('underlay 首子节点、外框末子节点；滚动帧增量补建后仍保持两端 z 序', () => {
+    const { host, table } = createTable({ records: records100() })
+    const root = host.layers.get('body')!.root
+    expect(root.children[0]).toBeInstanceOf(UnderlayNode)
+    expect(root.children.at(-1)).toBeInstanceOf(FrameNode)
+    table.scrollTo(100, 32)
+    expect(root.children[0]).toBeInstanceOf(UnderlayNode)
+    expect(root.children.at(-1)).toBeInstanceOf(FrameNode)
   })
 })

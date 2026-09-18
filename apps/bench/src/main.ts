@@ -6,6 +6,7 @@ import { createRenderHost } from '@infinite-table/render'
 
 import {
   createBenchColumns,
+  createSheetColumns,
   createBenchRecords,
   VIEWPORT_AREA,
   VIEWPORT_HEIGHT,
@@ -59,6 +60,46 @@ function createBrowserEnv(container: HTMLElement): BenchEnv {
               clientX: rect.left + x,
               clientY: rect.top + y,
               bubbles: true,
+            }),
+          )
+        },
+        destroy: () => {
+          table.destroy()
+          host.destroy()
+        },
+      }
+    },
+    createSheetTable(store) {
+      const meter = new InvalidationMeter(VIEWPORT_AREA)
+      const host = createRenderHost({
+        width: VIEWPORT_WIDTH,
+        height: VIEWPORT_HEIGHT,
+        container,
+      })
+      const t0 = performance.now()
+      const table = new ListTable({
+        width: VIEWPORT_WIDTH,
+        height: VIEWPORT_HEIGHT,
+        columns: createSheetColumns(),
+        model: store.asModel(),
+        host: meter.wrap(host),
+      })
+      const constructorMs = performance.now() - t0
+      return {
+        table,
+        meter,
+        constructorMs,
+        beginFrame: () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve())
+          }),
+        endFrame: () => {},
+        hoverAt: (x, y) => {
+          const rect = container.getBoundingClientRect()
+          container.dispatchEvent(
+            new PointerEvent('pointermove', {
+              clientX: rect.left + x,
+              clientY: rect.top + y,
             }),
           )
         },

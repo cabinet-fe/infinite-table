@@ -53,6 +53,26 @@ export interface CellChangeEvent {
   newValue: unknown
 }
 
+/** 编辑会话开始事件：会话真正打开（可编判定通过、浮层已开）后通知 */
+export interface EditStartEvent {
+  col: number
+  row: number
+  /** 编辑初值（基础值口径，未过 resolveDisplayValue） */
+  initialValue: unknown
+}
+
+/** 编辑会话结束事件：提交在 onCellChange 之后抛出；取消不回写不抛 onCellChange */
+export interface EditEndEvent {
+  col: number
+  row: number
+  /** 编辑初值（基础值口径） */
+  initialValue: unknown
+  /** 终值；仅 committed=true 时存在 */
+  finalValue?: unknown
+  /** true=提交回写，false=取消 */
+  committed: boolean
+}
+
 /** 格坐标引用（图片加载窗口、浮动对象锚点共用） */
 export interface CellRef {
   col: number

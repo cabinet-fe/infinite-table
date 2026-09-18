@@ -92,12 +92,11 @@ import type {
   CellChangeEvent,
   CellRef,
   ContextMenuListener,
+  EditEndEvent,
+  EditStartEvent,
   ListTableOptions,
 } from './types'
-import type {
-  FillDragEndListener,
-  FillHandleDownListener,
-} from './fill-handle'
+import type { FillDragEndListener, FillHandleDownListener } from './fill-handle'
 
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
@@ -154,6 +153,8 @@ export class ListTable {
   readonly rowHeaderNodes = new Map<number, CellNode>()
   /** @internal 左上角占位节点（几何固定，首次建后复用） */
   cornerNode: CellNode | null = null
+  /** @internal 表格外框节点（body root 末子节点；滚动帧增量补建后重挂保持最上） */
+  frameNode: SceneNode | null = null
   /**
    * @internal body 表头容器（R2-5）：恒为 body root 末子节点，表头整体在全部数据格之上；
    * 滚动帧有新建数据格时仅重挂此单节点，替代原先逐表头 removeChild+appendChild
@@ -182,6 +183,8 @@ export class ListTable {
   resizeLine: ResizeLine | null = null
   /** @internal 拖选进行中 */
   selecting = false
+  /** @internal 表头高亮选区签名（refreshHeaderHighlight 的变化守卫） */
+  headerHighlightSignature = ''
   /** @internal 浮层曾有内容（清空补一次 full 防残影） */
   overlayHadContent = false
   private batchDepth = 0
@@ -191,6 +194,9 @@ export class ListTable {
   private readonly scrollFrameListeners = new Set<ScrollFrameListener>()
   /** 编辑提交事件订阅（col/row/oldValue/newValue） */
   private readonly cellChangeListeners = new Set<(change: CellChangeEvent) => void>()
+  /** 编辑会话开始/结束事件订阅（编辑生命周期通知） */
+  private readonly editStartListeners = new Set<(event: EditStartEvent) => void>()
+  private readonly editEndListeners = new Set<(event: EditEndEvent) => void>()
   /** @internal 列宽拖拽会话结束事件订阅（col/width） */
   readonly colResizeEndListeners = new Set<(event: ColResizeEndEvent) => void>()
   /** @internal 行高拖拽会话结束事件订阅（row/height） */
@@ -262,10 +268,14 @@ export class ListTable {
       (dx, dy) => this.scroll.scrollBy(dx, dy),
       (task) => this.host.requestFrame(task),
     )
-    this.overlay = new InteractionOverlay(this.sky.root, {
-      cellRect: (col, row) => cellRectInViewport(this, col, row),
-      bodyViewport: this.bodyViewport,
-    })
+    this.overlay = new InteractionOverlay(
+      this.sky.root,
+      {
+        cellRect: (col, row) => cellRectInViewport(this, col, row),
+        bodyViewport: this.bodyViewport,
+      },
+      this.theme.interaction,
+    )
     // 滚动位置定义在可滚动内容（总内容扣除冻结区）上
     this.scroll.setViewportSize(
       this.viewportWidth - this.frozenColsWidth,
@@ -300,6 +310,16 @@ export class ListTable {
       emitChange: (change) => {
         for (const listener of this.cellChangeListeners) {
           listener(change)
+        }
+      },
+      emitStart: (event) => {
+        for (const listener of this.editStartListeners) {
+          listener(event)
+        }
+      },
+      emitEnd: (event) => {
+        for (const listener of this.editEndListeners) {
+          listener(event)
         }
       },
       moveSelection: (col, row, move) => this.moveSelectionAfterCommit(col, row, move),
@@ -419,7 +439,13 @@ export class ListTable {
     )
     node.style = this.resolveStyle(masterCol, masterRow)
     node.renderer = this.options.resolveCellRenderer?.(masterCol, masterRow) ?? null
-    const limitX = textOverflowLimitX(this, masterCol, masterRow, node.style, this.scroll.state.left)
+    const limitX = textOverflowLimitX(
+      this,
+      masterCol,
+      masterRow,
+      node.style,
+      this.scroll.state.left,
+    )
     node.textMaxX = limitX === null ? node.width : limitX - node.x
     const regions: Region[] = [node.getGlobalBounds()]
     if (prevMaxX > node.width) {
@@ -770,6 +796,18 @@ export class ListTable {
   onCellChange(listener: (change: CellChangeEvent) => void): () => void {
     this.cellChangeListeners.add(listener)
     return () => this.cellChangeListeners.delete(listener)
+  }
+
+  /** 订阅编辑会话开始事件（col/row/初值为基础值口径；可编判定失败不抛）；返回退订函数 */
+  onEditStart(listener: (event: EditStartEvent) => void): () => void {
+    this.editStartListeners.add(listener)
+    return () => this.editStartListeners.delete(listener)
+  }
+
+  /** 订阅编辑会话结束事件（提交在 onCellChange 后抛且带终值；取消 committed=false）；返回退订函数 */
+  onEditEnd(listener: (event: EditEndEvent) => void): () => void {
+    this.editEndListeners.add(listener)
+    return () => this.editEndListeners.delete(listener)
   }
 
   destroy(): void {

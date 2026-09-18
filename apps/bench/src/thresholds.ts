@@ -14,3 +14,14 @@ export const BODY_FULL_REPAINT_MAX = 0
  * hover 并发时 hover 高亮走 sky 层独立重绘，body 面积不得因此超过该上限
  */
 export const BODY_AREA_RATIO_MAX = 1
+
+// ---- sheet 场景阈值（S5；基线来源：headless 2026-09-18，M 系列 macOS，取基线均值 ×3 宽松上界） ----
+
+/** sheet 切换全量重建均值上限（headless 基线 0.49ms，口径含构造；放宽以兼容浏览器宿主首建开销） */
+export const SHEET_SWITCH_AVG_MAX_MS = 10
+/** sheet 逐格写吞吐下限（基线 583 ops/ms） */
+export const SHEET_WRITE_THROUGHPUT_MIN_OPS_MS = 190
+/** sheet 大块粘贴 500 格耗时上限（headless 基线 0.28ms；放宽以兼容浏览器宿主） */
+export const SHEET_PASTE_MAX_MS = 5
+/** sheet 冻结切换均值上限（基线 0.04ms） */
+export const SHEET_FREEZE_AVG_MAX_MS = 0.2

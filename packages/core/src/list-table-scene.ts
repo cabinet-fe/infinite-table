@@ -3,7 +3,7 @@
 // 分带建格与行列头装配、Excel 式文本溢出右界支撑（refreshCell 的溢出联动依赖）。
 // 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
-import { SceneNode } from '@infinite-table/render'
+import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
 
 import { CellNode } from './cell-node'
 import type { CellStyle } from './cell-style'
@@ -12,11 +12,61 @@ import {
   computeScrollableRowWindowFromOffsets,
   resolveCellX,
   resolveCellYFromOffsets,
+  unionRegions,
   type WindowRange,
 } from './grid-layout'
 import type { ListTable } from './list-table'
-import { cellKey, HEADER_COORD } from './list-table-internal'
+import {
+  cellKey,
+  HEADER_COORD,
+  isColHeaderHighlighted,
+  isRowHeaderHighlighted,
+} from './list-table-internal'
 import { appendImageCell } from './list-table-media'
+import type { FrameStyle } from './theme'
+
+/** 外框阴影模糊半径（CSS 像素；frameStyle.shadow 开启时的固定观感） */
+const FRAME_SHADOW_BLUR = 6
+
+/**
+ * 纯填充矩形节点：underlay 底色铺设。恒为 body root 首子节点（格背景之下），
+ * 数据区外空白处与半透明格背景之下直接可见。
+ */
+export class UnderlayNode extends SceneNode {
+  constructor(private readonly color: string) {
+    super({ pickable: false })
+  }
+
+  override paint(ctx: RenderContext): void {
+    ctx.fillStyle = this.color
+    ctx.fillRect(0, 0, this.width, this.height)
+  }
+}
+
+/** 表格外框节点：四边细条线框 + 可选阴影（RenderContext 无 stroke，用细条填充）。恒为 body root 末子节点 */
+export class FrameNode extends SceneNode {
+  constructor(private readonly frame: FrameStyle) {
+    super({ pickable: false })
+  }
+
+  override paint(ctx: RenderContext): void {
+    const { lineWidth, color, shadow } = this.frame
+    if (lineWidth <= 0) {
+      return
+    }
+    if (shadow) {
+      ctx.shadowColor = color
+      ctx.shadowBlur = FRAME_SHADOW_BLUR
+    }
+    ctx.fillStyle = color
+    const w = this.width
+    const h = this.height
+    ctx.fillRect(0, 0, w, lineWidth)
+    ctx.fillRect(0, h - lineWidth, w, lineWidth)
+    ctx.fillRect(0, 0, lineWidth, h)
+    ctx.fillRect(w - lineWidth, 0, lineWidth, h)
+  }
+}
 
 /** 重建可视窗口场景：数据格在前、行列头在后（同层后画覆盖边缘半格） */
 export function rebuildScene(table: ListTable): void {
@@ -29,6 +79,7 @@ export function rebuildScene(table: ListTable): void {
   table.rowHeaderNodes.clear()
   table.cornerNode = null
   table.headerGroup = null
+  table.frameNode = null
   if (table.media) {
     const mediaRoot = table.media.root
     while (mediaRoot.children.length > 0) {
@@ -36,6 +87,11 @@ export function rebuildScene(table: ListTable): void {
     }
   }
   table.imageCellNodes.clear()
+  // underlay 底色最先入树（首子节点）：格背景之下铺设
+  const underlay = new UnderlayNode(table.theme.underlayBackgroundColor)
+  underlay.width = table.width
+  underlay.height = table.height
+  root.appendChild(underlay)
   const { left, top } = table.scroll.state
   const scrollableRows = computeScrollableRowWindowFromOffsets(
     top,
@@ -56,10 +112,13 @@ export function rebuildScene(table: ListTable): void {
   const frozenRows: WindowRange = { start: 0, end: table.frozenRowCount }
   const frozenCols: WindowRange = { start: 0, end: table.frozenColCount }
   appendCellBand(table, scrollableRows, scrollableCols, left, top)
-  appendPartiallyVisibleMerges(table, left, top, [frozenRows, scrollableRows], [
-    frozenCols,
-    scrollableCols,
-  ])
+  appendPartiallyVisibleMerges(
+    table,
+    left,
+    top,
+    [frozenRows, scrollableRows],
+    [frozenCols, scrollableCols],
+  )
   appendCellBand(table, scrollableRows, frozenCols, left, top)
   appendCellBand(table, frozenRows, scrollableCols, left, top)
   appendCellBand(table, frozenRows, frozenCols, left, top)
@@ -72,7 +131,22 @@ export function rebuildScene(table: ListTable): void {
   const headerGroup = newHeaderGroup(table)
   table.headerGroup = headerGroup
   root.appendChild(headerGroup)
-  appendHeaders(table, headerGroup, left, top, frozenRows, scrollableRows, frozenCols, scrollableCols)
+  appendHeaders(
+    table,
+    headerGroup,
+    left,
+    top,
+    frozenRows,
+    scrollableRows,
+    frozenCols,
+    scrollableCols,
+  )
+  // 外框最后入树（末子节点）：恒在数据格与表头之上；滚动帧增量补建后由 updateSceneWindow 重挂保持最上
+  const frame = new FrameNode(table.theme.frameStyle)
+  frame.width = table.width
+  frame.height = table.height
+  root.appendChild(frame)
+  table.frameNode = frame
 }
 
 /**
@@ -143,11 +217,19 @@ export function updateSceneWindow(table: ListTable): void {
   }
   // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移（数据格与图片格同条件）
   sweepWindowNodes(table, table.cellNodes, table.body.root, keepCell, left, top)
-  sweepWindowNodes(table, table.imageCellNodes, table.media?.root ?? null, keepCell, left, top, (node) => {
-    // 引用裁剪接线（R2-7）：滚出窗口的图片格释放 ImageService 格引用，
-    // 无引用条目脱离窗口调度扫描面（重入由 appendImageCell 的 request 重登记）
-    table.imageService.releaseRef(node.url, { col: node.col, row: node.row })
-  })
+  sweepWindowNodes(
+    table,
+    table.imageCellNodes,
+    table.media?.root ?? null,
+    keepCell,
+    left,
+    top,
+    (node) => {
+      // 引用裁剪接线（R2-7）：滚出窗口的图片格释放 ImageService 格引用，
+      // 无引用条目脱离窗口调度扫描面（重入由 appendImageCell 的 request 重登记）
+      table.imageService.releaseRef(node.url, { col: node.col, row: node.row })
+    },
+  )
   let bodyChanged = false
   // 2) 新滚入行整行补建：先滚动区列降序、再冻结列降序（同行左格后画）
   for (let row = scrollableRows.start; row < scrollableRows.end; row++) {
@@ -201,7 +283,7 @@ export function updateSceneWindow(table: ListTable): void {
   //    （容器恒在数据格之上，见 rebuildScene）；有新建数据格时把容器重挂到树尾，
   //    保持「表头最上」的既有 z 序（合并主格上缘可能伸进列头带）
   const root = table.body.root
-  const style = headerStyle(table)
+  const styles = headerStyles(table)
   if (!table.headerGroup) {
     table.headerGroup = newHeaderGroup(table)
     root.appendChild(table.headerGroup)
@@ -232,7 +314,7 @@ export function updateSceneWindow(table: ListTable): void {
   for (const cols of [scrollableCols, frozenCols]) {
     for (let col = cols.start; col < cols.end; col++) {
       if (!table.colHeaderNodes.has(col)) {
-        const node = newColHeaderNode(table, col, left, style)
+        const node = newColHeaderNode(table, col, left, styles.col)
         headerGroup.appendChild(node)
         table.colHeaderNodes.set(col, node)
       }
@@ -241,19 +323,23 @@ export function updateSceneWindow(table: ListTable): void {
   for (const rows of [scrollableRows, frozenRows]) {
     for (let row = rows.start; row < rows.end; row++) {
       if (!table.rowHeaderNodes.has(row)) {
-        const node = newRowHeaderNode(table, row, top, style)
+        const node = newRowHeaderNode(table, row, top, styles.row)
         headerGroup.appendChild(node)
         table.rowHeaderNodes.set(row, node)
       }
     }
   }
   if (!table.cornerNode) {
-    table.cornerNode = newCornerNode(table, style)
+    table.cornerNode = newCornerNode(table, styles.corner)
     headerGroup.appendChild(table.cornerNode)
   }
   if (bodyChanged) {
     // appendChild 自带摘除重挂：单节点定位替代原先逐表头搬移
     root.appendChild(headerGroup)
+    if (table.frameNode) {
+      // 外框重挂树尾：恒在数据格与表头之上
+      root.appendChild(table.frameNode)
+    }
   }
 }
 
@@ -276,7 +362,13 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
   const swept: T[] = []
   for (const [key, node] of nodes) {
     if (keep(node.col, node.row)) {
-      node.x = resolveCellX(node.col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth)
+      node.x = resolveCellX(
+        node.col,
+        left,
+        table.colOffsets,
+        table.frozenColCount,
+        table.rowHeaderWidth,
+      )
       node.y = resolveCellYFromOffsets(
         node.row,
         top,
@@ -319,7 +411,13 @@ function appendCellBand(
  * 建单格节点：被合并覆盖的格不建节点（由主格统一取值/绘制/命中），主格跨域取完整尺寸；
  * 节点已存在（增量窗口保留的存活格/既有合并主格）时跳过。返回是否新建了节点。
  */
-function appendCell(table: ListTable, col: number, row: number, left: number, top: number): boolean {
+function appendCell(
+  table: ListTable,
+  col: number,
+  row: number,
+  left: number,
+  top: number,
+): boolean {
   if (table.cellNodes.has(cellKey(col, row))) {
     return false
   }
@@ -336,7 +434,13 @@ function appendCell(table: ListTable, col: number, row: number, left: number, to
     col,
     row,
     x: resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth),
-    y: resolveCellYFromOffsets(row, top, table.rowOffsets, table.frozenRowCount, table.headerHeight),
+    y: resolveCellYFromOffsets(
+      row,
+      top,
+      table.rowOffsets,
+      table.frozenRowCount,
+      table.headerHeight,
+    ),
     width: (table.colOffsets[endCol + 1] ?? 0) - (table.colOffsets[col] ?? 0),
     height: (table.rowOffsets[endRow + 1] ?? 0) - (table.rowOffsets[row] ?? 0),
     text: imageUrl ? '' : table.pipeline.resolveText(col, row),
@@ -460,33 +564,37 @@ function appendHeaders(
   frozenCols: WindowRange,
   scrollableCols: WindowRange,
 ): void {
-  const style = headerStyle(table)
+  const styles = headerStyles(table)
   // 滚动条带先画、冻结条带后画：滑动的行/列头被冻结头覆盖
   for (const cols of [scrollableCols, frozenCols]) {
     for (let col = cols.start; col < cols.end; col++) {
-      const node = newColHeaderNode(table, col, left, style)
+      const node = newColHeaderNode(table, col, left, styles.col)
       headerGroup.appendChild(node)
       table.colHeaderNodes.set(col, node)
     }
   }
   for (const rows of [scrollableRows, frozenRows]) {
     for (let row = rows.start; row < rows.end; row++) {
-      const node = newRowHeaderNode(table, row, top, style)
+      const node = newRowHeaderNode(table, row, top, styles.row)
       headerGroup.appendChild(node)
       table.rowHeaderNodes.set(row, node)
     }
   }
-  table.cornerNode = newCornerNode(table, style)
+  table.cornerNode = newCornerNode(table, styles.corner)
   headerGroup.appendChild(table.cornerNode)
 }
 
-/** 列头/行号列缺省 ellipsis（超宽标题省略号截断）；主题 header 分区显式给了 textOverflow 则以主题为准 */
-function headerStyle(table: ListTable): CellStyle {
-  return { textOverflow: 'ellipsis', ...table.theme.header }
+/** 三类表头分区样式：列头用 header、行号列用 rowHeader、左上角用 corner（缺省随 header 派生） */
+function headerStyles(table: ListTable): { col: CellStyle; row: CellStyle; corner: CellStyle } {
+  return {
+    col: { textOverflow: 'ellipsis', ...table.theme.header },
+    row: { textOverflow: 'ellipsis', ...table.theme.rowHeader },
+    corner: { textOverflow: 'ellipsis', ...table.theme.corner },
+  }
 }
 
 function newColHeaderNode(table: ListTable, col: number, left: number, style: CellStyle): CellNode {
-  return new CellNode({
+  const node = new CellNode({
     col,
     row: HEADER_COORD,
     x: resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth),
@@ -496,19 +604,73 @@ function newColHeaderNode(table: ListTable, col: number, left: number, style: Ce
     text: table.options.columns[col]?.title ?? '',
     style,
   })
+  // 整列选区覆盖 → 列头高亮（建格路径与选区变化路径共用同一判定）
+  if (isColHeaderHighlighted(table.selection.snapshot, table.pipeline.rowCount, col)) {
+    node.style = { ...style, background: table.theme.interaction.headerHighlight }
+  }
+  return node
 }
 
 function newRowHeaderNode(table: ListTable, row: number, top: number, style: CellStyle): CellNode {
-  return new CellNode({
+  const node = new CellNode({
     col: HEADER_COORD,
     row,
     x: 0,
-    y: resolveCellYFromOffsets(row, top, table.rowOffsets, table.frozenRowCount, table.headerHeight),
+    y: resolveCellYFromOffsets(
+      row,
+      top,
+      table.rowOffsets,
+      table.frozenRowCount,
+      table.headerHeight,
+    ),
     width: table.rowHeaderWidth,
     height: table.rowHeightAt(row),
     text: String(row + 1),
     style,
   })
+  // 整行选区覆盖 → 行号格高亮
+  if (isRowHeaderHighlighted(table.selection.snapshot, table.options.columns.length, row)) {
+    node.style = { ...style, background: table.theme.interaction.headerHighlight }
+  }
+  return node
+}
+
+/**
+ * 表头高亮同步：按当前选区重涂可见行号/列头节点的高亮背景，
+ * 返回两个条带上翻转节点的包围并集（行号列条带/列头条带；无翻转为 null），
+ * 供调用方只登记表头条带 band 失效（不产生 body band/full）。
+ */
+export function applyHeaderHighlight(table: ListTable): {
+  rows: Region | null
+  cols: Region | null
+} {
+  const styles = headerStyles(table)
+  const highlight = table.theme.interaction.headerHighlight
+  const colCount = table.options.columns.length
+  const rowCount = table.pipeline.rowCount
+  let rowsRegion: Region | null = null
+  let colsRegion: Region | null = null
+  for (const [col, node] of table.colHeaderNodes) {
+    const highlighted = isColHeaderHighlighted(table.selection.snapshot, rowCount, col)
+    const background = highlighted ? highlight : styles.col.background
+    if (node.style.background === background) {
+      continue
+    }
+    node.style = highlighted ? { ...styles.col, background } : styles.col
+    const bounds = node.getGlobalBounds()
+    colsRegion = colsRegion ? unionRegions([colsRegion, bounds])! : bounds
+  }
+  for (const [row, node] of table.rowHeaderNodes) {
+    const highlighted = isRowHeaderHighlighted(table.selection.snapshot, colCount, row)
+    const background = highlighted ? highlight : styles.row.background
+    if (node.style.background === background) {
+      continue
+    }
+    node.style = highlighted ? { ...styles.row, background } : styles.row
+    const bounds = node.getGlobalBounds()
+    rowsRegion = rowsRegion ? unionRegions([rowsRegion, bounds])! : bounds
+  }
+  return { rows: rowsRegion, cols: colsRegion }
 }
 
 function newCornerNode(table: ListTable, style: CellStyle): CellNode {

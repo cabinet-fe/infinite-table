@@ -14,6 +14,7 @@ import { InteractionOverlay } from '../src/interaction-overlay'
 import type { OverlayContent } from '../src/interaction-overlay'
 import { ListTable } from '../src/list-table'
 import type { SelectionRange, SelectionSnapshot } from '../src/selection'
+import { defaultTheme } from '../src/theme'
 import type { ListTableOptions } from '../src/types'
 import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
@@ -90,7 +91,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
 
   it('同帧绘制全部选区段，并在焦点段右下角画柄方点', () => {
     const skyRoot = new SceneNode()
-    const overlay = new InteractionOverlay(skyRoot, geometry)
+    const overlay = new InteractionOverlay(skyRoot, geometry, defaultTheme.interaction)
     const node = skyRoot.children[0]!
     const ranges: SelectionRange[] = [
       { start: { col: 0, row: 0 }, end: { col: 1, row: 0 } },
@@ -110,7 +111,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
 
   it('无选区时不画柄且浮层无内容', () => {
     const skyRoot = new SceneNode()
-    const overlay = new InteractionOverlay(skyRoot, geometry)
+    const overlay = new InteractionOverlay(skyRoot, geometry, defaultTheme.interaction)
     const node = skyRoot.children[0]!
     expect(overlay.update(makeContent([], null))).toBe(false)
 

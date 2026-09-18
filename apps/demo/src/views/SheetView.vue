@@ -1,34 +1,21 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { mountSheet, type SheetDemo, type SheetDemoHandle } from '../sections/sheet'
+import { createSheetHandle, mountSheet, type SheetDemo } from '../sections/sheet'
 
 const containerRef = ref<HTMLDivElement | null>(null)
-const demoInstance = ref<SheetDemo | null>(null)
+let demoInstance: SheetDemo | null = null
 
 onMounted(() => {
   if (!containerRef.value) return
+  // 调试句柄：控制台 / 自动化读取断言（活跃实例 + Store + UI 驱动面）
   const demo = mountSheet(containerRef.value)
-  demoInstance.value = demo
-  // 调试句柄：控制台 / 自动化读取断言（表格实例 + 关键查询 API 快照）
-  window.__SHEET_DEMO__ = {
-    getTable: () => demo.table,
-    model: demo.model,
-    queries: () => {
-      const table = demo.table
-      return {
-        frozen: { cols: table.getFrozenColCount(), rows: table.getFrozenRowCount() },
-        selection: table.getSelectedCellRanges(),
-        bodyVisible: table.getBodyVisibleCellRange(),
-        drawRange: table.getDrawRange(),
-        scroll: { left: table.getScrollLeft(), top: table.getScrollTop() },
-        headerLevels: table.getHeaderLevelCount(),
-        editing: table.isEditing(),
-      }
-    },
-  }
+  demoInstance = demo
+  window.__SHEET_DEMO__ = createSheetHandle(demo)
 })
 
 onBeforeUnmount(() => {
+  demoInstance?.destroy()
+  demoInstance = null
   delete window.__SHEET_DEMO__
 })
 </script>
@@ -39,22 +26,23 @@ onBeforeUnmount(() => {
       <div class="title-row">
         <h2>sheet 电子表格</h2>
         <div class="tags">
-          <span class="tag">结构化样式矩阵</span>
-          <span class="tag">主题→列级→按格覆盖链</span>
-          <span class="tag">\n 多行</span>
-          <span class="tag">合并区</span>
-          <span class="tag">填充柄</span>
-          <span class="tag">运行时冻结/合并</span>
-          <span class="tag">editCellOnEnter</span>
+          <span class="tag">SheetStore 单一事实源</span>
+          <span class="tag">公式栏/公式显示</span>
+          <span class="tag">样式工具栏</span>
+          <span class="tag">右键菜单</span>
+          <span class="tag">查找替换</span>
+          <span class="tag">多 sheet tabs</span>
+          <span class="tag">填充真实写值</span>
+          <span class="tag">CSV 导入导出</span>
+          <span class="tag">撤销重做</span>
         </div>
       </div>
       <p class="desc">
-        对齐 ultra-ui sheet 示例演示意图：样式矩阵按「主题分区 token → 列级 → 按格
-        hook」三级覆盖链呈现对齐、加粗斜体、
-        下划线删除线、字号、边框线型、省略号与内边距；合并区主格含 \n 多行文本；F1 为格内示例图；
-        预置选区 B16:C18 含数字序列与文本值，可拖右下角填充柄（内核只抛按下/结束事件，不写值）；
-        控件区演示运行时冻结数切换、合并区整体替换与跨冻结边界拒绝；editCellOnEnter 开关切换 Enter
-        进编辑。
+        对标 ultra-ui playground sheet：sheet
+        插件（SheetStore/填充生成/选区同步/公式显示/键位预设/实例池/撤销栈） 之上搭建
+        UI——样式矩阵按「主题分区 token → 列级 → Store 按格样式」覆盖链呈现；合并区主格含 \n
+        多行文本； F1 为格内示例图；B16:C18 预置序列可拖填充柄真实生成；工具栏/菜单/查找替换/CSV
+        经公式栏与 tabs 协同操作。
       </p>
     </div>
 

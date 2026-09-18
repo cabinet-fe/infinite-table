@@ -6,8 +6,15 @@ import { EditorRegistry } from '../src/editor-registry'
 import { ListTable } from '../src/list-table'
 import type { SelectionSnapshot } from '../src/selection'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
+import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { CellChangeEvent, DataRecord, ListTableOptions, TableModel } from '../src/types'
+
+/** 在 body 场景树中按坐标找节点（递归：表头节点在表头容器内） */
+function findNode(host: StubHost, col: number, row: number) {
+  const body = host.layers.get('body')
+  return body ? findCellNode(body.root, col, row) : undefined
+}
 
 /** 同步 echo 的假模型：setCellValue 内同步发变更事件 */
 class EchoModel implements TableModel {
@@ -649,5 +656,66 @@ describe('ListTable 编辑', () => {
     expect(container.children).toHaveLength(1)
     table.destroy()
     expect(container.children).toEqual([])
+  })
+})
+
+describe('ListTable 表头高亮', () => {
+  const records20 = Array.from({ length: 20 }, (_, i) => ({ name: `r${i}` }))
+
+  /** body 层失效条带是否完全落在给定条带内（表头高亮只允许表头条带 band） */
+  function bandsWithinStrip(
+    host: StubHost,
+    inside: (region: { x: number; y: number; width: number; height: number }) => boolean,
+  ): boolean {
+    const bands = host.submitted.filter(
+      (entry) => entry.kind === 'body' && entry.inv.type === 'band',
+    )
+    return (
+      bands.length > 0 &&
+      bands.every((entry) => 'region' in entry.inv && inside(entry.inv.region as never))
+    )
+  }
+
+  it('selectRow 高亮对应行号格并只失效行号列条带；部分格选区不触发表头高亮', () => {
+    const { host, table } = createTable({ records: records20 })
+    // 部分格选区：不高亮任何表头
+    table.selectCell(1, 1)
+    expect(findNode(host, -1, 1)?.style.background).toBe('#f5f6f7')
+    expect(findNode(host, 1, -1)?.style.background).toBe('#f5f6f7')
+
+    // 整行选区：对应行号格高亮，列头不受影响
+    host.submitted.length = 0
+    table.selectRow(2)
+    expect(findNode(host, -1, 2)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+    expect(findNode(host, -1, 3)?.style.background).toBe('#f5f6f7')
+    expect(findNode(host, 2, -1)?.style.background).toBe('#f5f6f7')
+    // 失效只登记行号列条带 band（x+width ≤ 行号列宽 48），无 body full
+    expect(host.submitted.some((e) => e.kind === 'body' && e.inv.type === 'full')).toBe(false)
+    expect(bandsWithinStrip(host, (r) => r.x + r.width <= 48 && r.y >= 36)).toBe(true)
+  })
+
+  it('selectCol 高亮对应列头并只失效列头条带；清除选区恢复普通表头样式', () => {
+    const { host, table } = createTable({ records: records20 })
+    table.selectCol(3)
+    expect(findNode(host, 3, -1)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+    expect(findNode(host, 4, -1)?.style.background).toBe('#f5f6f7')
+    expect(findNode(host, -1, 0)?.style.background).toBe('#f5f6f7')
+    expect(host.submitted.some((e) => e.kind === 'body' && e.inv.type === 'full')).toBe(false)
+    expect(bandsWithinStrip(host, (r) => r.y + r.height <= 36 && r.x >= 48)).toBe(true)
+
+    // 清除选区：行号列/列头恢复默认背景
+    host.submitted.length = 0
+    table.clearSelection()
+    expect(findNode(host, 3, -1)?.style.background).toBe('#f5f6f7')
+    expect(findNode(host, -1, 0)?.style.background).toBe('#f5f6f7')
+    expect(host.submitted.some((e) => e.kind === 'body' && e.inv.type === 'full')).toBe(false)
+  })
+
+  it('hover 变更经同一刷新路径但不触发表头重涂（签名守卫）', () => {
+    const { host, table } = createTable({ records: records20 })
+    table.selectRow(2)
+    host.submitted.length = 0
+    table.hoverState.set(0, 0)
+    expect(host.submitted.some((e) => e.kind === 'body')).toBe(false)
   })
 })

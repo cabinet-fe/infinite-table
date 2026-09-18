@@ -1,11 +1,44 @@
 import { describe, expect, it } from 'vitest'
 
+import type { RenderContext } from '@infinite-table/render'
+
 import { CellNode } from '../src/cell-node'
+import { FrameNode, UnderlayNode } from '../src/list-table-scene'
 import { ListTable } from '../src/list-table'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'
 import { defaultTheme, extendsTheme } from '../src/theme'
+
+/** 最小记录型 2D 上下文：记录 fillRect 序列与阴影字段赋值（外框/底色节点绘制断言用） */
+class PaintRecordingContext implements RenderContext {
+  fillStyle: string | CanvasGradient | CanvasPattern = '#000'
+  strokeStyle: string | CanvasGradient | CanvasPattern = '#000'
+  lineWidth = 1
+  font = ''
+  shadowColor?: string
+  shadowBlur?: number
+  readonly rects: { x: number; y: number; width: number; height: number; fill: unknown }[] = []
+
+  save(): void {}
+  restore(): void {}
+  setTransform(): void {}
+  translate(): void {}
+  beginPath(): void {}
+  rect(): void {}
+  clip(): void {}
+  clearRect(): void {}
+  drawImage(): void {}
+  measureText(): { width: number } {
+    return { width: 0 }
+  }
+
+  fillRect(x: number, y: number, width: number, height: number): void {
+    this.rects.push({ x, y, width, height, fill: this.fillStyle })
+  }
+
+  fillText(): void {}
+}
 
 function createTable(
   theme?: Parameters<typeof extendsTheme>[0],
@@ -235,5 +268,102 @@ describe('主题分区 P2~P4 新增样式 token', () => {
     // 边框逐边跨层合并：top 被 hook 整边覆盖（线型回落 solid）、left 保留主题
     expect(cell?.style.border?.top).toEqual({ width: 3, color: '#00c' })
     expect(cell?.style.border?.left).toEqual({ width: 1, color: '#333' })
+  })
+})
+
+describe('S1 交互/底色/外框/表头分区 token', () => {
+  it('interaction 默认值与既有交互浮层视觉一致（原硬编码常量逐项相等）', () => {
+    expect(defaultTheme.interaction).toEqual({
+      selectionFill: 'rgba(46, 106, 219, 0.08)',
+      selectionBorder: '#2e6adb',
+      selectionBorderWidth: 2,
+      fillHandle: '#2e6adb',
+      hoverCell: 'rgba(31, 35, 41, 0.08)',
+      hoverBand: 'rgba(31, 35, 41, 0.04)',
+      resizeLine: '#2e6adb',
+      resizeLineWidth: 2,
+      headerHighlight: 'rgba(46, 106, 219, 0.18)',
+    })
+  })
+
+  it('underlayBackgroundColor 默认白色；frameStyle 默认不绘制', () => {
+    expect(defaultTheme.underlayBackgroundColor).toBe('#ffffff')
+    expect(defaultTheme.frameStyle).toEqual({ lineWidth: 0, color: '#e5e6eb', shadow: false })
+  })
+
+  it('extends 深覆盖：interaction/frameStyle 按键覆盖、underlay 标量覆盖，未覆盖键继承', () => {
+    const theme = extendsTheme({
+      underlayBackgroundColor: '#f0f0f0',
+      interaction: { selectionFill: 'rgba(255, 0, 0, 0.1)', resizeLineWidth: 4 },
+      frameStyle: { lineWidth: 1, shadow: true },
+    })
+    expect(theme.underlayBackgroundColor).toBe('#f0f0f0')
+    expect(theme.interaction.selectionFill).toBe('rgba(255, 0, 0, 0.1)')
+    expect(theme.interaction.selectionBorder).toBe(defaultTheme.interaction.selectionBorder)
+    expect(theme.interaction.resizeLineWidth).toBe(4)
+    expect(theme.frameStyle).toEqual({ lineWidth: 1, color: '#e5e6eb', shadow: true })
+  })
+
+  it('rowHeader/corner 缺省随生效 header 派生；显式分区键最后生效', () => {
+    const derived = extendsTheme({ header: { background: '#ff0000' } })
+    expect(derived.rowHeader).toEqual(derived.header)
+    expect(derived.corner).toEqual(derived.header)
+    const explicit = extendsTheme({
+      header: { background: '#ff0000' },
+      rowHeader: { background: '#00ff00' },
+      corner: { color: '#0000ff' },
+    })
+    expect(explicit.rowHeader.background).toBe('#00ff00')
+    expect(explicit.rowHeader.color).toBe(defaultTheme.header.color)
+    expect(explicit.corner.color).toBe('#0000ff')
+    expect(explicit.corner.background).toBe('#ff0000')
+    expect(explicit.header).toEqual(derived.header)
+  })
+
+  it('rowHeader/corner 分区 token 分别落行号格与左上角格样式；列头仍用 header', () => {
+    const { host } = createTable({
+      header: { background: '#eeeeee' },
+      rowHeader: { background: '#aaaaaa', color: '#111111' },
+      corner: { background: '#222222' },
+    })
+    expect(findCell(host, 0, -1)?.style.background).toBe('#eeeeee')
+    expect(findCell(host, -1, 0)?.style.background).toBe('#aaaaaa')
+    expect(findCell(host, -1, 0)?.style.color).toBe('#111111')
+    expect(findCell(host, -1, -1)?.style.background).toBe('#222222')
+  })
+
+  it('underlay 底色节点为首子节点并铺全表底色；数据区外空白处可见', () => {
+    const { host } = createTable({ underlayBackgroundColor: '#f0f0f0' })
+    const root = host.layers.get('body')!.root
+    const underlay = root.children[0]
+    expect(underlay).toBeInstanceOf(UnderlayNode)
+    expect(underlay?.width).toBe(800)
+    expect(underlay?.height).toBe(600)
+    const ctx = new PaintRecordingContext()
+    underlay!.paint(ctx)
+    expect(ctx.rects).toEqual([{ x: 0, y: 0, width: 800, height: 600, fill: '#f0f0f0' }])
+  })
+
+  it('frameStyle 关闭：外框节点存在但不绘制；开启：四边线框 + 阴影字段生效', () => {
+    const off = createTable()
+    const frameOff = off.host.layers.get('body')!.root.children.at(-1)
+    expect(frameOff).toBeInstanceOf(FrameNode)
+    const ctxOff = new PaintRecordingContext()
+    frameOff!.paint(ctxOff)
+    expect(ctxOff.rects).toEqual([])
+
+    const on = createTable({ frameStyle: { lineWidth: 3, color: '#123456', shadow: true } })
+    const frameOn = on.host.layers.get('body')!.root.children.at(-1)
+    expect(frameOn).toBeInstanceOf(FrameNode)
+    const ctxOn = new PaintRecordingContext()
+    frameOn!.paint(ctxOn)
+    expect(ctxOn.shadowColor).toBe('#123456')
+    expect(ctxOn.shadowBlur).toBeGreaterThan(0)
+    expect(ctxOn.rects).toEqual([
+      { x: 0, y: 0, width: 800, height: 3, fill: '#123456' },
+      { x: 0, y: 597, width: 800, height: 3, fill: '#123456' },
+      { x: 0, y: 0, width: 3, height: 600, fill: '#123456' },
+      { x: 797, y: 0, width: 3, height: 600, fill: '#123456' },
+    ])
   })
 })

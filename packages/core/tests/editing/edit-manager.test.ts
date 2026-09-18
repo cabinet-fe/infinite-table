@@ -4,7 +4,7 @@ import type { Region } from '@infinite-table/render'
 
 import { EditorRegistry } from '../../src/editor-registry'
 import { createFakeDoc, FakeEditorElement, FakeEditorHost } from '../testing/fake-editor-dom'
-import type { CellChangeEvent, ColumnDefine } from '../../src/types'
+import type { CellChangeEvent, ColumnDefine, EditEndEvent, EditStartEvent } from '../../src/types'
 import {
   EditManager,
   type EditCommitMove,
@@ -21,6 +21,12 @@ interface ManagerHarness {
   moves: Array<{ col: number; row: number; move: EditCommitMove }>
   refreshes: Array<{ col: number; row: number }>
   focusRestores: () => number
+  /** 编辑会话开始事件（emitStart 产物） */
+  starts: EditStartEvent[]
+  /** 编辑会话结束事件（emitEnd 产物） */
+  ends: EditEndEvent[]
+  /** start/change/end 事件的全局时序（顺序断言用） */
+  sequence: string[]
   /** 改锚定格视口矩形（null = 滚出视口），供滚动帧用例驱动 */
   setCellRect: (rect: Region | null) => void
   /** 触发一次滚动帧回调（未订阅时为空操作） */
@@ -49,6 +55,9 @@ function createManager(
   const changes: CellChangeEvent[] = []
   const moves: Array<{ col: number; row: number; move: EditCommitMove }> = []
   const refreshes: Array<{ col: number; row: number }> = []
+  const starts: EditStartEvent[] = []
+  const ends: EditEndEvent[] = []
+  const sequence: string[] = []
   let focusRestores = 0
   let cellRect: Region | null = overrides.offscreen
     ? null
@@ -66,7 +75,18 @@ function createManager(
     resolveValue: overrides.resolveValue ?? (() => 'a'),
     cellRect: () => cellRect,
     refreshCell: (col, row) => refreshes.push({ col, row }),
-    emitChange: (change) => changes.push(change),
+    emitChange: (change) => {
+      changes.push(change)
+      sequence.push('change')
+    },
+    emitStart: (event) => {
+      starts.push(event)
+      sequence.push('start')
+    },
+    emitEnd: (event) => {
+      ends.push(event)
+      sequence.push('end')
+    },
     moveSelection: (col, row, move) => moves.push({ col, row, move }),
     restoreFocus: () => {
       focusRestores++
@@ -91,6 +111,9 @@ function createManager(
     moves,
     refreshes,
     focusRestores: () => focusRestores,
+    starts,
+    ends,
+    sequence,
     setCellRect: (rect) => {
       cellRect = rect
     },
@@ -296,5 +319,51 @@ describe('EditManager 滚动跟随与滚出提交', () => {
     expect(() => h.fireScrollFrame()).not.toThrow()
     expect(h.writes).toEqual([])
     expect(h.changes).toEqual([])
+  })
+})
+
+describe('EditManager 会话开始/结束通知', () => {
+  it('成功开会话抛 start（带初值）；提交按 change→end 顺序（end 带终值）', () => {
+    const h = createManager({ resolveValue: () => 42 })
+    expect(h.manager.startEdit(0, 0)).toBe(true)
+    expect(h.starts).toEqual([{ col: 0, row: 0, initialValue: 42 }])
+    h.created[0]!.value = '43'
+    h.manager.commitEdit()
+    expect(h.sequence).toEqual(['start', 'change', 'end'])
+    expect(h.ends[0]).toEqual({
+      col: 0,
+      row: 0,
+      initialValue: 42,
+      finalValue: '43',
+      committed: true,
+    })
+  })
+
+  it('可编判定失败不抛 start；同格幂等重入不重复抛', () => {
+    const notEditable = createManager({ resolveEditable: () => false })
+    expect(notEditable.manager.startEdit(0, 0)).toBe(false)
+    expect(notEditable.starts).toEqual([])
+    const h = createManager()
+    expect(h.manager.startEdit(0, 0)).toBe(true)
+    expect(h.manager.startEdit(0, 0)).toBe(true)
+    expect(h.starts).toHaveLength(1)
+  })
+
+  it('取消：只抛 end（committed=false、无终值），不抛 change', () => {
+    const h = createManager()
+    h.manager.startEdit(0, 0)
+    h.manager.cancelEdit()
+    expect(h.sequence).toEqual(['start', 'end'])
+    expect(h.ends[0]).toEqual({ col: 0, row: 0, initialValue: 'a', committed: false })
+    expect(h.changes).toEqual([])
+  })
+
+  it('滚出视口自动提交同样抛 end（committed=true）', () => {
+    const h = createManager({ withScrollFrame: true })
+    h.manager.startEdit(0, 0)
+    h.setCellRect(null)
+    h.fireScrollFrame()
+    expect(h.ends).toHaveLength(1)
+    expect(h.ends[0]?.committed).toBe(true)
   })
 })

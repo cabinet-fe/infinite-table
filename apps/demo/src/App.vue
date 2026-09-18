@@ -6,6 +6,7 @@ import { mountDisplay } from './sections/display'
 import { mountInteraction } from './sections/interaction'
 import { mountMedia } from './sections/media'
 import { mountEditing } from './sections/editing'
+import { createSheetHandle, mountSheet } from './sections/sheet'
 import { runSmoke } from './smoke'
 import type { DemoHandles } from './main'
 
@@ -124,6 +125,9 @@ onMounted(() => {
       editing: mountEditing(mountPoint),
     }
     window.__DEMO__ = demos
+    // sheet 区：插件之上的完整 sheet 面（句柄供 checkSheet 断言）
+    const sheetDemo = mountSheet(mountPoint)
+    window.__SHEET_DEMO__ = createSheetHandle(sheetDemo)
     void runSmoke(demos)
   }
 })

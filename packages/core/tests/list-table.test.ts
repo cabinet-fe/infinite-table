@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'
+import { EditorRegistry } from '../src/editor-registry'
 import { ListTable } from '../src/list-table'
+import { createFakeDoc } from './testing/fake-editor-dom'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
-import type { CellChangeEvent, ListTableOptions, TableModel } from '../src/types'
+import type {
+  CellChangeEvent,
+  EditEndEvent,
+  EditStartEvent,
+  ListTableOptions,
+  TableModel,
+} from '../src/types'
 
 /** 同步 echo 的假模型：setCellValue 内同步发变更事件 */
 class EchoModel implements TableModel {
@@ -151,9 +159,9 @@ describe('ListTable 虚拟滚动窗口', () => {
       cols: { start: 0, end: 8 },
     })
     const body = host.layers.get('body')
-    // 144 个数据格 + 表头容器单节点（8 列头 + 18 行号 + 1 左上角共 27 个表头收进容器）
-    expect(body?.root.children).toHaveLength(144 + 1)
-    const headerGroup = body?.root.children.at(-1)
+    // 144 个数据格 + 表头容器 + underlay 底色/外框两个全表节点（表头收进容器）
+    expect(body?.root.children).toHaveLength(144 + 3)
+    const headerGroup = body?.root.children.at(-2)
     expect(headerGroup?.children).toHaveLength(27)
     expect(findNode(host, 0, 0)?.text).toBe('row-0')
     expect(findNode(host, 0, 18)).toBeUndefined()
@@ -165,7 +173,7 @@ describe('ListTable 虚拟滚动窗口', () => {
     expect(table.getVisibleRange().rows).toEqual({ start: 99_982, end: 100_000 })
     expect(findNode(host, 0, 99_999)?.text).toBe('row-99999')
     expect(findNode(host, 0, 0)).toBeUndefined()
-    expect(body?.root.children).toHaveLength(144 + 1)
+    expect(body?.root.children).toHaveLength(144 + 3)
     // 滚动 → band 失效登记的主循环（无冻结时纵向滚动带为列头以下整个视口）
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 0, y: 36, width: 800, height: 564 } } },
@@ -214,5 +222,74 @@ describe('ListTable 宿主生命周期', () => {
 
     // 自建 host 需要 DOM（container/canvas），node 环境仅校验注入路径幂等
     table.destroy()
+  })
+})
+
+describe('ListTable 编辑生命周期事件', () => {
+  // ListTable 不注入 doc，text-editor 走 globalThis.document；
+  // 测试内临时替换为假文档（同步路径，finally 恢复），驱动真实 startEdit/commit/cancel 全链路
+  it('startEdit 成功抛 onEditStart（初值基础值口径）；提交按 onCellChange→onEditEnd；取消只抛 end', () => {
+    const fake = createFakeDoc()
+    const globalDoc = globalThis as { document?: unknown }
+    const previous = globalDoc.document
+    globalDoc.document = fake.doc
+    try {
+      const editorRegistry = new EditorRegistry()
+      editorRegistry.registerEditor('text', {})
+      const { table } = createTable({
+        records: [{ name: 'a' }],
+        columns: [{ field: 'name', title: 'Name', editor: 'text' }],
+        editorRegistry,
+      })
+      const starts: EditStartEvent[] = []
+      const ends: EditEndEvent[] = []
+      const changes: CellChangeEvent[] = []
+      const offStart = table.onEditStart((event) => starts.push(event))
+      table.onEditEnd((event) => ends.push(event))
+      table.onCellChange((event) => changes.push(event))
+
+      expect(table.startEdit(0, 0)).toBe(true)
+      expect(starts).toEqual([{ col: 0, row: 0, initialValue: 'a' }])
+      // 同格幂等：不重复抛 start
+      expect(table.startEdit(0, 0)).toBe(true)
+      expect(starts).toHaveLength(1)
+
+      // 提交：onCellChange 在前、onEditEnd 在后（end 带终值）
+      fake.created[0]!.value = 'b'
+      expect(table.commitEdit()).toBe(true)
+      expect(changes).toEqual([{ col: 0, row: 0, oldValue: 'a', newValue: 'b' }])
+      expect(ends).toEqual([
+        { col: 0, row: 0, initialValue: 'a', finalValue: 'b', committed: true },
+      ])
+
+      // 取消：只抛 end（committed=false），不抛 onCellChange
+      expect(table.startEdit(0, 0)).toBe(true)
+      table.cancelEdit()
+      expect(ends).toHaveLength(2)
+      expect(ends[1]).toEqual({ col: 0, row: 0, initialValue: 'b', committed: false })
+      expect(changes).toHaveLength(1)
+
+      // 退订后不再抛（取消段第二次 startEdit 后 starts 已为 2）
+      offStart()
+      expect(table.startEdit(0, 0)).toBe(true)
+      expect(starts).toHaveLength(2)
+    } finally {
+      globalDoc.document = previous
+    }
+  })
+
+  it('可编判定失败 startEdit 返回 false 且不抛 onEditStart', () => {
+    const editorRegistry = new EditorRegistry()
+    editorRegistry.registerEditor('text', {})
+    const { table } = createTable({
+      records: [{ name: 'a' }],
+      columns: [{ field: 'name', title: 'Name', editor: 'text' }],
+      editorRegistry,
+      resolveEditable: () => false,
+    })
+    const starts: EditStartEvent[] = []
+    table.onEditStart((event) => starts.push(event))
+    expect(table.startEdit(0, 0)).toBe(false)
+    expect(starts).toEqual([])
   })
 })

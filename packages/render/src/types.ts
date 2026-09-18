@@ -30,6 +30,10 @@ export interface RenderContext {
   strokeStyle: string | CanvasGradient | CanvasPattern
   lineWidth: number
   font: string
+  /** 阴影色（可选：仅外框阴影绘制路径使用，真实 2D 上下文天然携带） */
+  shadowColor?: string
+  /** 阴影模糊半径（可选：仅外框阴影绘制路径使用） */
+  shadowBlur?: number
   save(): void
   restore(): void
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void

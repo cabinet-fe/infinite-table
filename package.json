@@ -13,9 +13,11 @@
     "fmt": "vp fmt --write .",
     "fmt:check": "vp fmt --check .",
     "typecheck": "tsc -b",
-    "check:deps": "bun scripts/check-core-deps.ts"
+    "check:deps": "bun scripts/check-core-deps.ts",
+    "check:exports": "node scripts/check-package-exports.mjs"
   },
   "devDependencies": {
+    "happy-dom": "^20.0.0",
     "typescript": "~7.0.2",
     "vite-plus": "0.3.2",
     "vitest": "4.1.11"

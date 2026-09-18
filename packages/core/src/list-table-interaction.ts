@@ -7,14 +7,10 @@ import type { Region, SceneEvent } from '@infinite-table/render'
 
 import type { FillDragEndEvent, FillHandleDownEvent } from './fill-handle'
 import { hitFillHandle, resolveFocusRange } from './fill-handle'
-import {
-  findColAt,
-  findRowAt,
-  resolveCellX,
-  resolveCellYFromOffsets,
-} from './grid-layout'
+import { findColAt, findRowAt, resolveCellX, resolveCellYFromOffsets } from './grid-layout'
 import type { ListTable } from './list-table'
 import { nextActiveCell, revealAxis } from './keyboard-navigation'
+import { applyHeaderHighlight } from './list-table-scene'
 import type { ColResizeEndEvent, ResizeGeometry, ResizeTarget, RowResizeEndEvent } from './resize'
 import { hitResizeHandle, ResizeSession } from './resize'
 import { normalizeRange, type SelectionRange } from './selection'
@@ -195,12 +191,7 @@ function detectDoubleTap(table: ListTable, event: SceneEvent): void {
   }
   const prev = table.lastTap
   table.lastTap = { col: cell.col, row: cell.row, x: event.x, y: event.y, time }
-  if (
-    prev &&
-    prev.col === cell.col &&
-    prev.row === cell.row &&
-    time - prev.time <= DOUBLE_TAP_MS
-  ) {
+  if (prev && prev.col === cell.col && prev.row === cell.row && time - prev.time <= DOUBLE_TAP_MS) {
     table.lastTap = null
     table.startEdit(cell.col, cell.row)
   }
@@ -355,11 +346,7 @@ export function cellAt(table: ListTable, x: number, y: number): CellRef | null {
 }
 
 /** 数据格在视口中的矩形；冻结行列恒可见，其余须在可视窗口内，否则返回 null */
-export function cellRectInViewport(
-  table: ListTable,
-  col: number,
-  row: number,
-): Region | null {
+export function cellRectInViewport(table: ListTable, col: number, row: number): Region | null {
   const rowVisible = row < table.frozenRowCount || (row >= table.rows.start && row < table.rows.end)
   const colVisible = col < table.frozenColCount || (col >= table.cols.start && col < table.cols.end)
   if (!rowVisible || !colVisible) {
@@ -368,7 +355,13 @@ export function cellRectInViewport(
   const { left, top } = table.scroll.state
   return {
     x: resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth),
-    y: resolveCellYFromOffsets(row, top, table.rowOffsets, table.frozenRowCount, table.headerHeight),
+    y: resolveCellYFromOffsets(
+      row,
+      top,
+      table.rowOffsets,
+      table.frozenRowCount,
+      table.headerHeight,
+    ),
     width: table.getColWidth(col),
     height: table.rowHeightAt(row),
   }
@@ -411,6 +404,7 @@ function resizeGeometry(table: ListTable): ResizeGeometry {
 
 /** 刷新 sky 浮层；仅在（或曾在）有内容时提交 sky 失效，避免空浮层空转整层重绘 */
 export function refreshOverlay(table: ListTable): void {
+  refreshHeaderHighlight(table)
   const has = table.overlay.update({
     selection: table.selection.snapshot,
     hover: table.hoverState.cell,
@@ -427,4 +421,24 @@ export function refreshOverlay(table: ListTable): void {
     table.host.submitInvalidation('sky', { type: 'full' })
   }
   table.overlayHadContent = has
+}
+
+/**
+ * 整行/整列选区联动表头高亮：选区签名（段集合×全表行列数）未变化时零开销跳过
+ * （hover 变更同样途经 refreshOverlay，靠签名守卫避免无谓重涂）；
+ * 变化时只重涂翻转的表头节点，并按条带登记 body band 失效——不产生跨数据区的 body band/full。
+ */
+function refreshHeaderHighlight(table: ListTable): void {
+  const signature = `${JSON.stringify(table.selection.snapshot.ranges)}|${table.options.columns.length}|${table.pipeline.rowCount}`
+  if (signature === table.headerHighlightSignature) {
+    return
+  }
+  table.headerHighlightSignature = signature
+  const flipped = applyHeaderHighlight(table)
+  if (flipped.cols) {
+    table.host.submitInvalidation('body', { type: 'band', region: flipped.cols })
+  }
+  if (flipped.rows) {
+    table.host.submitInvalidation('body', { type: 'band', region: flipped.rows })
+  }
 }

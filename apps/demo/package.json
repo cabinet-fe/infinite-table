@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@infinite-table/core": "workspace:*",
+    "@infinite-table/plugins": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

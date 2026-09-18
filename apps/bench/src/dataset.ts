@@ -26,3 +26,13 @@ export function createBenchRecords(): DataRecord[] {
     return record
   })
 }
+
+/** sheet 口径列定义：8 列（A~H）、列宽 104（对齐 demo sheet 口径） */
+export function createSheetColumns() {
+  return Array.from({ length: 8 }, (_, col) => ({
+    field: `c${col}`,
+    title: String.fromCharCode(65 + col),
+    width: 104,
+    editor: 'text',
+  }))
+}

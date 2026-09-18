@@ -5,10 +5,7 @@
 
 import type { LayerHandle } from '@infinite-table/render'
 
-import {
-  computeScrollableColWindow,
-  computeScrollableRowWindowFromOffsets,
-} from './grid-layout'
+import { computeScrollableColWindow, computeScrollableRowWindowFromOffsets } from './grid-layout'
 import { ImageCellNode } from './media/image-cell-node'
 import type { ImageLoadEvent } from './media/image-service'
 import type { ListTable } from './list-table'

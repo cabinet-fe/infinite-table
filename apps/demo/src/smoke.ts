@@ -645,6 +645,7 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkInteraction(checker, demos)
   await checkMedia(checker, demos)
   await checkEditing(checker, demos)
+  await checkSheet(checker)
   const result: SmokeResult = {
     done: true,
     pass: checker.failures.length === 0,
@@ -656,4 +657,144 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
     ? `SMOKE PASS ${result.total}/${result.total}`
     : `SMOKE FAIL ${result.failures.length}/${result.total}`
   console.log('[smoke]', result.pass ? 'PASS' : 'FAIL', result.failures)
+}
+
+/** sheet 演示区冒烟（插件之上的完整 sheet 面）：公式显示/填充生成/样式/结构操作/撤销/查找替换/CSV/tabs/resize 持久化 */
+async function checkSheet(checker: Checker): Promise<void> {
+  const handle = window.__SHEET_DEMO__
+  assert(handle, '缺少 __SHEET_DEMO__ 句柄')
+  const table = handle.getTable()
+  const store = handle.getStore()
+  const activeContainer = (): HTMLElement => {
+    const id = handle.book.activeId ?? ''
+    const viewport = document.querySelector<HTMLElement>(`.sheet-viewport`)!
+    const target = viewport.querySelector<HTMLElement>(`[data-sheet-id="${id}"]`)
+    assert(target, `缺少活跃容器 ${id}`)
+    return target
+  }
+
+  await checker.step('sheet 公式显示：Store 存原文、渲染求值、mini 求值器', () => {
+    assert(
+      store.getValue(3, 2) === '=D1+D2',
+      `Store 应存公式原文（${String(store.getValue(3, 2))}）`,
+    )
+    assert(table.getCellText(3, 2) === '12', `公式格显示 ${table.getCellText(3, 2)}（期望 12）`)
+    assert(table.getCellText(3, 3) === '12', `SUM 区域显示 ${table.getCellText(3, 3)}`)
+    assert(handle.controls.evaluate('D1*2+1') === 15, 'mini 求值器运算错误')
+  })
+
+  await checker.step('sheet tabs：切换状态隔离、切回恢复', async () => {
+    handle.switchTo('sheet-2')
+    await frames(2)
+    const t2 = handle.getTable()
+    assert(handle.book.activeId === 'sheet-2', '未切换到 sheet-2')
+    assert(t2.getCellText(0, 0) === '0', `sheet-2 (0,0) 值 ${t2.getCellText(0, 0)}`)
+    assert(handle.getStore().getValue(3, 2) !== '=D1+D2', 'sheet-2 不应带 sheet-1 公式')
+    handle.switchTo('sheet-1')
+    await frames(2)
+    assert(handle.getTable().getCellText(3, 2) === '12', '切回后公式显示丢失')
+  })
+
+  await checker.step('sheet resize 持久化：拖列头边界 → Store 记录 → 切走切回还原', async () => {
+    const container = activeContainer()
+    const previous = store.getColWidth(2)
+    // 列 2 右边界 = 48 + 110 + 104 + 104 = 366（列头带内触发列宽拖拽会话）
+    dispatchPointer(container, 'pointerdown', 366, 18)
+    dispatchPointer(container, 'pointermove', 426, 18)
+    dispatchPointer(container, 'pointerup', 426, 18)
+    assert(store.getColWidth(2) === 164, `resize 后 Store 列宽 ${store.getColWidth(2)}`)
+    handle.switchTo('sheet-2')
+    handle.switchTo('sheet-1')
+    await frames(2)
+    assert(store.getColWidth(2) === 164, '切回后 Store 尺寸丢失')
+    assert(handle.getTable().getColWidth(2) === 164, '引擎未应用 Store 尺寸')
+    store.setColWidth(2, previous)
+    handle.getTable().setColWidth(2, previous)
+  })
+
+  await checker.step('sheet 填充生成：拖柄 → generateFill 写值（batchUpdate 收敛）', async () => {
+    const container = activeContainer()
+    store.setValue(1, 1, 100)
+    store.setValue(1, 2, 200)
+    table.refreshCell(1, 1)
+    table.refreshCell(1, 2)
+    table.selectCells([{ start: { col: 1, row: 1 }, end: { col: 1, row: 2 } }])
+    await frames(2)
+    // 柄挂在焦点段 (1,2) 右下角点：(48+110+104, 36+3*32) = (262,132)，方点内取 (260,130)
+    dispatchPointer(container, 'pointerdown', 260, 130)
+    dispatchPointer(container, 'pointermove', 210, 212)
+    dispatchPointer(container, 'pointerup', 210, 212)
+    assert(store.getValue(1, 3) === 300, `填充 (1,3) = ${String(store.getValue(1, 3))}`)
+    assert(store.getValue(1, 4) === 400 && store.getValue(1, 5) === 500, '填充序列不完整')
+  })
+
+  await checker.step('sheet 样式工具栏：选区写样式 + toggle 取消', () => {
+    table.selectCells([{ start: { col: 0, row: 20 }, end: { col: 0, row: 20 } }])
+    handle.controls.toolbar.applyFragment({ fontWeight: 700 }, 'set')
+    assert(store.getStyle(0, 20)?.fontWeight === 700, 'Store 样式未写入')
+    handle.controls.toolbar.applyFragment({ fontWeight: 700 }, 'toggle')
+    const after = store.getStyle(0, 20)
+    assert(after === undefined || after.fontWeight === undefined, 'toggle 未取消样式')
+  })
+
+  await checker.step('sheet 撤销/重做：编辑提交入栈、undo/redo 回写 Store', () => {
+    const container = activeContainer()
+    store.setValue(0, 10, '原始')
+    table.refreshCell(0, 10)
+    table.selectCell(0, 10)
+    assert(table.startEdit(0, 10), '进入编辑失败')
+    const editor = container.querySelector<HTMLInputElement>('textarea, input')
+    assert(editor, '编辑器浮层缺失')
+    editor.value = '修改'
+    assert(table.commitEdit(), '提交失败')
+    assert(store.getValue(0, 10) === '修改', '编辑提交未落 Store')
+    handle.undo()
+    assert(store.getValue(0, 10) === '原始', '撤销未回写')
+    handle.redo()
+    assert(store.getValue(0, 10) === '修改', '重做未回写')
+    store.setValue(0, 10, null)
+  })
+
+  await checker.step('sheet 查找替换：命中选中 + 全量替换', () => {
+    store.setValue(6, 6, '查找目标甲')
+    store.setValue(6, 7, '查找目标乙')
+    const hit = handle.controls.find.findNext('查找目标')
+    assert(hit && hit.col === 6 && hit.row === 6, `查找未命中 (${hit?.col},${hit?.row})`)
+    const count = handle.controls.find.replaceAll('查找目标', '已替换')
+    assert(count === 2, `替换数量 ${count}`)
+    assert(store.getValue(6, 7) === '已替换乙', '替换内容错误')
+    store.setValue(6, 6, null)
+    store.setValue(6, 7, null)
+  })
+
+  await checker.step('sheet CSV 导出：原文公式与引号转义', () => {
+    store.setValue(5, 5, 'a,"b')
+    const csv = handle.controls.csv.exportCurrent()
+    assert(csv.includes('=D1+D2'), 'CSV 应含公式原文')
+    assert(csv.includes('"a,""b"'), 'CSV 引号转义缺失')
+    store.setValue(5, 5, null)
+  })
+
+  await checker.step('sheet 结构操作：插入/删除行（Store 平移 + 引擎合并区同步）', () => {
+    const label = store.getValue(0, 2)
+    handle.controls.insertRow(1)
+    assert(store.getValue(0, 3) === label && store.getValue(0, 2) == null, '插入行未平移')
+    // 合并区随平移：Store (2,11)→(2,12)；引擎侧被覆盖格 (3,13) 命中主格文本
+    assert(
+      store.getMerges()[0]?.startRow === 12,
+      `Store 合并区未平移（${String(store.getMerges()[0]?.startRow)}）`,
+    )
+    assert(
+      handle.getTable().getCellText(3, 13).includes('合并区'),
+      `引擎合并区未随平移同步（${handle.getTable().getCellText(3, 13).slice(0, 8)}）`,
+    )
+    handle.controls.deleteRow(1)
+    assert(store.getValue(0, 2) === label, '删除行未还原')
+    assert(store.getMerges()[0]?.startRow === 11, '删除行后 Store 合并区未还原')
+    assert(
+      handle.getTable().getCellText(3, 12).includes('合并区') &&
+        handle.getTable().getCellText(3, 13) === '',
+      '删除行后引擎合并区未还原',
+    )
+  })
 }

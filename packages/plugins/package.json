@@ -1,0 +1,22 @@
+{
+  "name": "@infinite-table/plugins",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "dev": "./src/index.ts",
+      "import": "./dist/plugins.js"
+    }
+  },
+  "scripts": {
+    "build": "vp build"
+  },
+  "dependencies": {
+    "@infinite-table/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@infinite-table/render": "workspace:*"
+  }
+}

@@ -5,6 +5,7 @@ import { BENCH_COLS, BENCH_ROWS, VIEWPORT_AREA, VIEWPORT_HEIGHT, VIEWPORT_WIDTH 
 import type { BenchEnv, BenchTable } from './env'
 import type { LayerInvalidationStats } from './invalidation-meter'
 import type { BenchCheck, BenchMetric, BenchReport, ScenarioResult } from './report'
+import { runSheetScenarios } from './sheet-scenarios'
 import {
   BODY_AREA_RATIO_MAX,
   BODY_FULL_REPAINT_MAX,
@@ -223,7 +224,12 @@ async function runInvalidation(env: BenchEnv): Promise<ScenarioResult> {
 export async function runAllScenarios(env: BenchEnv): Promise<BenchReport> {
   const startedAt = new Date()
   const t0 = performance.now()
-  const scenarios = [await runTtff(env), await runScrollFps(env), await runInvalidation(env)]
+  const scenarios = [
+    await runTtff(env),
+    await runScrollFps(env),
+    await runInvalidation(env),
+    ...(await runSheetScenarios(env)),
+  ]
   return {
     tool: 'infinite-table-bench',
     env: env.name,

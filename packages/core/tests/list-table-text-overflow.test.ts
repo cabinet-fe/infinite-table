@@ -263,7 +263,7 @@ describe('renderTextCell 溢出与换行', () => {
     expect(ctx.measureCalls).toBe(2)
   })
 
-  it('空文本往返后 font 变化仍重测：setContent(\'\') 早退不吞掉样式失效', () => {
+  it("空文本往返后 font 变化仍重测：setContent('') 早退不吞掉样式失效", () => {
     const ctx = new MeasureStubContext()
     const node = new CellNode({
       col: 0,
@@ -545,7 +545,7 @@ describe('表头容器 z 序（R2-5）', () => {
     })
     table.scrollTo(0, 16) // 半行：行 0 上缘 = 36 - 16 = 20，顶部 16px 滑入列头带（0..36）
     const root = host.layers.get('body')!.root
-    const headerGroup = root.children.at(-1)!
+    const headerGroup = root.children.at(-2)! // 末子节点为外框，表头容器次之
     const row0 = findNode(host, 0, 0)!
     // 半可见格确与列头带相交（覆盖关系有几何前提）
     expect(row0.y).toBeLessThan(36)
@@ -562,7 +562,7 @@ describe('表头容器 z 序（R2-5）', () => {
     })
     table.scrollTo(0, 32) // 主格 (0,0) 上缘 = 36 - 32 = 4，伸进列头带
     const root = host.layers.get('body')!.root
-    const headerGroup = root.children.at(-1)!
+    const headerGroup = root.children.at(-2)! // 末子节点为外框，表头容器次之
     const master = findNode(host, 0, 0)!
     expect(master.y).toBeLessThan(36)
     expect(master.height).toBe(4 * 32) // 主格跨 4 行取完整尺寸

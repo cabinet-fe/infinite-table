@@ -8,7 +8,7 @@ import type { Region } from '@infinite-table/render'
 
 import type { EditorRegistry } from '../editor-registry'
 import type { ScrollState } from '../scroll-manager'
-import type { CellChangeEvent, CellRef, ColumnDefine } from '../types'
+import type { CellChangeEvent, CellRef, ColumnDefine, EditEndEvent, EditStartEvent } from '../types'
 import {
   createTextEditor,
   type TextEditor,
@@ -45,6 +45,10 @@ export interface EditManagerInit {
   refreshCell: (col: number, row: number) => void
   /** 提交后抛编辑变更事件（oldValue/newValue） */
   emitChange: (change: CellChangeEvent) => void
+  /** 会话真正打开后通知（可编判定通过且浮层已开；同格幂等重入不重复通知） */
+  emitStart?: (event: EditStartEvent) => void
+  /** 会话结束通知：提交路径在 emitChange 之后抛出（committed=true 带终值），取消 committed=false */
+  emitEnd?: (event: EditEndEvent) => void
   /** 提交后选区移动（复用键盘导航的选区移动能力） */
   moveSelection: (col: number, row: number, move: EditCommitMove) => void
   /** 会话结束（提交/取消）后焦点交还表格 */
@@ -129,6 +133,7 @@ export class EditManager {
     editor.onKey((action) => this.onEditorKey(action))
     editor.open(this.host, rect, oldValue == null ? '' : String(oldValue))
     this.session = { col, row, oldValue, editor }
+    this.init.emitStart?.({ col, row, initialValue: oldValue })
     return true
   }
 
@@ -152,6 +157,13 @@ export class EditManager {
       oldValue: session.oldValue,
       newValue,
     })
+    this.init.emitEnd?.({
+      col: session.col,
+      row: session.row,
+      initialValue: session.oldValue,
+      finalValue: newValue,
+      committed: true,
+    })
     if (move) {
       this.init.moveSelection(session.col, session.row, move)
     }
@@ -167,6 +179,12 @@ export class EditManager {
     }
     this.session = null
     session.editor.close()
+    this.init.emitEnd?.({
+      col: session.col,
+      row: session.row,
+      initialValue: session.oldValue,
+      committed: false,
+    })
     this.init.restoreFocus()
   }
 

@@ -11,6 +11,7 @@ import { createRenderHost, type RenderCanvas, type RenderContext } from '@infini
 
 import {
   createBenchColumns,
+  createSheetColumns,
   createBenchRecords,
   VIEWPORT_AREA,
   VIEWPORT_HEIGHT,
@@ -117,6 +118,47 @@ function createHeadlessEnv(): BenchEnv {
         height: VIEWPORT_HEIGHT,
         columns: createBenchColumns(),
         records,
+        host: meter.wrap(host),
+      })
+      const constructorMs = performance.now() - t0
+      return {
+        table,
+        meter,
+        constructorMs,
+        beginFrame: () => Promise.resolve(),
+        endFrame: () => {
+          while (scheduled.length > 0) {
+            scheduled.shift()!()
+          }
+        },
+        hoverAt: (x, y) => eventsTarget.dispatch('pointermove', { clientX: x, clientY: y }),
+        destroy: () => {
+          table.destroy()
+          host.destroy()
+        },
+      }
+    },
+    createSheetTable(store) {
+      const scheduled: Array<() => void> = []
+      const eventsTarget = new FakeEventTarget()
+      const host = createRenderHost({
+        width: VIEWPORT_WIDTH,
+        height: VIEWPORT_HEIGHT,
+        createCanvas: () => new NoopCanvas(),
+        scheduleFrame: (callback) => {
+          scheduled.push(callback)
+          return scheduled.length
+        },
+        cancelFrame: () => {},
+        eventsTarget,
+      })
+      const meter = new InvalidationMeter(VIEWPORT_AREA)
+      const t0 = performance.now()
+      const table = new ListTable({
+        width: VIEWPORT_WIDTH,
+        height: VIEWPORT_HEIGHT,
+        columns: createSheetColumns(),
+        model: store.asModel(),
         host: meter.wrap(host),
       })
       const constructorMs = performance.now() - t0

@@ -22,4 +22,13 @@ export interface BenchTable {
 export interface BenchEnv {
   readonly name: string
   createTable(): BenchTable
+  /** sheet 口径建表：store.asModel() 挂模型形态（sheet 场景用；S5） */
+  createSheetTable(store: SheetStoreLike): BenchTable
+}
+
+/** SheetStore 结构子集（避免 bench 对 plugins 的类型级硬绑定；运行时传插件实例） */
+export interface SheetStoreLike {
+  asModel(): import('@infinite-table/core').TableModel
+  getRowCount(): number
+  getColCount(): number
 }

@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "dev": "./src/index.ts",
+      "import": "./dist/core.js"
+    }
   },
   "scripts": {
     "build": "vp build"

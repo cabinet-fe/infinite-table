@@ -15,7 +15,9 @@
     { "path": "packages/utils" },
     { "path": "packages/render" },
     { "path": "packages/core" },
+    { "path": "packages/plugins" },
     { "path": "packages/render/tsconfig.tests.json" },
-    { "path": "packages/core/tsconfig.tests.json" }
+    { "path": "packages/core/tsconfig.tests.json" },
+    { "path": "packages/plugins/tsconfig.tests.json" }
   ]
 }

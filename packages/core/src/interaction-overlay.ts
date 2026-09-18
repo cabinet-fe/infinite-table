@@ -1,5 +1,6 @@
 // 交互浮层：选区、hover、resize 拖拽线绘制在 sky 层，不触发 body 重绘。
 // 浮层节点不可拾取（pickable: false），指针事件穿透到 body 层。
+// 绘制颜色/宽度唯一来源为主题 interaction 分区 token（构造时传入生效主题的解析值）。
 
 import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
 
@@ -7,15 +8,7 @@ import { fillHandleRect } from './fill-handle'
 import type { WindowRange } from './grid-layout'
 import { normalizeRange, type SelectionRange, type SelectionSnapshot } from './selection'
 import type { CellRef } from './types'
-
-const SELECTION_FILL = 'rgba(46, 106, 219, 0.08)'
-const SELECTION_BORDER = '#2e6adb'
-const SELECTION_BORDER_WIDTH = 2
-const FILL_HANDLE_COLOR = '#2e6adb'
-const HOVER_CELL_FILL = 'rgba(31, 35, 41, 0.08)'
-const HOVER_BAND_FILL = 'rgba(31, 35, 41, 0.04)'
-const RESIZE_LINE_COLOR = '#2e6adb'
-const RESIZE_LINE_WIDTH = 2
+import type { InteractionTokens } from './theme'
 
 /** 浮层绘制所需的几何查询（闭包读取表格实时状态） */
 export interface OverlayGeometry {
@@ -41,10 +34,13 @@ export interface OverlayContent {
   readonly window: { rows: WindowRange; cols: WindowRange }
 }
 
-class OverlayNode extends SceneNode {
+export class OverlayNode extends SceneNode {
   content: OverlayContent | null = null
 
-  constructor(private readonly geometry: OverlayGeometry) {
+  constructor(
+    private readonly geometry: OverlayGeometry,
+    private readonly interaction: InteractionTokens,
+  ) {
     super({ pickable: false })
   }
 
@@ -76,10 +72,10 @@ class OverlayNode extends SceneNode {
       return
     }
     // 行/列带 + 格三级 hover 高亮
-    ctx.fillStyle = HOVER_BAND_FILL
+    ctx.fillStyle = this.interaction.hoverBand
     ctx.fillRect(viewport.x, cell.y, viewport.width, cell.height)
     ctx.fillRect(cell.x, viewport.y, cell.width, viewport.height)
-    ctx.fillStyle = HOVER_CELL_FILL
+    ctx.fillStyle = this.interaction.hoverCell
     ctx.fillRect(cell.x, cell.y, cell.width, cell.height)
   }
 
@@ -89,11 +85,11 @@ class OverlayNode extends SceneNode {
       if (!rect) {
         continue
       }
-      ctx.fillStyle = SELECTION_FILL
+      ctx.fillStyle = this.interaction.selectionFill
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
       // 四边边框（RenderContext 无 stroke，用细条填充）
-      ctx.fillStyle = SELECTION_BORDER
-      const w = SELECTION_BORDER_WIDTH
+      ctx.fillStyle = this.interaction.selectionBorder
+      const w = this.interaction.selectionBorderWidth
       ctx.fillRect(rect.x, rect.y, rect.width, w)
       ctx.fillRect(rect.x, rect.y + rect.height - w, rect.width, w)
       ctx.fillRect(rect.x, rect.y, w, rect.height)
@@ -113,7 +109,7 @@ class OverlayNode extends SceneNode {
       return
     }
     const handle = fillHandleRect(cell)
-    ctx.fillStyle = FILL_HANDLE_COLOR
+    ctx.fillStyle = this.interaction.fillHandle
     ctx.fillRect(handle.x, handle.y, handle.width, handle.height)
   }
 
@@ -122,21 +118,12 @@ class OverlayNode extends SceneNode {
     if (!line) {
       return
     }
-    ctx.fillStyle = RESIZE_LINE_COLOR
+    ctx.fillStyle = this.interaction.resizeLine
+    const w = this.interaction.resizeLineWidth
     if (line.orientation === 'vertical') {
-      ctx.fillRect(
-        line.position - RESIZE_LINE_WIDTH / 2,
-        viewport.y,
-        RESIZE_LINE_WIDTH,
-        viewport.height,
-      )
+      ctx.fillRect(line.position - w / 2, viewport.y, w, viewport.height)
     } else {
-      ctx.fillRect(
-        viewport.x,
-        line.position - RESIZE_LINE_WIDTH / 2,
-        viewport.width,
-        RESIZE_LINE_WIDTH,
-      )
+      ctx.fillRect(viewport.x, line.position - w / 2, viewport.width, w)
     }
   }
 
@@ -174,8 +161,9 @@ export class InteractionOverlay {
   constructor(
     skyRoot: SceneNode,
     private readonly geometry: OverlayGeometry,
+    interaction: InteractionTokens,
   ) {
-    this.node = new OverlayNode(geometry)
+    this.node = new OverlayNode(geometry, interaction)
     this.node.width = geometry.bodyViewport.x + geometry.bodyViewport.width
     this.node.height = geometry.bodyViewport.y + geometry.bodyViewport.height
     skyRoot.appendChild(this.node)

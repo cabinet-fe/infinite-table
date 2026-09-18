@@ -45,7 +45,13 @@ export type { WindowRange } from './grid-layout'
 // 查询 API（getCellRelativeRect/getDrawRange）返回的矩形类型（渲染窄接口复用）
 export type { Region } from '@infinite-table/render'
 export { defaultTheme, extendsTheme } from './theme'
-export type { CellStyleTokens, TableTheme, ThemeOverride } from './theme'
+export type {
+  CellStyleTokens,
+  FrameStyle,
+  InteractionTokens,
+  TableTheme,
+  ThemeOverride,
+} from './theme'
 export { EditorRegistry } from './editor-registry'
 export type { CellEditor, EditorRoute } from './editor-registry'
 export { EditManager } from './editing/edit-manager'
@@ -110,6 +116,8 @@ export type {
   ColumnDefine,
   ContextMenuListener,
   DataRecord,
+  EditEndEvent,
+  EditStartEvent,
   ListTableOptions,
   ResolveCellImage,
   ResolveDisplayValue,

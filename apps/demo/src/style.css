@@ -108,3 +108,215 @@ section h3 {
   line-height: 16px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
+
+/* sheet 演示区：tabs 栏与视口 */
+.sheet-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.sheet-tab {
+  font-size: 12px;
+  padding: 4px 12px;
+  border: 1px solid #e5e8eb;
+  border-radius: 6px;
+  background: #f5f6f7;
+  color: #1f2329;
+  cursor: pointer;
+}
+.sheet-tab.active {
+  background: #3370ff;
+  border-color: #3370ff;
+  color: #ffffff;
+}
+.sheet-viewport {
+  position: relative;
+}
+
+/* sheet 公式栏：格名框 + 值/公式输入 + 函数建议浮层 */
+.formula-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.formula-cell {
+  flex: none;
+  width: 64px;
+  padding: 5px 0;
+  text-align: center;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #1f2329;
+  background: #f7f8fa;
+  border: 1px solid #c9cdd4;
+  border-radius: 6px;
+}
+.formula-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 13px;
+  color: #1f2329;
+  border: 1px solid #c9cdd4;
+  border-radius: 6px;
+  outline: none;
+}
+.formula-input:focus {
+  border-color: #3370ff;
+}
+.formula-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 72px;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #e5e8eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(31, 35, 41, 0.12);
+}
+.formula-suggestions:empty {
+  display: none;
+}
+.formula-suggestion {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: #1f2329;
+  background: #f7f8fa;
+  border: 1px solid #e5e8eb;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.formula-suggestion:hover {
+  color: #3370ff;
+  background: #e8f3ff;
+  border-color: #3370ff;
+}
+
+/* sheet 样式工具栏：字型/对齐/边框按钮组 + 填充色板 */
+.sheet-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  background: #fbfcfd;
+  border: 1px solid #e5e8eb;
+  border-radius: 6px;
+}
+.sheet-toolbar-btn {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1f2329;
+  background: #ffffff;
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sheet-toolbar-btn:hover {
+  background: #f2f3f5;
+  border-color: #86909c;
+}
+.sheet-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(31, 35, 41, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sheet-swatch:hover {
+  outline: 2px solid #3370ff;
+  outline-offset: 1px;
+}
+
+/* sheet 查找替换输入框（按钮复用 .toolbar button 样式） */
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.find-input {
+  width: 150px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: #1f2329;
+  border: 1px solid #c9cdd4;
+  border-radius: 6px;
+  outline: none;
+}
+.find-input:focus {
+  border-color: #3370ff;
+}
+
+/* sheet 右键菜单浮层（定位由 JS 内联 fixed 坐标给出） */
+.sheet-menu {
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #e5e8eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(31, 35, 41, 0.16);
+}
+.sheet-menu-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  color: #1f2329;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sheet-menu-item:hover {
+  background: #f2f3f5;
+}
+
+/* sheet 功能对照表 */
+.sheet-checklist {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #fbfcfd;
+  border: 1px solid #e5e8eb;
+  border-radius: 6px;
+}
+.sheet-checklist summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2329;
+  cursor: pointer;
+  user-select: none;
+}
+.sheet-checklist table {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+}
+.sheet-checklist th,
+.sheet-checklist td {
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  border-bottom: 1px solid #eef0f3;
+}
+.sheet-checklist th {
+  color: #646a73;
+  font-weight: 600;
+  background: #f7f8fa;
+  border-bottom: 1px solid #e5e8eb;
+}
+.sheet-checklist td:first-child {
+  white-space: nowrap;
+}
