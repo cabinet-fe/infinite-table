@@ -26,23 +26,23 @@ onBeforeUnmount(() => {
       <div class="title-row">
         <h2>sheet 电子表格</h2>
         <div class="tags">
-          <span class="tag">SheetStore 单一事实源</span>
-          <span class="tag">公式栏/公式显示</span>
-          <span class="tag">样式工具栏</span>
-          <span class="tag">右键菜单</span>
+          <span class="tag">对标 ultra-ui playground sheet</span>
+          <span class="tag">图标工具栏</span>
+          <span class="tag">公式栏/函数建议</span>
+          <span class="tag">底部 tabs</span>
+          <span class="tag">三套右键菜单</span>
           <span class="tag">查找替换</span>
-          <span class="tag">多 sheet tabs</span>
-          <span class="tag">填充真实写值</span>
           <span class="tag">CSV 导入导出</span>
-          <span class="tag">撤销重做</span>
+          <span class="tag">插入浮动图片</span>
+          <span class="tag">数据结构观察区</span>
         </div>
       </div>
       <p class="desc">
-        对标 ultra-ui playground sheet：sheet
-        插件（SheetStore/填充生成/选区同步/公式显示/键位预设/实例池/撤销栈） 之上搭建
-        UI——样式矩阵按「主题分区 token → 列级 → Store 按格样式」覆盖链呈现；合并区主格含 \n
-        多行文本； F1 为格内示例图；B16:C18 预置序列可拖填充柄真实生成；工具栏/菜单/查找替换/CSV
-        经公式栏与 tabs 协同操作。
+        对标 ultra-ui playground 的 u-sheet 组件形态：工具栏（图标分组）→ 公式栏（名称框/fx/建议）→
+        网格（#F5F5F5 表头 / #E1E4E8 网格线 / #2170E7 选区）→ 底部 sheet
+        tabs；右键菜单三套（行号/列头/正文， 含插入数量与冻结）、查找替换弹层、CSV
+        导入导出、插入浮动图片、数据结构观察区（快照 JSON + 复制/放大）；消息走顶部 toast。数据面为
+        sheet 插件族（SheetStore 单一事实源/填充生成/选区同步/ 公式显示/键位预设/实例池/撤销栈）。
       </p>
     </div>
 
@@ -92,23 +92,15 @@ onBeforeUnmount(() => {
   margin: 0;
   line-height: 1.5;
 }
+/* sheet 区自带组件卡片，section 标题/描述隐藏；铺满宽度 */
 .demo-mount-area :deep(section) {
-  background: #ffffff;
-  border: 1px solid #e5e8eb;
-  border-radius: 8px;
-  padding: 16px 20px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 .demo-mount-area :deep(h2),
 .demo-mount-area :deep(.desc) {
   display: none;
-}
-.demo-mount-area :deep(.checkbox) {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: #1f2329;
-  user-select: none;
-  cursor: pointer;
 }
 </style>

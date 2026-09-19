@@ -594,14 +594,15 @@ async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void>
     assert(input, '浮层未出现')
     table.scrollBy(0, 10)
     await frames(2)
+    // 格矩形 x=48/y=26；浮层骑格缘定位外扩 1px（2px 边框内外各半）
     assert(
-      input.style.left === '48px' && input.style.top === '26px',
+      input.style.left === '47px' && input.style.top === '25px',
       `浮层未跟随：left=${input.style.left} top=${input.style.top}`,
     )
     table.scrollBy(0, -10)
     await frames(2)
     const topAfter: string = input.style.top
-    assert(topAfter === '36px', `滚回后浮层未跟随：top=${topAfter}`)
+    assert(topAfter === '35px', `滚回后浮层未跟随：top=${topAfter}`)
   })
 
   await checker.step('编辑滚出视口：按 Enter 语义自动提交，内容不丢', async () => {
@@ -698,16 +699,16 @@ async function checkSheet(checker: Checker): Promise<void> {
   await checker.step('sheet resize 持久化：拖列头边界 → Store 记录 → 切走切回还原', async () => {
     const container = activeContainer()
     const previous = store.getColWidth(2)
-    // 列 2 右边界 = 48 + 110 + 104 + 104 = 366（列头带内触发列宽拖拽会话）
-    dispatchPointer(container, 'pointerdown', 366, 18)
-    dispatchPointer(container, 'pointermove', 426, 18)
-    dispatchPointer(container, 'pointerup', 426, 18)
-    assert(store.getColWidth(2) === 164, `resize 后 Store 列宽 ${store.getColWidth(2)}`)
+    // 列 2 右边界 = 46(行号列) + 80×3 = 286（列头带内触发列宽拖拽会话；表头高 28，取 y=14）
+    dispatchPointer(container, 'pointerdown', 286, 14)
+    dispatchPointer(container, 'pointermove', 346, 14)
+    dispatchPointer(container, 'pointerup', 346, 14)
+    assert(store.getColWidth(2) === 140, `resize 后 Store 列宽 ${store.getColWidth(2)}`)
     handle.switchTo('sheet-2')
     handle.switchTo('sheet-1')
     await frames(2)
-    assert(store.getColWidth(2) === 164, '切回后 Store 尺寸丢失')
-    assert(handle.getTable().getColWidth(2) === 164, '引擎未应用 Store 尺寸')
+    assert(store.getColWidth(2) === 140, '切回后 Store 尺寸丢失')
+    assert(handle.getTable().getColWidth(2) === 140, '引擎未应用 Store 尺寸')
     store.setColWidth(2, previous)
     handle.getTable().setColWidth(2, previous)
   })
@@ -720,10 +721,11 @@ async function checkSheet(checker: Checker): Promise<void> {
     table.refreshCell(1, 2)
     table.selectCells([{ start: { col: 1, row: 1 }, end: { col: 1, row: 2 } }])
     await frames(2)
-    // 柄挂在焦点段 (1,2) 右下角点：(48+110+104, 36+3*32) = (262,132)，方点内取 (260,130)
-    dispatchPointer(container, 'pointerdown', 260, 130)
-    dispatchPointer(container, 'pointermove', 210, 212)
-    dispatchPointer(container, 'pointerup', 210, 212)
+    // 柄挂在焦点段 (1,2) 右下角点：(46+80+80, 28+3×28) = (206,112)，方点内取 (204,110)；
+    // 拖至 B 列中心 (46+80+40=166)、行 5 中心 y=28+28×3+44(行3加高)+28+14=198 → 向下扩展 3 行
+    dispatchPointer(container, 'pointerdown', 204, 110)
+    dispatchPointer(container, 'pointermove', 166, 198)
+    dispatchPointer(container, 'pointerup', 166, 198)
     assert(store.getValue(1, 3) === 300, `填充 (1,3) = ${String(store.getValue(1, 3))}`)
     assert(store.getValue(1, 4) === 400 && store.getValue(1, 5) === 500, '填充序列不完整')
   })

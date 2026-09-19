@@ -1,10 +1,12 @@
-// 右键菜单（简化集）：插入/删除行列、清空选区、合并/取消合并。
-// onContextMenu 事件驱动；结构操作走 ops.ts（Store 语义），引擎运行时 API 随后同步。
+// 网格右键菜单（对标 ultra-ui sheet-context-menu 的三套形态）：
+// 行号右键（上/下方插入行·数量输入、删除行、冻结到当前行）；列头右键（左/右侧插入列、删除列、冻结到当前列）；
+// 正文右键（合并/取消合并、插入浮动图片）。落点在选区外时先选中该格/整行/整列。
 
-import { normalizeRange, type ListTable } from '@infinite-table/core'
+import type { ListTable } from '@infinite-table/core'
 
 import type { SheetStore } from '@infinite-table/plugins'
 
+import { openFixedPopup } from './popup'
 import {
   clearValues,
   deleteCol,
@@ -16,129 +18,334 @@ import {
   syncMergesToTable,
   unmergeAt,
 } from './ops'
+import { colLetters } from './formula-bar'
 
 export interface ContextMenuHandle {
   destroy(): void
 }
 
-export function mountContextMenu(
-  section: HTMLElement,
-  ctx: { table: () => ListTable; store: () => SheetStore; status: HTMLElement },
-): ContextMenuHandle {
-  let menu: HTMLDivElement | null = null
-
-  const close = (): void => {
-    menu?.remove()
-    menu = null
-  }
-
-  const addItem = (label: string, onClick: () => void): void => {
-    if (!menu) {
-      return
-    }
-    const item = document.createElement('button')
-    item.type = 'button'
-    item.className = 'sheet-menu-item'
-    item.textContent = label
-    item.addEventListener('click', () => {
-      onClick()
-      close()
-    })
-    menu.appendChild(item)
-  }
-
+export function mountContextMenu(ctx: {
+  table: () => ListTable
+  store: () => SheetStore
+  notify: (text: string, kind?: 'info' | 'warn') => void
+}): ContextMenuHandle {
   const unsubscribe = ctx.table().onContextMenu((event) => {
-    close()
     const table = ctx.table()
     const store = ctx.store()
     const hit = event.cell
-    const selection = normalizeRange(
-      table.getSelectedCellRanges()[0] ?? {
-        start: hit ?? { col: 0, row: 0 },
-        end: hit ?? { col: 0, row: 0 },
-      },
-    )
+    // 命中分区：y 在列头带 → 列头菜单；x 在行号带 → 行号菜单；正文格 → 正文菜单
+    const onColHeader = event.y < table.headerHeight && event.x >= table.rowHeaderWidth
+    const onRowHeader = event.x < table.rowHeaderWidth && event.y >= table.headerHeight
 
-    menu = document.createElement('div')
-    menu.className = 'sheet-menu'
-    section.appendChild(menu)
-
-    addItem(`在行 ${selection.minRow + 1} 上插入行`, () => {
-      insertRow(store, selection.minRow)
-      syncMergesToTable(table, store, (error) => {
-        ctx.status.textContent = `合并区同步被拒绝：${error.message}`
-      })
-      refreshAllGrid(table)
-      ctx.status.textContent = `已在行 ${selection.minRow + 1} 上插入行`
-    })
-    addItem(`在列 ${String.fromCharCode(65 + selection.minCol)} 左侧插入列`, () => {
-      insertCol(store, selection.minCol)
-      syncMergesToTable(table, store, (error) => {
-        ctx.status.textContent = `合并区同步被拒绝：${error.message}`
-      })
-      refreshAllGrid(table)
-      ctx.status.textContent = `已在列 ${String.fromCharCode(65 + selection.minCol)} 左侧插入列`
-    })
-    addItem(`删除行 ${selection.minRow + 1}`, () => {
-      deleteRow(store, selection.minRow)
-      syncMergesToTable(table, store, (error) => {
-        ctx.status.textContent = `合并区同步被拒绝：${error.message}`
-      })
-      refreshAllGrid(table)
-      ctx.status.textContent = `已删除行 ${selection.minRow + 1}`
-    })
-    addItem(`删除列 ${String.fromCharCode(65 + selection.minCol)}`, () => {
-      deleteCol(store, selection.minCol)
-      syncMergesToTable(table, store, (error) => {
-        ctx.status.textContent = `合并区同步被拒绝：${error.message}`
-      })
-      refreshAllGrid(table)
-      ctx.status.textContent = `已删除列 ${String.fromCharCode(65 + selection.minCol)}`
-    })
-    addItem('清空选区内容', () => {
-      clearValues(store, selection)
-      refreshAllGrid(table)
-      ctx.status.textContent = '已清空选区内容'
-    })
-    addItem('合并选区单元格', () => {
-      try {
-        table.setMergeCells([...store.getMerges(), mergeBounds(selection)])
-        store.setMerges([...store.getMerges(), mergeBounds(selection)])
-        ctx.status.textContent = '已合并选区'
-      } catch (error) {
-        ctx.status.textContent = `已拒绝：${(error as Error).message}`
+    const colAtX = (x: number): number => {
+      let local = x - table.rowHeaderWidth + table.getScrollLeft()
+      for (let col = 0; col < store.getColCount(); col++) {
+        local -= table.getColWidth(col)
+        if (local < 0) {
+          return col
+        }
       }
-    })
-    addItem('取消选区内合并', () => {
-      const kept = unmergeAt(store, selection)
-      table.setMergeCells([...kept])
-      refreshAllGrid(table)
-      ctx.status.textContent = '已取消选区内合并'
-    })
+      return store.getColCount() - 1
+    }
+    const rowAtY = (y: number): number => {
+      let local = y - table.headerHeight + table.getScrollTop()
+      for (let row = 0; row < store.getRowCount(); row++) {
+        local -= table.getRowHeight(row)
+        if (local < 0) {
+          return row
+        }
+      }
+      return store.getRowCount() - 1
+    }
 
-    // 定位：场景事件坐标 + section 视口偏移，夹取在窗口内
-    menu.style.position = 'fixed'
-    const rect = section.getBoundingClientRect()
-    const x = Math.min(rect.left + event.x, window.innerWidth - 190)
-    const y = Math.min(rect.top + event.y, window.innerHeight - 280)
-    menu.style.left = `${Math.max(0, x)}px`
-    menu.style.top = `${Math.max(0, y)}px`
-  })
+    const original = event.originalEvent
+    const clientX = original instanceof MouseEvent ? original.clientX : event.x
+    const clientY = original instanceof MouseEvent ? original.clientY : event.y
 
-  // 点击其它处关闭（菜单内 pointerdown 跳过，保证菜单项 click 先于关闭触发）
-  const onDocClick = (domEvent: Event): void => {
-    if (menu && domEvent.target instanceof Node && menu.contains(domEvent.target)) {
+    const boundsOf = () => {
+      const range = table.getSelectedCellRanges()[0]
+      return range
+        ? {
+            minCol: Math.min(range.start.col, range.end.col),
+            maxCol: Math.max(range.start.col, range.end.col),
+            minRow: Math.min(range.start.row, range.end.row),
+            maxRow: Math.max(range.start.row, range.end.row),
+          }
+        : null
+    }
+
+    // 结构操作封装（Store 平移 + 引擎合并区同步 + 全表刷新）
+    const structural = (mutate: () => void, done: string): void => {
+      mutate()
+      syncMergesToTable(table, store, (error) =>
+        ctx.notify(`合并区同步被拒绝：${error.message}`, 'warn'),
+      )
+      refreshAllGrid(table, store)
+      ctx.notify(done)
+    }
+    const insertRowsAt = (at: number, count: number): void => {
+      structural(() => {
+        for (let index = 0; index < count; index++) {
+          insertRow(store, at)
+        }
+      }, `已插入 ${count} 行`)
+    }
+    const insertColsAt = (at: number, count: number): void => {
+      structural(() => {
+        for (let index = 0; index < count; index++) {
+          insertCol(store, at)
+        }
+      }, `已插入 ${count} 列`)
+    }
+    const applyFrozen = (next: { colCount?: number; rowCount?: number }): void => {
+      const current = store.getFrozen()
+      const merged = { ...current, ...next }
+      const previous = { ...current }
+      store.setFrozen(merged)
+      try {
+        table.setFrozenColCount(merged.colCount)
+        table.setFrozenRowCount(merged.rowCount)
+        ctx.notify(`冻结 ${merged.rowCount} 行 × ${merged.colCount} 列`)
+      } catch (error) {
+        store.setFrozen(previous)
+        table.setFrozenColCount(previous.colCount)
+        table.setFrozenRowCount(previous.rowCount)
+        ctx.notify(`已拒绝：${(error as Error).message}（冻结数保持原状）`, 'warn')
+      }
+    }
+
+    if (onRowHeader) {
+      const row = rowAtY(event.y)
+      // 落点在选区外：先选整行
+      const bounds = boundsOf()
+      if (!bounds || row < bounds.minRow || row > bounds.maxRow) {
+        table.selectCells([{ start: { col: 0, row }, end: { col: store.getColCount() - 1, row } }])
+      }
+      openFixedPopup(clientX, clientY, {
+        build: (el, close) => {
+          el.classList.add('sheet-popup', 'sheet-popup--menu')
+          el.append(
+            countItem({
+              label: '在上方插入',
+              unit: '行',
+              onConfirm: (count) => insertRowsAt(row, count),
+              close,
+            }),
+            countItem({
+              label: '在下方插入',
+              unit: '行',
+              onConfirm: (count) => insertRowsAt(row + 1, count),
+              close,
+            }),
+            actionItem(`删除行 ${row + 1}`, () =>
+              structural(() => deleteRow(store, row), `已删除行 ${row + 1}`),
+            ),
+            separator(),
+            checkedItem(`冻结到当前行`, store.getFrozen().rowCount === row + 1, () =>
+              applyFrozen({ rowCount: row + 1 }),
+            ),
+            actionItem(
+              '取消冻结',
+              () => applyFrozen({ rowCount: 0, colCount: 0 }),
+              store.getFrozen().rowCount === 0 && store.getFrozen().colCount === 0,
+            ),
+          )
+        },
+      })
       return
     }
-    close()
-  }
-  document.addEventListener('pointerdown', onDocClick)
+
+    if (onColHeader) {
+      const col = colAtX(event.x)
+      const bounds = boundsOf()
+      if (!bounds || col < bounds.minCol || col > bounds.maxCol) {
+        table.selectCells([{ start: { col, row: 0 }, end: { col, row: store.getRowCount() - 1 } }])
+      }
+      openFixedPopup(clientX, clientY, {
+        build: (el, close) => {
+          el.classList.add('sheet-popup', 'sheet-popup--menu')
+          el.append(
+            countItem({
+              label: '在左侧插入',
+              unit: '列',
+              onConfirm: (count) => insertColsAt(col, count),
+              close,
+            }),
+            countItem({
+              label: '在右侧插入',
+              unit: '列',
+              onConfirm: (count) => insertColsAt(col + 1, count),
+              close,
+            }),
+            actionItem(`删除列 ${colLetters(col)}`, () =>
+              structural(() => deleteCol(store, col), `已删除列 ${colLetters(col)}`),
+            ),
+            separator(),
+            checkedItem('冻结到当前列', store.getFrozen().colCount === col + 1, () =>
+              applyFrozen({ colCount: col + 1 }),
+            ),
+            actionItem(
+              '取消冻结',
+              () => applyFrozen({ rowCount: 0, colCount: 0 }),
+              store.getFrozen().rowCount === 0 && store.getFrozen().colCount === 0,
+            ),
+          )
+        },
+      })
+      return
+    }
+
+    if (!hit) {
+      return
+    }
+    const bounds = boundsOf()
+    if (
+      !bounds ||
+      hit.col < bounds.minCol ||
+      hit.col > bounds.maxCol ||
+      hit.row < bounds.minRow ||
+      hit.row > bounds.maxRow
+    ) {
+      table.selectCell(hit.col, hit.row)
+    }
+    const current = boundsOf()!
+    openFixedPopup(clientX, clientY, {
+      build: (el) => {
+        el.classList.add('sheet-popup', 'sheet-popup--menu')
+        const inMerge = store
+          .getMerges()
+          .some(
+            (range) =>
+              hit.col >= range.startCol &&
+              hit.col <= range.endCol &&
+              hit.row >= range.startRow &&
+              hit.row <= range.endRow,
+          )
+        const single = current.minCol === current.maxCol && current.minRow === current.maxRow
+        el.append(
+          actionItem(
+            '合并单元格',
+            () => {
+              try {
+                table.setMergeCells([...store.getMerges(), mergeBounds(current)])
+                store.setMerges([...store.getMerges(), mergeBounds(current)])
+                ctx.notify('已合并选区')
+              } catch (error) {
+                ctx.notify(`已拒绝：${(error as Error).message}`, 'warn')
+              }
+            },
+            single,
+          ),
+          actionItem(
+            '取消合并单元格',
+            () => {
+              const kept = unmergeAt(store, current)
+              table.setMergeCells([...kept])
+              ctx.notify('已取消合并')
+            },
+            !inMerge,
+          ),
+          separator(),
+          actionItem('插入图片', () => {
+            const seq = (insertImageSeq.value += 1)
+            table.floatObjects.add({
+              id: `sheet-menu-img-${seq}`,
+              kind: 'image',
+              anchor: {
+                from: { col: hit.col, row: hit.row },
+                to: { col: hit.col + 2, row: hit.row + 2 },
+                offsetX: 2,
+                offsetY: 2,
+              },
+              src: `demo://sheet/insert-${seq}`,
+              title: '插入图片',
+            })
+            ctx.notify('已插入图片')
+          }),
+          separator(),
+          actionItem('清空内容', () => {
+            clearValues(store, current)
+            refreshAllGrid(table, store)
+            ctx.notify('已清空选区内容')
+          }),
+        )
+      },
+    })
+  })
 
   return {
     destroy() {
       unsubscribe()
-      document.removeEventListener('pointerdown', onDocClick)
-      close()
     },
   }
+}
+
+/** 菜单项计数器（插入图片 id 序号） */
+const insertImageSeq = { value: 0 }
+
+// ---- 菜单项构建 ----
+
+function actionItem(label: string, onClick: () => void, disabled = false): HTMLButtonElement {
+  const item = document.createElement('button')
+  item.type = 'button'
+  item.className = 'sheet-menu__item'
+  item.textContent = label
+  item.disabled = disabled
+  item.addEventListener('click', onClick)
+  return item
+}
+
+function checkedItem(label: string, checked: boolean, onClick: () => void): HTMLButtonElement {
+  const item = actionItem(checked ? `✓ ${label}` : label, onClick)
+  return item
+}
+
+function separator(): HTMLElement {
+  const sep = document.createElement('div')
+  sep.className = 'sheet-menu__separator'
+  return sep
+}
+
+/** 数量输入项：「在上方插入 [3] 行」——Enter 确认执行（keepOpen，不点外不关） */
+function countItem(options: {
+  label: string
+  unit: string
+  onConfirm: (count: number) => void
+  close: () => void
+}): HTMLElement {
+  const item = document.createElement('div')
+  item.className = 'sheet-menu__count'
+  const label = document.createElement('span')
+  label.textContent = options.label
+  const input = document.createElement('input')
+  input.type = 'number'
+  input.className = 'sheet-menu__count-input'
+  input.min = '1'
+  input.max = '100'
+  input.step = '1'
+  input.value = '1'
+  const unit = document.createElement('span')
+  unit.textContent = options.unit
+  item.append(label, input, unit)
+  const confirm = (): void => {
+    const count = Math.max(1, Math.min(100, Math.floor(Number(input.value) || 1)))
+    options.close()
+    options.onConfirm(count)
+  }
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation()
+    if (event.key === 'Enter') {
+      confirm()
+    } else if (event.key === 'Escape') {
+      options.close()
+    }
+  })
+  item.addEventListener('click', (event) => {
+    if (event.target === input) {
+      return
+    }
+    input.focus()
+    input.select()
+  })
+  return item
 }

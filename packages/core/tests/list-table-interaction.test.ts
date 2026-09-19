@@ -473,11 +473,12 @@ describe('ListTable 编辑', () => {
     const element = created[0]!
     expect(container.children).toEqual([element])
     expect(element.value).toBe('Ada')
-    // 视口矩形：x = 行号列 48，y = 列头 36，宽高 = 列宽 100 / 行高 32
-    expect(element.style.left).toBe('48px')
-    expect(element.style.top).toBe('36px')
-    expect(element.style.width).toBe('100px')
-    expect(element.style.height).toBe('32px')
+    // 视口矩形：x = 行号列 48，y = 列头 36，宽高 = 列宽 100 / 行高 32；
+    // 定位向外扩 1px（2px 边框骑格缘，内外各半）
+    expect(element.style.left).toBe('47px')
+    expect(element.style.top).toBe('35px')
+    expect(element.style.width).toBe('102px')
+    expect(element.style.height).toBe('34px')
   })
 
   it('双击不可编格（列未声明 editor）无浮层；双击列头/行头也不进编辑', () => {
@@ -604,8 +605,8 @@ describe('ListTable 编辑', () => {
     expect(table.startEdit(0, 30)).toBe(true)
     // 行 30 完整进入视口：top = 30*32 + 32 - 564 = 428
     expect(table.getScrollState().top).toBe(428)
-    // y = 行 30 内容偏移 960 - 428 + 列头 36 = 568
-    expect(created[0]!.style.top).toBe('568px')
+    // y = 行 30 内容偏移 960 - 428 + 列头 36 = 568；骑格缘偏移 -1 → 567
+    expect(created[0]!.style.top).toBe('567px')
   })
 
   it('model 形态经 ModelBinding 回写（echo 不回环，只一次本格刷新）', () => {
@@ -717,5 +718,81 @@ describe('ListTable 表头高亮', () => {
     host.submitted.length = 0
     table.hoverState.set(0, 0)
     expect(host.submitted.some((e) => e.kind === 'body')).toBe(false)
+  })
+})
+
+describe('ListTable 合并格命中', () => {
+  const mergeRecords = Array.from({ length: 20 }, (_, i) => ({ name: `r${i}` }))
+
+  it('点击合并区覆盖格：选区即整块合并区、焦点为主格；命中查询路由主格', () => {
+    const { host, table } = createTable({
+      records: mergeRecords,
+      mergeCells: [{ startCol: 1, startRow: 1, endCol: 2, endRow: 2 }],
+    })
+    // 点击覆盖格 (2,2)
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(2) })
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(2) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 1 }, end: { col: 2, row: 2 } },
+    ])
+    expect(table.getSelection().focus).toEqual({ col: 1, row: 1 })
+    expect(table.getCellAtRelativePosition(cellX(2), cellY(2))).toEqual({ col: 1, row: 1 })
+  })
+
+  it('从合并区拖出到普通格：扩展段为合并包围盒与目标格的并（不丢合并列/行）', () => {
+    const { host, table } = createTable({
+      records: mergeRecords,
+      mergeCells: [{ startCol: 1, startRow: 1, endCol: 2, endRow: 2 }],
+    })
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(2) })
+    fireBody(host, 'pointermove', { x: cellX(4), y: cellY(3) })
+    fireBody(host, 'pointerup', { x: cellX(4), y: cellY(3) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 1 }, end: { col: 4, row: 3 } },
+    ])
+  })
+})
+
+describe('ListTable 合并格编辑', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('双击合并区覆盖格：编辑主格（初值取主格），浮层矩形跨满合并区', () => {
+    const host = new StubHost()
+    const container = new FakeEditorHost()
+    const { doc, created } = createFakeDoc()
+    vi.stubGlobal('document', doc)
+    const registry = new EditorRegistry()
+    registry.registerEditor('text', {})
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      columns: [
+        { field: 'name', title: 'Name', editor: 'text' },
+        { field: 'age', title: 'Age', editor: 'text' },
+      ],
+      records: [
+        { name: 'Ada', age: '36' },
+        { name: 'Bob', age: '25' },
+      ],
+      host,
+      hostOptions: { container: container as unknown as HTMLElement },
+      editorRegistry: registry,
+      mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 1 }],
+    })
+    // 双击覆盖格 (1,1)
+    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(1) })
+    fireBody(host, 'pointerup', { x: cellX(1), y: cellY(1) })
+    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(1) })
+    fireBody(host, 'pointerup', { x: cellX(1), y: cellY(1) })
+    expect(table.isEditing()).toBe(true)
+    expect(table.editManager.editingCell()).toEqual({ col: 0, row: 0 })
+    const element = created[0]!
+    expect(element.value).toBe('Ada')
+    // 浮层跨满合并区：两列宽 200 / 两行高 64（含 1px 外扩）
+    expect(element.style.left).toBe('47px')
+    expect(element.style.top).toBe('35px')
+    expect(element.style.width).toBe('202px')
+    expect(element.style.height).toBe('66px')
   })
 })

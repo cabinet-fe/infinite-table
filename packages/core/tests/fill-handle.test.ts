@@ -84,6 +84,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
       hover: null,
       resizeLine: null,
       fillHandleRange: resolveFocusRange(rangesSnapshot),
+      fillPreview: null,
       window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     }
     return content
@@ -185,8 +186,8 @@ describe('ListTable 填充柄事件载荷', () => {
     expect(ends).toEqual([
       {
         anchor: { minCol: 0, minRow: 0, maxCol: 1, maxRow: 0 },
-        // 拖拽目标：从锚定段右下角格 (1,0) 扫到终点格 (3,2) 的 min/max 范围
-        target: { minCol: 1, minRow: 0, maxCol: 3, maxRow: 2 },
+        // 轴锁定：行/列位移同为 2 时取纵向，列夹回锚定段跨度（不再产生对角目标）
+        target: { minCol: 1, minRow: 0, maxCol: 1, maxRow: 2 },
       },
     ])
     // 填充生成不在内核：记录与选区均未被改动
@@ -194,6 +195,61 @@ describe('ListTable 填充柄事件载荷', () => {
     expect(table.getSelectedCellRanges()).toEqual([
       { start: { col: 0, row: 0 }, end: { col: 1, row: 0 } },
     ])
+  })
+
+  it('轴锁定：纯向下拖拽带横向漂移不产生侧向扩展；原地按压松开无扩展', () => {
+    const records = Array.from({ length: 10 }, (_, i) => ({ name: `r${i}` }))
+    const { host, table } = createTable({ records })
+    table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 1, row: 0 } }])
+    const ends: FillDragEndEvent[] = []
+    table.onFillDragEnd((event) => ends.push(event))
+
+    // 从柄角点 (248,68) 按下（裸命中即 (2,1) 格），向下拖 2 行且横向漂到 D 列再折回 A 列
+    fireBody(host, 'pointerdown', { x: 248, y: 68 })
+    fireBody(host, 'pointermove', { x: cellX(3), y: cellY(2) })
+    fireBody(host, 'pointermove', { x: cellX(0), y: cellY(3) })
+    fireBody(host, 'pointerup', { x: cellX(0), y: cellY(3) })
+    expect(ends).toEqual([
+      {
+        anchor: { minCol: 0, minRow: 0, maxCol: 1, maxRow: 0 },
+        // 纵向为主轴：列始终夹在锚定段跨度 [0,1] 内，目标只向下扩展（漂移不产生侧向填充）
+        target: { minCol: 0, minRow: 0, maxCol: 1, maxRow: 3 },
+      },
+    ])
+
+    // 原地按压松开（角点裸命中 (2,1)，无位移）：目标退化为原点，无扩展
+    ends.length = 0
+    table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 1, row: 0 } }])
+    fireBody(host, 'pointerdown', { x: 248, y: 68 })
+    fireBody(host, 'pointerup', { x: 248, y: 68 })
+    expect(ends).toEqual([
+      {
+        anchor: { minCol: 0, minRow: 0, maxCol: 1, maxRow: 0 },
+        target: { minCol: 1, minRow: 0, maxCol: 1, maxRow: 0 },
+      },
+    ])
+  })
+
+  it('边缘自动滚动：拖拽驻留视口底缘时按帧续滚并扩展目标；退订事件后会话结束', () => {
+    const records = Array.from({ length: 60 }, (_, i) => ({ name: `r${i}` }))
+    const { host, table } = createTable({ records })
+    // 视口高 600、列头 36 → 可视约 17 行；选区底部在可视区内
+    table.selectCells([{ start: { col: 0, row: 10 }, end: { col: 1, row: 12 } }])
+    const ends: FillDragEndEvent[] = []
+    table.onFillDragEnd((event) => ends.push(event))
+
+    // 柄角点：焦点段右下角格 (1,12) 的右下角 (248, 36 + 13*32)
+    const cornerY = 36 + 13 * 32
+    fireBody(host, 'pointerdown', { x: 248, y: cornerY })
+    // 拖到视口底缘区内并驻留：StubHost 同步执行帧任务，逐帧续滚直到指针位置换算的终点行稳定
+    fireBody(host, 'pointermove', { x: 200, y: 596 })
+    fireBody(host, 'pointerup', { x: 200, y: 596 })
+    expect(ends).toHaveLength(1)
+    const target = ends[0]!.target
+    // 底缘驻留自动滚动后目标显著越过初始可视窗口（60 行内容可滚）
+    expect(target.maxRow).toBeGreaterThan(20)
+    expect(target.maxCol).toBe(1)
+    expect(table.getScrollTop()).toBeGreaterThan(0)
   })
 
   it('非柄区域按下不抛事件；退订后不再触发且选区不受柄按压影响', () => {

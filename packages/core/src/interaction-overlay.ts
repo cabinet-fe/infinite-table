@@ -6,7 +6,12 @@ import { SceneNode, type Region, type RenderContext } from '@infinite-table/rend
 
 import { fillHandleRect } from './fill-handle'
 import type { WindowRange } from './grid-layout'
-import { normalizeRange, type SelectionRange, type SelectionSnapshot } from './selection'
+import {
+  normalizeRange,
+  type RangeBounds,
+  type SelectionRange,
+  type SelectionSnapshot,
+} from './selection'
 import type { CellRef } from './types'
 import type { InteractionTokens } from './theme'
 
@@ -30,6 +35,8 @@ export interface OverlayContent {
   readonly resizeLine: ResizeLine | null
   /** 填充柄所在焦点段（无选区为 null）；柄绘制在焦点段右下角格的角点上 */
   readonly fillHandleRange: SelectionRange | null
+  /** 填充拖拽预览区（轴锁定后的纯扩展区；非拖拽中为 null） */
+  readonly fillPreview: RangeBounds | null
   /** 可视窗口（选区裁剪用，[start, end)） */
   readonly window: { rows: WindowRange; cols: WindowRange }
 }
@@ -56,6 +63,7 @@ export class OverlayNode extends SceneNode {
     ctx.clip()
     this.paintHover(ctx, content)
     this.paintSelection(ctx, content)
+    this.paintFillPreview(ctx, content)
     this.paintFillHandle(ctx, content)
     this.paintResizeLine(ctx, content, viewport)
     ctx.restore()
@@ -113,6 +121,32 @@ export class OverlayNode extends SceneNode {
     ctx.fillRect(handle.x, handle.y, handle.width, handle.height)
   }
 
+  /** 填充拖拽预览：扩展区的虚线边框（对标 VTable 拖拽中的目标区反馈） */
+  private paintFillPreview(ctx: RenderContext, content: OverlayContent): void {
+    const preview = content.fillPreview
+    if (!preview) {
+      return
+    }
+    const rect = this.boundsRect(preview, content)
+    if (!rect) {
+      return
+    }
+    const w = this.interaction.selectionBorderWidth
+    const dash = 5
+    const gap = 4
+    ctx.fillStyle = this.interaction.selectionBorder
+    for (let x = rect.x; x < rect.x + rect.width; x += dash + gap) {
+      const seg = Math.min(dash, rect.x + rect.width - x)
+      ctx.fillRect(x, rect.y, seg, w)
+      ctx.fillRect(x, rect.y + rect.height - w, seg, w)
+    }
+    for (let y = rect.y; y < rect.y + rect.height; y += dash + gap) {
+      const seg = Math.min(dash, rect.y + rect.height - y)
+      ctx.fillRect(rect.x, y, w, seg)
+      ctx.fillRect(rect.x + rect.width - w, y, w, seg)
+    }
+  }
+
   private paintResizeLine(ctx: RenderContext, content: OverlayContent, viewport: Region): void {
     const line = content.resizeLine
     if (!line) {
@@ -132,7 +166,11 @@ export class OverlayNode extends SceneNode {
     range: SelectionSnapshot['ranges'][number],
     content: OverlayContent,
   ): Region | null {
-    const bounds = normalizeRange(range)
+    return this.boundsRect(normalizeRange(range), content)
+  }
+
+  /** 边界矩形裁剪到可视窗口后的视口矩形；完全在窗口外返回 null */
+  private boundsRect(bounds: RangeBounds, content: OverlayContent): Region | null {
     const minCol = Math.max(bounds.minCol, content.window.cols.start)
     const maxCol = Math.min(bounds.maxCol, content.window.cols.end - 1)
     const minRow = Math.max(bounds.minRow, content.window.rows.start)
@@ -172,7 +210,10 @@ export class InteractionOverlay {
   /** 更新浮层内容；返回是否有可见内容（无内容时节点隐藏，供调用方跳过 sky 失效） */
   update(content: OverlayContent): boolean {
     const has =
-      content.selection.ranges.length > 0 || content.hover !== null || content.resizeLine !== null
+      content.selection.ranges.length > 0 ||
+      content.hover !== null ||
+      content.resizeLine !== null ||
+      content.fillPreview !== null
     this.node.visible = has
     this.node.content = has ? content : null
     return has

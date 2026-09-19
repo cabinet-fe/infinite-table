@@ -34,7 +34,7 @@ import {
 import type { CellNode } from './cell-node'
 import { MergeCellMap, normalizeCellRange } from './cell-range'
 import type { CellRange } from './cell-range'
-import { projectCellStyle, type CellStyle } from './cell-style'
+import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
 import { CellValuePipeline } from './cell-value'
 import { EditManager, type EditCommitMove } from './editing/edit-manager'
 import type { TextEditorHost } from './editing/text-editor'
@@ -49,6 +49,7 @@ import {
   type WindowRange,
 } from './grid-layout'
 import { HoverState } from './hover-state'
+import type { FillDragState } from './fill-handle'
 import { FloatObjectLayer } from './float/float-object-layer'
 import { InteractionOverlay, type ResizeLine } from './interaction-overlay'
 import { nextActiveCell } from './keyboard-navigation'
@@ -57,6 +58,7 @@ import {
   cellAt,
   cellRectInViewport,
   ensureCellVisible,
+  mergeAwareCellRect,
   refreshOverlay,
 } from './list-table-interaction'
 import { assertMergesWithinBoundary, cellKey, HEADER_COORD } from './list-table-internal'
@@ -86,7 +88,7 @@ import {
   type SelectionRange,
   type SelectionSnapshot,
 } from './selection'
-import { extendsTheme, type TableTheme } from './theme'
+import { extendsTheme, themeCellBase, type TableTheme } from './theme'
 import { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 import type {
   CellChangeEvent,
@@ -205,8 +207,8 @@ export class ListTable {
   readonly fillHandleDownListeners = new Set<FillHandleDownListener>()
   /** @internal 填充柄拖拽结束事件订阅（锚定段范围 + 拖拽目标格范围） */
   readonly fillDragEndListeners = new Set<FillDragEndListener>()
-  /** @internal 填充柄拖拽会话：柄所在选区段 + 拖拽起点（锚定段右下角格）与终点格（填充生成不在内核） */
-  fillDrag: { range: SelectionRange; origin: CellRef; current: CellRef } | null = null
+  /** @internal 填充柄拖拽会话：柄所在选区段 + 起点终点格（轴锁定）+ 边缘自动滚动状态（填充生成不在内核） */
+  fillDrag: FillDragState | null = null
   /** 编辑状态唯一源：进入/提交/取消生命周期 */
   readonly editManager: EditManager
   /** 编辑器注册表（可编第一级判定与格级路由），可注入或事后注册 */
@@ -305,7 +307,9 @@ export class ListTable {
         write: (col, row, value) => this.writeCell(col, row, value),
       },
       resolveValue: (col, row) => this.pipeline.resolveValue(col, row),
-      cellRect: (col, row) => cellRectInViewport(this, col, row),
+      cellFont: (col, row) => cellStyleFont(this.resolveStyle(col, row)),
+      // 合并感知锚定：编辑合并区（主格）时浮层跨满整块包围盒
+      cellRect: (col, row) => mergeAwareCellRect(this, col, row),
       refreshCell: (col, row) => this.refreshCell(col, row),
       emitChange: (change) => {
         for (const listener of this.cellChangeListeners) {
@@ -878,10 +882,11 @@ export class ListTable {
     let colStyle = this.columnStyles.get(col)
     if (!colStyle) {
       const column = this.options.columns[col]
-      const base: CellStyle = column?.textWrap
-        ? { ...this.theme.body, textWrap: true }
-        : this.theme.body
-      colStyle = projectCellStyle(base, column?.style)
+      const base = themeCellBase(this.theme.body)
+      colStyle = projectCellStyle(
+        column?.textWrap ? { ...base, textWrap: true } : base,
+        column?.style,
+      )
       this.columnStyles.set(col, colStyle)
     }
     const cellStyle = this.options.resolveCellStyle?.(col, row)

@@ -3,7 +3,9 @@
 
 import type {
   CellBorder,
+  CellBorderEdge,
   CellPadding,
+  CellStyle,
   CellTextAlign,
   CellTextOverflow,
   CellVerticalAlign,
@@ -17,6 +19,7 @@ export interface CellStyleTokens {
   font: string
   color: string
   background: string
+  /** 网格线色：投影为每格右/下 1px 默认网格边（收入本格，对齐 VTable cellBorderClipDirection: 'bottom-right'） */
   borderColor: string
   /** 水平对齐；缺省 left */
   textAlign?: CellTextAlign
@@ -182,5 +185,19 @@ export function extendsTheme(
     underlayBackgroundColor: override.underlayBackgroundColor ?? base.underlayBackgroundColor,
     interaction: { ...base.interaction, ...override.interaction },
     frameStyle: { ...base.frameStyle, ...override.frameStyle },
+  }
+}
+
+/**
+ * 分区 token → 格样式基底（样式投影链的 base）：borderColor token 转右/下 1px
+ * 默认网格边（收入本格，与逐格边框经 projectCellStyle 逐边合并——用户给了的边
+ * 覆盖网格边，未给的边保留网格线）；显式 border token 逐边优先于网格边。
+ */
+export function themeCellBase(tokens: CellStyleTokens): CellStyle {
+  const { borderColor, border, ...style } = tokens
+  const grid: CellBorderEdge = { width: 1, color: borderColor }
+  return {
+    ...style,
+    border: { ...border, right: border?.right ?? grid, bottom: border?.bottom ?? grid },
   }
 }

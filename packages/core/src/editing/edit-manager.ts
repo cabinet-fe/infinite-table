@@ -39,6 +39,8 @@ export interface EditManagerInit {
   writeTarget: EditWriteTarget
   /** 编辑初值口径：基础值（未过 resolveDisplayValue） */
   resolveValue: (col: number, row: number) => unknown
+  /** 编辑字体口径：锚定格样式的 font 串（浮层文字与格内渲染同字号字族）；缺省用浏览器缺省 */
+  cellFont?: (col: number, row: number) => string
   /** 锚定格视口矩形（含表头/行号偏移与冻结区）；滚出视口为 null */
   cellRect: (col: number, row: number) => Region | null
   /** 提交后该格局部刷新（cell 级失效） */
@@ -128,6 +130,7 @@ export class EditManager {
     const oldValue = this.init.resolveValue(col, row)
     const editor = createTextEditor({
       multiline: this.init.columns[col]?.editorMultiline ?? false,
+      font: this.init.cellFont?.(col, row),
       doc: this.init.doc,
     })
     editor.onKey((action) => this.onEditorKey(action))

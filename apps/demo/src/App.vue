@@ -68,8 +68,8 @@ const menuItems: MenuItem[] = [
     key: 'sheet',
     label: 'sheet 电子表格',
     icon: '🧮',
-    badge: '样式矩阵',
-    desc: '样式覆盖链、\\n 多行、合并、填充柄、运行时冻结合并、Enter 编辑',
+    badge: '对标 ultra-ui',
+    desc: '工具栏/公式栏/底部 tabs/右键菜单/查找替换/CSV/数据观察区',
     component: SheetView,
   },
   {
@@ -128,7 +128,16 @@ onMounted(() => {
     // sheet 区：插件之上的完整 sheet 面（句柄供 checkSheet 断言）
     const sheetDemo = mountSheet(mountPoint)
     window.__SHEET_DEMO__ = createSheetHandle(sheetDemo)
-    void runSmoke(demos)
+    // 自检异常也写结果信号（裸 void 会让超时方无从分辨挂错与卡死）
+    void runSmoke(demos).catch((error) => {
+      window.__SMOKE__ = {
+        done: true,
+        pass: false,
+        total: 1,
+        failures: [`runSmoke 异常：${error instanceof Error ? error.stack : String(error)}`],
+      }
+      document.title = 'SMOKE FAIL'
+    })
   }
 })
 </script>

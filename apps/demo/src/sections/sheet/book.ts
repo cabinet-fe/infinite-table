@@ -1,6 +1,7 @@
 // SheetBook 装配：sheet 定义注册（Store + 每表 resolveCellStyle/公式显示闭包）、
 // 容器 hostOptions 注入、活跃切换时的容器显隐与滚轮接线（DOM 呈现归宿主，
 // 即「切换全量重挂」的宿主侧：引擎实例池化复用，容器按活跃 id 显隐）。
+// 容器铺满网格区（absolute inset 0），尺寸由调用方测量网格区后经 tableOptions 传入。
 
 import type { ListTable, ListTableOptions } from '@infinite-table/core'
 
@@ -10,6 +11,7 @@ import { attachWheel, resolveDpr } from '../../mount'
 
 import { createMainStore, createSecondaryStore } from './store'
 import { createStoreEvaluator } from './mini-eval'
+import { SHEET_COL_COUNT, SHEET_ROW_COUNT } from './constants'
 
 export interface SheetBookBundle {
   book: SheetBook
@@ -32,9 +34,6 @@ export interface SheetBookBundle {
   dispose: () => void
 }
 
-const TABLE_WIDTH = 840
-const TABLE_HEIGHT = 420
-
 export function createDemoBook(
   viewport: HTMLElement,
   tableOptions: Partial<ListTableOptions>,
@@ -42,14 +41,12 @@ export function createDemoBook(
   const containers = new Map<string, HTMLElement>()
   const stores = new Map<string, SheetStore>()
   const wheels = new Map<string, () => void>()
-  let counter = 0
+  let counter = 2
 
   const book = new SheetBook({
     createHost: (def: SheetDef) => {
       const container = document.createElement('div')
-      container.className = 'table-mount'
-      container.style.width = `${TABLE_WIDTH}px`
-      container.style.height = `${TABLE_HEIGHT}px`
+      container.className = 'sheet-grid-instance'
       container.dataset.sheetId = def.id
       container.style.display = 'none'
       viewport.appendChild(container)
@@ -102,15 +99,20 @@ export function createDemoBook(
     },
     createSheet() {
       counter += 1
-      const id = `sheet-new-${counter}`
+      const id = `sheet-${counter}`
       registerWith(
         id,
-        new SheetStore({ rowCount: 40, colCount: 8, defaultColWidth: 104, defaultRowHeight: 32 }),
+        new SheetStore({
+          rowCount: SHEET_ROW_COUNT,
+          colCount: SHEET_COL_COUNT,
+          defaultColWidth: 80,
+          defaultRowHeight: 28,
+        }),
       )
       return id
     },
     removeSheet(id: string) {
-      // 活跃 sheet 不允许删（tabs 语义：先切走再删）
+      // 活跃 sheet 不允许删（tabs 语义：先切走再删，由 tabs 层保证）
       if (id === book.activeId || !book.has(id)) {
         return false
       }

@@ -23,6 +23,7 @@ import {
   isRowHeaderHighlighted,
 } from './list-table-internal'
 import { appendImageCell } from './list-table-media'
+import { themeCellBase } from './theme'
 import type { FrameStyle } from './theme'
 
 /** 外框阴影模糊半径（CSS 像素；frameStyle.shadow 开启时的固定观感） */
@@ -584,12 +585,12 @@ function appendHeaders(
   headerGroup.appendChild(table.cornerNode)
 }
 
-/** 三类表头分区样式：列头用 header、行号列用 rowHeader、左上角用 corner（缺省随 header 派生） */
+/** 三类表头分区样式：列头用 header、行号列用 rowHeader、左上角用 corner（缺省随 header 派生）；borderColor 同样投影为网格边 */
 function headerStyles(table: ListTable): { col: CellStyle; row: CellStyle; corner: CellStyle } {
   return {
-    col: { textOverflow: 'ellipsis', ...table.theme.header },
-    row: { textOverflow: 'ellipsis', ...table.theme.rowHeader },
-    corner: { textOverflow: 'ellipsis', ...table.theme.corner },
+    col: { textOverflow: 'ellipsis', ...themeCellBase(table.theme.header) },
+    row: { textOverflow: 'ellipsis', ...themeCellBase(table.theme.rowHeader) },
+    corner: { textOverflow: 'ellipsis', ...themeCellBase(table.theme.corner) },
   }
 }
 

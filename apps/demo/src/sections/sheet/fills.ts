@@ -2,9 +2,7 @@
 
 import type { ListTable } from '@infinite-table/core'
 
-import { bindFillGeneration } from '@infinite-table/plugins'
-
-import type { SheetStore } from './store'
+import { bindFillGeneration, type SheetStore } from '@infinite-table/plugins'
 
 /** 填充真实写值接线；返回退订函数 */
 export function bindStoreFill(table: ListTable, store: SheetStore): () => void {

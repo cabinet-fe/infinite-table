@@ -1,16 +1,16 @@
-// sheet 电子表格演示区：对齐 ultra-ui playground sheet 的功能面（UI 归下游，插件之上搭建）。
-// SheetStore 为单一事实源（值/样式/尺寸/冻结/合并），样式经 resolveCellStyle hook 落引擎；
-// 填充柄真实写值（bindFillGeneration + batchUpdate 收敛）、resize 持久化（Store）、
-// 撤销栈（bindCellChangeUndo）、SheetBook 多 sheet 实例池 + tabs 切换、
-// mini 公式求值器 + createFormulaDisplay 公式显示、excelKeymapPreset 键位预设。
-// 样式矩阵 / \n 多行合并 / 格内图演示点保留。
+// sheet 电子表格演示区（对标 ultra-ui playground sheet 的组件形态还原）：
+// 工具栏（图标分组）→ 公式栏（名称框/fx/建议）→ 网格（flex 铺满）→ 底部 tabs，
+// 右键菜单三套（行号/列头/正文）、查找替换弹层、CSV 导入导出、插入浮动图片、
+// 数据结构观察区；消息走顶部 toast（无状态栏，与 ultra-ui 一致）。
+// 数据面不变：SheetStore 单一事实源 + sheet 插件族（填充/选区同步/公式显示/键位/实例池/撤销栈）。
 
 import {
   EditorRegistry,
   normalizeRange,
   type ListTable,
+  type ListTableOptions,
+  type LoadedImage,
   type RangeBounds,
-  type SelectionRange,
   type ThemeOverride,
 } from '@infinite-table/core'
 
@@ -21,15 +21,15 @@ import {
   type SheetStore,
 } from '@infinite-table/plugins'
 
-import { addButton, addStatus, createSection, demoLoadImage } from '../mount'
+import { createSection, demoLoadImage } from '../mount'
 
-import { mountChecklist } from './sheet/checklist'
 import { createDemoBook, type SheetBookBundle } from './sheet/book'
-import { mountCSV } from './sheet/csv'
+import { createCSV } from './sheet/csv'
 import { mountContextMenu } from './sheet/context-menu'
-import { mountFindReplace } from './sheet/find-replace'
 import { bindStoreFill } from './sheet/fills'
 import { mountFormulaBar } from './sheet/formula-bar'
+import { evaluateFormula } from './sheet/mini-eval'
+import { mountInspector } from './sheet/inspector'
 import {
   deleteRow as deleteRowOp,
   insertRow as insertRowOp,
@@ -38,13 +38,9 @@ import {
 } from './sheet/ops'
 import { bindResizePersistence } from './sheet/persist'
 import { mountToolbar } from './sheet/toolbar'
-import { evaluateFormula } from './sheet/mini-eval'
-import {
-  SHEET_FILL_SELECTION,
-  SHEET_IMAGE_CELL,
-  SHEET_MERGE_EXTRA_RANGE,
-  SHEET_MERGE_RANGE,
-} from './sheet/constants'
+import { mountTabs } from './sheet/tabs'
+import { createToaster } from './sheet/toast'
+import { SHEET_COL_COUNT, SHEET_IMAGE_CELL } from './sheet/constants'
 
 export {
   SHEET_COL_COUNT,
@@ -55,29 +51,81 @@ export {
   SHEET_IMAGE_CELL,
 } from './sheet/constants'
 
-/** 主题分区 token 演示：列头居中（行号列沿用 header 分区）+ 数据格基础字色 */
+/**
+ * 网格主题（对标 ultra-ui vtable-theme 实际生效值）：表头/行号 #F5F5F5 非粗体 12px 居中、
+ * 正文 14px/#000（VTable DEFAULT bodyStyle 继承值）、格内边距 [2,6,2,6]、网格线 #E1E4E8
+ * （右/下 1px 收入式）、选区 #2170E7 2px + 12% 填充、行号列 46px、行高 28、默认列宽 80、hover 关闭。
+ */
 const SHEET_THEME: ThemeOverride = {
-  header: { textAlign: 'center' },
-  body: { color: '#334155' },
+  rowHeight: 28,
+  headerHeight: 28,
+  rowHeaderWidth: 46,
+  defaultColWidth: 80,
+  body: {
+    color: '#000000',
+    fontSize: 14,
+    padding: [2, 6, 2, 6],
+    borderColor: '#E1E4E8',
+  },
+  header: {
+    color: '#000000',
+    fontSize: 12,
+    padding: [2, 6, 2, 6],
+    background: '#F5F5F5',
+    borderColor: '#E1E4E8',
+    textAlign: 'center',
+  },
+  underlayBackgroundColor: '#ffffff',
+  interaction: {
+    selectionFill: 'rgba(33, 112, 231, 0.12)',
+    selectionBorder: '#2170E7',
+    selectionBorderWidth: 2,
+    fillHandle: '#2170E7',
+    hoverCell: 'transparent',
+    hoverBand: 'transparent',
+    resizeLine: '#2170E7',
+    headerHighlight: 'rgba(33, 112, 231, 0.1)',
+  },
+  frameStyle: { lineWidth: 1, color: '#E1E4E8', shadow: false },
 }
 
-/** 列级样式演示：A 列行标签（覆盖主题分区 token，被 Store 按格样式覆盖） */
-const LABEL_COLUMN_STYLE = { fontWeight: 600, color: '#646a73' }
+/** 预置浮动示例图（对标 ultra-ui playground 的 canvas 生成小图，锚 F2） */
+function addPresetFloatImage(table: ListTable): void {
+  table.floatObjects.add({
+    id: 'sheet-demo-float',
+    kind: 'image',
+    anchor: { from: { col: 5, row: 1 }, to: { col: 6, row: 2 }, offsetX: 2, offsetY: 2 },
+    src: 'demo://sheet/demo-float',
+    title: 'playground demo',
+  })
+}
+
+/** sheet 区图片加载器：data: URL 走真实位图（插入图片用），其余本地生成（演示零网络） */
+async function sheetLoadImage(url: string): Promise<LoadedImage> {
+  if (url.startsWith('data:')) {
+    const image = new Image()
+    await new Promise((resolve, reject) => {
+      image.addEventListener('load', resolve, { once: true })
+      image.addEventListener('error', () => reject(new Error(`图片加载失败：${url}`)), {
+        once: true,
+      })
+      image.src = url
+    })
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight }
+  }
+  return demoLoadImage(url)
+}
 
 function formatBounds(bounds: RangeBounds): string {
   return `(${bounds.minCol},${bounds.minRow})~(${bounds.maxCol},${bounds.maxRow})`
 }
 
-function formatSelectionRange(range: SelectionRange): string {
-  return formatBounds(normalizeRange(range))
-}
-
 /** 冒烟/控制台驱动面（全部经公开 API 组合） */
 export interface SheetDemoControls {
-  formulaBar: ReturnType<typeof mountFormulaBar>
   toolbar: ReturnType<typeof mountToolbar>
-  find: ReturnType<typeof mountFindReplace>
-  csv: ReturnType<typeof mountCSV>
+  formulaBar: ReturnType<typeof mountFormulaBar>
+  find: ReturnType<typeof mountToolbar>['find']
+  csv: ReturnType<typeof createCSV>
   insertRow: (at: number) => void
   deleteRow: (at: number) => void
   evaluate: (formula: string) => number
@@ -143,46 +191,55 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   const section = createSection(
     root,
     'sheet 电子表格',
-    '插件之上的完整 sheet 面：SheetStore 单一事实源（值/样式/尺寸/冻结/合并）、公式栏与公式显示、' +
-      '样式工具栏、右键菜单、查找替换、CSV 导入导出、填充柄真实填充、resize 持久化、撤销重做、' +
-      'SheetBook 多 sheet tabs、功能对照表；样式矩阵 / \\n 多行合并 / 格内图演示保留。',
+    '对标 ultra-ui playground sheet：工具栏/公式栏/底部 tabs/三套右键菜单/查找替换/CSV/插入图片/数据结构观察。' +
+      'SheetStore 单一事实源 + sheet 插件族；样式矩阵 / \\n 多行合并 / 填充柄 / 格内图演示保留。',
   )
 
-  // ---- tabs 栏 + 视口 ----
-  const tabBar = document.createElement('div')
-  tabBar.className = 'sheet-tabs'
-  section.appendChild(tabBar)
-  const viewport = document.createElement('div')
-  viewport.className = 'sheet-viewport'
-  section.appendChild(viewport)
+  // ---- 组件卡片（u-sheet 形态）：工具栏 → 公式栏 → 网格 → 底部 tabs ----
+  const app = document.createElement('div')
+  app.className = 'sheet-app'
+  const toolbarArea = document.createElement('div')
+  toolbarArea.className = 'sheet-app__toolbar-wrap'
+  const formulaArea = document.createElement('div')
+  formulaArea.className = 'sheet-app__formula-wrap'
+  const gridArea = document.createElement('div')
+  gridArea.className = 'sheet-app__grid sheet-viewport'
+  const tabsArea = document.createElement('div')
+  tabsArea.className = 'sheet-app__tabs-wrap'
+  app.append(toolbarArea, formulaArea, gridArea, tabsArea)
+  section.appendChild(app)
 
+  const toaster = createToaster()
+  const notify = (text: string, kind: 'info' | 'warn' = 'info'): void => {
+    toaster.notify(text, kind)
+  }
+
+  // ---- SheetBook 装配（容器铺满网格区，尺寸以测量值为准） ----
   const registry = new EditorRegistry()
   registry.registerEditor('text', {})
-  const status = addStatus(section, '就绪')
-
-  // ---- SheetBook 装配 ----
-  // resolveCellImage 经活跃 id 判定：格内示例图仅演示于 sheet-1 的 F1
+  const gridWidth = gridArea.clientWidth || 960
+  const gridHeight = gridArea.clientHeight || 420
   let bundleRef: SheetBookBundle | null = null
-  const bundle = createDemoBook(viewport, {
-    width: 840,
-    height: 420,
-    columns: Array.from({ length: 8 }, (_, col) => ({
-      title: String.fromCharCode(65 + col),
-      width: col === 0 ? 110 : 104,
+  const bundle = createDemoBook(gridArea, {
+    width: gridWidth,
+    height: gridHeight,
+    columns: Array.from({ length: SHEET_COL_COUNT }, (_, col) => ({
+      title: String.fromCharCode(65 + (col % 26)) + (col >= 26 ? String(Math.floor(col / 26)) : ''),
+      width: 80,
       editor: 'text',
-      style: col === 0 ? LABEL_COLUMN_STYLE : undefined,
     })),
     editorRegistry: registry,
     theme: SHEET_THEME,
     ...excelKeymapPreset,
+    // resolveCellImage 经活跃 id 判定：格内示例图仅演示于 sheet-1 的 F1
     resolveCellImage: (col, row) =>
       bundleRef?.book.activeId === 'sheet-1' &&
       col === SHEET_IMAGE_CELL.col &&
       row === SHEET_IMAGE_CELL.row
         ? 'demo://sheet/cell-img'
         : null,
-    imageServiceOptions: { loadImage: demoLoadImage },
-  })
+    imageServiceOptions: { loadImage: sheetLoadImage },
+  } satisfies Partial<ListTableOptions>)
   bundleRef = bundle
 
   // ---- 每实例接线（创建时一次性绑定）：填充真实写值 / resize 持久化 / 撤销栈 ----
@@ -204,79 +261,36 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       container.tabIndex = 0
       container.style.outline = 'none'
     }
+    created.onCellChange((change) => {
+      notify(
+        `编辑提交 (${change.col},${change.row})：${String(change.oldValue)} → ${String(change.newValue)}`,
+      )
+    })
+    created.onFillHandleDown((fillEvent) => {
+      notify(`填充柄按下：选区段 ${formatBounds(normalizeRange(fillEvent.range))}`)
+    })
+    created.onFillDragEnd((fillEvent) => {
+      notify(
+        `填充生成：锚定 ${formatBounds(fillEvent.anchor)} → 写入 ${formatBounds(fillEvent.target)} 的扩展区`,
+      )
+    })
+    // 初始态对标 ultra-ui 演示：A1 选中 + F2 预置浮动示例图（仅主 sheet 首建）
+    if (id === 'sheet-1') {
+      created.selectCell(0, 0)
+      addPresetFloatImage(created)
+    }
+    const undoBinding = bindCellChangeUndo({ table: created, store, stack })
     const offs = [
       bindStoreFill(created, store),
       bindResizePersistence(created, store),
-      bindCellChangeUndo({ table: created, store, stack }),
+      () => undoBinding.dispose(),
     ]
-    created.onCellChange((change) => {
-      status.textContent = `编辑提交 (${change.col},${change.row})：${String(change.oldValue)} → ${String(change.newValue)}`
-    })
-    created.onFillHandleDown((fillEvent) => {
-      status.textContent = `填充柄按下：选区段 ${formatSelectionRange(fillEvent.range)}`
-    })
-    created.onFillDragEnd((fillEvent) => {
-      status.textContent = `填充生成：锚定 ${formatBounds(fillEvent.anchor)} → 写入 ${formatBounds(fillEvent.target)} 的扩展区`
-    })
-    // 预置选区（仅主 sheet 首建）：挂载即见填充柄方点
-    if (id === 'sheet-1') {
-      created.selectCells([...SHEET_FILL_SELECTION])
-    }
     teardowns.set(id, offs)
   })
 
-  // ---- tabs 渲染 ----
-  const renderTabs = (): void => {
-    tabBar.textContent = ''
-    for (const id of bundle.ids()) {
-      const tab = document.createElement('button')
-      tab.type = 'button'
-      tab.className = `sheet-tab${bundle.book.activeId === id ? ' active' : ''}`
-      tab.textContent = id
-      tab.addEventListener('click', () => {
-        bundle.switchTo(id)
-        renderTabs()
-        controls.formulaBar.refresh()
-        status.textContent = `已切换到 ${id}`
-      })
-      tabBar.appendChild(tab)
-    }
-    const addTab = document.createElement('button')
-    addTab.type = 'button'
-    addTab.className = 'sheet-tab add'
-    addTab.textContent = '+ 新建'
-    addTab.addEventListener('click', () => {
-      const id = bundle.createSheet()
-      bundle.switchTo(id)
-      renderTabs()
-      controls.formulaBar.refresh()
-      status.textContent = `已新建 ${id}`
-    })
-    tabBar.appendChild(addTab)
-    const removeTab = document.createElement('button')
-    removeTab.type = 'button'
-    removeTab.className = 'sheet-tab remove'
-    removeTab.textContent = '删除非活跃'
-    removeTab.addEventListener('click', () => {
-      const active = bundle.book.activeId
-      const target = bundle.ids().find((id) => id !== active)
-      if (!target || !bundle.removeSheet(target)) {
-        status.textContent = '无可用非活跃 sheet 可删'
-        return
-      }
-      renderTabs()
-      status.textContent = `已删除 ${target}`
-    })
-    tabBar.appendChild(removeTab)
-  }
-
-  // 首次切换（惰性创建 sheet-1 实例）+ tabs
-  const switchAndRender = (id: string): void => {
-    bundle.switchTo(id)
-    renderTabs()
-  }
-  switchAndRender('sheet-1')
-
+  // ---- UI 面：公式栏 → 工具栏（含查找/CSV 弹层）→ tabs → 右键菜单 ----
+  // 首次切换（惰性创建 sheet-1 实例）先行：后续 UI 均依赖活跃实例存在
+  bundle.switchTo('sheet-1')
   const table = (): ListTable => {
     const active = bundle.activeTable()
     if (!active) {
@@ -292,27 +306,39 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     return active
   }
 
-  // ---- UI 面：公式栏（tabs 上方）/ 工具栏 + 右键菜单（tabs 与视口之间）/ 查找替换 + CSV（视口下方） ----
-  const topArea = document.createElement('div')
-  section.insertBefore(topArea, tabBar)
-  const formulaBar = mountFormulaBar(topArea, { table, store, status, bundle })
-
-  const toolArea = document.createElement('div')
-  section.insertBefore(toolArea, viewport)
-  const toolbar = mountToolbar(toolArea, { table, store, status })
-  const contextMenu = mountContextMenu(section, { table, store, status })
-
-  const utilityArea = document.createElement('div')
-  utilityArea.className = 'toolbar'
-  section.appendChild(utilityArea)
-  const find = mountFindReplace(utilityArea, { table, store, status })
-  const csv = mountCSV(utilityArea, { table, store, status })
+  const formulaBar = mountFormulaBar(formulaArea, { table, store, notify, bundle })
+  const csv = createCSV({ table, store, notify })
+  const toolbar = mountToolbar(toolbarArea, {
+    table,
+    store,
+    notify,
+    stack,
+    bundle,
+    csv,
+    formulaBar,
+  })
+  const tabs = mountTabs(tabsArea, {
+    bundle,
+    notify,
+    onSwitched: () => {
+      formulaBar.refresh()
+      toolbar.refreshStates()
+    },
+  })
+  const contextMenu = mountContextMenu({ table, store, notify })
+  const inspector = mountInspector(section, {
+    bundle,
+    table,
+    store,
+    stack,
+    labelOf: tabs.labelOf,
+  })
 
   /** 冒烟/控制台驱动面（全部经公开 API 组合） */
-  const controls = {
-    formulaBar,
+  const controls: SheetDemoControls = {
     toolbar,
-    find,
+    formulaBar,
+    find: toolbar.find,
     csv,
     /** 结构操作：在第 at 行上方插入行（0 基） */
     insertRow: (at: number): void => {
@@ -322,99 +348,50 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     deleteRow: (at: number): void => {
       deleteRowOp(store(), at)
       syncMergesToTable(table(), store(), (error) => {
-        status.textContent = `合并区同步被拒绝：${error.message}`
+        notify(`合并区同步被拒绝：${error.message}`, 'warn')
       })
-      refreshAllGrid(table())
-      status.textContent = `已删除行 ${at + 1}`
+      refreshAllGrid(table(), store())
+      notify(`已删除行 ${at + 1}`)
     },
     /** 当前活跃 Store 求值（mini 求值器） */
-    evaluate: (formula: string): number => evaluateWithStore(formula),
+    evaluate: (formula: string): number =>
+      evaluateFormula(formula, (col, row) => store().getValue(col, row)),
   }
   const insertRowAt = (at: number): void => {
     insertRowOp(store(), at)
     syncMergesToTable(table(), store(), (error) => {
-      status.textContent = `合并区同步被拒绝：${error.message}`
+      notify(`合并区同步被拒绝：${error.message}`, 'warn')
     })
-    refreshAllGrid(table())
-    status.textContent = `已在行 ${at + 1} 上插入行`
+    refreshAllGrid(table(), store())
+    notify(`已在行 ${at + 1} 上插入行`)
   }
-  const evaluateWithStore = (formula: string): number =>
-    evaluateFormula(formula, (col, row) => store().getValue(col, row))
 
-  // ---- 撤销 / 重做 ----
-  addButton(section, '撤销（Ctrl+Z 同义）', () => {
-    stack.undo()
-    status.textContent = '已撤销'
-  })
-  addButton(section, '重做', () => {
-    stack.redo()
-    status.textContent = '已重做'
-  })
-
-  // ---- 冻结/合并面板（读写以 Store 为源） ----
-  addButton(section, '冻结列 +1（0/1/2 循环）', () => {
-    const current = store().getFrozen()
-    const next = { ...current, colCount: (current.colCount + 1) % 3 }
-    store().setFrozen(next)
-    const t = table()
-    try {
-      t.setFrozenColCount(next.colCount)
-      t.setFrozenRowCount(next.rowCount)
-    } catch (error) {
-      status.textContent = `已拒绝：${(error as Error).message}（冻结数保持原状）`
-      store().setFrozen(current)
-      t.setFrozenColCount(current.colCount)
+  // ---- 全局快捷键（Ctrl/Cmd+Z 撤销、Shift+Z/Y 重做、F 查找；输入控件内不接管） ----
+  const onKeydown = (event: KeyboardEvent): void => {
+    if (!app.isConnected || !(event.ctrlKey || event.metaKey)) {
       return
     }
-    status.textContent = `冻结列数 → ${next.colCount}（冻结行数 ${next.rowCount}）`
-  })
-  addButton(section, '冻结行 +1（0/1/2 循环）', () => {
-    const current = store().getFrozen()
-    const next = { ...current, rowCount: (current.rowCount + 1) % 3 }
-    store().setFrozen(next)
-    const t = table()
-    try {
-      t.setFrozenColCount(next.colCount)
-      t.setFrozenRowCount(next.rowCount)
-    } catch (error) {
-      status.textContent = `已拒绝：${(error as Error).message}（冻结数保持原状）`
-      store().setFrozen(current)
-      t.setFrozenRowCount(current.rowCount)
+    const target = event.target
+    if (target instanceof HTMLElement && target.closest('input, textarea, select')) {
       return
     }
-    status.textContent = `冻结行数 → ${next.rowCount}（冻结列数 ${next.colCount}）`
-  })
-
-  let mergesExpanded = false
-  addButton(section, '合并区追加/还原（Store 为源）', () => {
-    mergesExpanded = !mergesExpanded
-    const merges = mergesExpanded
-      ? [SHEET_MERGE_RANGE, SHEET_MERGE_EXTRA_RANGE]
-      : [SHEET_MERGE_RANGE]
-    store().setMerges(merges)
-    table().setMergeCells([...merges])
-    status.textContent = mergesExpanded ? '已追加合并区 G16:H17' : '已还原为单一合并区'
-  })
-  addButton(section, '尝试跨冻结边界的合并（应被拒绝）', () => {
-    const t = table()
-    const frozen = store().getFrozen()
-    if (frozen.colCount === 0 && frozen.rowCount === 0) {
-      status.textContent = '当前无冻结区，请先把冻结列/行调到非 0 再试'
-      return
+    const key = event.key.toLowerCase()
+    if (key === 'f') {
+      event.preventDefault()
+      toolbar.toggleFind()
+    } else if (key === 'z' && !event.shiftKey) {
+      event.preventDefault()
+      stack.undo()
+      notify('已撤销')
+      toolbar.refreshStates()
+    } else if (key === 'z' || key === 'y') {
+      event.preventDefault()
+      stack.redo()
+      notify('已重做')
+      toolbar.refreshStates()
     }
-    const range =
-      frozen.colCount > 0
-        ? { startCol: 0, startRow: 15, endCol: frozen.colCount, endRow: 16 }
-        : { startCol: 5, startRow: 0, endCol: 6, endRow: frozen.rowCount }
-    try {
-      t.addMergeCell(range)
-      status.textContent = '未拒绝？（不应出现）'
-    } catch (error) {
-      status.textContent = `已拒绝：${(error as Error).message}（合并区保持原状）`
-    }
-  })
-
-  mountChecklist(section)
+  }
+  document.addEventListener('keydown', onKeydown)
 
   return {
     get table() {
@@ -426,16 +403,19 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     getUndo: () => stack,
     getControls: () => controls,
     destroy: () => {
-      formulaBar.destroy()
+      document.removeEventListener('keydown', onKeydown)
       toolbar.destroy()
       contextMenu.destroy()
-      find.destroy()
+      formulaBar.destroy()
+      tabs.destroy()
+      inspector.destroy()
       csv.destroy()
       for (const offs of teardowns.values()) {
         for (const off of offs) {
           off()
         }
       }
+      toaster.destroy()
       bundle.dispose()
     },
   }

@@ -1,5 +1,6 @@
 // CSV 导入导出：导出当前 Store 值矩阵（RFC 4180 简化版：含逗号/引号/换行的格加引号，引号翻倍）；
 // 导入解析覆盖当前 sheet 值（超出原维度的行/列按需利用空区，不扩维度——超出截断）。
+// 按钮装配归工具栏（本模块只提供编程式句柄与文件选择器）。
 
 import type { ListTable } from '@infinite-table/core'
 
@@ -37,7 +38,7 @@ export function fromCSV(store: SheetStore, csv: string): number {
   for (let row = 0; row < Math.min(rows.length, store.getRowCount()); row++) {
     const cells = rows[row]!
     for (let col = 0; col < Math.min(cells.length, store.getColCount()); col++) {
-      const text = cells[col!] ?? ''
+      const text = cells[col] ?? ''
       const value = text === '' ? null : coerce(text)
       store.setValue(col, row, value)
       count++
@@ -106,7 +107,7 @@ export function downloadCSV(store: SheetStore, filename: string): string {
   return csv
 }
 
-/** 导入接线（覆盖 + 全表刷新）；file input 由调用方装配 */
+/** 导入接线（覆盖 + 全表刷新）；文件选择由调用方装配 */
 export function importCSV(table: ListTable, store: SheetStore, csv: string): number {
   const count = fromCSV(store, csv)
   table.batchUpdate(() => {
@@ -124,34 +125,26 @@ export interface CSVHandle {
   exportCurrent(): string
   /** 编程式导入（CSV 文本覆盖当前 sheet） */
   importText(csv: string): number
+  /** 打开系统文件选择器（.csv） */
+  openPicker(): void
   destroy(): void
 }
 
-/** 装配导出/导入按钮（导入经 file input 选择文件） */
-export function mountCSV(
-  section: HTMLElement,
-  ctx: { table: () => ListTable; store: () => SheetStore; status: HTMLElement },
-): CSVHandle {
-  const exportButton = document.createElement('button')
-  exportButton.type = 'button'
-  exportButton.textContent = '导出 CSV'
-  const importLabel = document.createElement('label')
-  importLabel.className = 'sheet-toolbar-btn'
-  importLabel.textContent = '导入 CSV'
+/** CSV 句柄（按钮装配归工具栏；文件 input 随句柄生命周期） */
+export function createCSV(ctx: {
+  table: () => ListTable
+  store: () => SheetStore
+  notify: (text: string) => void
+}): CSVHandle {
   const fileInput = document.createElement('input')
   fileInput.type = 'file'
   fileInput.accept = '.csv,text/csv'
   fileInput.style.display = 'none'
-  importLabel.appendChild(fileInput)
-  section.append(exportButton, importLabel)
+  document.body.appendChild(fileInput)
 
   const exportCurrent = (): string => downloadCSV(ctx.store(), 'sheet-export.csv')
   const importText = (csv: string): number => importCSV(ctx.table(), ctx.store(), csv)
 
-  exportButton.addEventListener('click', () => {
-    const csv = exportCurrent()
-    ctx.status.textContent = `已导出 CSV（${csv.split('\n').length} 行）`
-  })
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0]
     if (!file) {
@@ -159,16 +152,14 @@ export function mountCSV(
     }
     const text = await file.text()
     const count = importText(text)
-    ctx.status.textContent = `已导入 ${count} 格`
+    ctx.notify(`已导入 ${count} 格`)
     fileInput.value = ''
   })
 
   return {
     exportCurrent,
     importText,
-    destroy: () => {
-      exportButton.remove()
-      importLabel.remove()
-    },
+    openPicker: () => fileInput.click(),
+    destroy: () => fileInput.remove(),
   }
 }

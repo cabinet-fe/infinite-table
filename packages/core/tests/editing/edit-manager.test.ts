@@ -273,10 +273,11 @@ describe('EditManager 滚动跟随与滚出提交', () => {
     element.value = '输入中'
     h.setCellRect({ x: 60, y: 100, width: 120, height: 40 })
     h.fireScrollFrame()
-    expect(element.style.left).toBe('60px')
-    expect(element.style.top).toBe('100px')
-    expect(element.style.width).toBe('120px')
-    expect(element.style.height).toBe('40px')
+    // 骑格缘偏移：矩形外扩 1px、宽高 +2
+    expect(element.style.left).toBe('59px')
+    expect(element.style.top).toBe('99px')
+    expect(element.style.width).toBe('122px')
+    expect(element.style.height).toBe('42px')
     // 跟随不重挂载、不动编辑值
     expect(h.host.children).toEqual([element])
     expect(h.created).toHaveLength(1)

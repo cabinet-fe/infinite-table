@@ -2,8 +2,8 @@
 
 import type { CellStyle } from '@infinite-table/core'
 
-/** 数据列数（A~H 列头）与行数 */
-export const SHEET_COL_COUNT = 8
+/** 数据列数（A~Z 列头）与行数（对标 ultra-ui 演示的 26 列横向滚动形态） */
+export const SHEET_COL_COUNT = 26
 export const SHEET_ROW_COUNT = 40
 
 /**

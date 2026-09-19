@@ -25,13 +25,15 @@ describe('文本编辑器', () => {
     editor.open(host, { x: 148, y: 36, width: 100, height: 32 }, 'a')
     const element = created[0]!
     expect(host.children).toEqual([element])
-    expect(element.style).toEqual({
+    // 定位矩形向外扩 2px 边框宽的一半（边框骑格缘，内外各 1px）；基础视觉含白底与灰边
+    expect(element.style).toMatchObject({
       position: 'absolute',
-      left: '148px',
-      top: '36px',
-      width: '100px',
-      height: '32px',
+      left: '147px',
+      top: '35px',
+      width: '102px',
+      height: '34px',
     })
+    expect(element.style.cssText).toContain('border:2px solid #d9d9d9')
     expect(element.value).toBe('a')
     expect(element.focusCalls).toBe(1)
     expect(actions).toEqual([])
@@ -54,10 +56,10 @@ describe('文本编辑器', () => {
     const element = created[0]!
     element.value = '输入中'
     editor.moveTo({ x: 20, y: 200, width: 80, height: 24 })
-    expect(element.style.left).toBe('20px')
-    expect(element.style.top).toBe('200px')
-    expect(element.style.width).toBe('80px')
-    expect(element.style.height).toBe('24px')
+    expect(element.style.left).toBe('19px')
+    expect(element.style.top).toBe('199px')
+    expect(element.style.width).toBe('82px')
+    expect(element.style.height).toBe('26px')
     expect(element.style.position).toBe('absolute')
     expect(host.children).toEqual([element])
     expect(element.focusCalls).toBe(1)

@@ -1,8 +1,8 @@
 // 结构操作（Store 语义）：插入/删除行列的平移、清空、合并变更。
 // 引擎运行时 API（setMergeCells 等）由调用方随 Store 同步落地。
-// 演示简化：行高/列宽覆盖不随平移迁移（对照表如实注记）。
+// 演示简化：行高/列宽覆盖不随平移迁移（观察区如实注记）。
 
-import type { CellRange, CellStyle } from '@infinite-table/core'
+import type { CellRange, CellStyle, ListTable } from '@infinite-table/core'
 
 import type { SheetStore } from '@infinite-table/plugins'
 
@@ -59,10 +59,10 @@ export function deleteCol(store: SheetStore, at: number): void {
 }
 
 /** 结构操作后的全表刷新（值/样式平移涉及大量格；合并区变更由 setMergeCells 自行重建） */
-export function refreshAllGrid(table: ListTable): void {
+export function refreshAllGrid(table: ListTable, store: SheetStore): void {
   table.batchUpdate(() => {
-    for (let col = 0; col < 8; col++) {
-      for (let row = 0; row < 40; row++) {
+    for (let col = 0; col < store.getColCount(); col++) {
+      for (let row = 0; row < store.getRowCount(); row++) {
         table.refreshCell(col, row)
       }
     }

@@ -62,6 +62,7 @@ function makeContent(partial: Partial<OverlayContent> = {}): OverlayContent {
     hover: null,
     resizeLine: null,
     fillHandleRange: null,
+    fillPreview: null,
     window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     ...partial,
   }
@@ -146,6 +147,30 @@ describe('交互浮层主题 token', () => {
     )
     const handle = rects.find((rect) => rect.width === FILL_HANDLE_SIZE)
     expect(handle?.fill).toBe('#2e6adb')
+  })
+
+  it('填充拖拽预览：扩展区画虚线边框（fillPreview 非空即有内容）', () => {
+    const skyRoot = new SceneNode()
+    const overlay = new InteractionOverlay(skyRoot, makeGeometry(), defaultTheme.interaction)
+    const node = skyRoot.children[0]!
+    // 预览区 (0,2)~(1,3)：视口矩形 (48,100) 200×64；虚线段 5px 交替
+    expect(
+      overlay.update(
+        makeContent({
+          fillPreview: { minCol: 0, minRow: 2, maxCol: 1, maxRow: 3 },
+        }),
+      ),
+    ).toBe(true)
+    const ctx = new FillRecordingContext()
+    node.paint(ctx)
+    const borders = ctx.rects.filter((rect) => rect.fill === '#2e6adb')
+    // 上下边各 24/3 段、左右边各 8 段虚线（5px 段 + 4px 间隙，步进 9px）
+    expect(borders).toContainEqual({ x: 48, y: 100, width: 5, height: 2, fill: '#2e6adb' })
+    expect(borders).toContainEqual({ x: 237, y: 162, width: 5, height: 2, fill: '#2e6adb' })
+    expect(borders).toContainEqual({ x: 246, y: 100, width: 2, height: 5, fill: '#2e6adb' })
+    expect(borders).toContainEqual({ x: 48, y: 136, width: 2, height: 5, fill: '#2e6adb' })
+    // 无选区但预览在：浮层仍有内容
+    expect(overlay.update(makeContent())).toBe(false)
   })
 
   it('覆盖 interaction token：绘制全部改用新值', () => {

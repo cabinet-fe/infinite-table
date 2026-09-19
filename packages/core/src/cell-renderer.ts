@@ -46,10 +46,13 @@ export type ResolveCellRenderer = (col: number, row: number) => CellRenderer | n
 
 /** 缺省格内边距：左右 8px、上下 0（历史缺省，与既有锚点行为一致） */
 const DEFAULT_PADDING: CellPadding = [0, 8, 0, 8]
-/** 换行模式行高（12px 字体） */
-const TEXT_LINE_HEIGHT = 16
-/** 基线相对行盒中线的下移量（12px 字体近似） */
-const BASELINE_OFFSET = 4
+/** 行盒高与基线下移量按字号缩放：12px → 16/4（历史值，其它分区字号变化时垂直居中不失真） */
+function lineHeightFor(fontSize: number | undefined): number {
+  return Math.round((fontSize ?? 12) * (4 / 3))
+}
+function baselineOffsetFor(fontSize: number | undefined): number {
+  return Math.round((fontSize ?? 12) / 3)
+}
 /** 下划线相对基线的下移量 */
 const UNDERLINE_GAP = 2
 /** ellipsis 截断符 */
@@ -91,15 +94,21 @@ function alignedX(align: CellTextAlign | undefined, box: ContentBox, contentWidt
   return box.x
 }
 
-/** 垂直基线：以 TEXT_LINE_HEIGHT 行盒为基准，在内容盒竖带内定位；top 贴顶、bottom 贴底、middle（缺省）居中 */
-function textBaselineY(align: CellVerticalAlign | undefined, box: ContentBox): number {
+/** 垂直基线：以行盒为基准，在内容盒竖带内定位；top 贴顶、bottom 贴底、middle（缺省）居中 */
+function textBaselineY(
+  align: CellVerticalAlign | undefined,
+  box: ContentBox,
+  fontSize: number | undefined,
+): number {
+  const lineHeight = lineHeightFor(fontSize)
+  const baselineOffset = baselineOffsetFor(fontSize)
   if (align === 'top') {
-    return box.y + TEXT_LINE_HEIGHT - BASELINE_OFFSET
+    return box.y + lineHeight - baselineOffset
   }
   if (align === 'bottom') {
-    return box.y + box.height - BASELINE_OFFSET
+    return box.y + box.height - baselineOffset
   }
-  return box.y + box.height / 2 + BASELINE_OFFSET
+  return box.y + box.height / 2 + baselineOffset
 }
 
 /**
@@ -126,9 +135,9 @@ export const renderTextCell: CellRenderer = ({
   ctx.font = font ?? cellStyleFont(style)
   const box = contentBox(style, width, height)
   const measured = textWidth ?? ctx.measureText(text).width
-  const baselineY = textBaselineY(style.verticalAlign, box)
+  const baselineY = textBaselineY(style.verticalAlign, box, style.fontSize)
   if (style.textWrap === true) {
-    drawWrappedText(ctx, text, box, width, height)
+    drawWrappedText(ctx, text, box, width, height, style)
     return
   }
   if (measured > box.width) {
@@ -232,16 +241,19 @@ function drawWrappedText(
   box: ContentBox,
   width: number,
   height: number,
+  style: CellStyle,
 ): void {
-  const maxLines = Math.max(1, Math.ceil(height / TEXT_LINE_HEIGHT))
+  const lineHeight = lineHeightFor(style.fontSize)
+  const baselineOffset = baselineOffsetFor(style.fontSize)
+  const maxLines = Math.max(1, Math.ceil(height / lineHeight))
   const lines = wrapTextLines(ctx, text, box.width, maxLines)
-  const startY = box.y + Math.max(0, (box.height - lines.length * TEXT_LINE_HEIGHT) / 2)
+  const startY = box.y + Math.max(0, (box.height - lines.length * lineHeight) / 2)
   ctx.save()
   ctx.beginPath()
   ctx.rect(0, 0, width, height)
   ctx.clip()
   for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i]!, box.x, startY + i * TEXT_LINE_HEIGHT + TEXT_LINE_HEIGHT / 2 + 4)
+    ctx.fillText(lines[i]!, box.x, startY + i * lineHeight + lineHeight / 2 + baselineOffset)
   }
   ctx.restore()
 }

@@ -198,8 +198,7 @@ export function evaluateFormula(
 
   const evalTerm = (): number => {
     let value = evalAtom()
-    while (peekOp('*', '/')) {
-      const op = tokens[position]!.text
+    for (let op = peekOp('*', '/'); op !== null; op = peekOp('*', '/')) {
       position++
       const right = evalAtom()
       value = op === '*' ? value * right : value / right
@@ -209,8 +208,7 @@ export function evaluateFormula(
 
   const evalExpr = (): number => {
     let value = evalTerm()
-    while (peekOp('+', '-')) {
-      const op = tokens[position]!.text
+    for (let op = peekOp('+', '-'); op !== null; op = peekOp('+', '-')) {
       position++
       const right = evalTerm()
       value = op === '+' ? value + right : value - right

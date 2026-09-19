@@ -83,19 +83,34 @@ export class SelectionState {
 
   /** 拖选开始：锚定单格 */
   beginDrag(col: number, row: number): void {
+    this.beginDragRange({ col, row }, { col, row })
+  }
+
+  /** 拖选开始（合并区整体）：锚定 start、初值即整段（点按合并区即全选包围盒），焦点同步 start（主格） */
+  beginDragRange(start: CellRef, end: CellRef): void {
     this.dragging = true
-    this.ranges = [{ start: { col, row }, end: { col, row } }]
-    this.focus = { col, row }
+    this.ranges = [{ start: { ...start }, end: { ...end } }]
+    this.focus = { ...start }
     this.emit()
   }
 
-  /** 拖选扩展：焦点同步到最新目标格 */
+  /** 拖选扩展：焦点同步到最新目标格（锚点保持不变） */
   updateDrag(col: number, row: number): void {
     if (!this.dragging || this.ranges.length === 0) {
       return
     }
     this.ranges[this.ranges.length - 1]!.end = { col, row }
     this.focus = { col, row }
+    this.emit()
+  }
+
+  /** 拖选扩展（整段替换末段；合并包围盒由调用方算好传入），锚点取传入 start，焦点同步 end */
+  updateDragRange(start: CellRef, end: CellRef): void {
+    if (!this.dragging || this.ranges.length === 0) {
+      return
+    }
+    this.ranges[this.ranges.length - 1] = { start: { ...start }, end: { ...end } }
+    this.focus = { ...end }
     this.emit()
   }
 

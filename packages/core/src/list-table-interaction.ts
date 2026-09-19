@@ -5,12 +5,18 @@
 
 import type { Region, SceneEvent } from '@infinite-table/render'
 
-import type { FillDragEndEvent, FillHandleDownEvent } from './fill-handle'
-import { hitFillHandle, resolveFocusRange } from './fill-handle'
+import type { FillDragEndEvent, FillDragState, FillHandleDownEvent } from './fill-handle'
+import {
+  hitFillHandle,
+  resolveFillPreview,
+  resolveFillTarget,
+  resolveFocusRange,
+} from './fill-handle'
 import { findColAt, findRowAt, resolveCellX, resolveCellYFromOffsets } from './grid-layout'
 import type { ListTable } from './list-table'
 import { nextActiveCell, revealAxis } from './keyboard-navigation'
 import { applyHeaderHighlight } from './list-table-scene'
+import type { OverlayContent } from './interaction-overlay'
 import type { ColResizeEndEvent, ResizeGeometry, ResizeTarget, RowResizeEndEvent } from './resize'
 import { hitResizeHandle, ResizeSession } from './resize'
 import { normalizeRange, type SelectionRange } from './selection'
@@ -19,6 +25,10 @@ import type { CellRef, TableContextMenuEvent } from './types'
 /** 双击/双触判定窗口与位移阈值（鼠标双击与触控双击统一走指针事件流） */
 const DOUBLE_TAP_MS = 400
 const DOUBLE_TAP_SLOP = 10
+
+/** 填充拖拽边缘自动滚动：触发带宽度与每帧行进量（px） */
+const FILL_EDGE_ZONE = 32
+const FILL_EDGE_STEP = 24
 
 /** 场景事件统一接线：指针/触摸在 body 根（sky 浮层不可拾取，事件穿透），键盘在最顶层根 */
 export function bindInteractionEvents(table: ListTable): void {
@@ -65,11 +75,19 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   if (fillRange) {
     const bounds = normalizeRange(fillRange)
     const origin = { col: bounds.maxCol, row: bounds.maxRow }
-    table.fillDrag = { range: fillRange, origin, current: origin }
+    table.fillDrag = {
+      range: fillRange,
+      origin,
+      current: origin,
+      pointer: { x: event.x, y: event.y },
+      edge: { dx: 0, dy: 0 },
+    }
     const down: FillHandleDownEvent = { range: fillRange }
     for (const listener of table.fillHandleDownListeners) {
       listener(down)
     }
+    // 边缘驻留时帧循环续滚（指针停在边缘区不再产 move 事件）
+    scheduleFillEdgeScroll(table)
     return
   }
   if (event.x < table.rowHeaderWidth && event.y < table.headerHeight) {
@@ -93,14 +111,13 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   }
   const cell = cellAt(table, event.x, event.y)
   if (cell) {
+    // 合并区整体作为选区单元：点按即全选包围盒（锚定主格，焦点随主格，编辑/取值都走主格）
+    const extent = dragExtentRange(table, cell, cell)
     // ctrlMultiSelect：Ctrl/Cmd 点选在既有选区上追加选区段（后续拖拽扩展该段）；缺省替换选区
     if (table.options.ctrlMultiSelect === true && (event.ctrlKey || event.metaKey)) {
-      table.selection.addRange({
-        start: { col: cell.col, row: cell.row },
-        end: { col: cell.col, row: cell.row },
-      })
+      table.selection.addRange(extent)
     } else {
-      table.selection.beginDrag(cell.col, cell.row)
+      table.selection.beginDragRange(extent.start, extent.end)
     }
     table.selecting = true
   }
@@ -111,17 +128,32 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     updateResizeLine(table, event)
     return
   }
-  const cell = cellAt(table, event.x, event.y)
   if (table.fillDrag) {
-    // 填充拖拽：只跟踪扫过的终点格（不更新选区，无写值）
-    if (cell) {
-      table.fillDrag.current = cell
+    // 填充拖拽：轴锁定跟踪终点 + 边缘自动滚动 + 预览刷新（不更新选区，无写值）
+    const drag = table.fillDrag
+    drag.pointer = { x: event.x, y: event.y }
+    drag.edge = fillEdgeVelocity(table, event.x, event.y)
+    if (scrollFillEdge(table)) {
+      scheduleFillEdgeScroll(table)
     }
+    const cell = cellAt(table, event.x, event.y)
+    if (cell) {
+      updateFillCurrent(table, drag, cell)
+    }
+    refreshOverlay(table)
     return
   }
+  const cell = cellAt(table, event.x, event.y)
   if (table.selecting) {
     if (cell) {
-      table.selection.updateDrag(cell.col, cell.row)
+      // 合并感知拖选：扩展段取锚点与目标格各自合并包围盒的并
+      const last = table.selection.snapshot.ranges[table.selection.snapshot.ranges.length - 1]
+      if (last) {
+        const extent = dragExtentRange(table, last.start, cell)
+        table.selection.updateDragRange(extent.start, extent.end)
+      } else {
+        table.selection.updateDrag(cell.col, cell.row)
+      }
       ensureCellVisible(table, cell.col, cell.row)
     }
     return
@@ -151,19 +183,116 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   if (table.fillDrag) {
     const drag = table.fillDrag
     table.fillDrag = null
-    // 拖拽结束：抛锚定段范围 + 拖拽目标格范围（内核不产生任何写值行为）
-    const event: FillDragEndEvent = {
-      anchor: normalizeRange(drag.range),
-      target: normalizeRange({ start: drag.origin, end: drag.current }),
+    // 拖拽结束：抛锚定段范围 + 轴锁定后的拖拽目标格范围（内核不产生任何写值行为）
+    const anchor = normalizeRange(drag.range)
+    const targetEvent: FillDragEndEvent = {
+      anchor,
+      target: resolveFillTarget(anchor, drag.origin, drag.current),
     }
     for (const listener of table.fillDragEndListeners) {
-      listener(event)
+      listener(targetEvent)
     }
+    refreshOverlay(table)
     return
   }
   table.selecting = false
   table.selection.endDrag()
   detectDoubleTap(table, event)
+}
+
+/**
+ * 填充拖拽终点更新：轴锁定（副轴夹回锚定段跨度）。
+ * 柄方点骑在角点上，裸命中即右/下一格；副轴漂移不应产生侧向填充。
+ */
+function updateFillCurrent(table: ListTable, drag: FillDragState, cell: CellRef): void {
+  const anchor = normalizeRange(drag.range)
+  let col = cell.col
+  let row = cell.row
+  if (Math.abs(cell.row - drag.origin.row) >= Math.abs(cell.col - drag.origin.col)) {
+    col = Math.min(Math.max(col, anchor.minCol), anchor.maxCol)
+  } else {
+    row = Math.min(Math.max(row, anchor.minRow), anchor.maxRow)
+  }
+  drag.current = { col, row }
+}
+
+/** 指针在视口边缘区内的自动滚动速度（px/帧）；不在边缘区为 0 */
+function fillEdgeVelocity(table: ListTable, x: number, y: number): { dx: number; dy: number } {
+  let dx = 0
+  let dy = 0
+  if (y >= table.height - FILL_EDGE_ZONE) {
+    dy = FILL_EDGE_STEP
+  } else if (y <= table.headerHeight + table.frozenRowsHeight + FILL_EDGE_ZONE) {
+    dy = -FILL_EDGE_STEP
+  }
+  if (x >= table.width - FILL_EDGE_ZONE) {
+    dx = FILL_EDGE_STEP
+  } else if (x <= table.rowHeaderWidth + table.frozenColsWidth + FILL_EDGE_ZONE) {
+    dx = -FILL_EDGE_STEP
+  }
+  return { dx, dy }
+}
+
+/** 按边缘速度滚动一帧并续算终点；未滚动（不在边缘区或已到内容边界）返回 false */
+function scrollFillEdge(table: ListTable): boolean {
+  const drag = table.fillDrag
+  if (!drag || (drag.edge.dx === 0 && drag.edge.dy === 0)) {
+    return false
+  }
+  const before = table.scroll.state
+  table.scroll.scrollBy(drag.edge.dx, drag.edge.dy)
+  const after = table.scroll.state
+  if (after.left === before.left && after.top === before.top) {
+    drag.edge = { dx: 0, dy: 0 }
+    return false
+  }
+  const cell = cellAt(table, drag.pointer.x, drag.pointer.y)
+  if (cell) {
+    updateFillCurrent(table, drag, cell)
+  }
+  return true
+}
+
+/** 边缘驻留帧循环：指针停在边缘区不再产 move 事件时持续滚动；滚不动或会话结束即停帧 */
+function scheduleFillEdgeScroll(table: ListTable): void {
+  table.host.requestFrame(() => {
+    if (!table.fillDrag) {
+      return
+    }
+    if (scrollFillEdge(table)) {
+      refreshOverlay(table)
+      scheduleFillEdgeScroll(table)
+    }
+  })
+}
+
+/**
+ * 拖选扩展段：锚点格与目标格各自合并包围盒的并（两端都未被合并覆盖时退化为两点框）。
+ * 点按合并区任意覆盖格即选中整个合并区；从合并区拖出时包围盒不丢列/行。
+ */
+export function dragExtentRange(
+  table: ListTable,
+  anchor: CellRef,
+  target: CellRef,
+): SelectionRange {
+  const a = table.mergeCells.rangeAt(anchor.col, anchor.row)
+  const t = table.mergeCells.rangeAt(target.col, target.row)
+  const cols = [
+    a ? a.startCol : anchor.col,
+    a ? a.endCol : anchor.col,
+    t ? t.startCol : target.col,
+    t ? t.endCol : target.col,
+  ]
+  const rows = [
+    a ? a.startRow : anchor.row,
+    a ? a.endRow : anchor.row,
+    t ? t.startRow : target.row,
+    t ? t.endRow : target.row,
+  ]
+  return {
+    start: { col: Math.min(...cols), row: Math.min(...rows) },
+    end: { col: Math.max(...cols), row: Math.max(...rows) },
+  }
 }
 
 /** 指针是否落在填充柄上：命中返回柄所在的焦点段；焦点段右下角格不可见即无柄 */
@@ -332,7 +461,10 @@ function toContentY(table: ListTable, y: number): number {
   return rel < table.frozenRowsHeight ? rel : rel + table.scroll.state.top
 }
 
-/** 视口坐标命中的数据格；行列头/空白处返回 null */
+/**
+ * 视口坐标命中的数据格；行列头/空白处返回 null。
+ * 合并区覆盖格路由到主格（左上角）：选区/编辑/取值/hover 都以主格为锚。
+ */
 export function cellAt(table: ListTable, x: number, y: number): CellRef | null {
   if (x < table.rowHeaderWidth || y < table.headerHeight) {
     return null
@@ -342,7 +474,8 @@ export function cellAt(table: ListTable, x: number, y: number): CellRef | null {
   if (col < 0 || row < 0) {
     return null
   }
-  return { col, row }
+  const master = table.mergeCells.masterOf(col, row)
+  return master ?? { col, row }
 }
 
 /** 数据格在视口中的矩形；冻结行列恒可见，其余须在可视窗口内，否则返回 null */
@@ -365,6 +498,30 @@ export function cellRectInViewport(table: ListTable, col: number, row: number): 
     width: table.getColWidth(col),
     height: table.rowHeightAt(row),
   }
+}
+
+/**
+ * 数据格视口矩形（合并感知）：合并区任意格返回整块包围盒（编辑浮层跨满合并区），
+ * 普通格同 cellRectInViewport；主格不在可视窗口返回 null。
+ */
+export function mergeAwareCellRect(table: ListTable, col: number, row: number): Region | null {
+  const range = table.mergeCells.rangeAt(col, row)
+  if (!range) {
+    return cellRectInViewport(table, col, row)
+  }
+  const base = cellRectInViewport(table, range.startCol, range.startRow)
+  if (!base) {
+    return null
+  }
+  let width = 0
+  for (let c = range.startCol; c <= range.endCol; c++) {
+    width += table.getColWidth(c)
+  }
+  let height = 0
+  for (let r = range.startRow; r <= range.endRow; r++) {
+    height += table.rowHeightAt(r)
+  }
+  return { x: base.x, y: base.y, width, height }
 }
 
 /** 滚动跟随：非冻结轴上让目标格完整进入视口（冻结轴恒可见，跳过） */
@@ -405,12 +562,23 @@ function resizeGeometry(table: ListTable): ResizeGeometry {
 /** 刷新 sky 浮层；仅在（或曾在）有内容时提交 sky 失效，避免空浮层空转整层重绘 */
 export function refreshOverlay(table: ListTable): void {
   refreshHeaderHighlight(table)
+  const fillDrag = table.fillDrag
+  let fillPreview: OverlayContent['fillPreview'] = null
+  if (fillDrag) {
+    const anchor = normalizeRange(fillDrag.range)
+    fillPreview = resolveFillPreview(
+      anchor,
+      resolveFillTarget(anchor, fillDrag.origin, fillDrag.current),
+    )
+  }
   const has = table.overlay.update({
     selection: table.selection.snapshot,
     hover: table.hoverState.cell,
     resizeLine: table.resizeLine,
     // 填充柄挂在焦点段右下角（无选区为 null）
     fillHandleRange: resolveFocusRange(table.selection.snapshot),
+    // 填充拖拽预览：轴锁定后的纯扩展区（非拖拽中为 null）
+    fillPreview,
     // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末
     window: {
       rows: { start: 0, end: Math.max(table.rows.end, table.frozenRowCount) },

@@ -18,6 +18,10 @@ export interface TextEditorElementStyle {
   top: string
   width: string
   height: string
+  /** 基础视觉一次性写入（真实 CSSStyleDeclaration 天然支持；假实现可缺省忽略） */
+  cssText?: string
+  /** focus/blur 边框色切换（真实 CSSStyleDeclaration 天然支持） */
+  borderColor?: string
 }
 
 /** 编辑器元素最小结构（真实 HTMLInputElement/HTMLTextAreaElement 天然满足） */
@@ -46,6 +50,8 @@ export type TextEditorKeyAction = 'cancel' | 'commitDown' | 'commitRight'
 export interface TextEditorInit {
   /** true 走 textarea 多行形态（缺省单行 input） */
   multiline?: boolean
+  /** 编辑字体（CSS font 串，随锚定格样式推导）；缺省不设（用浏览器缺省） */
+  font?: string
   /** 元素创建源；缺省取 globalThis.document（无 DOM 环境必须注入） */
   doc?: TextEditorDoc
 }
@@ -63,6 +69,12 @@ export interface TextEditor {
   onKey(handler: (action: TextEditorKeyAction) => void): void
 }
 
+/** 编辑浮层边框宽（对齐 VTable InputEditor：2px 边框骑在格缘上，内外各半） */
+const EDITOR_BORDER_WIDTH = 2
+/** 编辑浮层失焦/聚焦边框色（对齐 VTable InputEditor 硬编码值） */
+const EDITOR_BORDER_COLOR = '#d9d9d9'
+const EDITOR_BORDER_COLOR_FOCUS = '#4A90E2'
+
 /** 创建文本编辑器实例（每次编辑会话新建一个） */
 export function createTextEditor(init: TextEditorInit = {}): TextEditor {
   const doc = init.doc ?? (globalThis as { document?: TextEditorDoc | undefined }).document ?? null
@@ -70,6 +82,17 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     throw new Error('createTextEditor 需要 DOM 文档；无 DOM 环境请注入 init.doc')
   }
   const element = doc.createElement(init.multiline ? 'textarea' : 'input')
+  // 基础视觉一次性写入（先于 open 的定位赋值，避免被覆盖）
+  element.style.cssText =
+    'margin:0;padding:4px;box-sizing:border-box;background-color:#FFFFFF;' +
+    `border:${EDITOR_BORDER_WIDTH}px solid ${EDITOR_BORDER_COLOR};outline:none;` +
+    (init.font ? `font:${init.font};` : '')
+  element.addEventListener('focus', () => {
+    element.style.borderColor = EDITOR_BORDER_COLOR_FOCUS
+  })
+  element.addEventListener('blur', () => {
+    element.style.borderColor = EDITOR_BORDER_COLOR
+  })
   let host: TextEditorHost | null = null
   let opened = false
   let keyHandler: ((action: TextEditorKeyAction) => void) | null = null
@@ -92,10 +115,12 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
   }
 
   const moveTo = (rect: Region): void => {
-    element.style.left = `${rect.x}px`
-    element.style.top = `${rect.y}px`
-    element.style.width = `${rect.width}px`
-    element.style.height = `${rect.height}px`
+    // 边框骑格缘：矩形向外扩半边框宽，2px 边框在格缘内外各占 1px
+    const half = EDITOR_BORDER_WIDTH / 2
+    element.style.left = `${rect.x - half}px`
+    element.style.top = `${rect.y - half}px`
+    element.style.width = `${rect.width + EDITOR_BORDER_WIDTH}px`
+    element.style.height = `${rect.height + EDITOR_BORDER_WIDTH}px`
   }
 
   return {

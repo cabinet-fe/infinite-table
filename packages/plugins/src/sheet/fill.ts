@@ -188,7 +188,8 @@ export interface FillGenerationOptions {
 }
 
 /**
- * 接线填充柄拖拽结束事件：anchor 与 target 的差集区经 generateFill 生成后交给 write。
+ * 接线填充柄拖拽结束事件：anchor 与 target 的差集区经 generateFill 生成后交给 write；
+ * 写入后选区扩展到锚定段 ∪ 扩展区（对标 ultra-ui：填充完成选区跟随覆盖源区与新区）。
  * 返回退订函数。
  */
 export function bindFillGeneration(options: FillGenerationOptions): () => void {
@@ -197,6 +198,18 @@ export function bindFillGeneration(options: FillGenerationOptions): () => void {
     const cells = generate(event.anchor, event.target, options.read)
     if (cells.length > 0) {
       options.write(cells, event)
+      options.table.selectCells([
+        {
+          start: {
+            col: Math.min(event.anchor.minCol, event.target.minCol),
+            row: Math.min(event.anchor.minRow, event.target.minRow),
+          },
+          end: {
+            col: Math.max(event.anchor.maxCol, event.target.maxCol),
+            row: Math.max(event.anchor.maxRow, event.target.maxRow),
+          },
+        },
+      ])
     }
   })
 }

@@ -275,11 +275,19 @@ describe('ListTable 逐格样式 hook', () => {
     const styled = findNode(host, 0, 0)
     expect(styled?.style.background).toBe('#fafafa')
     expect(styled?.style.color).toBe('#1f2329')
-    expect(styled?.style.border).toEqual({ left: { width: 2, color: '#f00' } })
-    // 未命中的格沿用主题样式且无边框
+    // 主题网格边（右/下）与用户左边逐边合并共存
+    expect(styled?.style.border).toEqual({
+      left: { width: 2, color: '#f00' },
+      right: { width: 1, color: '#e5e6eb' },
+      bottom: { width: 1, color: '#e5e6eb' },
+    })
+    // 未命中的格沿用主题样式，只带默认网格边
     const plain = findNode(host, 1, 0)
     expect(plain?.style.background).toBe('#ffffff')
-    expect(plain?.style.border).toBeUndefined()
+    expect(plain?.style.border).toEqual({
+      right: { width: 1, color: '#e5e6eb' },
+      bottom: { width: 1, color: '#e5e6eb' },
+    })
   })
 })
 
@@ -297,10 +305,14 @@ describe('ListTable 列级样式投影缓存', () => {
     })
     const a = findNode(host, 1, 0)
     const b = findNode(host, 1, 5)
-    // 列级 textWrap 旗标并入主题层、列级样式覆盖生效，同列共享缓存对象
+    // 列级 textWrap 旗标并入主题层、列级样式覆盖生效（左边覆盖网格边，右/下网格边保留），同列共享缓存对象
     expect(a?.style.textWrap).toBe(true)
     expect(a?.style.color).toBe('#ff0000')
-    expect(a?.style.border).toEqual({ left: { width: 2, color: '#f00' } })
+    expect(a?.style.border).toEqual({
+      left: { width: 2, color: '#f00' },
+      right: { width: 1, color: '#e5e6eb' },
+      bottom: { width: 1, color: '#e5e6eb' },
+    })
     expect(b?.style).toBe(a?.style)
     // 无列级样式的列同样按列缓存（共享主题投影对象）
     expect(findNode(host, 0, 0)?.style).toBe(findNode(host, 0, 9)?.style)
