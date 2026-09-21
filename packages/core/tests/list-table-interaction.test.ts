@@ -385,7 +385,7 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
   })
 
   it('有 onContextMenu 监听时阻止默认（原生菜单），无监听时不阻止', () => {
-    const preventDefault = vi.fn()
+    const preventDefault = vi.fn<() => void>()
     const { host, table } = createTable({ records: [{ name: 'a' }] })
     fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: {} })
     expect(preventDefault).not.toHaveBeenCalled()

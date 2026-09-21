@@ -17,6 +17,7 @@ import {
   RATING_BAR_COLOR,
 } from './sections/display'
 import { DISABLED_CELL, DISPLAY_COL } from './sections/editing'
+import { createSheetDisplay } from './sections/sheet/format'
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media'
 
 export interface SmokeResult {
@@ -723,6 +724,24 @@ async function checkSheet(checker: Checker): Promise<void> {
     assert(handle.controls.evaluate('1/0') === '#DIV/0!', '求值错误码不符')
     store.setValue(5, 16, null)
     table.refreshCell(5, 16)
+  })
+
+  await checker.step('sheet 求值异常降级：evaluate 抛错显示 #ERROR! 占位，不无痕回退原文', () => {
+    // live 求值器按设计把公式错误全转错误码文本（不抛），catch 防线是求值器自身异常：
+    // 直接驱动显示链纯函数，断言抛错走可见占位而非 `=` 原文
+    const display = createSheetDisplay({
+      evaluate: () => {
+        throw new Error('求值器异常')
+      },
+      numFmt: () => undefined,
+    })
+    assert(
+      display(0, 0, '=A1+1') === '#ERROR!',
+      `抛错时显示 ${display(0, 0, '=A1+1')}（期望 #ERROR!）`,
+    )
+    // 对照：evaluate 返回空仍是回落原文语义（缺省渲染，不是异常）
+    const fallback = createSheetDisplay({ evaluate: () => null, numFmt: () => undefined })
+    assert(fallback(0, 0, '=A1+1') === '=A1+1', '返回空应回落 = 原文')
   })
 
   await checker.step('sheet 财务函数：PMT 等额分期求值', () => {

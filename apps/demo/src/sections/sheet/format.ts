@@ -140,7 +140,8 @@ export type SheetDisplayEvaluator = (
 /**
  * 显示链组合：公式求值 → numFmt 格式化（book.ts 的 resolveDisplayValue 接线）。
  * - `=` 前缀格：先经 evaluate 求值；数值结果带 numFmt 时格式化，其余（文本/错误码）直出；
- *   evaluate 缺失/返回空/抛错 → 回落 `=` 原文（对齐 createFormulaDisplay 语义）。
+ *   evaluate 缺失/返回空 → 回落 `=` 原文（对齐 createFormulaDisplay 语义）；
+ *   evaluate 抛错 → `#ERROR!` 占位可见降级（不无痕回退原文；口径同公式引擎错误码）。
  * - 非公式格：数字且带 numFmt → 格式化；空值/文本不误伤，回落引擎缺省渲染（'' / String(value)）。
  */
 export function createSheetDisplay(options: {
@@ -163,7 +164,7 @@ export function createSheetDisplay(options: {
         }
         return String(result)
       } catch {
-        return value
+        return '#ERROR!'
       }
     }
     if (fmt && typeof value === 'number') {
