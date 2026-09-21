@@ -1,8 +1,9 @@
 // sheet 电子表格演示区（对标 ultra-ui playground sheet 的组件形态还原）：
 // 工具栏（图标分组）→ 公式栏（名称框/fx/建议）→ 网格（flex 铺满）→ 底部 tabs，
-// 右键菜单三套（行号/列头/正文）、查找替换弹层、CSV 导入导出、插入浮动图片、
-// 数据结构观察区；消息走顶部 toast（无状态栏，与 ultra-ui 一致）。
-// 数据面不变：SheetStore 单一事实源 + sheet 插件族（填充/选区同步/公式显示/键位/实例池/撤销栈）。
+// 右键菜单三套（行号/列头/正文，正文含「设置数据格式」子菜单）、查找替换弹层、
+// CSV/xlsx 导入导出（hucre）、插入浮动图片、数据结构观察区；消息走顶部 toast（无状态栏，与 ultra-ui 一致）。
+// 数据面不变：SheetStore 单一事实源 + sheet 插件族（填充/选区同步/公式显示/键位/实例池/撤销栈）；
+// numFmt 为 demo 级侧车通道（book.ts 按 sheet 持稀疏 Map，仅影响显示，Store 恒存原始值）。
 
 import {
   EditorRegistry,
@@ -28,7 +29,8 @@ import { createCSV } from './sheet/csv'
 import { mountContextMenu } from './sheet/context-menu'
 import { bindStoreFill } from './sheet/fills'
 import { mountFormulaBar } from './sheet/formula-bar'
-import { evaluateFormula } from './sheet/mini-eval'
+import type { EvaluatedValue } from './sheet/evaluator'
+import type { NumFmt } from './sheet/format'
 import { mountInspector } from './sheet/inspector'
 import {
   deleteRow as deleteRowOp,
@@ -38,8 +40,9 @@ import {
 } from './sheet/ops'
 import { bindResizePersistence } from './sheet/persist'
 import { mountToolbar } from './sheet/toolbar'
-import { mountTabs } from './sheet/tabs'
+import { mountTabs, type TabsHandle } from './sheet/tabs'
 import { createToaster } from './sheet/toast'
+import { createXlsx, type XlsxHandle } from './sheet/xlsx'
 import { SHEET_COL_COUNT, SHEET_IMAGE_CELL } from './sheet/constants'
 
 export {
@@ -85,6 +88,9 @@ const SHEET_THEME: ThemeOverride = {
     hoverBand: 'transparent',
     resizeLine: '#2170E7',
     headerHighlight: 'rgba(33, 112, 231, 0.1)',
+    // 冻结分隔线对齐 Excel 观感（比网格线 #E1E4E8 深一档）
+    freezeDividerColor: '#B6BABF',
+    freezeDividerWidth: 1,
   },
   frameStyle: { lineWidth: 1, color: '#E1E4E8', shadow: false },
 }
@@ -126,9 +132,17 @@ export interface SheetDemoControls {
   formulaBar: ReturnType<typeof mountFormulaBar>
   find: ReturnType<typeof mountToolbar>['find']
   csv: ReturnType<typeof createCSV>
+  /** xlsx 整本导入导出（hucre） */
+  xlsx: XlsxHandle
+  /** 活跃 sheet 的 numFmt 侧车读写（冒烟驱动右键菜单同路径） */
+  numFmt: {
+    get: (col: number, row: number) => NumFmt | undefined
+    set: (col: number, row: number, fmt: NumFmt | undefined) => void
+  }
   insertRow: (at: number) => void
   deleteRow: (at: number) => void
-  evaluate: (formula: string) => number
+  /** 当前活跃 sheet 公式求值（公式引擎；错误 → 错误码文本） */
+  evaluate: (formula: string) => EvaluatedValue
 }
 
 /** 调试句柄形态（SheetView 挂载时写入 window.__SHEET_DEMO__；句柄面只含公开 API） */
@@ -191,7 +205,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   const section = createSection(
     root,
     'sheet 电子表格',
-    '对标 ultra-ui playground sheet：工具栏/公式栏/底部 tabs/三套右键菜单/查找替换/CSV/插入图片/数据结构观察。' +
+    '对标 ultra-ui playground sheet：工具栏/公式栏/底部 tabs/三套右键菜单（含数据格式）/查找替换/CSV/xlsx/插入图片/数据结构观察。' +
       'SheetStore 单一事实源 + sheet 插件族；样式矩阵 / \\n 多行合并 / 填充柄 / 格内图演示保留。',
   )
 
@@ -270,9 +284,20 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       notify(`填充柄按下：选区段 ${formatBounds(normalizeRange(fillEvent.range))}`)
     })
     created.onFillDragEnd((fillEvent) => {
-      notify(
-        `填充生成：锚定 ${formatBounds(fillEvent.anchor)} → 写入 ${formatBounds(fillEvent.target)} 的扩展区`,
-      )
+      const { anchor, target } = fillEvent
+      // 无扩展区（单击柄/双击首击的空点按）不提示
+      if (
+        target.minCol >= anchor.minCol &&
+        target.maxCol <= anchor.maxCol &&
+        target.minRow >= anchor.minRow &&
+        target.maxRow <= anchor.maxRow
+      ) {
+        return
+      }
+      notify(`填充生成：锚定 ${formatBounds(anchor)} → 写入 ${formatBounds(target)} 的扩展区`)
+    })
+    created.onFillHandleDoubleClick((fillEvent) => {
+      notify(`填充柄双击：${formatBounds(normalizeRange(fillEvent.range))} 按相邻数据块自动填充`)
     })
     // 初始态对标 ultra-ui 演示：A1 选中 + F2 预置浮动示例图（仅主 sheet 首建）
     if (id === 'sheet-1') {
@@ -288,7 +313,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     teardowns.set(id, offs)
   })
 
-  // ---- UI 面：公式栏 → 工具栏（含查找/CSV 弹层）→ tabs → 右键菜单 ----
+  // ---- UI 面：公式栏 → 工具栏（含查找/CSV/xlsx 弹层）→ tabs → 右键菜单 ----
   // 首次切换（惰性创建 sheet-1 实例）先行：后续 UI 均依赖活跃实例存在
   bundle.switchTo('sheet-1')
   const table = (): ListTable => {
@@ -306,8 +331,38 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     return active
   }
 
+  /** 活跃 sheet 的 numFmt 侧车读写（右键菜单与冒烟驱动面共用） */
+  const numFmtControl = {
+    get: (col: number, row: number): NumFmt | undefined => {
+      const id = bundle.book.activeId
+      return id ? bundle.getNumFmt(id, col, row) : undefined
+    },
+    set: (col: number, row: number, fmt: NumFmt | undefined): void => {
+      const id = bundle.book.activeId
+      if (id) {
+        bundle.setNumFmt(id, col, row, fmt)
+      }
+    },
+  }
+
+  // xlsx 导入重建 book 后的 UI 联动（函数声明提升：tabs 在其后定义，运行期才被回调）
+  const onBookRebuilt = (): void => {
+    tabs.refresh()
+    formulaBar.refresh()
+    toolbar.refreshStates()
+    refreshAllGrid(table(), store())
+  }
+
   const formulaBar = mountFormulaBar(formulaArea, { table, store, notify, bundle })
-  const csv = createCSV({ table, store, notify })
+  const xlsx = createXlsx({ bundle, notify, onImported: onBookRebuilt })
+  const csv = createCSV({
+    table,
+    store,
+    notify,
+    onXlsx: (file) => {
+      void file.arrayBuffer().then((buffer) => xlsx.importBuffer(buffer))
+    },
+  })
   const toolbar = mountToolbar(toolbarArea, {
     table,
     store,
@@ -315,9 +370,10 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     stack,
     bundle,
     csv,
+    xlsx,
     formulaBar,
   })
-  const tabs = mountTabs(tabsArea, {
+  const tabs: TabsHandle = mountTabs(tabsArea, {
     bundle,
     notify,
     onSwitched: () => {
@@ -325,7 +381,12 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       toolbar.refreshStates()
     },
   })
-  const contextMenu = mountContextMenu({ table, store, notify })
+  const contextMenu = mountContextMenu({
+    table,
+    store,
+    notify,
+    setNumFmt: numFmtControl.set,
+  })
   const inspector = mountInspector(section, {
     bundle,
     table,
@@ -340,6 +401,8 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     formulaBar,
     find: toolbar.find,
     csv,
+    xlsx,
+    numFmt: numFmtControl,
     /** 结构操作：在第 at 行上方插入行（0 基） */
     insertRow: (at: number): void => {
       insertRowAt(at)
@@ -353,9 +416,8 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       refreshAllGrid(table(), store())
       notify(`已删除行 ${at + 1}`)
     },
-    /** 当前活跃 Store 求值（mini 求值器） */
-    evaluate: (formula: string): number =>
-      evaluateFormula(formula, (col, row) => store().getValue(col, row)),
+    /** 当前活跃 sheet 求值（公式引擎，按格缓存） */
+    evaluate: (formula: string): EvaluatedValue => bundle.evaluateActive(formula),
   }
   const insertRowAt = (at: number): void => {
     insertRowOp(store(), at)

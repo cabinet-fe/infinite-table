@@ -25,7 +25,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinite-table/core": "workspace:*",
+        "@infinite-table/formulas": "workspace:*",
         "@infinite-table/plugins": "workspace:*",
+        "hucre": "^1.1.0",
         "vue": "^3.5.0",
       },
       "devDependencies": {
@@ -37,6 +39,13 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinite-table/render": "workspace:*",
+      },
+    },
+    "packages/formulas": {
+      "name": "@infinite-table/formulas",
+      "version": "0.0.0",
+      "dependencies": {
+        "@cat-kit/core": "^1.2.1",
       },
     },
     "packages/plugins": {
@@ -73,11 +82,15 @@
 
     "@blazediff/core": ["@blazediff/core@1.9.1", "", {}, "sha512-ehg3jIkYKulZh+8om/O25vkvSsXXwC+skXmyA87FFx6A/45eqOkZsBltMw/TVteb0mloiGT8oGRTcjRAz66zaA=="],
 
+    "@cat-kit/core": ["@cat-kit/core@1.2.1", "", {}, "sha512-3BPI+9Fn8CrzdLwzZ+w2Md4HQvCLySdZX1pLiFJGoqrmm242qYuY9BkrvRWyFuw5magSDXC/Orx1fharlw17Vw=="],
+
     "@infinite-table/bench": ["@infinite-table/bench@workspace:apps/bench"],
 
     "@infinite-table/core": ["@infinite-table/core@workspace:packages/core"],
 
     "@infinite-table/demo": ["@infinite-table/demo@workspace:apps/demo"],
+
+    "@infinite-table/formulas": ["@infinite-table/formulas@workspace:packages/formulas"],
 
     "@infinite-table/plugins": ["@infinite-table/plugins@workspace:packages/plugins"],
 
@@ -414,6 +427,8 @@
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
     "happy-dom": ["happy-dom@20.14.5", "", { "dependencies": { "@types/node": ">=20.0.0", "@types/whatwg-mimetype": "^3.0.2", "@types/ws": "^8.18.1", "buffer-image-size": "^0.6.4", "entities": "^7.0.1", "whatwg-mimetype": "^3.0.0", "ws": "^8.21.0" } }, "sha512-x/RzkpWO40bTjIoT30iQtt64FLLmH/iRcUCN2X//bLx7H3ifkdfPXyqsro/OYtqzIAhiLMMA7mmiOR9C3NOKjQ=="],
+
+    "hucre": ["hucre@1.1.0", "", { "bin": { "hucre": "./dist/cli.mjs" } }, "sha512-3HROYLWzejzhMKdGVrBuU4UWuDleVVQwpjFeYwTHzXLN8o2kptOkPS1Yq04xL5kQVwF6ELM1R2myuWW8WNu1fQ=="],
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 

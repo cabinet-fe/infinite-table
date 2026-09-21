@@ -5,7 +5,12 @@
 
 import type { Region, SceneEvent } from '@infinite-table/render'
 
-import type { FillDragEndEvent, FillDragState, FillHandleDownEvent } from './fill-handle'
+import type {
+  FillDragEndEvent,
+  FillDragState,
+  FillHandleDoubleClickEvent,
+  FillHandleDownEvent,
+} from './fill-handle'
 import {
   hitFillHandle,
   resolveFillPreview,
@@ -19,7 +24,7 @@ import { applyHeaderHighlight } from './list-table-scene'
 import type { OverlayContent } from './interaction-overlay'
 import type { ColResizeEndEvent, ResizeGeometry, ResizeTarget, RowResizeEndEvent } from './resize'
 import { hitResizeHandle, ResizeSession } from './resize'
-import { normalizeRange, type SelectionRange } from './selection'
+import { normalizeRange, type RangeBounds, type SelectionRange } from './selection'
 import type { CellRef, TableContextMenuEvent } from './types'
 
 /** 双击/双触判定窗口与位移阈值（鼠标双击与触控双击统一走指针事件流） */
@@ -75,6 +80,14 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   if (fillRange) {
     const bounds = normalizeRange(fillRange)
     const origin = { col: bounds.maxCol, row: bounds.maxRow }
+    // 双击窗口判定：上一次「点按柄」（无拖拽扩展的按下-抬起）距此次按下在连击阈值内
+    // 且锚定段未变；命中则本次抬起抛双击事件而非拖拽结束（判定消费在 onPointerUp）
+    const now = Date.now()
+    const lastTap = table.lastFillHandleTap
+    table.fillHandleDoubleTap =
+      lastTap !== null &&
+      lastTap.key === fillHandleTapKey(bounds) &&
+      now - lastTap.time <= DOUBLE_TAP_MS
     table.fillDrag = {
       range: fillRange,
       origin,
@@ -185,10 +198,27 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     table.fillDrag = null
     // 拖拽结束：抛锚定段范围 + 轴锁定后的拖拽目标格范围（内核不产生任何写值行为）
     const anchor = normalizeRange(drag.range)
-    const targetEvent: FillDragEndEvent = {
-      anchor,
-      target: resolveFillTarget(anchor, drag.origin, drag.current),
+    const target = resolveFillTarget(anchor, drag.origin, drag.current)
+    const doubleTap = table.fillHandleDoubleTap
+    table.fillHandleDoubleTap = false
+    if (resolveFillPreview(anchor, target) === null) {
+      // 无扩展的点按：双击窗口内的第二次抬起抛双击事件（与拖拽结束互斥）；
+      // 否则记为单击，供下一次按下做双击窗口判定（拖拽扩展会清零断链）
+      table.lastFillHandleTap = doubleTap
+        ? null
+        : { key: fillHandleTapKey(anchor), time: Date.now() }
+      if (doubleTap) {
+        const event: FillHandleDoubleClickEvent = { range: drag.range }
+        for (const listener of table.fillHandleDoubleClickListeners) {
+          listener(event)
+        }
+        refreshOverlay(table)
+        return
+      }
+    } else {
+      table.lastFillHandleTap = null
     }
+    const targetEvent: FillDragEndEvent = { anchor, target }
     for (const listener of table.fillDragEndListeners) {
       listener(targetEvent)
     }
@@ -307,6 +337,11 @@ function fillHandleHit(table: ListTable, x: number, y: number): SelectionRange |
     return null
   }
   return hitFillHandle(x, y, cell) ? range : null
+}
+
+/** 填充柄连击判定的锚定段签名（同一段上的两次点按才构成双击） */
+function fillHandleTapKey(bounds: RangeBounds): string {
+  return `${bounds.minCol},${bounds.minRow}:${bounds.maxCol},${bounds.maxRow}`
 }
 
 /** 双击/双触进编辑：两次同格落点、时长与位移均在阈值内（拖拽/滚动滚出阈值不触发） */
@@ -439,6 +474,8 @@ function onContextMenuEvent(table: ListTable, event: SceneEvent): void {
   if (table.contextMenuListeners.size === 0) {
     return
   }
+  // 应用接管了右键菜单：阻止浏览器原生菜单盖在自绘菜单上
+  event.originalEvent.preventDefault?.()
   const emitted: TableContextMenuEvent = {
     cell: cellAt(table, event.x, event.y),
     x: event.x,
@@ -579,6 +616,13 @@ export function refreshOverlay(table: ListTable): void {
     fillHandleRange: resolveFocusRange(table.selection.snapshot),
     // 填充拖拽预览：轴锁定后的纯扩展区（非拖拽中为 null）
     fillPreview,
+    // 宿主高亮区域（公式引用染色框等；setHighlightRanges 写入，无为空数组）
+    highlightRanges: table.highlightRanges,
+    // 冻结分隔线：冻结列右缘 / 冻结行下缘（冻结数为 0 的轴为 null，不画）
+    freezeDividers: {
+      x: table.frozenColCount > 0 ? table.rowHeaderWidth + table.frozenColsWidth : null,
+      y: table.frozenRowCount > 0 ? table.headerHeight + table.frozenRowsHeight : null,
+    },
     // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末
     window: {
       rows: { start: 0, end: Math.max(table.rows.end, table.frozenRowCount) },

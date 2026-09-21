@@ -6,7 +6,7 @@
 import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
 
 import { CellNode } from './cell-node'
-import type { CellStyle } from './cell-style'
+import type { CellBorder, CellBorderEdge, CellStyle } from './cell-style'
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
@@ -23,6 +23,7 @@ import {
   isRowHeaderHighlighted,
 } from './list-table-internal'
 import { appendImageCell } from './list-table-media'
+import { resolveSharedEdges, strongerEdge } from './shared-edges'
 import { themeCellBase } from './theme'
 import type { FrameStyle } from './theme'
 
@@ -315,7 +316,7 @@ export function updateSceneWindow(table: ListTable): void {
   for (const cols of [scrollableCols, frozenCols]) {
     for (let col = cols.start; col < cols.end; col++) {
       if (!table.colHeaderNodes.has(col)) {
-        const node = newColHeaderNode(table, col, left, styles.col)
+        const node = newColHeaderNode(table, col, left, styles)
         headerGroup.appendChild(node)
         table.colHeaderNodes.set(col, node)
       }
@@ -324,14 +325,14 @@ export function updateSceneWindow(table: ListTable): void {
   for (const rows of [scrollableRows, frozenRows]) {
     for (let row = rows.start; row < rows.end; row++) {
       if (!table.rowHeaderNodes.has(row)) {
-        const node = newRowHeaderNode(table, row, top, styles.row)
+        const node = newRowHeaderNode(table, row, top, styles)
         headerGroup.appendChild(node)
         table.rowHeaderNodes.set(row, node)
       }
     }
   }
   if (!table.cornerNode) {
-    table.cornerNode = newCornerNode(table, styles.corner)
+    table.cornerNode = newCornerNode(table, styles)
     headerGroup.appendChild(table.cornerNode)
   }
   if (bodyChanged) {
@@ -409,6 +410,43 @@ function appendCellBand(
 }
 
 /**
+ * 数据格生效绘制边框（共享边裁决，规则见 shared-edges.ts 头注）：
+ * right/bottom 与邻居对侧边取强，left/top 仅模型首列/首行自画（其余由左/上邻居呈现）。
+ * 合并主格拥有区域右/下缘：facing 取区域外邻居逐格对侧边的最强者；被覆盖格的边忽略（v1）。
+ * 邻居样式经表侧统一 styleAt 溯源：每格至多 2 次额外样式解析（右/下邻居），
+ * 合并格按区域右/下缘边长逐格（v1 简化：邻居为被合并覆盖格时取其原始格样式）。
+ */
+export function effectiveBorder(
+  table: ListTable,
+  col: number,
+  row: number,
+  style: CellStyle,
+): CellBorder | null {
+  const range = table.mergeCells.rangeAt(col, row)
+  const endCol = range?.endCol ?? col
+  const endRow = range?.endRow ?? row
+  let facingRight: CellBorderEdge | undefined
+  if (endCol + 1 < table.options.columns.length) {
+    for (let r = row; r <= endRow; r++) {
+      facingRight = strongerEdge(facingRight, table.styleAt(endCol + 1, r).border?.left)
+    }
+  }
+  let facingBottom: CellBorderEdge | undefined
+  if (endRow + 1 < table.pipeline.rowCount) {
+    for (let c = col; c <= endCol; c++) {
+      facingBottom = strongerEdge(facingBottom, table.styleAt(c, endRow + 1).border?.top)
+    }
+  }
+  return (
+    resolveSharedEdges(
+      style.border,
+      { right: facingRight, bottom: facingBottom },
+      { firstCol: col === 0, firstRow: row === 0 },
+    ) ?? null
+  )
+}
+
+/**
  * 建单格节点：被合并覆盖的格不建节点（由主格统一取值/绘制/命中），主格跨域取完整尺寸；
  * 节点已存在（增量窗口保留的存活格/既有合并主格）时跳过。返回是否新建了节点。
  */
@@ -448,6 +486,7 @@ function appendCell(
     value: table.pipeline.resolveValue(col, row),
     cellType: table.options.columns[col]?.cellType,
     style,
+    border: effectiveBorder(table, col, row, style),
     renderer: table.options.resolveCellRenderer?.(col, row) ?? null,
   })
   // 文本溢出右界（Excel 式溢出到右侧空格；换行/表头/合并/图片/自定义渲染格不溢出）
@@ -569,24 +608,24 @@ function appendHeaders(
   // 滚动条带先画、冻结条带后画：滑动的行/列头被冻结头覆盖
   for (const cols of [scrollableCols, frozenCols]) {
     for (let col = cols.start; col < cols.end; col++) {
-      const node = newColHeaderNode(table, col, left, styles.col)
+      const node = newColHeaderNode(table, col, left, styles)
       headerGroup.appendChild(node)
       table.colHeaderNodes.set(col, node)
     }
   }
   for (const rows of [scrollableRows, frozenRows]) {
     for (let row = rows.start; row < rows.end; row++) {
-      const node = newRowHeaderNode(table, row, top, styles.row)
+      const node = newRowHeaderNode(table, row, top, styles)
       headerGroup.appendChild(node)
       table.rowHeaderNodes.set(row, node)
     }
   }
-  table.cornerNode = newCornerNode(table, styles.corner)
+  table.cornerNode = newCornerNode(table, styles)
   headerGroup.appendChild(table.cornerNode)
 }
 
 /** 三类表头分区样式：列头用 header、行号列用 rowHeader、左上角用 corner（缺省随 header 派生）；borderColor 同样投影为网格边 */
-function headerStyles(table: ListTable): { col: CellStyle; row: CellStyle; corner: CellStyle } {
+export function headerStyles(table: ListTable): HeaderStyles {
   return {
     col: { textOverflow: 'ellipsis', ...themeCellBase(table.theme.header) },
     row: { textOverflow: 'ellipsis', ...themeCellBase(table.theme.rowHeader) },
@@ -594,7 +633,61 @@ function headerStyles(table: ListTable): { col: CellStyle; row: CellStyle; corne
   }
 }
 
-function newColHeaderNode(table: ListTable, col: number, left: number, style: CellStyle): CellNode {
+/** 表头三分区样式集合（共享边裁决 facing 溯源与节点装配共用） */
+export interface HeaderStyles {
+  col: CellStyle
+  row: CellStyle
+  corner: CellStyle
+}
+
+/**
+ * 表头节点生效边框：表头带内同样走共享边裁决（列头横排互裁、行号列竖排互裁、
+ * 角格拥有列头 0 的 left 与行号 0 的 top）；表头带与数据带之间不做裁决——
+ * 数据带首列/首行的 left/top 由各带自画（带边界两侧边并列，与既有观感一致）。
+ */
+function headerBorder(
+  table: ListTable,
+  kind: keyof HeaderStyles,
+  styles: HeaderStyles,
+): CellBorder | null {
+  const style = styles[kind]
+  if (kind === 'col') {
+    return (
+      resolveSharedEdges(
+        style.border,
+        // 右邻列头的 left 边（列头样式集合各列共享，逐列 facing 相同）
+        { right: styles.col.border?.left },
+        { firstCol: false, firstRow: true },
+      ) ?? null
+    )
+  }
+  if (kind === 'row') {
+    return (
+      resolveSharedEdges(
+        style.border,
+        { bottom: styles.row.border?.top },
+        { firstCol: true, firstRow: false },
+      ) ?? null
+    )
+  }
+  return (
+    resolveSharedEdges(
+      style.border,
+      {
+        right: table.options.columns.length > 0 ? styles.col.border?.left : undefined,
+        bottom: table.pipeline.rowCount > 0 ? styles.row.border?.top : undefined,
+      },
+      { firstCol: true, firstRow: true },
+    ) ?? null
+  )
+}
+
+function newColHeaderNode(
+  table: ListTable,
+  col: number,
+  left: number,
+  styles: HeaderStyles,
+): CellNode {
   const node = new CellNode({
     col,
     row: HEADER_COORD,
@@ -603,16 +696,22 @@ function newColHeaderNode(table: ListTable, col: number, left: number, style: Ce
     width: table.colWidths[col] ?? 0,
     height: table.headerHeight,
     text: table.options.columns[col]?.title ?? '',
-    style,
+    style: styles.col,
+    border: headerBorder(table, 'col', styles),
   })
   // 整列选区覆盖 → 列头高亮（建格路径与选区变化路径共用同一判定）
   if (isColHeaderHighlighted(table.selection.snapshot, table.pipeline.rowCount, col)) {
-    node.style = { ...style, background: table.theme.interaction.headerHighlight }
+    node.style = { ...styles.col, background: table.theme.interaction.headerHighlight }
   }
   return node
 }
 
-function newRowHeaderNode(table: ListTable, row: number, top: number, style: CellStyle): CellNode {
+function newRowHeaderNode(
+  table: ListTable,
+  row: number,
+  top: number,
+  styles: HeaderStyles,
+): CellNode {
   const node = new CellNode({
     col: HEADER_COORD,
     row,
@@ -627,11 +726,12 @@ function newRowHeaderNode(table: ListTable, row: number, top: number, style: Cel
     width: table.rowHeaderWidth,
     height: table.rowHeightAt(row),
     text: String(row + 1),
-    style,
+    style: styles.row,
+    border: headerBorder(table, 'row', styles),
   })
   // 整行选区覆盖 → 行号格高亮
   if (isRowHeaderHighlighted(table.selection.snapshot, table.options.columns.length, row)) {
-    node.style = { ...style, background: table.theme.interaction.headerHighlight }
+    node.style = { ...styles.row, background: table.theme.interaction.headerHighlight }
   }
   return node
 }
@@ -674,7 +774,7 @@ export function applyHeaderHighlight(table: ListTable): {
   return { rows: rowsRegion, cols: colsRegion }
 }
 
-function newCornerNode(table: ListTable, style: CellStyle): CellNode {
+function newCornerNode(table: ListTable, styles: HeaderStyles): CellNode {
   return new CellNode({
     col: HEADER_COORD,
     row: HEADER_COORD,
@@ -682,6 +782,7 @@ function newCornerNode(table: ListTable, style: CellStyle): CellNode {
     y: 0,
     width: table.rowHeaderWidth,
     height: table.headerHeight,
-    style,
+    style: styles.corner,
+    border: headerBorder(table, 'corner', styles),
   })
 }

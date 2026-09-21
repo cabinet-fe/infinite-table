@@ -29,6 +29,17 @@ export interface ResizeLine {
   readonly position: number
 }
 
+/**
+ * 宿主高亮区域（公式引用染色框等）：四边细条边框，颜色由宿主逐条指定。
+ * 与选区语义无关，仅绘制；画在选区之上（引用拾取时被拾取段同时是选区，边框须保持可见）。
+ */
+export interface HighlightRange {
+  /** 高亮范围（min/max 序；可视窗口外部分裁剪不画） */
+  readonly bounds: RangeBounds
+  /** 边框颜色（CSS 颜色值，宿主循环色板逐条指定） */
+  readonly color: string
+}
+
 export interface OverlayContent {
   readonly selection: SelectionSnapshot
   readonly hover: CellRef | null
@@ -37,6 +48,10 @@ export interface OverlayContent {
   readonly fillHandleRange: SelectionRange | null
   /** 填充拖拽预览区（轴锁定后的纯扩展区；非拖拽中为 null） */
   readonly fillPreview: RangeBounds | null
+  /** 宿主高亮区域（公式引用染色框等）；无为空数组 */
+  readonly highlightRanges: readonly HighlightRange[]
+  /** 冻结分隔线位置（视口坐标；x = 冻结列右缘竖线、y = 冻结行下缘横线，冻结数为 0 的轴为 null） */
+  readonly freezeDividers: { x: number | null; y: number | null }
   /** 可视窗口（选区裁剪用，[start, end)） */
   readonly window: { rows: WindowRange; cols: WindowRange }
 }
@@ -61,12 +76,31 @@ export class OverlayNode extends SceneNode {
     ctx.beginPath()
     ctx.rect(viewport.x, viewport.y, viewport.width, viewport.height)
     ctx.clip()
+    this.paintFreezeDividers(ctx, content, viewport)
     this.paintHover(ctx, content)
     this.paintSelection(ctx, content)
+    this.paintHighlightRanges(ctx, content)
     this.paintFillPreview(ctx, content)
     this.paintFillHandle(ctx, content)
     this.paintResizeLine(ctx, content, viewport)
     ctx.restore()
+  }
+
+  /** 冻结分隔线：冻结列右缘竖线 / 冻结行下缘横线，裁剪在 body 视口内，画在选区/hover 之下 */
+  private paintFreezeDividers(ctx: RenderContext, content: OverlayContent, viewport: Region): void {
+    const { x, y } = content.freezeDividers
+    if (x === null && y === null) {
+      return
+    }
+    const w = this.interaction.freezeDividerWidth
+    ctx.fillStyle = this.interaction.freezeDividerColor
+    // 线体贴边界落在冻结带内侧（与格右边/底边同侧，对齐格边框的像素归属）
+    if (x !== null) {
+      ctx.fillRect(x - w, viewport.y, w, viewport.height)
+    }
+    if (y !== null) {
+      ctx.fillRect(viewport.x, y - w, viewport.width, w)
+    }
   }
 
   private paintHover(ctx: RenderContext, content: OverlayContent): void {
@@ -98,6 +132,22 @@ export class OverlayNode extends SceneNode {
       // 四边边框（RenderContext 无 stroke，用细条填充）
       ctx.fillStyle = this.interaction.selectionBorder
       const w = this.interaction.selectionBorderWidth
+      ctx.fillRect(rect.x, rect.y, rect.width, w)
+      ctx.fillRect(rect.x, rect.y + rect.height - w, rect.width, w)
+      ctx.fillRect(rect.x, rect.y, w, rect.height)
+      ctx.fillRect(rect.x + rect.width - w, rect.y, w, rect.height)
+    }
+  }
+
+  /** 宿主高亮区域：四边细条边框（无填充），逐条取宿主指定颜色；完全在可视窗口外跳过 */
+  private paintHighlightRanges(ctx: RenderContext, content: OverlayContent): void {
+    const w = this.interaction.selectionBorderWidth
+    for (const highlight of content.highlightRanges) {
+      const rect = this.boundsRect(highlight.bounds, content)
+      if (!rect) {
+        continue
+      }
+      ctx.fillStyle = highlight.color
       ctx.fillRect(rect.x, rect.y, rect.width, w)
       ctx.fillRect(rect.x, rect.y + rect.height - w, rect.width, w)
       ctx.fillRect(rect.x, rect.y, w, rect.height)
@@ -213,7 +263,10 @@ export class InteractionOverlay {
       content.selection.ranges.length > 0 ||
       content.hover !== null ||
       content.resizeLine !== null ||
-      content.fillPreview !== null
+      content.fillPreview !== null ||
+      content.highlightRanges.length > 0 ||
+      content.freezeDividers.x !== null ||
+      content.freezeDividers.y !== null
     this.node.visible = has
     this.node.content = has ? content : null
     return has

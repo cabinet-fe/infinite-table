@@ -11,6 +11,13 @@ export interface CellBorderEdge {
   color: string
   /** 线型：solid 实线（缺省）、dashed 长虚线段、dotted 点段、double 双线 */
   style?: CellBorderStyle
+  /**
+   * 网格派生边标记：true 表示该边由主题 borderColor token 注入（themeCellBase），
+   * 非用户显式设置。共享边裁决（shared-edges.ts）据此区分强度档：显式边恒胜网格边。
+   * 投影链天然维护语义——projectCellStyle 逐边覆盖时 override 的边（无此标记）整边替换
+   * 网格边，未覆盖的边保留网格标记；宿主设置样式时无需也不应自填此字段。
+   */
+  grid?: boolean
 }
 
 /** 四边独立边框；缺省的边不绘制 */

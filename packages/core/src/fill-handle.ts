@@ -88,9 +88,20 @@ export interface FillDragEndEvent {
   target: RangeBounds
 }
 
+/**
+ * 填充柄双击事件：携带柄所在的选区段（start 锚点 / end 焦点，可反向）。
+ * Excel 语义为「按相邻列连续数据块向下自动填充」；与拖拽结束事件互斥——
+ * 双击的第二次抬起（无拖拽扩展）只抛双击事件，不再抛 FillDragEndEvent。
+ */
+export interface FillHandleDoubleClickEvent {
+  range: SelectionRange
+}
+
 export type FillHandleDownListener = (event: FillHandleDownEvent) => void
 
 export type FillDragEndListener = (event: FillDragEndEvent) => void
+
+export type FillHandleDoubleClickListener = (event: FillHandleDoubleClickEvent) => void
 
 /**
  * 轴锁定后的拖拽目标范围：行/列位移绝对值大者为主轴（相等取纵向），

@@ -288,7 +288,8 @@ async function checkDisplay(checker: Checker, demos: DemoHandles): Promise<void>
   })
 
   await checker.step('逐边边框：(2,4) 左红右蓝', () => {
-    expectColor(body, 269, 180, BORDER_LEFT_COLOR, '左边框')
+    // 共享边裁决：左边归左格（所有者）在其矩形内绘制，红线带 [265,268)；右边仍属本格 [346,348)
+    expectColor(body, 266, 180, BORDER_LEFT_COLOR, '左边框')
     expectColor(body, 346, 180, BORDER_RIGHT_COLOR, '右边框')
   })
 
@@ -674,14 +675,106 @@ async function checkSheet(checker: Checker): Promise<void> {
     return target
   }
 
-  await checker.step('sheet 公式显示：Store 存原文、渲染求值、mini 求值器', () => {
+  await checker.step('sheet 公式显示：Store 存原文、渲染求值、公式引擎', () => {
     assert(
       store.getValue(3, 2) === '=D1+D2',
       `Store 应存公式原文（${String(store.getValue(3, 2))}）`,
     )
     assert(table.getCellText(3, 2) === '12', `公式格显示 ${table.getCellText(3, 2)}（期望 12）`)
     assert(table.getCellText(3, 3) === '12', `SUM 区域显示 ${table.getCellText(3, 3)}`)
-    assert(handle.controls.evaluate('D1*2+1') === 15, 'mini 求值器运算错误')
+    assert(handle.controls.evaluate('D1*2+1') === 15, '公式引擎运算错误')
+  })
+
+  await checker.step('sheet 公式缓存失效：引用格变更后公式格重算', async () => {
+    store.setValue(3, 0, 8)
+    table.refreshCell(3, 2)
+    await frames(2)
+    assert(
+      table.getCellText(3, 2) === '13',
+      `D1 变更后公式格显示 ${table.getCellText(3, 2)}（期望 13）`,
+    )
+    store.setValue(3, 0, 7)
+    table.refreshCell(3, 2)
+    await frames(2)
+    assert(table.getCellText(3, 2) === '12', '还原后公式格未重算')
+  })
+
+  await checker.step('sheet 跨表引用：=SUM(Sheet2!A1:A2) 求值', async () => {
+    // Sheet2 A1=0、A2=1 → 1
+    assert(handle.controls.evaluate('SUM(Sheet2!A1:A2)') === 1, '跨表区域求值错误')
+    store.setValue(5, 15, '=SUM(Sheet2!A1:A2)')
+    table.refreshCell(5, 15)
+    await frames(2)
+    assert(table.getCellText(5, 15) === '1', `跨表公式格显示 ${table.getCellText(5, 15)}（期望 1）`)
+    // 引号表名形态
+    assert(handle.controls.evaluate("'Sheet2'!A2*10") === 10, '引号表名求值错误')
+    store.setValue(5, 15, null)
+    table.refreshCell(5, 15)
+  })
+
+  await checker.step('sheet 错误值显示：=1/0 → #DIV/0!', async () => {
+    store.setValue(5, 16, '=1/0')
+    table.refreshCell(5, 16)
+    await frames(2)
+    assert(
+      table.getCellText(5, 16) === '#DIV/0!',
+      `错误格显示 ${table.getCellText(5, 16)}（期望 #DIV/0!）`,
+    )
+    assert(handle.controls.evaluate('1/0') === '#DIV/0!', '求值错误码不符')
+    store.setValue(5, 16, null)
+    table.refreshCell(5, 16)
+  })
+
+  await checker.step('sheet 财务函数：PMT 等额分期求值', () => {
+    const pmt = handle.controls.evaluate('PMT(0.05/12, 36, 10000)')
+    assert(
+      typeof pmt === 'number' && Math.abs(pmt + 299.7089710466537) < 1e-6,
+      `PMT 求值 ${String(pmt)}（期望 ≈ -299.709）`,
+    )
+  })
+
+  await checker.step('sheet 公式栏补全：建议列表出现，Tab 确认后光标落括号内', () => {
+    const input = document.querySelector<HTMLTextAreaElement>('.sheet-fx-input')
+    assert(input, '公式输入区缺失')
+    input.focus()
+    input.value = '=PM'
+    input.setSelectionRange(3, 3)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const suggest = document.querySelector('.sheet-fx-suggest')
+    assert(suggest && suggest.children.length > 0, '补全列表未出现')
+    assert(
+      suggest.querySelector('.sheet-fx-suggest__signature')?.textContent?.startsWith('PMT('),
+      `首项建议签名异常：${suggest.querySelector('.sheet-fx-suggest__signature')?.textContent}`,
+    )
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    assert(input.value === '=PMT()', `确认后内容 ${input.value}（期望 =PMT()）`)
+    assert(
+      input.selectionStart === 5 && input.selectionEnd === 5,
+      `光标未落括号内（selectionStart=${input.selectionStart}）`,
+    )
+    input.value = ''
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.blur()
+  })
+
+  await checker.step('sheet 参数提示 calltip：逗号深度高亮当前参数', () => {
+    const input = document.querySelector<HTMLTextAreaElement>('.sheet-fx-input')
+    assert(input, '公式输入区缺失')
+    input.focus()
+    input.value = '=SUM(1,'
+    input.setSelectionRange(7, 7)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    const calltip = document.querySelector('.sheet-fx-calltip')
+    assert(calltip, 'calltip 未出现')
+    assert(
+      calltip.textContent === 'SUM(number1, [number2], ...)',
+      `calltip 签名 ${calltip.textContent}`,
+    )
+    const active = calltip.querySelector('.sheet-fx-calltip__param.is-active')
+    assert(active?.textContent === '[number2]', `高亮参数 ${active?.textContent}（期望 [number2]）`)
+    input.value = ''
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.blur()
   })
 
   await checker.step('sheet tabs：切换状态隔离、切回恢复', async () => {
@@ -728,6 +821,69 @@ async function checkSheet(checker: Checker): Promise<void> {
     dispatchPointer(container, 'pointerup', 166, 198)
     assert(store.getValue(1, 3) === 300, `填充 (1,3) = ${String(store.getValue(1, 3))}`)
     assert(store.getValue(1, 4) === 400 && store.getValue(1, 5) === 500, '填充序列不完整')
+  })
+
+  await checker.step('sheet 填充柄双击：按左邻数据块末行自动向下填充并扩选区', async () => {
+    const container = activeContainer()
+    const live = handle.getTable()
+    // H 列(7) 行 10..14 连续数据作参考块；I 列(8) 行 10,11 为数字源 10,20（步长 10）
+    for (let row = 10; row <= 14; row++) {
+      store.setValue(7, row, `m${row}`)
+    }
+    store.setValue(8, 10, 10)
+    store.setValue(8, 11, 20)
+    live.selectCells([{ start: { col: 8, row: 10 }, end: { col: 8, row: 11 } }])
+    await frames(2)
+    // 柄挂在焦点段右下角格 (8,11) 的右下角点上，方点内取角点内缩 2px
+    const anchorRect = live.getCellRelativeRect(8, 11)
+    assert(anchorRect, '格 (8,11) 不在视口')
+    const hx = anchorRect.x + anchorRect.width - 2
+    const hy = anchorRect.y + anchorRect.height - 2
+    dispatchPointer(container, 'pointerdown', hx, hy)
+    dispatchPointer(container, 'pointerup', hx, hy)
+    dispatchPointer(container, 'pointerdown', hx, hy)
+    dispatchPointer(container, 'pointerup', hx, hy)
+    await frames(2)
+    assert(
+      store.getValue(8, 12) === 30,
+      `双击填充 (8,12) = ${String(store.getValue(8, 12))}（期望 30）`,
+    )
+    assert(store.getValue(8, 13) === 40 && store.getValue(8, 14) === 50, '双击填充序列不完整')
+    const bounds = normalizeRange(live.getSelection().ranges[0]!)
+    assert(
+      bounds.minCol === 8 && bounds.maxCol === 8 && bounds.minRow === 10 && bounds.maxRow === 14,
+      '双击填充后选区未扩展到源区∪新区',
+    )
+    // 清理夹具，避免污染后续 CSV/xlsx 导出断言
+    for (let row = 10; row <= 14; row++) {
+      store.setValue(7, row, null)
+      store.setValue(8, row, null)
+    }
+  })
+
+  await checker.step('sheet 公式引用染色框：编辑公式画同色框（循环色板），清空即撤', async () => {
+    const container = activeContainer()
+    const live = handle.getTable()
+    const sky = layerCanvas(container, 'sky')
+    const input = document.querySelector<HTMLTextAreaElement>('.sheet-fx-input')
+    assert(input, '公式输入区缺失')
+    input.focus()
+    input.value = '=B2+C3'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await frames(2)
+    // B2 上边框中点应为首色 #2e75b6；C3 上边框中点应为次色 #c00000
+    const b2 = live.getCellRelativeRect(1, 1)
+    const c3 = live.getCellRelativeRect(2, 2)
+    assert(b2 && c3, '引用格不在视口')
+    expectColor(sky, b2.x + b2.width / 2, b2.y + 1, '#2e75b6', 'B2 染色框')
+    expectColor(sky, c3.x + c3.width / 2, c3.y + 1, '#c00000', 'C3 染色框')
+    // 清空公式文本并失焦：染色框撤除（像素恢复透明）
+    input.value = ''
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.blur()
+    await frames(2)
+    const [, , , alpha] = readPixel(sky, b2.x + b2.width / 2, b2.y + 1)
+    assert(alpha === 0, `清空后染色框未撤除（α=${alpha}）`)
   })
 
   await checker.step('sheet 样式工具栏：选区写样式 + toggle 取消', () => {
@@ -799,4 +955,200 @@ async function checkSheet(checker: Checker): Promise<void> {
       '删除行后引擎合并区未还原',
     )
   })
+
+  await checker.step('sheet 共享边裁决：相邻格对侧边不叠画，线宽恰为设定值（非双倍）', async () => {
+    const container = activeContainer()
+    const body = layerCanvas(container, 'body')
+    // 竖向共享边 (5,10)|(6,10)：两侧各设 3px 红/蓝对侧边
+    store.setStyle(5, 10, { border: { right: { width: 3, color: '#dc2626' } } })
+    store.setStyle(6, 10, { border: { left: { width: 3, color: '#2563eb' } } })
+    // 横向共享边 (5,8)|(5,9)：同上
+    store.setStyle(5, 8, { border: { bottom: { width: 3, color: '#dc2626' } } })
+    store.setStyle(5, 9, { border: { top: { width: 3, color: '#2563eb' } } })
+    table.batchUpdate(() => {
+      table.refreshCell(5, 10)
+      table.refreshCell(6, 10)
+      table.refreshCell(5, 8)
+      table.refreshCell(5, 9)
+    })
+    // 前序步骤可能滚过表：回到原点再按实时几何采样
+    table.scrollTo(0, 0)
+    await frames(2)
+    // 列边界 = (5,10) 右缘；所有者 (5,10) 在自己矩形内画 3px（等宽取所有者红边）；
+    // 界外邻居格白底（不叠蓝、不加宽）
+    const vertical = table.getCellRelativeRect(5, 10)
+    assert(vertical, '(5,10) 不在可视窗口')
+    const bx = Math.round(vertical.x + vertical.width)
+    const cy = Math.round(vertical.y + vertical.height / 2)
+    expectColor(body, bx - 3, cy, '#dc2626', '共享竖边左端')
+    expectColor(body, bx - 1, cy, '#dc2626', '共享竖边右端')
+    expectColor(body, bx, cy, '#ffffff', '共享竖边界外不叠画')
+    expectColor(body, bx + 1, cy, '#ffffff', '共享竖边不双倍宽')
+    // 行边界 = (5,8) 下缘；所有者 (5,8) 画 3px
+    const horizontal = table.getCellRelativeRect(5, 8)
+    assert(horizontal, '(5,8) 不在可视窗口')
+    const by = Math.round(horizontal.y + horizontal.height)
+    const cx = Math.round(horizontal.x + horizontal.width / 2)
+    expectColor(body, cx, by - 3, '#dc2626', '共享横边上端')
+    expectColor(body, cx, by - 1, '#dc2626', '共享横边下端')
+    expectColor(body, cx, by, '#ffffff', '共享横边界外不叠画')
+    expectColor(body, cx, by + 1, '#ffffff', '共享横边不双倍宽')
+    // 还原（不污染后续步骤）
+    store.clearStyle(5, 10)
+    store.clearStyle(6, 10)
+    store.clearStyle(5, 8)
+    store.clearStyle(5, 9)
+    table.batchUpdate(() => {
+      table.refreshCell(5, 10)
+      table.refreshCell(6, 10)
+      table.refreshCell(5, 8)
+      table.refreshCell(5, 9)
+    })
+  })
+
+  await checker.step('sheet 冻结分隔线：sky 浮层画冻结行/列边界线', async () => {
+    const container = activeContainer()
+    table.clearSelection()
+    table.setFrozenColCount(1)
+    table.setFrozenRowCount(1)
+    await frames(2)
+    const sky = layerCanvas(container, 'sky')
+    // 竖线：冻结列右缘 x = 46 + 80 = 126（线体贴边界 [125,126)）；横线：冻结行下缘 y = 28 + 28 = 56（[55,56)）
+    expectColor(sky, 125, 100, '#B6BABF', '冻结列分隔线')
+    expectColor(sky, 200, 55, '#B6BABF', '冻结行分隔线')
+    table.setFrozenColCount(0)
+    table.setFrozenRowCount(0)
+    await frames(2)
+    // 冻结数归零后分隔线消失（sky 重绘后该处无像素）
+    const [r, g, b, a] = readPixel(sky, 125, 100)
+    assert(a === 0, `取消冻结后分隔线仍在 rgb(${r},${g},${b}) α=${a}`)
+  })
+
+  await checker.step('sheet numFmt：右键菜单设千分位 → 显示格式化；清除恢复', async () => {
+    const container = activeContainer()
+    table.scrollTo(0, 0)
+    store.setValue(8, 9, 1234.5)
+    table.refreshCell(8, 9)
+    await frames(2)
+    assert(table.getCellText(8, 9) === '1234.5', `裸值显示 ${table.getCellText(8, 9)}`)
+    // 右键 (8,9)：x = 46 + 8×80 + 40 = 726；y = 28(列头) + 9×28 + 16(行3加高) + 14 = 310
+    const openMenu = (): void => {
+      const rect = container.getBoundingClientRect()
+      container.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          clientX: rect.left + 726,
+          clientY: rect.top + 310,
+        }),
+      )
+    }
+    const menuItem = (text: string): HTMLElement => {
+      const item = [...document.querySelectorAll<HTMLElement>('.sheet-menu__item')].find(
+        (el) => el.textContent === text || el.textContent?.startsWith(text),
+      )
+      assert(item, `菜单项「${text}」未出现`)
+      return item
+    }
+    openMenu()
+    menuItem('设置数据格式').click()
+    menuItem('千分位金额').click()
+    await frames(2)
+    assert(
+      table.getCellText(8, 9) === '1,234.50',
+      `千分位显示 ${table.getCellText(8, 9)}（期望 1,234.50）`,
+    )
+    assert(handle.controls.numFmt.get(8, 9)?.kind === 'thousands', 'numFmt 侧车未写入')
+    assert(store.getValue(8, 9) === 1234.5, 'numFmt 不应改动原始值')
+    // 清除格式 → 恢复原始显示
+    openMenu()
+    menuItem('设置数据格式').click()
+    menuItem('清除格式').click()
+    await frames(2)
+    assert(table.getCellText(8, 9) === '1234.5', `清除后显示 ${table.getCellText(8, 9)}`)
+    assert(handle.controls.numFmt.get(8, 9) === undefined, 'numFmt 侧车未清除')
+    store.setValue(8, 9, null)
+    table.refreshCell(8, 9)
+  })
+
+  await checker.step(
+    'sheet xlsx round-trip：导出整本 → 导入重建，值/公式/合并/冻结/尺寸/样式/numFmt 保真',
+    async () => {
+      // 造 fixture（冻结/行列尺寸/样式/numFmt 均入 Store 与侧车，导出端从这里取）
+      store.setValue(0, 20, 3.14159)
+      handle.controls.numFmt.set(0, 20, { kind: 'fixed', digits: 2 })
+      store.setValue(1, 20, 45000) // 1900 序列数 = 2023-03-15
+      handle.controls.numFmt.set(1, 20, { kind: 'date' })
+      store.setStyle(2, 20, { background: '#ff0000' })
+      store.setFrozen({ colCount: 1, rowCount: 1 })
+      store.setColWidth(1, 120)
+      store.setRowHeight(5, 40)
+      // 页内 round-trip：导出整本 → 字节直接回导（无需二进制 fixture）
+      const bytes = await handle.controls.xlsx.exportBook()
+      assert(bytes.length > 100, `导出字节数异常 ${bytes.length}`)
+      await handle.controls.xlsx.importBuffer(bytes)
+      await frames(3)
+      // 重建后改从句柄重取（旧 store/table 已随 book 替换失效）
+      const store2 = handle.getStore()
+      const table2 = handle.getTable()
+      const ids = handle.ids()
+      assert(ids.length === 2, `导入后表数 ${ids.length}（期望 2）`)
+      const tabTexts = [...document.querySelectorAll('.sheet-tab')].map((el) => el.textContent)
+      assert(
+        tabTexts[0] === 'Sheet1' && tabTexts[1] === 'Sheet2',
+        `表名未沿用：${tabTexts.join('/')}`,
+      )
+      // 值抽样
+      assert(
+        store2.getValue(0, 2) === '样式矩阵 ↓',
+        `值抽样 (0,2)=${String(store2.getValue(0, 2))}`,
+      )
+      assert(store2.getValue(0, 20) === 3.14159, '数字值未保真')
+      // 公式格：Store 存 '=' 原文、显示求值结果
+      assert(store2.getValue(3, 2) === '=D1+D2', `公式原文 ${String(store2.getValue(3, 2))}`)
+      assert(table2.getCellText(3, 2) === '12', `公式格显示 ${table2.getCellText(3, 2)}（期望 12）`)
+      // 合并区
+      assert(
+        store2
+          .getMerges()
+          .some((m) => m.startCol === 2 && m.startRow === 11 && m.endCol === 4 && m.endRow === 12),
+        `合并区丢失：${JSON.stringify(store2.getMerges())}`,
+      )
+      // 冻结（Store 与引擎实例两侧）
+      assert(
+        store2.getFrozen().colCount === 1 && store2.getFrozen().rowCount === 1,
+        `Store 冻结 ${JSON.stringify(store2.getFrozen())}`,
+      )
+      assert(
+        table2.getFrozenColCount() === 1 && table2.getFrozenRowCount() === 1,
+        '引擎冻结数未随导入应用',
+      )
+      // 列宽：120px → (120-5)/7 ≈ 16 字符 → 16×7+5 = 117px；行高：40px → 30pt → 40px（精确）
+      assert(store2.getColWidth(1) === 117, `列宽 ${store2.getColWidth(1)}（期望 117）`)
+      assert(store2.getRowHeight(5) === 40, `行高 ${store2.getRowHeight(5)}（期望 40）`)
+      // 样式抽样：背景 / 粗体 / 边框（solid 2px → medium → solid 2px）
+      assert(store2.getStyle(2, 20)?.background === '#ff0000', '背景色未保真')
+      assert(store2.getStyle(1, 4)?.fontWeight === 700, '粗体未保真')
+      const edge = store2.getStyle(1, 7)?.border?.left
+      assert(
+        edge?.width === 2 && edge.color === '#2563eb' && edge.style === 'solid',
+        `边框未保真：${JSON.stringify(edge)}`,
+      )
+      // numFmt 显示（fixed(2) 两位小数、date 1900 序列数 → 日期文本）
+      assert(table2.getCellText(0, 20) === '3.14', `fixed(2) 显示 ${table2.getCellText(0, 20)}`)
+      assert(
+        table2.getCellText(1, 20) === '2023-03-15',
+        `date 显示 ${table2.getCellText(1, 20)}（期望 2023-03-15）`,
+      )
+      assert(handle.controls.numFmt.get(0, 20)?.kind === 'fixed', 'numFmt 未随导入还原')
+      // 第二张表值抽样 + 切回第一张
+      handle.switchTo(ids[1]!)
+      await frames(2)
+      assert(
+        handle.getStore().getValue(0, 0) === 0 && handle.getStore().getValue(3, 5) === 35,
+        'Sheet2 值未保真',
+      )
+      handle.switchTo(ids[0]!)
+      await frames(2)
+    },
+  )
 }

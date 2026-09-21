@@ -6,7 +6,7 @@
 
 - 表格渲染：多层 canvas 分层（ground/body/media/sky）、虚拟滚动窗口、行带增量失效
 - 交互：选区、hover、列宽拖拽、冻结、排序、编辑
-- 公式引擎：单元格公式计算（规划中，全新包）
+- 公式引擎：单元格公式计算（解析/求值 + 49 个内置函数 + 依赖图 DependencyGraph；宿主驱动求值、图驱动增量失效——value 变更经 affectedBy 传递闭包标脏波及公式，易失函数随任意变更重算，循环由宿主护栏报错）
 - 插件机制：官方特性与用户扩展走同一注册路径
 
 下游为 ultra-ui 等自用产品。重构调研与目标架构文档 `docs/perf-redesign/`（01-08）已删除（0330ea0），仅存 git 历史。
@@ -34,5 +34,4 @@
 
 ## 未决
 
-- `packages/formulas` 的公式语言范围（函数集、依赖图计算模型）未定
 - `packages/plugins` 首批插件清单未定（旧代码仅有 custom-cell-style / invert-highlight / list-tree-stick-cell）

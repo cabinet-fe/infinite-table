@@ -130,15 +130,18 @@ export interface CSVHandle {
   destroy(): void
 }
 
-/** CSV 句柄（按钮装配归工具栏；文件 input 随句柄生命周期） */
+/** CSV 句柄（按钮装配归工具栏；文件 input 随句柄生命周期；.xlsx 文件经 onXlsx 分流） */
 export function createCSV(ctx: {
   table: () => ListTable
   store: () => SheetStore
   notify: (text: string) => void
+  /** 选中 .xlsx 文件时的分流回调（xlsx 导入由 xlsx.ts 承担） */
+  onXlsx?: (file: File) => void
 }): CSVHandle {
   const fileInput = document.createElement('input')
   fileInput.type = 'file'
-  fileInput.accept = '.csv,text/csv'
+  fileInput.accept =
+    '.csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   fileInput.style.display = 'none'
   document.body.appendChild(fileInput)
 
@@ -148,6 +151,12 @@ export function createCSV(ctx: {
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0]
     if (!file) {
+      return
+    }
+    // 按扩展名分流：xlsx 走 hucre 整本重建，csv 走文本覆盖
+    if (/\.xlsx$/i.test(file.name)) {
+      ctx.onXlsx?.(file)
+      fileInput.value = ''
       return
     }
     const text = await file.text()

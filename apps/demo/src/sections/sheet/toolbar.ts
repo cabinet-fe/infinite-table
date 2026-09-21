@@ -3,17 +3,31 @@
 //      | 编辑（查找/函数）| 插入（图片）| 文件（导入/导出）。
 // 写路径统一走 Store 格级样式 + resolveCellStyle hook + batchUpdate 收敛刷新。
 
-import { normalizeRange, type CellStyle, type ListTable } from '@infinite-table/core'
+import {
+  normalizeRange,
+  type CellBorderEdge,
+  type CellStyle,
+  type ListTable,
+} from '@infinite-table/core'
 
-import type { SheetStore, UndoStack } from '@infinite-table/plugins'
+import {
+  borderPresetLine,
+  buildBorderPresetCells,
+  type BorderLineStyle,
+  type BorderPreset,
+  type SheetStore,
+  type UndoStack,
+} from '@infinite-table/plugins'
 
-import { FUNCTION_CATEGORIES, SHEET_FUNCTIONS } from './functions'
+import { FORMULA_FUNCTION_CATEGORIES, listFormulaFunctions } from '@infinite-table/formulas'
+
 import { createFindReplace, type FindReplaceHandle } from './find-replace'
 import { icon } from './icons'
 import { closeActivePopup, isPopupAnchoredTo, openAnchoredPopup } from './popup'
 import { mergeBounds, unmergeAt } from './ops'
 import type { SheetBookBundle } from './book'
 import type { CSVHandle } from './csv'
+import type { XlsxHandle } from './xlsx'
 
 /** 填充/字色共用色板（7 列 × 5 行） */
 const PALETTE: readonly string[] = [
@@ -57,17 +71,14 @@ const PALETTE: readonly string[] = [
 /** 字号档位（pt 标注语义，落 Store 为 fontSize 像素数值） */
 const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32] as const
 
-/** 边框线型（宽度和线型映射到 CellBorder 边） */
-const LINE_STYLES = [
-  { id: 'thin', label: '细线', width: 1, style: 'solid' },
-  { id: 'medium', label: '中粗线', width: 2, style: 'solid' },
-  { id: 'thick', label: '粗线', width: 3, style: 'solid' },
-  { id: 'dashed', label: '虚线', width: 1, style: 'dashed' },
-  { id: 'dotted', label: '点线', width: 1, style: 'dotted' },
-] as const
-
-type BorderEdge = { width: number; color: string; style: 'solid' | 'dashed' | 'dotted' }
-type CellEdges = { top?: BorderEdge; right?: BorderEdge; bottom?: BorderEdge; left?: BorderEdge }
+/** 边框线型（边定义由 plugins borderPresetLine 映射：thin/medium/thick→solid 1/2/3px，dashed/dotted 同名线型） */
+const LINE_STYLES: ReadonlyArray<{ id: BorderLineStyle; label: string }> = [
+  { id: 'thin', label: '细线' },
+  { id: 'medium', label: '中粗线' },
+  { id: 'thick', label: '粗线' },
+  { id: 'dashed', label: '虚线' },
+  { id: 'dotted', label: '点线' },
+]
 
 /** 样式 key → 工具栏提示用中文名 */
 const STYLE_LABELS: Record<string, string> = {
@@ -92,6 +103,7 @@ export interface ToolbarDeps {
   stack: UndoStack
   bundle: SheetBookBundle
   csv: CSVHandle
+  xlsx: XlsxHandle
   /** 公式栏（函数面板插入落点） */
   formulaBar: { insertSnippet: (snippet: string) => void }
 }
@@ -263,69 +275,31 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     refreshStates()
   }
 
-  /** 边框预设：按格在选区内的位置生成四边 */
-  const edgesForPreset = (
-    preset: string,
-    col: number,
-    row: number,
-    bounds: { minCol: number; maxCol: number; minRow: number; maxRow: number },
-    edge: BorderEdge,
-  ): CellEdges => {
-    const atTop = row === bounds.minRow
-    const atBottom = row === bounds.maxRow
-    const atLeft = col === bounds.minCol
-    const atRight = col === bounds.maxCol
-    switch (preset) {
-      case 'all':
-        return { top: edge, right: edge, bottom: edge, left: edge }
-      case 'outer':
-        return {
-          top: atTop ? edge : undefined,
-          right: atRight ? edge : undefined,
-          bottom: atBottom ? edge : undefined,
-          left: atLeft ? edge : undefined,
-        }
-      case 'inner':
-        return {
-          top: atTop ? undefined : edge,
-          right: atRight ? undefined : edge,
-          bottom: atBottom ? undefined : edge,
-          left: atLeft ? undefined : edge,
-        }
-      case 'top':
-        return atTop ? { top: edge } : {}
-      case 'bottom':
-        return atBottom ? { bottom: edge } : {}
-      case 'left':
-        return atLeft ? { left: edge } : {}
-      case 'right':
-        return atRight ? { right: edge } : {}
-      default:
-        return {}
-    }
-  }
-
-  /** 边框预设写入选区（none 清除边框键） */
-  const applyBorderPreset = (preset: string, edge: BorderEdge): void => {
+  /**
+   * 边框预设写入选区：逐格片段由 plugins buildBorderPresetCells 展开（8 预设语义对齐 ultra-ui），
+   * 写入按边级合并进既有 border（部分预设不丢其余边）；none 清除边框键。
+   * 不做邻居共享边回写——core 共享边裁决保证单侧设置即正确显示；左/上邻居刷新由
+   * refreshCell 联动覆盖（refreshSelection 只刷选区内）。
+   */
+  const applyBorderPreset = (preset: BorderPreset, edge: CellBorderEdge): void => {
     const bounds = selectionBounds()
     if (!bounds) {
       deps.notify('无选区', 'warn')
       return
     }
     const store = deps.store()
-    for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
-      for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-        const base = { ...store.getStyle(col, row) } as Record<string, unknown>
-        if (preset === 'none') {
-          delete base.border
-        } else {
-          base.border = edgesForPreset(preset, col, row, bounds, edge)
-        }
-        if (Object.keys(base).length === 0) {
-          store.clearStyle(col, row)
-        } else {
-          store.setStyle(col, row, base as CellStyle)
-        }
+    for (const item of buildBorderPresetCells(bounds, preset, edge)) {
+      const base = { ...store.getStyle(item.col, item.row) } as Record<string, unknown>
+      if (item.border === null) {
+        delete base.border
+      } else {
+        const existing = base.border as Record<string, unknown> | undefined
+        base.border = { ...existing, ...item.border }
+      }
+      if (Object.keys(base).length === 0) {
+        store.clearStyle(item.col, item.row)
+      } else {
+        store.setStyle(item.col, item.row, base as CellStyle)
       }
     }
     refreshSelection(bounds)
@@ -507,7 +481,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     el.appendChild(list)
   }
 
-  const borderGlyph = (preset: string): string => {
+  const borderGlyph = (preset: BorderPreset): string => {
     const on = 'currentColor'
     const off = '#d4d4d8'
     const v = (color: string) => `<path d="M8 2v12" stroke="${color}"/>`
@@ -540,6 +514,11 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
       line: LINE_STYLES[0]!,
       color: '#000000',
     }
+    /** 线型 + 颜色 → 边定义（plugins borderPresetLine），并渲染线型按钮的预览色条 */
+    const swatchBorder = (line: (typeof LINE_STYLES)[number], color: string): string => {
+      const edge = borderPresetLine(line.id, color)
+      return `${edge.width}px ${edge.style ?? 'solid'} ${edge.color}`
+    }
 
     const row1 = document.createElement('div')
     row1.className = 'sheet-popup__row'
@@ -556,10 +535,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
       button.title = line.label
       const swatch = document.createElement('span')
       swatch.className = 'sheet-popup__line-swatch'
-      swatch.style.borderBottom = `${line.width}px ${line.style} ${selected.color}`
-      if (line.style === 'dashed') {
-        swatch.style.borderBottomStyle = 'dashed'
-      }
+      swatch.style.borderBottom = swatchBorder(line, selected.color)
       button.appendChild(swatch)
       if (line === selected.line) {
         button.classList.add('is-active')
@@ -583,8 +559,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
       lineButtons.forEach((b, i) => {
         const swatch = b.firstElementChild
         if (swatch instanceof HTMLElement) {
-          const line = LINE_STYLES[i]!
-          swatch.style.borderBottom = `${line.width}px ${line.style} ${color}`
+          swatch.style.borderBottom = swatchBorder(LINE_STYLES[i]!, color)
         }
       })
     })
@@ -598,7 +573,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     label3.textContent = '预设'
     const presets = document.createElement('div')
     presets.className = 'sheet-popup__presets'
-    const PRESET_ITEMS = [
+    const PRESET_ITEMS: ReadonlyArray<readonly [BorderPreset, string]> = [
       ['outer', '外边框'],
       ['inner', '内边框'],
       ['all', '所有边框'],
@@ -607,7 +582,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
       ['left', '左边框'],
       ['right', '右边框'],
       ['none', '无边框'],
-    ] as const
+    ]
     for (const [preset, title] of PRESET_ITEMS) {
       const button = document.createElement('button')
       button.type = 'button'
@@ -617,11 +592,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
         `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke-width="1.5" ` +
         `stroke-linecap="square">${borderGlyph(preset)}</svg>`
       button.addEventListener('click', () => {
-        applyBorderPreset(preset, {
-          width: selected.line.width,
-          color: selected.color,
-          style: selected.line.style,
-        })
+        applyBorderPreset(preset, borderPresetLine(selected.line.id, selected.color))
         close()
       })
       presets.appendChild(button)
@@ -630,6 +601,8 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     el.append(row1, row2, row3)
   }
 
+  // 函数面板：分类与数据来自 formulas 注册表（常用/全部 + 注册表分类），签名为元数据单一来源
+  const FUNCTION_PANEL_CATEGORIES = ['常用', '全部', ...FORMULA_FUNCTION_CATEGORIES.slice(1)]
   const functionsPopup = (el: HTMLElement, close: () => void): void => {
     el.classList.add('sheet-popup', 'sheet-popup--functions')
     const nav = document.createElement('div')
@@ -640,21 +613,21 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     search.placeholder = '搜索函数名或描述'
     const list = document.createElement('div')
     list.className = 'sheet-functions__list'
-    let category: string = FUNCTION_CATEGORIES[0]
+    let category: string = FUNCTION_PANEL_CATEGORIES[0]!
     let keyword = ''
 
     const insert = (name: string): void => {
-      deps.formulaBar.insertSnippet(`=${name}(`)
+      deps.formulaBar.insertSnippet(name)
       close()
     }
 
     const renderList = (): void => {
       list.textContent = ''
-      const items = SHEET_FUNCTIONS.filter((fn) => {
-        if (category === '常用' && !fn.common) {
+      const items = listFormulaFunctions().filter((info) => {
+        if (category !== '全部' && info.category !== category) {
           return false
         }
-        if (keyword && !`${fn.name} ${fn.description}`.toLowerCase().includes(keyword)) {
+        if (keyword && !`${info.name} ${info.description}`.toLowerCase().includes(keyword)) {
           return false
         }
         return true
@@ -666,23 +639,23 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
         list.appendChild(empty)
         return
       }
-      for (const fn of items) {
+      for (const info of items) {
         const item = document.createElement('button')
         item.type = 'button'
         item.className = 'sheet-functions__item'
         const signature = document.createElement('div')
         signature.className = 'sheet-functions__signature'
-        signature.textContent = fn.signature
+        signature.textContent = info.signature
         const description = document.createElement('div')
         description.className = 'sheet-functions__description'
-        description.textContent = fn.description
+        description.textContent = info.description
         item.append(signature, description)
-        item.addEventListener('click', () => insert(fn.name))
+        item.addEventListener('click', () => insert(info.name))
         list.appendChild(item)
       }
     }
 
-    for (const name of FUNCTION_CATEGORIES) {
+    for (const name of FUNCTION_PANEL_CATEGORIES) {
       const item = document.createElement('button')
       item.type = 'button'
       item.className = 'sheet-functions__nav-item'
@@ -759,8 +732,18 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     xlsx.type = 'button'
     xlsx.className = 'sheet-export-item'
     xlsx.textContent = '导出 Excel (.xlsx)'
-    xlsx.disabled = true
-    xlsx.title = '演示面未实现 xlsx 导出'
+    xlsx.addEventListener('click', () => {
+      void deps.xlsx
+        .downloadBook()
+        .then(() => deps.notify('已导出 Excel（整本工作簿）'))
+        .catch((error: unknown) =>
+          deps.notify(
+            `导出失败：${error instanceof Error ? error.message : String(error)}`,
+            'warn',
+          ),
+        )
+      close()
+    })
     const csvItem = document.createElement('button')
     csvItem.type = 'button'
     csvItem.className = 'sheet-export-item'
@@ -937,7 +920,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
   addDivider()
   addTool({
     id: 'import',
-    title: '从 .csv 文件导入',
+    title: '从 .xlsx / .csv 文件导入',
     iconId: 'import',
     onClick: () => deps.csv.openPicker(),
   })

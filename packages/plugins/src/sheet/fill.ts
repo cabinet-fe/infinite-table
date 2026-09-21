@@ -3,6 +3,7 @@
 // Date 日期序列（按天）、文本尾数字序列（保留前导零）、复制兜底（非序列值循环复制）。
 // 只依赖 core 公开入口；写路径由宿主提供（配合 batchUpdate 收敛），内核不产生写值行为。
 
+import { normalizeRange } from '@infinite-table/core'
 import type { FillDragEndEvent, ListTable, RangeBounds } from '@infinite-table/core'
 
 /** 填充生成的单个目标格 */
@@ -177,6 +178,48 @@ function hasSamePrefix(matches: RegExpExecArray[], prefix: string): boolean {
   return matches.every((match) => match[1] === prefix)
 }
 
+/** 空值判定：SheetStore/SheetModel 的空格（undefined/null）与空串都视为无数据 */
+function isEmptyValue(value: unknown): boolean {
+  return value === undefined || value === null || value === ''
+}
+
+/**
+ * 双击填充柄的自动填充目标（Excel 语义）：按锚定段相邻列（左邻优先、其次右邻）的
+ * 连续数据块末行，把锚定段向下延展成新目标；相邻列在锚定段行范围内无数据、
+ * 或数据块未越出锚定段底行时返回 null（无填充）。
+ */
+export function resolveAutoFillTarget(
+  anchor: RangeBounds,
+  read: FillRead,
+  rowCount: number,
+): RangeBounds | null {
+  for (const refCol of [anchor.minCol - 1, anchor.maxCol + 1]) {
+    if (refCol < 0) {
+      continue
+    }
+    // 数据块与选区的接点：锚定段行范围内参考列第一个非空格
+    let seed = -1
+    for (let row = anchor.minRow; row <= anchor.maxRow; row++) {
+      if (!isEmptyValue(read(refCol, row))) {
+        seed = row
+        break
+      }
+    }
+    if (seed < 0) {
+      continue
+    }
+    // 从接点向下扩到连续数据块末尾（越界读取天然为空，rowCount 夹取只是少扫空行）
+    let endRow = seed
+    while (endRow + 1 < rowCount && !isEmptyValue(read(refCol, endRow + 1))) {
+      endRow++
+    }
+    if (endRow > anchor.maxRow) {
+      return { minCol: anchor.minCol, minRow: anchor.minRow, maxCol: anchor.maxCol, maxRow: endRow }
+    }
+  }
+  return null
+}
+
 /** 填充生成接线选项：read 一般取 SheetStore.getValue；write 内建议用 batchUpdate 收敛失效 */
 export interface FillGenerationOptions {
   table: ListTable
@@ -185,31 +228,54 @@ export interface FillGenerationOptions {
   write: (cells: FillCell[], event: FillDragEndEvent) => void
   /** 自定义生成器（缺省 generateFill） */
   generate?: typeof generateFill
+  /** 双击填充柄自动填充：提供行数即启用（按相邻列连续数据块末行向下填充） */
+  autoComplete?: { rowCount: () => number }
 }
 
 /**
  * 接线填充柄拖拽结束事件：anchor 与 target 的差集区经 generateFill 生成后交给 write；
  * 写入后选区扩展到锚定段 ∪ 扩展区（对标 ultra-ui：填充完成选区跟随覆盖源区与新区）。
+ * 提供 autoComplete 时同时接线双击填充柄（相邻数据块末行的向下自动填充）。
  * 返回退订函数。
  */
 export function bindFillGeneration(options: FillGenerationOptions): () => void {
   const generate = options.generate ?? generateFill
-  return options.table.onFillDragEnd((event) => {
-    const cells = generate(event.anchor, event.target, options.read)
-    if (cells.length > 0) {
-      options.write(cells, event)
-      options.table.selectCells([
-        {
-          start: {
-            col: Math.min(event.anchor.minCol, event.target.minCol),
-            row: Math.min(event.anchor.minRow, event.target.minRow),
-          },
-          end: {
-            col: Math.max(event.anchor.maxCol, event.target.maxCol),
-            row: Math.max(event.anchor.maxRow, event.target.maxRow),
-          },
+  // 拖拽结束与双击自动填充共用的生成-写入-扩选主体（双击的 target 由相邻数据块解析）
+  const applyFill = (anchor: RangeBounds, target: RangeBounds): void => {
+    const cells = generate(anchor, target, options.read)
+    if (cells.length === 0) {
+      return
+    }
+    options.write(cells, { anchor, target })
+    options.table.selectCells([
+      {
+        start: {
+          col: Math.min(anchor.minCol, target.minCol),
+          row: Math.min(anchor.minRow, target.minRow),
         },
-      ])
+        end: {
+          col: Math.max(anchor.maxCol, target.maxCol),
+          row: Math.max(anchor.maxRow, target.maxRow),
+        },
+      },
+    ])
+  }
+  const offDragEnd = options.table.onFillDragEnd((event) => {
+    applyFill(event.anchor, event.target)
+  })
+  const autoComplete = options.autoComplete
+  if (!autoComplete) {
+    return offDragEnd
+  }
+  const offDoubleClick = options.table.onFillHandleDoubleClick((event) => {
+    const anchor = normalizeRange(event.range)
+    const target = resolveAutoFillTarget(anchor, options.read, autoComplete.rowCount())
+    if (target) {
+      applyFill(anchor, target)
     }
   })
+  return () => {
+    offDragEnd()
+    offDoubleClick()
+  }
 }

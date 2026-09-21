@@ -4,7 +4,7 @@
 import { SceneNode, type RenderContext, type SceneNodeInit } from '@infinite-table/render'
 
 import { BUILTIN_CELL_RENDERERS, type CellRenderer, type CellType } from './cell-renderer'
-import { cellStyleFont, type CellBorderEdge, type CellStyle } from './cell-style'
+import { cellStyleFont, type CellBorder, type CellBorderEdge, type CellStyle } from './cell-style'
 
 /** dashed 线型段：段长 6、间隔 4（CSS 像素） */
 const DASHED_SEGMENT = { on: 6, off: 4 } as const
@@ -65,6 +65,11 @@ export interface CellNodeInit extends SceneNodeInit {
   cellType?: CellType
   /** 投影后的逐格样式（含逐边边框） */
   style?: CellStyle
+  /**
+   * 生效绘制边框（场景侧共享边裁决产物）：显式传入（含 null＝不画边框）即与 style.border 解耦；
+   * 缺省跟随 style.border（直接构造/无裁决场景）。
+   */
+  border?: CellBorder | null
   /** 自定义渲染 hook：接管格内容绘制（背景/边框仍由节点负责） */
   renderer?: CellRenderer | null
   /** 文本可绘制局部右界（≥ width 表示可溢出到右侧空格；缺省= width，裁剪在本格） */
@@ -78,6 +83,8 @@ export class CellNode extends SceneNode {
   value: unknown
   cellType: CellType
   style: CellStyle
+  /** 生效绘制边框（共享边裁决产物；null = 不画边框）；style 被整体替换时不随之变化 */
+  border: CellBorder | null
   renderer: CellRenderer | null
   /** 文本可绘制局部右界；等于 width 表示不溢出 */
   textMaxX: number
@@ -95,6 +102,8 @@ export class CellNode extends SceneNode {
     this.value = init.value
     this.cellType = init.cellType ?? 'text'
     this.style = init.style ?? {}
+    // 未显式给生效边框时跟随 style.border（直接构造场景）；场景装配恒显式传入
+    this.border = 'border' in init ? (init.border ?? null) : (this.style.border ?? null)
     this.renderer = init.renderer ?? null
     this.textMaxX = init.textMaxX ?? init.width ?? 0
   }
@@ -169,10 +178,11 @@ export class CellNode extends SceneNode {
 
   /**
    * 逐边边框：按各边线型绘制（fillRect 保证像素对齐），后画压在内容之上。
-   * 四边各自 width/color/style 独立生效。
+   * 画「生效边框」（共享边裁决产物，shared-edges.ts）：非所有者的 left/top 已剔除、
+   * 所有者边已并入邻居对侧强边；直接构造（未走裁决）时跟随 style.border。
    */
   private paintBorders(ctx: RenderContext): void {
-    const border = this.style.border
+    const border = this.border
     if (!border) {
       return
     }

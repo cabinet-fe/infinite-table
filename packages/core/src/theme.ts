@@ -65,6 +65,10 @@ export interface InteractionTokens {
   resizeLineWidth: number
   /** 整行/整列选区覆盖时行号格/列头格的高亮背景 */
   headerHighlight: string
+  /** 冻结行/列分隔线颜色（冻结数为 0 的轴不绘制） */
+  freezeDividerColor: string
+  /** 冻结分隔线宽（CSS 像素） */
+  freezeDividerWidth: number
 }
 
 /** 表格外框样式 token */
@@ -155,6 +159,9 @@ export const defaultTheme: TableTheme = {
     resizeLine: '#2e6adb',
     resizeLineWidth: 2,
     headerHighlight: 'rgba(46, 106, 219, 0.18)',
+    // 比默认网格线（#e5e6eb）深一档，对齐 Excel 冻结分隔观感
+    freezeDividerColor: '#c9cdd4',
+    freezeDividerWidth: 1,
   },
   frameStyle: {
     lineWidth: 0,
@@ -195,7 +202,8 @@ export function extendsTheme(
  */
 export function themeCellBase(tokens: CellStyleTokens): CellStyle {
   const { borderColor, border, ...style } = tokens
-  const grid: CellBorderEdge = { width: 1, color: borderColor }
+  // 网格边打 grid 标记：共享边裁决（shared-edges.ts）据此让显式边恒胜网格派生边
+  const grid: CellBorderEdge = { width: 1, color: borderColor, grid: true }
   return {
     ...style,
     border: { ...border, right: border?.right ?? grid, bottom: border?.bottom ?? grid },

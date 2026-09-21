@@ -19,6 +19,7 @@ import {
   unmergeAt,
 } from './ops'
 import { colLetters } from './formula-bar'
+import type { NumFmt } from './format'
 
 export interface ContextMenuHandle {
   destroy(): void
@@ -28,6 +29,8 @@ export function mountContextMenu(ctx: {
   table: () => ListTable
   store: () => SheetStore
   notify: (text: string, kind?: 'info' | 'warn') => void
+  /** numFmt 侧车写路径（绑定活跃 sheet；fmt undefined = 清除）。格刷新由本模块触发 */
+  setNumFmt: (col: number, row: number, fmt: NumFmt | undefined) => void
 }): ContextMenuHandle {
   const unsubscribe = ctx.table().onContextMenu((event) => {
     const table = ctx.table()
@@ -246,6 +249,8 @@ export function mountContextMenu(ctx: {
             !inMerge,
           ),
           separator(),
+          numFmtSubmenu(current, ctx, table),
+          separator(),
           actionItem('插入图片', () => {
             const seq = (insertImageSeq.value += 1)
             table.floatObjects.add({
@@ -304,6 +309,80 @@ function separator(): HTMLElement {
   const sep = document.createElement('div')
   sep.className = 'sheet-menu__separator'
   return sep
+}
+
+/** 数据格式项的统一写路径：选区逐格写 numFmt 侧车 + 选区刷新（同 setStyle 模式） */
+function applyNumFmtToBounds(
+  bounds: { minCol: number; maxCol: number; minRow: number; maxRow: number },
+  fmt: NumFmt | undefined,
+  ctx: {
+    setNumFmt: (col: number, row: number, fmt: NumFmt | undefined) => void
+    notify: (text: string, kind?: 'info' | 'warn') => void
+  },
+  table: ListTable,
+  label: string,
+): void {
+  for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
+    for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
+      ctx.setNumFmt(col, row, fmt)
+    }
+  }
+  table.batchUpdate(() => {
+    for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
+      for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
+        table.refreshCell(col, row)
+      }
+    }
+  })
+  ctx.notify(label)
+}
+
+/**
+ * 「设置数据格式」子菜单（对齐 ultra-ui 右键菜单项）：日期 / 千分位金额 / 大写金额 /
+ * 小数位数 0–10 / 清除格式。弹层为全局单例，点击后子菜单在项右侧弹出、主菜单随之关闭。
+ */
+function numFmtSubmenu(
+  bounds: { minCol: number; maxCol: number; minRow: number; maxRow: number },
+  ctx: {
+    setNumFmt: (col: number, row: number, fmt: NumFmt | undefined) => void
+    notify: (text: string, kind?: 'info' | 'warn') => void
+  },
+  table: ListTable,
+): HTMLElement {
+  const item = actionItem('设置数据格式 ▸', () => {
+    const rect = item.getBoundingClientRect()
+    openFixedPopup(rect.right + 2, rect.top, {
+      build: (el, close) => {
+        el.classList.add('sheet-popup', 'sheet-popup--menu')
+        const apply = (fmt: NumFmt | undefined, label: string): void => {
+          applyNumFmtToBounds(bounds, fmt, ctx, table, label)
+          close()
+        }
+        const items: HTMLElement[] = [
+          actionItem('日期', () => apply({ kind: 'date' }, '已设置数据格式：日期')),
+          actionItem('千分位金额', () =>
+            apply({ kind: 'thousands' }, '已设置数据格式：千分位金额'),
+          ),
+          actionItem('大写金额', () => apply({ kind: 'cnUpper' }, '已设置数据格式：大写金额')),
+          separator(),
+        ]
+        for (let digits = 0; digits <= 10; digits++) {
+          const fmt: NumFmt = { kind: 'fixed', digits }
+          items.push(
+            actionItem(`小数位数 ${digits}`, () =>
+              apply(fmt, `已设置数据格式：小数位数 ${digits}`),
+            ),
+          )
+        }
+        items.push(
+          separator(),
+          actionItem('清除格式', () => apply(undefined, '已清除数据格式')),
+        )
+        el.append(...items)
+      },
+    })
+  })
+  return item
 }
 
 /** 数量输入项：「在上方插入 [3] 行」——Enter 确认执行（keepOpen，不点外不关） */

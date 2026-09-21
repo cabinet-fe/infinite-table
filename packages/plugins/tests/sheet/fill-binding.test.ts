@@ -103,4 +103,62 @@ describe('bindFillGeneration 接线', () => {
     const bodyInvs = host.submitted.filter((entry) => entry.kind === 'body').map((e) => e.inv.type)
     expect(bodyInvs).toEqual(['band'])
   })
+
+  it('双击填充柄 + autoComplete：按左邻列数据块末行自动向下填充，选区跟随扩展', () => {
+    const { store, table, root } = setup({
+      '0,0': 'a',
+      '0,1': 'b',
+      '0,2': 'c',
+      '0,3': 'd',
+      '1,0': 2,
+      '1,1': 4,
+    })
+    table.selectCells([{ start: { col: 1, row: 0 }, end: { col: 1, row: 1 } }])
+    bindFillGeneration({
+      table,
+      read: (col, row) => store.getValue(col, row),
+      write: (cells) => {
+        for (const cell of cells) {
+          store.setValue(cell.col, cell.row, cell.value)
+        }
+      },
+      autoComplete: { rowCount: () => store.getRowCount() },
+    })
+
+    // 选区段 (1,0):(1,1) 右下角格 (1,1)：格矩形 148..248 × 68..100，柄方点 244..248 × 96..100
+    fire(root, 'pointerdown', 246, 98)
+    fire(root, 'pointerup', 246, 98)
+    fire(root, 'pointerdown', 246, 98)
+    fire(root, 'pointerup', 246, 98)
+
+    // 左邻列 0 数据块行 0..3 → 数字源 2,4（步长 2）填充行 2、3
+    expect(store.getValue(1, 2)).toBe(6)
+    expect(store.getValue(1, 3)).toBe(8)
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 0 }, end: { col: 1, row: 3 } },
+    ])
+  })
+
+  it('未提供 autoComplete：双击填充柄不产生写值', () => {
+    const { store, table, root } = setup({ '0,0': 'a', '0,1': 'b', '0,2': 'c', '1,0': 1 })
+    table.selectCell(1, 0)
+    bindFillGeneration({
+      table,
+      read: (col, row) => store.getValue(col, row),
+      write: (cells) => {
+        for (const cell of cells) {
+          store.setValue(cell.col, cell.row, cell.value)
+        }
+      },
+    })
+
+    // 格 (1,0) 右下角点柄：248..252 × 64..68 —— 取格内一点 (246,66)
+    fire(root, 'pointerdown', 246, 66)
+    fire(root, 'pointerup', 246, 66)
+    fire(root, 'pointerdown', 246, 66)
+    fire(root, 'pointerup', 246, 66)
+
+    expect(store.getValue(1, 1)).toBeUndefined()
+    expect(store.getValue(1, 2)).toBeUndefined()
+  })
 })

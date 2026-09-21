@@ -51,7 +51,7 @@ import {
 import { HoverState } from './hover-state'
 import type { FillDragState } from './fill-handle'
 import { FloatObjectLayer } from './float/float-object-layer'
-import { InteractionOverlay, type ResizeLine } from './interaction-overlay'
+import { InteractionOverlay, type HighlightRange, type ResizeLine } from './interaction-overlay'
 import { nextActiveCell } from './keyboard-navigation'
 import {
   bindInteractionEvents,
@@ -64,6 +64,8 @@ import {
 import { assertMergesWithinBoundary, cellKey, HEADER_COORD } from './list-table-internal'
 import { onImageServiceLoad, refreshImageCell, updateImageWindow } from './list-table-media'
 import {
+  effectiveBorder,
+  headerStyles,
   overflowSourceCol,
   rebuildScene,
   textOverflowLimitX,
@@ -98,7 +100,11 @@ import type {
   EditStartEvent,
   ListTableOptions,
 } from './types'
-import type { FillDragEndListener, FillHandleDownListener } from './fill-handle'
+import type {
+  FillDragEndListener,
+  FillHandleDoubleClickListener,
+  FillHandleDownListener,
+} from './fill-handle'
 
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
@@ -189,6 +195,8 @@ export class ListTable {
   headerHighlightSignature = ''
   /** @internal 浮层曾有内容（清空补一次 full 防残影） */
   overlayHadContent = false
+  /** @internal 宿主高亮区域（公式引用染色框等）：sky 浮层内容源之一，setHighlightRanges 写入 */
+  highlightRanges: readonly HighlightRange[] = []
   private batchDepth = 0
   private readonly batchRegions: Region[] = []
   /** @internal contextmenu 事件订阅 */
@@ -207,8 +215,14 @@ export class ListTable {
   readonly fillHandleDownListeners = new Set<FillHandleDownListener>()
   /** @internal 填充柄拖拽结束事件订阅（锚定段范围 + 拖拽目标格范围） */
   readonly fillDragEndListeners = new Set<FillDragEndListener>()
+  /** @internal 填充柄双击事件订阅（柄所在选区段；与拖拽结束互斥） */
+  readonly fillHandleDoubleClickListeners = new Set<FillHandleDoubleClickListener>()
   /** @internal 填充柄拖拽会话：柄所在选区段 + 起点终点格（轴锁定）+ 边缘自动滚动状态（填充生成不在内核） */
   fillDrag: FillDragState | null = null
+  /** @internal 上一次「点按柄」（无拖拽扩展的按下-抬起）的锚定段签名与时间（双击窗口判定用；拖拽扩展/双击成交即清零） */
+  lastFillHandleTap: { key: string; time: number } | null = null
+  /** @internal 本次按柄是否命中双击窗口（按下时判定，抬起时消费） */
+  fillHandleDoubleTap = false
   /** 编辑状态唯一源：进入/提交/取消生命周期 */
   readonly editManager: EditManager
   /** 编辑器注册表（可编第一级判定与格级路由），可注入或事后注册 */
@@ -429,6 +443,31 @@ export class ListTable {
     const master = this.mergeCells.masterOf(col, row)
     const masterCol = master?.col ?? col
     const masterRow = master?.row ?? row
+    const prevBorder = this.cellNodes.get(cellKey(masterCol, masterRow))?.style.border
+    this.refreshCellNode(col, row)
+    // 共享边联动（shared-edges.ts）：本格 left/top 边改变左/上邻居（共享边所有者）的生效边。
+    // 样式按不可变约定使用，边框引用未变则邻居生效边不变、跳过联动；
+    // 联动刷新自身不再级联（各邻居生效边只依赖其自身样式与本格对侧边），无循环。
+    const node = this.cellNodes.get(cellKey(masterCol, masterRow))
+    if (!node || node.style.border === prevBorder) {
+      return
+    }
+    const range = this.mergeCells.rangeAt(masterCol, masterRow)
+    const startCol = range?.startCol ?? masterCol
+    const startRow = range?.startRow ?? masterRow
+    if (startCol > 0) {
+      this.refreshCellNode(startCol - 1, startRow)
+    }
+    if (startRow > 0) {
+      this.refreshCellNode(masterCol, startRow - 1)
+    }
+  }
+
+  /** refreshCell 的单格实现（不级联邻居；共享边联动的邻居刷新也走这里） */
+  private refreshCellNode(col: number, row: number): void {
+    const master = this.mergeCells.masterOf(col, row)
+    const masterCol = master?.col ?? col
+    const masterRow = master?.row ?? row
     refreshImageCell(this, masterCol, masterRow)
     const node = this.cellNodes.get(cellKey(masterCol, masterRow))
     if (!node) {
@@ -442,6 +481,8 @@ export class ListTable {
       this.pipeline.resolveValue(masterCol, masterRow),
     )
     node.style = this.resolveStyle(masterCol, masterRow)
+    // 生效边框随样式重算（共享边裁决：本格 right/bottom 与右/下邻居对侧边取强）
+    node.border = effectiveBorder(this, masterCol, masterRow, node.style)
     node.renderer = this.options.resolveCellRenderer?.(masterCol, masterRow) ?? null
     const limitX = textOverflowLimitX(
       this,
@@ -561,6 +602,15 @@ export class ListTable {
   /** 外部模型回写选区：应用并刷新浮层但不广播，防回环 */
   applyExternalSelection(snapshot: SelectionSnapshot): void {
     this.selection.applyExternal(snapshot)
+    refreshOverlay(this)
+  }
+
+  /**
+   * 设置宿主高亮区域（公式引用染色框等）：sky 浮层四边细条边框，随滚动/选区同内容源重绘，
+   * 只绘制不拦截事件、与选区语义无关；传空数组清除。
+   */
+  setHighlightRanges(ranges: readonly HighlightRange[]): void {
+    this.highlightRanges = ranges
     refreshOverlay(this)
   }
 
@@ -765,6 +815,12 @@ export class ListTable {
     return () => this.fillDragEndListeners.delete(listener)
   }
 
+  /** 订阅填充柄双击事件（range 为柄所在选区段；宿主据此做相邻数据区自动填充）；返回退订函数 */
+  onFillHandleDoubleClick(listener: FillHandleDoubleClickListener): () => void {
+    this.fillHandleDoubleClickListeners.add(listener)
+    return () => this.fillHandleDoubleClickListeners.delete(listener)
+  }
+
   // ---- 编辑（P2） ----
 
   /**
@@ -891,6 +947,22 @@ export class ListTable {
     }
     const cellStyle = this.options.resolveCellStyle?.(col, row)
     return cellStyle ? projectCellStyle(colStyle, cellStyle) : colStyle
+  }
+
+  /**
+   * @internal 统一样式取数（共享边裁决 facing 溯源用，见 shared-edges.ts）：
+   * 数据坐标走 resolveStyle；HEADER_COORD(-1) 路由到表头分区样式
+   * （(-1,-1) 角格 / (col,-1) 列头 / (-1,row) 行号格）。
+   */
+  styleAt(col: number, row: number): CellStyle {
+    if (col === HEADER_COORD || row === HEADER_COORD) {
+      const styles = headerStyles(this)
+      if (col === HEADER_COORD && row === HEADER_COORD) {
+        return styles.corner
+      }
+      return row === HEADER_COORD ? styles.col : styles.row
+    }
+    return this.resolveStyle(col, row)
   }
 
   /**

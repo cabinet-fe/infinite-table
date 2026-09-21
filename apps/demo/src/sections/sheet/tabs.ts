@@ -8,12 +8,9 @@ import type { SheetBookBundle } from './book'
 export interface TabsHandle {
   /** id → 展示名（观察区 meta 用） */
   labelOf(id: string): string
+  /** 重渲染 tabs（xlsx 导入重建 book 后调用） */
+  refresh(): void
   destroy(): void
-}
-
-/** id → 展示名：sheet-1 → Sheet1（其余原样） */
-function defaultLabel(id: string): string {
-  return id.replace(/^sheet-(\d+)$/, 'Sheet$1')
 }
 
 export function mountTabs(
@@ -50,8 +47,9 @@ export function mountTabs(
   bar.append(navPrev, viewport, navNext, addButton)
   area.appendChild(bar)
 
+  // 本地重命名（手动右键改名，不跟随跨表引用）优先；其次 book 注册名（xlsx 导入沿用的文件名）
   const labels = new Map<string, string>()
-  const labelOf = (id: string): string => labels.get(id) ?? defaultLabel(id)
+  const labelOf = (id: string): string => labels.get(id) ?? ctx.bundle.nameOf(id)
 
   const refreshNav = (): void => {
     const overflow = viewport.scrollWidth > viewport.clientWidth + 1
@@ -97,6 +95,8 @@ export function mountTabs(
         return
       }
       labels.set(id, name)
+      // 改名可能改变跨表引用的名称解析面（当前 labels 不进 resolveSheet，此处为防御性全量标脏）
+      ctx.bundle.invalidateFormulas()
       renderTabs()
       ctx.notify(`已重命名为 ${name}`)
     }
@@ -219,6 +219,15 @@ export function mountTabs(
 
   return {
     labelOf,
+    refresh() {
+      // 导入重建 book 后旧 id 的重命名记录已失效，一并清掉（Map 迭代中删除当前键安全）
+      for (const id of labels.keys()) {
+        if (!ctx.bundle.ids().includes(id)) {
+          labels.delete(id)
+        }
+      }
+      renderTabs()
+    },
     destroy() {
       bar.remove()
     },

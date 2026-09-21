@@ -13,6 +13,10 @@ export default defineConfig({
     categories: {
       correctness: 'error',
     },
+    // expectError 是 packages/formulas 测试里的错误码断言助手（内部包装 expect）
+    rules: {
+      'vitest/expect-expect': ['error', { assertFunctionNames: ['expect', 'expectError'] }],
+    },
     ignorePatterns: ['**/dist/**'],
   },
   test: {

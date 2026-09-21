@@ -69,6 +69,8 @@ function openPopup(options: OpenOptions & { x: number; y: number; maxX?: number 
   }
 
   options.build(el, close)
+  // 弹层（含右键菜单）内右键不弹浏览器原生菜单
+  el.addEventListener('contextmenu', (event) => event.preventDefault())
   document.body.appendChild(el)
   // 先隐藏测量尺寸，再夹取定位（避免闪跳）
   el.style.visibility = 'hidden'

@@ -73,12 +73,19 @@ export type { RangeBounds, SelectionListener, SelectionRange, SelectionSnapshot 
 export { HoverState } from './hover-state'
 export type { HoverListener } from './hover-state'
 export { InteractionOverlay } from './interaction-overlay'
-export type { OverlayContent, OverlayGeometry, ResizeLine } from './interaction-overlay'
+export type {
+  HighlightRange,
+  OverlayContent,
+  OverlayGeometry,
+  ResizeLine,
+} from './interaction-overlay'
 // 填充柄交互原语：画柄几何 + 命中 + 按下/拖拽结束两个公开事件（填充生成不在内核）
 export { FILL_HANDLE_SIZE, fillHandleRect, hitFillHandle, resolveFocusRange } from './fill-handle'
 export type {
   FillDragEndEvent,
   FillDragEndListener,
+  FillHandleDoubleClickEvent,
+  FillHandleDoubleClickListener,
   FillHandleDownEvent,
   FillHandleDownListener,
 } from './fill-handle'

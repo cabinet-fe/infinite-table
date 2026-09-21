@@ -15,9 +15,11 @@
     { "path": "packages/utils" },
     { "path": "packages/render" },
     { "path": "packages/core" },
+    { "path": "packages/formulas" },
     { "path": "packages/plugins" },
     { "path": "packages/render/tsconfig.tests.json" },
     { "path": "packages/core/tsconfig.tests.json" },
+    { "path": "packages/formulas/tsconfig.tests.json" },
     { "path": "packages/plugins/tsconfig.tests.json" }
   ]
 }

@@ -85,6 +85,8 @@ describe('InteractionOverlay 绘制填充柄', () => {
       resizeLine: null,
       fillHandleRange: resolveFocusRange(rangesSnapshot),
       fillPreview: null,
+      highlightRanges: [],
+      freezeDividers: { x: null, y: null },
       window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     }
     return content

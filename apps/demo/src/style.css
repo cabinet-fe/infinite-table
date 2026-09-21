@@ -389,6 +389,28 @@ section h3 {
   color: var(--sheet-text-second);
 }
 
+/* 函数参数提示浮条（光标在调用括号内时显示签名，高亮当前参数） */
+.sheet-fx-calltip {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 19;
+  padding: 4px 8px;
+  border: 1px solid var(--sheet-border-muted);
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: var(--sheet-shadow-sm);
+  font-size: 12px;
+  color: var(--sheet-text-second);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.sheet-fx-calltip__param.is-active {
+  color: var(--sheet-primary);
+  font-weight: 700;
+}
+
 /* ── 网格区（容器铺满，实例叠放） ───────────── */
 
 .sheet-app__grid {

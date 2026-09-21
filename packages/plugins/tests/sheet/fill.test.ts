@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { generateFill } from '../../src/sheet/fill'
+import { generateFill, resolveAutoFillTarget } from '../../src/sheet/fill'
 
 /** 以固定源区读值构造 read */
 function readFrom(values: Record<string, unknown>) {
@@ -125,5 +125,53 @@ describe('generateFill 复制兜底与混合源', () => {
       readFrom({ '0,0': 1 }),
     )
     expect(cells).toEqual([])
+  })
+})
+
+describe('resolveAutoFillTarget 双击自动填充目标', () => {
+  const ANCHOR = { minCol: 1, maxCol: 1, minRow: 0, maxRow: 1 }
+
+  it('按左邻列连续数据块末行向下延展', () => {
+    // 左邻列 0 行 0..3 连续有值 → 填充到行 3
+    const target = resolveAutoFillTarget(
+      ANCHOR,
+      readFrom({ '0,0': 'a', '0,1': 'b', '0,2': 'c', '0,3': 'd' }),
+      50,
+    )
+    expect(target).toEqual({ minCol: 1, maxCol: 1, minRow: 0, maxRow: 3 })
+  })
+
+  it('左邻列无数据时退到右邻列；右邻数据块在空行处截断', () => {
+    const target = resolveAutoFillTarget(
+      ANCHOR,
+      readFrom({ '2,0': 'a', '2,1': 'b', '2,2': 'c', '2,4': 'e' }),
+      50,
+    )
+    expect(target).toEqual({ minCol: 1, maxCol: 1, minRow: 0, maxRow: 2 })
+  })
+
+  it('相邻列数据块未越出锚定段底行返回 null；空串视为无数据', () => {
+    expect(resolveAutoFillTarget(ANCHOR, readFrom({ '0,0': 'a', '0,1': 'b' }), 50)).toBeNull()
+    expect(
+      resolveAutoFillTarget(ANCHOR, readFrom({ '0,0': 'a', '0,1': '', '0,2': 'c' }), 50),
+    ).toBeNull()
+  })
+
+  it('锚定段在第 0 列时跳过左邻（-1 列）只看右邻', () => {
+    const target = resolveAutoFillTarget(
+      { minCol: 0, maxCol: 0, minRow: 0, maxRow: 0 },
+      readFrom({ '1,0': 'a', '1,1': 'b' }),
+      50,
+    )
+    expect(target).toEqual({ minCol: 0, maxCol: 0, minRow: 0, maxRow: 1 })
+  })
+
+  it('数据块延展不超过 rowCount 上限', () => {
+    const target = resolveAutoFillTarget(
+      ANCHOR,
+      readFrom({ '0,0': 'a', '0,1': 'b', '0,2': 'c', '0,3': 'd', '0,4': 'e' }),
+      3,
+    )
+    expect(target).toEqual({ minCol: 1, maxCol: 1, minRow: 0, maxRow: 2 })
   })
 })

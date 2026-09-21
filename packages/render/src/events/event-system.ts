@@ -31,6 +31,8 @@ export interface DomEventLike {
   shiftKey?: boolean
   ctrlKey?: boolean
   metaKey?: boolean
+  /** 阻止默认行为（如 contextmenu 的浏览器原生菜单）；合成事件可缺省 */
+  preventDefault?(): void
   /** 触摸事件的触点列表（取第一个触点归一化坐标） */
   changedTouches?: ArrayLike<TouchPointLike>
 }

@@ -1,4 +1,5 @@
-// 填充接线：拖拽结束 → generateFill 生成 → Store 批量写 + batchUpdate 收敛为一次 band 失效。
+// 填充接线：拖拽结束/双击柄 → generateFill 生成 → Store 批量写 + batchUpdate 收敛为一次 band 失效。
+// 双击柄（autoComplete）按相邻列连续数据块末行自动向下填充（Excel 语义）。
 
 import type { ListTable } from '@infinite-table/core'
 
@@ -16,5 +17,6 @@ export function bindStoreFill(table: ListTable, store: SheetStore): () => void {
         }
       })
     },
+    autoComplete: { rowCount: () => store.getRowCount() },
   })
 }

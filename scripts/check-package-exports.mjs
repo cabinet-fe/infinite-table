@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 空项目消费冒烟：以外部消费者姿态（无 dev 条件 → import → dist）验证四包可消费。
+// 空项目消费冒烟：以外部消费者姿态（无 dev 条件 → import → dist）验证各包可消费。
 // 校验三条件产物文件齐备 + bun 动态 import core/render dist 产物无头建表跑一帧。
 // 用法：node scripts/check-package-exports.mjs（先 bun run build）
 
@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs'
 const PACKAGES = [
   { name: '@infinite-table/render', dir: 'packages/render', bundle: 'dist/render.js' },
   { name: '@infinite-table/core', dir: 'packages/core', bundle: 'dist/core.js' },
+  { name: '@infinite-table/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
   { name: '@infinite-table/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
   { name: '@infinite-table/utils', dir: 'packages/utils', bundle: 'dist/utils.js' },
 ]
@@ -81,5 +82,19 @@ table.destroy()
 const pluginsModule = await import(new URL('../packages/plugins/dist/plugins.js', import.meta.url))
 if (typeof pluginsModule.SheetStore !== 'function') fail('plugins dist 缺 SheetStore')
 else ok('plugins dist SheetStore 可导入')
+
+// 4) formulas dist 可导入并无头求值（含 @cat-kit/core 精确计算）
+const formulasModule = await import(
+  new URL('../packages/formulas/dist/formulas.js', import.meta.url)
+)
+if (typeof formulasModule.evaluate !== 'function') {
+  fail('formulas dist 缺 evaluate')
+} else {
+  const resolver = { cell: () => null, range: () => [] }
+  const precise = formulasModule.evaluate('0.1+0.2', resolver)
+  if (precise !== 0.3) fail(`formulas 精确计算异常：0.1+0.2 = ${precise}`)
+  else if (formulasModule.listFormulaFunctions().length < 47) fail('formulas 内置函数缺失')
+  else ok('formulas dist 求值正常（0.1+0.2=0.3）')
+}
 console.log(failed ? '[check-exports] FAIL' : '[check-exports] PASS')
 process.exit(failed ? 1 : 0)

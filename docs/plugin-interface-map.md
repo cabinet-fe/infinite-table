@@ -25,7 +25,7 @@
 | `theme: themes.DEFAULT.extends(...)` | `extendsTheme` 派生 + 分区 token（见「四、主题面」） | 已有 |
 | `showHeader` | 无开关（sheet 场景恒显示行列头）；行号列宽 `rowHeaderWidth` | 明确不做（如替换时需要再立项） |
 | `rowSeriesNumber{width, style}` | `rowHeaderWidth` 几何 + 主题 `rowHeader` 分区 token（S1） | 已有 |
-| `excelOptions: {fillHandle}` | 内置填充柄交互原语 + `onFillHandleDown/onFillDragEnd`（生成算法在插件层） | 已有（S3 generateFill 已落地） |
+| `excelOptions: {fillHandle}` | 内置填充柄交互原语 + `onFillHandleDown/onFillDragEnd/onFillHandleDoubleClick`（生成算法在插件层；双击自动填充为插件侧 `bindFillGeneration` 的 autoComplete 选项） | 已有（S3 generateFill 已落地） |
 | `editor` + `editCellTrigger: 'doubleclick'` | `EditorRegistry` 注册表 + 双击触发 + `editCellOnEnter` 开关 | 已有 |
 | `frozenRowCount/frozenColCount`（含表头计数） | 构造 options + `setFrozenRowCount/setFrozenColCount` 运行时；注意 ultra-ui 计数含表头，适配时 ±1 | 已有 |
 | `keyboardOptions`（Tab/Enter/Ctrl+A/ctrlMultiSelect） | `editCellOnEnter`、`ctrlMultiSelect`、键盘导航；Excel 键位组合预设 | 已有（S3 excelKeymapPreset 已落地） |
@@ -69,7 +69,7 @@
 | `RESIZE_ROW_END` / `RESIZE_COLUMN_END` | `onRowResizeEnd` / `onColResizeEnd` | 已有 |
 | `CONTEXTMENU_CELL` | `onContextMenu` | 已有 |
 | `SELECTED_CELL` / `DRAG_SELECT_END` | `onSelectionChange`（变更级粒度，比拖选结束更细；适配层可自行节流） | 已有 |
-| `MOUSEDOWN_FILL_HANDLE` / `DRAG_FILL_HANDLE_END` | `onFillHandleDown` / `onFillDragEnd` | 已有 |
+| `MOUSEDOWN_FILL_HANDLE` / `DRAG_FILL_HANDLE_END` | `onFillHandleDown` / `onFillDragEnd`；双击柄 `onFillHandleDoubleClick`（与拖拽结束互斥） | 已有 |
 | `SCROLL` | `onScrollFrame`（帧级同步，强于事件后知后觉） | 已有 |
 
 ## 四、主题面（`vtable-theme.ts` extends）
@@ -96,7 +96,7 @@
 
 ## 六、与后续阶段的衔接
 
-- **S3 sheet 插件**（`packages/plugins/src/sheet`）：已全部落地——SheetStore（值/样式/合并/行列尺寸/冻结 + asModel 模型适配）、generateFill 填充生成与 bindFillGeneration 接线、bindSelectionSync 选区双向同步、createFormulaDisplay 公式显示、excelKeymapPreset 键位预设、SheetBook 多 sheet 实例池、UndoStack/bindCellChangeUndo 最小撤销栈。全部只依赖 core 公开入口（测试基础设施除外，见包内说明）。
+- **S3 sheet 插件**（`packages/plugins/src/sheet`）：已全部落地——SheetStore（值/样式/合并/行列尺寸/冻结 + asModel 模型适配）、generateFill 填充生成与 bindFillGeneration 接线、bindSelectionSync 选区双向同步、createFormulaDisplay 公式显示、excelKeymapPreset 键位预设、SheetBook 多 sheet 实例池、UndoStack/bindCellChangeUndo 最小撤销栈、border-presets 边框预设展开（8 预设 × 5 线型 → 逐格 border 片段，纯函数；不做邻居共享边回写，core 共享边裁决保证单侧设置即正确显示）。全部只依赖 core 公开入口（测试基础设施除外，见包内说明）。
 - **S4 demo sheet**：在插件 API 之上复现 ultra-ui playground sheet 功能，产出功能对照表；UI 归下游，不碰引擎内部。
 - **S5 工程化收口**：已落地——包 `exports` 三条件（types/dev/import→dist，仓内 apps 走 dev 条件）、`scripts/check-package-exports.mjs` 消费冒烟、bench sheet 四场景口径与阈值、happy-dom 挂载安全单测。消费面以本清单允许面为准。
 - **S6 替换路线图**：`docs/replace-vtable-roadmap.md` 直接引用本清单作为 VTable 接口面 → infinite-table 接口面的映射基准，并补测试改写与灰度顺序。

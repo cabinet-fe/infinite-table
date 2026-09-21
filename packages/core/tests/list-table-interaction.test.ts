@@ -3,6 +3,7 @@ import type { SceneEvent, SceneEventType } from '@infinite-table/render'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'
+import type { FillDragEndEvent, FillHandleDoubleClickEvent } from '../src/fill-handle'
 import { ListTable } from '../src/list-table'
 import type { SelectionSnapshot } from '../src/selection'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
@@ -383,6 +384,21 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     ])
   })
 
+  it('有 onContextMenu 监听时阻止默认（原生菜单），无监听时不阻止', () => {
+    const preventDefault = vi.fn()
+    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: {} })
+    expect(preventDefault).not.toHaveBeenCalled()
+
+    const off = table.onContextMenu(() => {})
+    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: { preventDefault } })
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+
+    off()
+    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: { preventDefault } })
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+  })
+
   it('onScrollFrame 在滚动帧上带最新位置触发；退订后不再触发', () => {
     const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
     const { table } = createTable({ records })
@@ -657,6 +673,61 @@ describe('ListTable 编辑', () => {
     expect(container.children).toHaveLength(1)
     table.destroy()
     expect(container.children).toEqual([])
+  })
+})
+
+describe('ListTable 填充柄双击', () => {
+  // 选区 (0,0)：格矩形 48..148 × 36..68，柄方点骑右下角点 144..148 × 64..68
+  const HANDLE = { x: 146, y: 66 }
+
+  it('双击柄：第二次抬起抛双击事件（携带选区段），与拖拽结束互斥且成交后重新计击', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    table.selectCell(0, 0)
+    const dragEnds: FillDragEndEvent[] = []
+    const doubleClicks: FillHandleDoubleClickEvent[] = []
+    table.onFillDragEnd((event) => dragEnds.push(event))
+    table.onFillHandleDoubleClick((event) => doubleClicks.push(event))
+
+    const tap = (): void => {
+      fireBody(host, 'pointerdown', HANDLE)
+      fireBody(host, 'pointerup', HANDLE)
+    }
+    tap() // 单击：抛拖拽结束（无扩展的空点按）
+    expect(dragEnds).toHaveLength(1)
+    expect(doubleClicks).toHaveLength(0)
+
+    tap() // 连击窗口内第二击：抛双击，不再抛拖拽结束
+    expect(doubleClicks).toHaveLength(1)
+    expect(doubleClicks[0]!.range).toEqual({
+      start: { col: 0, row: 0 },
+      end: { col: 0, row: 0 },
+    })
+    expect(dragEnds).toHaveLength(1)
+
+    tap() // 双击成交后计击清零：第三击回到单击语义
+    expect(dragEnds).toHaveLength(2)
+    expect(doubleClicks).toHaveLength(1)
+  })
+
+  it('第二击拖出扩展区：按拖拽处理，双击被吃掉', () => {
+    const { host, table } = createTable({
+      records: Array.from({ length: 10 }, (_, i) => ({ name: `r${i}` })),
+    })
+    table.selectCell(0, 0)
+    const dragEnds: FillDragEndEvent[] = []
+    const doubleClicks: FillHandleDoubleClickEvent[] = []
+    table.onFillDragEnd((event) => dragEnds.push(event))
+    table.onFillHandleDoubleClick((event) => doubleClicks.push(event))
+
+    fireBody(host, 'pointerdown', HANDLE)
+    fireBody(host, 'pointerup', HANDLE)
+    fireBody(host, 'pointerdown', HANDLE)
+    fireBody(host, 'pointermove', { x: cellX(0), y: cellY(3) })
+    fireBody(host, 'pointerup', { x: cellX(0), y: cellY(3) })
+
+    expect(doubleClicks).toHaveLength(0)
+    expect(dragEnds).toHaveLength(2)
+    expect(dragEnds[1]!.target).toEqual({ minCol: 0, minRow: 0, maxCol: 0, maxRow: 3 })
   })
 })
 

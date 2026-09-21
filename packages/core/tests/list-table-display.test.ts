@@ -90,16 +90,18 @@ describe('ListTable 冻结', () => {
       frozenRowCount: 1,
     })
     host.submitted.length = 0
-    // 纵向滚动：冻结行（y 36..68）以下的横带
+    // 纵向滚动：冻结行（y 36..68）以下的横带；sky 全量来自冻结分隔线浮层（A2）
     table.scrollTo(0, 64)
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 0, y: 68, width: 800, height: 532 } } },
+      { kind: 'sky', inv: { type: 'full' } },
     ])
     // 横向滚动：冻结列（x 48..148）以右的纵带
     host.submitted.length = 0
     table.scrollTo(100, 64)
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 148, y: 0, width: 652, height: 600 } } },
+      { kind: 'sky', inv: { type: 'full' } },
     ])
     // 双向：两条带，仍不整表重绘
     host.submitted.length = 0
@@ -107,6 +109,7 @@ describe('ListTable 冻结', () => {
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 0, y: 68, width: 800, height: 532 } } },
       { kind: 'body', inv: { type: 'band', region: { x: 148, y: 0, width: 652, height: 600 } } },
+      { kind: 'sky', inv: { type: 'full' } },
     ])
   })
 
@@ -127,10 +130,12 @@ describe('ListTable 冻结', () => {
     table.setFrozenRowCount(1)
     expect(table.getFrozenColCount()).toBe(1)
     expect(table.getFrozenRowCount()).toBe(1)
-    // 几何变更走全量重建（两次修改各一次）
+    // 几何变更走全量重建（两次修改各一次）；sky 全量来自冻结分隔线浮层（A2）
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'full' } },
+      { kind: 'sky', inv: { type: 'full' } },
       { kind: 'body', inv: { type: 'full' } },
+      { kind: 'sky', inv: { type: 'full' } },
     ])
     // 冻结角固定在行号列/列头内侧，可见窗口扣除冻结行列
     expect(findNode(host, 0, 0)).toMatchObject({ x: 48, y: 36 })
@@ -144,6 +149,7 @@ describe('ListTable 冻结', () => {
     table.scrollTo(0, 64)
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 0, y: 68, width: 800, height: 532 } } },
+      { kind: 'sky', inv: { type: 'full' } },
     ])
     expect(findNode(host, 0, 0)).toMatchObject({ x: 48, y: 36 })
 
@@ -275,18 +281,18 @@ describe('ListTable 逐格样式 hook', () => {
     const styled = findNode(host, 0, 0)
     expect(styled?.style.background).toBe('#fafafa')
     expect(styled?.style.color).toBe('#1f2329')
-    // 主题网格边（右/下）与用户左边逐边合并共存
+    // 主题网格边（右/下，带 grid 派生标记）与用户左边逐边合并共存
     expect(styled?.style.border).toEqual({
       left: { width: 2, color: '#f00' },
-      right: { width: 1, color: '#e5e6eb' },
-      bottom: { width: 1, color: '#e5e6eb' },
+      right: { width: 1, color: '#e5e6eb', grid: true },
+      bottom: { width: 1, color: '#e5e6eb', grid: true },
     })
     // 未命中的格沿用主题样式，只带默认网格边
     const plain = findNode(host, 1, 0)
     expect(plain?.style.background).toBe('#ffffff')
     expect(plain?.style.border).toEqual({
-      right: { width: 1, color: '#e5e6eb' },
-      bottom: { width: 1, color: '#e5e6eb' },
+      right: { width: 1, color: '#e5e6eb', grid: true },
+      bottom: { width: 1, color: '#e5e6eb', grid: true },
     })
   })
 })
@@ -310,8 +316,8 @@ describe('ListTable 列级样式投影缓存', () => {
     expect(a?.style.color).toBe('#ff0000')
     expect(a?.style.border).toEqual({
       left: { width: 2, color: '#f00' },
-      right: { width: 1, color: '#e5e6eb' },
-      bottom: { width: 1, color: '#e5e6eb' },
+      right: { width: 1, color: '#e5e6eb', grid: true },
+      bottom: { width: 1, color: '#e5e6eb', grid: true },
     })
     expect(b?.style).toBe(a?.style)
     // 无列级样式的列同样按列缓存（共享主题投影对象）

@@ -63,6 +63,8 @@ function makeContent(partial: Partial<OverlayContent> = {}): OverlayContent {
     resizeLine: null,
     fillHandleRange: null,
     fillPreview: null,
+    highlightRanges: [],
+    freezeDividers: { x: null, y: null },
     window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     ...partial,
   }
@@ -170,6 +172,49 @@ describe('交互浮层主题 token', () => {
     expect(borders).toContainEqual({ x: 246, y: 100, width: 2, height: 5, fill: '#2e6adb' })
     expect(borders).toContainEqual({ x: 48, y: 136, width: 2, height: 5, fill: '#2e6adb' })
     // 无选区但预览在：浮层仍有内容
+    expect(overlay.update(makeContent())).toBe(false)
+  })
+
+  it('冻结分隔线：冻结边界画线（线体贴边界落冻结带内侧），无冻结为无内容', () => {
+    const skyRoot = new SceneNode()
+    const overlay = new InteractionOverlay(skyRoot, makeGeometry(), defaultTheme.interaction)
+    const node = skyRoot.children[0]!
+    // 仅冻结分隔线也算有内容（sky 需要重绘）
+    expect(overlay.update(makeContent({ freezeDividers: { x: 148, y: 68 } }))).toBe(true)
+    const ctx = new FillRecordingContext()
+    node.paint(ctx)
+    // 竖线 x=148 宽 1 → [147,148)；横线 y=68 → [67,68)，裁剪到 body 视口
+    expect(ctx.rects).toEqual([
+      { x: 147, y: 36, width: 1, height: 564, fill: '#c9cdd4' },
+      { x: 48, y: 67, width: 752, height: 1, fill: '#c9cdd4' },
+    ])
+    // 冻结数 0：两轴皆 null → 不画且无内容
+    expect(overlay.update(makeContent())).toBe(false)
+  })
+
+  it('宿主高亮区域：四边细条边框取逐条颜色，无选区时也撑起浮层', () => {
+    const skyRoot = new SceneNode()
+    const overlay = new InteractionOverlay(skyRoot, makeGeometry(), defaultTheme.interaction)
+    const node = skyRoot.children[0]!
+    // 高亮 (1,1)~(2,2)：视口矩形 (148,68) 200×64；边框宽随 selectionBorderWidth
+    expect(
+      overlay.update(
+        makeContent({
+          highlightRanges: [
+            { bounds: { minCol: 1, minRow: 1, maxCol: 2, maxRow: 2 }, color: '#ff0000' },
+          ],
+        }),
+      ),
+    ).toBe(true)
+    const ctx = new FillRecordingContext()
+    node.paint(ctx)
+    expect(ctx.rects).toEqual([
+      { x: 148, y: 68, width: 200, height: 2, fill: '#ff0000' },
+      { x: 148, y: 130, width: 200, height: 2, fill: '#ff0000' },
+      { x: 148, y: 68, width: 2, height: 64, fill: '#ff0000' },
+      { x: 346, y: 68, width: 2, height: 64, fill: '#ff0000' },
+    ])
+    // 清空后即无内容
     expect(overlay.update(makeContent())).toBe(false)
   })
 
