@@ -9,7 +9,14 @@ import type { SelectionSnapshot } from '../src/selection'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
-import type { CellChangeEvent, DataRecord, ListTableOptions, TableModel } from '../src/types'
+import type {
+  CellChangeEvent,
+  CellRef,
+  DataRecord,
+  ListTableOptions,
+  TableContextMenuEvent,
+  TableModel,
+} from '../src/types'
 
 /** 在 body 场景树中按坐标找节点（递归：表头节点在表头容器内） */
 function findNode(host: StubHost, col: number, row: number) {
@@ -215,6 +222,90 @@ describe('ListTable 选区', () => {
   })
 })
 
+describe('ListTable 表头拖选连续扩展', () => {
+  const dragRecords = Array.from({ length: 20 }, (_, i) => ({ name: `r${i}` }))
+  // 列头/行头格视口坐标（带内居中，避开行列缘 ±4px 的 resize 手柄区）
+  const headerX = (col: number) => 48 + col * 100 + 50
+  const headerY = (row: number) => 36 + row * 32 + 16
+
+  it('列头横向拖选：按下整列，拖中实时扩展/反向收缩为连续列区间 × 全部行，抬起重算一致', () => {
+    const { host, table } = createTable({ records: dragRecords })
+    fireBody(host, 'pointerdown', { x: headerX(2), y: 10 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 2, row: 0 }, end: { col: 2, row: 19 } },
+    ])
+    // 拖过多个列头：实时扩展
+    fireBody(host, 'pointermove', { x: headerX(4), y: 12 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 2, row: 0 }, end: { col: 4, row: 19 } },
+    ])
+    // 反向收缩到锚点左侧
+    fireBody(host, 'pointermove', { x: headerX(1), y: 12 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 0 }, end: { col: 2, row: 19 } },
+    ])
+    // 拖入表体带仍按轴扩展（列头会话只看 x；区间始终为锚点 2 与落点围成）
+    fireBody(host, 'pointermove', { x: cellX(5), y: cellY(3) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 2, row: 0 }, end: { col: 5, row: 19 } },
+    ])
+    // 抬起重算与拖中一致
+    fireBody(host, 'pointerup', { x: cellX(5), y: cellY(3) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 2, row: 0 }, end: { col: 5, row: 19 } },
+    ])
+  })
+
+  it('行头纵向拖选：按下整行，拖中实时扩展为连续行区间 × 全部列，抬起重算一致', () => {
+    const { host, table } = createTable({ records: dragRecords })
+    fireBody(host, 'pointerdown', { x: 10, y: headerY(2) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 2 }, end: { col: 9, row: 2 } },
+    ])
+    fireBody(host, 'pointermove', { x: 12, y: headerY(5) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 2 }, end: { col: 9, row: 5 } },
+    ])
+    fireBody(host, 'pointerup', { x: 12, y: headerY(5) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 2 }, end: { col: 9, row: 5 } },
+    ])
+  })
+
+  it('抬起重算：up 落点未经 move 直达时按 up 坐标重算（与拖中同一逻辑）', () => {
+    const { host, table } = createTable({ records: dragRecords })
+    fireBody(host, 'pointerdown', { x: headerX(2), y: 10 })
+    fireBody(host, 'pointermove', { x: headerX(4), y: 12 })
+    // 不在 col 3 上发 move，直接抬在 col 3：按 up 坐标重算为 2..3
+    fireBody(host, 'pointerup', { x: headerX(3), y: 12 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 2, row: 0 }, end: { col: 3, row: 19 } },
+    ])
+  })
+
+  it('角点与表体命中不误入表头拖选会话', () => {
+    const { host, table } = createTable({ records: dragRecords })
+    // 角点按下：全选、不开会话——后续 move 走 hover，选区保持全选
+    fireBody(host, 'pointerdown', { x: 10, y: 10 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 9, row: 19 } },
+    ])
+    fireBody(host, 'pointermove', { x: cellX(3), y: cellY(3) })
+    fireBody(host, 'pointerup', { x: cellX(3), y: cellY(3) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 9, row: 19 } },
+    ])
+
+    // 表体按下后拖入列头带：保持表体拖选语义（move 落点非数据格不更新），不塌成整列
+    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(1) })
+    fireBody(host, 'pointermove', { x: cellX(1), y: 12 })
+    fireBody(host, 'pointerup', { x: cellX(1), y: 12 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 1 }, end: { col: 1, row: 1 } },
+    ])
+  })
+})
+
 describe('ListTable 键盘导航', () => {
   it('方向键移动活动格并滚动跟随；shift+方向键扩展选区且焦点同步；Tab 右移', () => {
     const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
@@ -320,11 +411,15 @@ describe('ListTable 行列 resize', () => {
     })
     // 第 0 行下缘视口 y = 36 + 32 = 68，手柄 ±4px 区内取 y=66（行号列带内）
     fireBody(host, 'pointerdown', { x: 20, y: 66 })
+    // 拖到 y=96（行 1 带内）：行头拖选实时扩展为连续行 0-1 × 全部列
     fireBody(host, 'pointermove', { x: 20, y: 96 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 9, row: 1 } },
+    ])
     fireBody(host, 'pointerup', { x: 20, y: 96 })
     expect(table.getRowHeight(0)).toBe(32)
     expect(table.getSelection().ranges).toEqual([
-      { start: { col: 0, row: 0 }, end: { col: 9, row: 0 } },
+      { start: { col: 0, row: 0 }, end: { col: 9, row: 1 } },
     ])
   })
 })
@@ -381,6 +476,24 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     expect(seen).toEqual([
       { cell: { col: 1, row: 0 }, x: cellX(1), y: cellY(0) },
       { cell: null, x: cellX(1), y: 10 },
+    ])
+  })
+
+  it('contextmenu 落点区域三分支 + 角点归属：表体 body / 列头 col-header / 行号列 row-header / 角点归 body', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    const seen: Array<{ region: TableContextMenuEvent['region']; cell: CellRef | null }> = []
+    table.onContextMenu((event) => seen.push({ region: event.region, cell: event.cell }))
+
+    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0) })
+    fireBody(host, 'contextmenu', { x: cellX(1), y: 10 })
+    fireBody(host, 'contextmenu', { x: 10, y: cellY(0) })
+    fireBody(host, 'contextmenu', { x: 10, y: 10 })
+    expect(seen).toEqual([
+      { region: 'body', cell: { col: 1, row: 0 } },
+      { region: 'col-header', cell: null },
+      { region: 'row-header', cell: null },
+      // 角点（行号列×列头交叉）归 body 且 cell 为 null（类型注释定义的归属）
+      { region: 'body', cell: null },
     ])
   })
 

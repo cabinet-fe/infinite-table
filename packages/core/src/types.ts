@@ -160,6 +160,12 @@ export interface ListTableOptions {
 export interface TableContextMenuEvent {
   /** 命中的数据格；点在行列头/空白处为 null */
   cell: CellRef | null
+  /**
+   * 右键落点区域：'body' 表体 / 'row-header' 行号列 / 'col-header' 列头。
+   * 角点（行号列×列头交叉的全选区）归 'body' 且 cell 为 null——右键角点不翻行/列头菜单，
+   * 与下游「保留当前选区」语义一致。
+   */
+  region: 'body' | 'row-header' | 'col-header'
   /** 层坐标（CSS 像素） */
   x: number
   y: number

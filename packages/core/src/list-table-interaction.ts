@@ -31,6 +31,14 @@ import type { CellRef, TableContextMenuEvent } from './types'
 const DOUBLE_TAP_MS = 400
 const DOUBLE_TAP_SLOP = 10
 
+/** 表头拖选会话：pointerdown 命中列头/行头后开启，锚定按下时命中的列/行，pointerup 重算后结束 */
+export interface HeaderDragState {
+  /** 拖选轴向：列头横向扩展列区间，行头纵向扩展行区间 */
+  axis: 'col' | 'row'
+  /** 锚定（按下时命中的）列号/行号 */
+  anchor: number
+}
+
 /** 填充拖拽边缘自动滚动：触发带宽度与每帧行进量（px） */
 const FILL_EDGE_ZONE = 32
 const FILL_EDGE_STEP = 24
@@ -55,6 +63,8 @@ export function bindInteractionEvents(table: ListTable): void {
 
 function onPointerDown(table: ListTable, event: SceneEvent): void {
   table.pointerDownAt = { x: event.x, y: event.y }
+  // 新按下终结任何残留的表头拖选会话（正常流由 pointerup 结束）
+  table.headerDrag = null
   // 编辑中点击其它格/空白：先提交当前会话（同一时刻至多一个编辑会话）
   const hit = cellAt(table, event.x, event.y)
   const editing = table.editManager.editingCell()
@@ -110,15 +120,22 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   }
   if (event.y < table.headerHeight) {
     const col = findColAt(table.colOffsets, toContentX(table, event.x))
-    if (col >= 0) {
-      table.selection.selectCol(col, table.pipeline.rowCount)
+    if (col >= 0 && table.pipeline.rowCount > 0) {
+      // 表头拖选会话：按下即整列（快照等价 selectCol），拖中/抬起重算为连续列区间
+      table.headerDrag = { axis: 'col', anchor: col }
+      table.selection.beginDragRange({ col, row: 0 }, { col, row: table.pipeline.rowCount - 1 })
     }
     return
   }
   if (event.x < table.rowHeaderWidth) {
     const row = findRowAt(table.rowOffsets, toContentY(table, event.y))
-    if (row >= 0) {
-      table.selection.selectRow(row, table.options.columns.length)
+    if (row >= 0 && table.options.columns.length > 0) {
+      // 表头拖选会话：按下即整行（快照等价 selectRow），拖中/抬起重算为连续行区间
+      table.headerDrag = { axis: 'row', anchor: row }
+      table.selection.beginDragRange(
+        { col: 0, row },
+        { col: table.options.columns.length - 1, row },
+      )
     }
     return
   }
@@ -154,6 +171,11 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
       updateFillCurrent(table, drag, cell)
     }
     refreshOverlay(table)
+    return
+  }
+  if (table.headerDrag) {
+    // 表头拖选：轴坐标驱动连续区间实时扩展（列头看 x、行头看 y，落点无需仍在表头带）
+    extendHeaderDrag(table, event.x, event.y)
     return
   }
   const cell = cellAt(table, event.x, event.y)
@@ -225,9 +247,41 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     refreshOverlay(table)
     return
   }
+  if (table.headerDrag) {
+    // 抬起按落点重算（与拖中同一逻辑，未经 move 直达的 up 落点也生效），会话结束
+    extendHeaderDrag(table, event.x, event.y)
+    table.headerDrag = null
+    table.selection.endDrag()
+    return
+  }
   table.selecting = false
   table.selection.endDrag()
   detectDoubleTap(table, event)
+}
+
+/**
+ * 表头拖选扩展：锚定列/行与当前落点列/行围成连续区间——
+ * 列头横向 → 列区间 × 全部行；行头纵向 → 行区间 × 全部列。
+ * 轴坐标越界（拖过表缘或滑入行号列/列头带）夹取到首/末，区间保持连续。
+ */
+function extendHeaderDrag(table: ListTable, x: number, y: number): void {
+  const drag = table.headerDrag
+  if (!drag) {
+    return
+  }
+  const isCol = drag.axis === 'col'
+  // 拖轴范围（列头会话为列数 / 行头会话为行数）与铺满轴范围（对侧全量行数/列数）
+  const axisCount = isCol ? table.options.columns.length : table.pipeline.rowCount
+  const fullCount = isCol ? table.pipeline.rowCount : table.options.columns.length
+  const content = isCol ? toContentX(table, x) : toContentY(table, y)
+  const hit = isCol ? findColAt(table.colOffsets, content) : findRowAt(table.rowOffsets, content)
+  const target = hit >= 0 ? hit : content < 0 ? 0 : axisCount - 1
+  const min = Math.min(drag.anchor, target)
+  const max = Math.max(drag.anchor, target)
+  table.selection.updateDragRange(
+    isCol ? { col: min, row: 0 } : { col: 0, row: min },
+    isCol ? { col: max, row: fullCount - 1 } : { col: fullCount - 1, row: max },
+  )
 }
 
 /**
@@ -478,6 +532,7 @@ function onContextMenuEvent(table: ListTable, event: SceneEvent): void {
   event.originalEvent.preventDefault?.()
   const emitted: TableContextMenuEvent = {
     cell: cellAt(table, event.x, event.y),
+    region: contextMenuRegion(table, event.x, event.y),
     x: event.x,
     y: event.y,
     originalEvent: event.originalEvent,
@@ -485,6 +540,24 @@ function onContextMenuEvent(table: ListTable, event: SceneEvent): void {
   for (const listener of table.contextMenuListeners) {
     listener(emitted)
   }
+}
+
+/**
+ * 右键落点区域：列头带 → col-header，行号列带 → row-header，其余（表体与角点）→ body。
+ * 角点归 body（cell 为 null），归属定义见 TableContextMenuEvent.region 注释。
+ */
+function contextMenuRegion(
+  table: ListTable,
+  x: number,
+  y: number,
+): TableContextMenuEvent['region'] {
+  if (y < table.headerHeight && x >= table.rowHeaderWidth) {
+    return 'col-header'
+  }
+  if (x < table.rowHeaderWidth && y >= table.headerHeight) {
+    return 'row-header'
+  }
+  return 'body'
 }
 
 /** 视口坐标 → 内容坐标：冻结区内不滚动，冻结区外叠加滚动位置 */

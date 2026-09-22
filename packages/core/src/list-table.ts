@@ -57,6 +57,7 @@ import {
   bindInteractionEvents,
   cellAt,
   cellRectInViewport,
+  type HeaderDragState,
   ensureCellVisible,
   mergeAwareCellRect,
   refreshOverlay,
@@ -191,6 +192,8 @@ export class ListTable {
   resizeLine: ResizeLine | null = null
   /** @internal 拖选进行中 */
   selecting = false
+  /** @internal 表头拖选会话：pointerdown 命中列头/行头后开启（锚定列/行），抬起重算后结束 */
+  headerDrag: HeaderDragState | null = null
   /** @internal 表头高亮选区签名（refreshHeaderHighlight 的变化守卫） */
   headerHighlightSignature = ''
   /** @internal 浮层曾有内容（清空补一次 full 防残影） */
