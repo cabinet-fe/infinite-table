@@ -90,7 +90,7 @@
 | `defaultStyle` | `body` 分区 | — |
 | `headerStyle` / `cornerHeaderStyle` / `rowHeaderStyle` | `header` / `corner` / `rowHeader` 分区 | corner/rowHeader 缺省随生效 header 派生；显式覆盖键优先生效 |
 | hover 关闭/变色 | `interaction.hoverCell/hoverBand` | 全透明=等价关闭（无 disableHover 开关） |
-| `cellBorderClipDirection: 'bottom-right'` | 无对应 token（逐边边框语义已可表达） | 替换时按 ultra-ui 视觉核对邻格覆盖表现（清单 P1-12 注记） |
+| `cellBorderClipDirection: 'bottom-right'` | 无对应 token（逐边边框语义已可表达） | 替换时按 ultra-ui 视觉核对邻格覆盖表现（`.agents/analysis/ultra-ui-sheet-gap.md` P1 清单第 12 项注记） |
 
 ### 5. 编辑器契约（`grid-editor-router.ts` → `EditorRegistry` + 插件）
 

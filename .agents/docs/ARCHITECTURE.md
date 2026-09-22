@@ -34,4 +34,4 @@
 
 ## 未决
 
-- `packages/plugins` 首批插件清单未定（旧代码仅有 custom-cell-style / invert-highlight / list-tree-stick-cell）
+- 无（plugins 首批插件清单已定：S3 起为 sheet 插件族，见 CODE-MAP plugins 行）
