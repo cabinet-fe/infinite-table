@@ -1,48 +1,81 @@
-// xlsx 导入导出（hucre@^1.1.0）：SheetStore + numFmt 侧车 ↔ hucre Workbook 的装配层。
-// 分工（详见 xlsx-mapping.ts / xlsx.worker.ts 头注释）：
-// - 重 CPU 段（zip 解压/压缩 + XML 解析/生成 + hucre↔纯数据映射）在 xlsx.worker.ts（module worker）；
-//   hucre 为纯 ESM 零依赖（仅 TextEncoder/CompressionStream），可原样进 worker。
-// - 主线程只留 Store/book/DOM 交互：导出时遍历 Store 产 WriteSheet 纯数据发 worker；
-//   导入时收 PlainImportedSheet 批量回填新 SheetStore（Store 是类实例，过不了结构化克隆边界）。
+// xlsx 导入导出装配层（hucre@^1.1.0）：SheetStore + numFmt 侧车 ↔ xlsx 字节。
+// 导出映射走 `@infinite-table/plugins` 公开能力（sheetToWriteSheet：Store + 合并 / 行列尺寸 /
+// 浮动图 → hucre WriteSheet 纯映射，值/样式经 P5 读取 API 取数）；本文件只留装配：
+// - worker 客户端（惰性单例 + requestId 配对）与 book 级导出导入编排；
+// - 浮动对象列表的引擎侧收集（实例层 onChange 维护，导出源注入）；
+// - 导入回填（PlainImportedSheet → SheetStore + numFmt 侧车表）。
+// 重 CPU 段（zip 解压/压缩 + XML 解析/生成）在 xlsx.worker.ts（module worker）：
+// hucre 为纯 ESM 零依赖（仅 TextEncoder/CompressionStream），可原样进 worker；
+// 导入方向的 hucre→纯数据映射为 demo 自用，内联在 worker（见该文件头注释）。
 // 映射语义移植自 ultra-ui sheet-core/src/core/io/{export,import}.ts（数据模型不同，只移植映射）：
-// - 导出：值（公式格存原文去 '=' 进 formula，不写计算缓存——Excel 打开自动重算）；
-//   CellStyle → hucre 样式（fill solid / font 粗斜删下字色字号字族 / align 水平垂直+wrap /
-//   border 四边线型：solid 按宽度收敛 thin/medium/thick，dashed/dotted/double 直传）；
-//   行高 px→pt（×0.75）、列宽 px→字符宽（(px-5)/7）；numFmt → Excel 格式码
-// - 导入：值类型推断（Date → 1900 序列数 + date numFmt；错误格存错误码文本）；
-//   公式补 '=' 前缀入 Store（求值链天然生效）；样式经 theme 调色板 + tint 解析；
-//   边框线型收敛到引擎四线型 + 宽度；行高 pt×4/3、列宽 字符宽×7+5；numFmt 四类识别
+// - 导出：公式格存原文去 '='（Excel 打开自动重算）；行高 px→pt（×0.75）、列宽 px→字符宽（(px-5)/7）；
+//   numFmt → Excel 格式码；浮动图锚定几何按当前行列尺寸换算（P7 口径）
+// - 导入：值类型推断（Date → 1900 序列数 + date numFmt；错误格存错误码文本）；公式补 '=' 入 Store；
+//   样式经 theme 调色板 + tint 解析；行高 pt×4/3、列宽 字符宽×7+5；numFmt 四类识别
 // - 尺寸收敛：行/列数按 有值格∪合并 取高水位 + 可编辑余量（底线 40×26），硬顶 2000×256
 //   （SheetModel 稠密存储，防止 Excel 极限行列撑爆内存）；超顶内容格计数丢弃并提示
 
-import type {
-  AlignmentStyle as HucreAlignment,
-  BorderSide as HucreBorderSide,
-  Cell as HucreCell,
-  CellStyle as HucreCellStyle,
-  CellValue as HucreCellValue,
-  ColumnDef as HucreColumnDef,
-  FontStyle as HucreFont,
-  MergeRange as HucreMergeRange,
-  RowDef as HucreRowDef,
-  WriteSheet as HucreWriteSheet,
-} from 'hucre'
+import type { WriteSheet as HucreWriteSheet } from 'hucre'
 
-import type { CellBorderEdge, CellStyle } from '@infinite-table/core'
-import { SheetStore } from '@infinite-table/plugins'
+import type { CellStyle, FloatObject, ListTable } from '@infinite-table/core'
+import {
+  decodeDataUrlImage,
+  sheetToWriteSheet,
+  SheetStore,
+  type SheetExportSource,
+  type SheetImagePayload,
+} from '@infinite-table/plugins'
 
 import type { SheetBookBundle } from './book'
 import type { NumFmt } from './format'
-import type {
-  PlainImportedBook,
-  PlainImportedSheet,
-  XlsxWorkerRequest,
-  XlsxWorkerResponse,
-} from './xlsx-mapping'
-import { MAX_IMPORT_COLS, MAX_IMPORT_ROWS, numFmtToXlsx } from './xlsx-mapping'
 
-// 纯函数自 xlsx-mapping 转出（向后兼容既有导出签名）
-export { dateToSerial1900, numFmtToXlsx, xlsxNumFmtToModel } from './xlsx-mapping'
+/** 行列数硬顶（导入收敛；与 worker 内联映射的硬顶成对维护） */
+const MAX_IMPORT_ROWS = 2000
+const MAX_IMPORT_COLS = 256
+
+// ---- 跨 worker 边界的数据形状（导入方向；全部可结构化克隆：纯对象/数组/原始值） ----
+
+/** 导入映射后的一格（worker 侧已解析为 Store 直存形态：公式补 '='、Date 转 1900 序列数、错误格转错误码文本） */
+export interface PlainImportedCell {
+  col: number
+  row: number
+  /** 已解析的 Store 值；缺省 = 纯样式格（不写值） */
+  value?: string | number | boolean
+  style?: CellStyle
+  numFmt?: NumFmt
+}
+
+/** 导入映射后的一张表（尺寸已收敛，合并/冻结/行列尺寸已夹取到收敛尺寸内） */
+export interface PlainImportedSheet {
+  name: string
+  rowCount: number
+  colCount: number
+  /** 稀疏格数组（只含有值或有样式/numFmt 的格） */
+  cells: PlainImportedCell[]
+  merges: Array<{ startCol: number; startRow: number; endCol: number; endRow: number }>
+  frozenRows: number
+  frozenCols: number
+  rowHeights: Array<{ row: number; height: number }>
+  colWidths: Array<{ col: number; width: number }>
+}
+
+/** 导入映射后的整本（worker import 请求的 done 载荷） */
+export interface PlainImportedBook {
+  sheets: PlainImportedSheet[]
+  activeIndex: number
+  /** 超出行列硬顶被丢弃的内容格数（0 = 无截断） */
+  truncatedCells: number
+}
+
+// ---- worker 消息协议（postMessage 结构化克隆；字节走 transfer 零拷贝） ----
+
+export type XlsxWorkerRequest =
+  | { kind: 'import'; requestId: number; buffer: ArrayBuffer }
+  | { kind: 'export'; requestId: number; sheets: HucreWriteSheet[]; activeIndex: number }
+
+export type XlsxWorkerResponse =
+  | { kind: 'done'; requestId: number; payload: PlainImportedBook | Uint8Array }
+  | { kind: 'error'; requestId: number; message: string }
 
 // ---- worker 客户端（惰性单例 + requestId 配对） ----
 
@@ -119,184 +152,11 @@ function requestWorker<T>(
   })
 }
 
-// ---- 导出：模型 → hucre（Store 遍历留主线程；WriteSheet 为纯数据，可结构化克隆发 worker） ----
-
-/** 导出输入：一张表的 Store + 表名 + numFmt 查询 */
-export interface XlsxSheetSource {
-  name: string
-  store: SheetStore
-  numFmt: (col: number, row: number) => NumFmt | undefined
-}
-
-/** 像素 → Excel points（96dpi / 72pt 精确比 0.75） */
-function pxToPt(px: number): number {
-  return px * 0.75
-}
-
-/** 像素列宽 → Excel 字符宽（与导入 字符宽×7+5 对称） */
-function pxToExcelColWidth(px: number): number {
-  return Math.max(1, Math.round((px - 5) / 7))
-}
-
-/** 引擎边 → hucre 边（solid 按宽度收敛线型档位；dashed/dotted/double 同名直传） */
-function edgeToHucre(edge: CellBorderEdge): HucreBorderSide {
-  let style: HucreBorderSide['style']
-  const lineStyle = edge.style ?? 'solid'
-  if (lineStyle === 'solid') {
-    style = edge.width <= 1 ? 'thin' : edge.width <= 2 ? 'medium' : 'thick'
-  } else {
-    style = lineStyle
-  }
-  return { style, color: { rgb: edge.color.replace(/^#/, '') } }
-}
-
-/** 引擎 CellStyle + numFmt → hucre 单元格样式 */
-function styleToHucre(style: CellStyle | undefined, fmt: NumFmt | undefined): HucreCellStyle {
-  const hucre: HucreCellStyle = {}
-  if (style?.background) {
-    hucre.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { rgb: style.background.replace(/^#/, '') },
-    }
-  }
-  const font: HucreFont = {}
-  if (style?.color) font.color = { rgb: style.color.replace(/^#/, '') }
-  if (style?.fontWeight !== undefined) {
-    const weight = style.fontWeight
-    if (weight === 'bold' || weight === 'bolder' || (typeof weight === 'number' && weight >= 600)) {
-      font.bold = true
-    }
-  }
-  if (style?.fontStyle === 'italic') font.italic = true
-  if (style?.underline) font.underline = true
-  if (style?.lineThrough) font.strikethrough = true
-  if (typeof style?.fontSize === 'number') font.size = style.fontSize
-  if (style?.fontFamily) font.name = style.fontFamily
-  if (Object.keys(font).length > 0) hucre.font = font
-  const border: NonNullable<HucreCellStyle['border']> = {}
-  for (const side of ['top', 'right', 'bottom', 'left'] as const) {
-    const edge = style?.border?.[side]
-    if (edge) {
-      border[side] = edgeToHucre(edge)
-    }
-  }
-  if (Object.keys(border).length > 0) hucre.border = border
-  const alignment: HucreAlignment = {}
-  if (style?.textAlign) alignment.horizontal = style.textAlign
-  if (style?.verticalAlign) {
-    // 引擎 middle ↔ hucre/Excel center
-    alignment.vertical = style.verticalAlign === 'middle' ? 'center' : style.verticalAlign
-  }
-  if (style?.textWrap) alignment.wrapText = true
-  if (Object.keys(alignment).length > 0) hucre.alignment = alignment
-  if (fmt) hucre.numFmt = numFmtToXlsx(fmt)
-  return hucre
-}
-
-/** 单表 → hucre WriteSheet（rows 稠密矩形承载普通值；公式/样式/numFmt 进 cells 覆盖表） */
-function sheetToWriteSheet(source: XlsxSheetSource): HucreWriteSheet {
-  const { store, numFmt } = source
-  // 高水位：非空值 ∪ 样式 ∪ numFmt ∪ 合并 ∪ 行列尺寸覆盖（裁剪尾部空行空列）
-  let maxRow = -1
-  let maxCol = -1
-  const bump = (col: number, row: number): void => {
-    if (row > maxRow) maxRow = row
-    if (col > maxCol) maxCol = col
-  }
-  interface CellEntry {
-    value: unknown
-    style: CellStyle | undefined
-    fmt: NumFmt | undefined
-  }
-  const entries = new Map<string, CellEntry>()
-  for (let row = 0; row < store.getRowCount(); row++) {
-    for (let col = 0; col < store.getColCount(); col++) {
-      const value = store.getValue(col, row)
-      const style = store.getStyle(col, row)
-      const fmt = numFmt(col, row)
-      if (value == null && style === undefined && fmt === undefined) {
-        continue
-      }
-      entries.set(`${row},${col}`, { value, style, fmt })
-      bump(col, row)
-    }
-  }
-  for (const range of store.getMerges()) {
-    bump(range.endCol, range.endRow)
-  }
-  for (const row of store.getRowHeightOverrides().keys()) {
-    bump(0, row)
-  }
-  for (const col of store.getColWidthOverrides().keys()) {
-    bump(col, 0)
-  }
-
-  const rows: HucreCellValue[][] = Array.from({ length: maxRow + 1 }, () =>
-    Array.from({ length: maxCol + 1 }, () => null),
-  )
-  const cells = new Map<string, Partial<HucreCell>>()
-  for (const [key, entry] of entries) {
-    const comma = key.indexOf(',')
-    const row = Number(key.slice(0, comma))
-    const col = Number(key.slice(comma + 1))
-    const style = styleToHucre(entry.style, entry.fmt)
-    const hasStyle = Object.keys(style).length > 0
-    const raw = entry.value
-    if (typeof raw === 'string' && raw.startsWith('=')) {
-      // 公式格：存原文去 '='（hucre 契约）；rows 置 null，不写计算缓存（Excel 打开自动重算）
-      const cell: Partial<HucreCell> = { formula: raw.slice(1) }
-      if (hasStyle) cell.style = style
-      cells.set(key, cell)
-      continue
-    }
-    const value: HucreCellValue =
-      typeof raw === 'number' || typeof raw === 'string' || typeof raw === 'boolean' ? raw : null
-    if (value === null && !hasStyle) {
-      continue
-    }
-    rows[row]![col] = value
-    if (hasStyle) {
-      cells.set(key, { value, style })
-    }
-  }
-
-  const sheet: HucreWriteSheet = { name: source.name, rows }
-  if (cells.size > 0) sheet.cells = cells
-  const merges = store.getMerges()
-  if (merges.length > 0) {
-    sheet.merges = merges.map((range): HucreMergeRange => ({
-      startRow: range.startRow,
-      startCol: range.startCol,
-      endRow: range.endRow,
-      endCol: range.endCol,
-    }))
-  }
-  const frozen = store.getFrozen()
-  if (frozen.rowCount > 0 || frozen.colCount > 0) {
-    sheet.freezePane = { rows: frozen.rowCount, columns: frozen.colCount }
-  }
-  if (store.getRowHeightOverrides().size > 0) {
-    const rowDefs = new Map<number, HucreRowDef>()
-    for (const [row, height] of store.getRowHeightOverrides()) {
-      rowDefs.set(row, { height: pxToPt(height) })
-    }
-    sheet.rowDefs = rowDefs
-  }
-  if (store.getColWidthOverrides().size > 0) {
-    const maxWidthCol = Math.max(...store.getColWidthOverrides().keys())
-    const columns: HucreColumnDef[] = Array.from({ length: maxWidthCol + 1 }, () => ({}))
-    for (const [col, width] of store.getColWidthOverrides()) {
-      columns[col] = { width: pxToExcelColWidth(width) }
-    }
-    sheet.columns = columns
-  }
-  return sheet
-}
+// ---- 导出：模型 → hucre（映射走 plugins；WriteSheet 为纯数据，可结构化克隆发 worker） ----
 
 /** 整本导出为 xlsx 字节（表序 = 入参顺序，activeIndex 为打开时的活跃表；zip 压缩在 worker） */
 export async function writeBookXlsx(
-  sheets: readonly XlsxSheetSource[],
+  sheets: readonly SheetExportSource[],
   activeIndex: number,
 ): Promise<Uint8Array> {
   const writeSheets = sheets.map((source) => sheetToWriteSheet(source))
@@ -411,20 +271,50 @@ export function createXlsx(ctx: {
   /** 导入完成后的 UI 联动（tabs 重渲染 / 公式栏刷新 / 全表刷新） */
   onImported: () => void
 }): XlsxHandle {
-  const collectSources = (): { sheets: XlsxSheetSource[]; activeIndex: number } => {
-    const ids = ctx.bundle.ids()
-    const sheets = ids.map((id) => ({
-      name: ctx.bundle.nameOf(id),
-      store: ctx.bundle.stores.get(id)!,
-      numFmt: (col: number, row: number) => ctx.bundle.getNumFmt(id, col, row),
-    }))
-    const activeId = ctx.bundle.book.activeId
-    return { sheets, activeIndex: Math.max(0, ids.indexOf(activeId ?? '')) }
+  /** 每 sheet 浮动对象列表（引擎侧收集：实例层 onChange 维护；持活引用，update 原地生效） */
+  const floatLists = new Map<string, FloatObject[]>()
+  const watchFloatObjects = (id: string, table: ListTable): void => {
+    const list: FloatObject[] = []
+    floatLists.set(id, list)
+    table.floatObjects.onChange((change) => {
+      if (change.type === 'add') {
+        list.push(change.object)
+      } else if (change.type === 'remove') {
+        const index = list.findIndex((object) => object.id === change.id)
+        if (index >= 0) {
+          list.splice(index, 1)
+        }
+      }
+      // update 变更原地改对象（层内 Object.assign），列表持活引用无需维护
+    })
   }
+  // 既有实例补订（sheet-1 首建早于本装配，其后插入的浮动图仍被捕获）+ 后建实例经 book 事件订阅
+  for (const id of ctx.bundle.ids()) {
+    const table = ctx.bundle.book.get(id)
+    if (table) {
+      watchFloatObjects(id, table)
+    }
+  }
+  ctx.bundle.book.onChange((event) => {
+    if (event.table && event.activeId && event.created) {
+      watchFloatObjects(event.activeId, event.table)
+    }
+  })
+
+  /** 单表导出源（Store + numFmt 侧车 + 浮动图；图片字节自 data: URL 解码，非 data: 源跳过） */
+  const toExportSource = (id: string): SheetExportSource => ({
+    name: ctx.bundle.nameOf(id),
+    store: ctx.bundle.stores.get(id)!,
+    numFmt: (col: number, row: number) => ctx.bundle.getNumFmt(id, col, row),
+    images: floatLists.get(id) ?? [],
+    imageData: (object: FloatObject): SheetImagePayload | undefined =>
+      decodeDataUrlImage(object.src),
+  })
 
   const exportBook = async (): Promise<Uint8Array> => {
-    const { sheets, activeIndex } = collectSources()
-    return writeBookXlsx(sheets, activeIndex)
+    const ids = ctx.bundle.ids()
+    const activeId = ctx.bundle.book.activeId
+    return writeBookXlsx(ids.map(toExportSource), Math.max(0, ids.indexOf(activeId ?? '')))
   }
 
   return {

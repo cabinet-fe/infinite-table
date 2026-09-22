@@ -53,6 +53,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinite-table/core": "workspace:*",
+        "hucre": "^1.1.0",
       },
       "devDependencies": {
         "@infinite-table/render": "workspace:*",
