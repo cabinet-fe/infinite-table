@@ -369,7 +369,7 @@ export class ListTable {
   /**
    * 浮动对象层（格上图片/图表）：承载容器挂在 sky 层最顶（在选区/hover 浮层之上）。
    * 锚点经 resolveCellX/resolveCellYFromOffsets 换算层坐标（含冻结与滚动偏移），
-   * 滚动时 syncPositions 帧级跟随。
+   * 滚动时 syncPositions 帧级跟随；行高/列宽 resize 提交后 recalcGeometry 随新行列尺寸重算。
    */
   get floatObjects(): FloatObjectLayer {
     if (!this.floatLayer) {
@@ -1054,7 +1054,9 @@ export class ListTable {
     }
     updateImageWindow(this)
     if (this.floatLayer && this.floatLayer.size > 0) {
-      this.floatLayer.syncPositions()
+      // 行高/列宽 resize 提交路径（setColWidth/setRowHeight/拖拽会话）都收敛到本方法：
+      // 锚定浮动对象随新行列尺寸重算几何（无显式像素尺寸的对象伸缩）
+      this.floatLayer.recalcGeometry()
     }
     refreshOverlay(this)
   }

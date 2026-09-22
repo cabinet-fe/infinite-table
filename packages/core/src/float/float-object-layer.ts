@@ -1,6 +1,7 @@
 // FloatObjectLayer：格上浮动对象（图片/图表）的承载、定位与滚动跟随。
 // 浮动对象不进 cell 数据流，持有独立对象树（宿主层 root 下的一个容器子树，最后挂载 = 层内最顶）；
-// 锚点（from 格 + 像素偏移 → to 格）经 FloatGeometry 换算层坐标，滚动/结构变更后 syncPositions 帧级重排。
+// 锚点（from 格 + 像素偏移 → to 格）经 FloatGeometry 换算层坐标，滚动后 syncPositions 帧级跟随，
+// 行高/列宽 resize 后 recalcGeometry 按新行列尺寸重算锚定几何。
 // 变更以事件抛出（onChange），undo/历史由宿主入库，本层不内置历史栈。
 
 import { SceneNode, type LayerHandle, type RenderContext } from '@infinite-table/render'
@@ -136,8 +137,17 @@ export class FloatObjectLayer {
     return null
   }
 
-  /** 滚动/行列结构变更后的帧级重排：锚点重算 + 整层失效 */
+  /** 滚动跟随的帧级重排：滚动只改锚点换算结果（行列尺寸不变），与锚定几何重算共用同一重排 */
   syncPositions(): void {
+    this.recalcGeometry()
+  }
+
+  /**
+   * 锚定几何重算（行高/列宽 resize 提交后由表格触发）：按当前行列尺寸从 anchor
+   * （from→to + offset）重算——无显式像素尺寸的对象随新行列尺寸伸缩；
+   * 有显式像素尺寸的对象只跟随锚点位置，尺寸保持不变。整层失效一次。
+   */
+  recalcGeometry(): void {
     for (const node of this.nodes.values()) {
       this.layoutNode(node)
     }

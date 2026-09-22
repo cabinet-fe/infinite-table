@@ -25,11 +25,17 @@ function stubLayer() {
   return { layer, root, invalidated }
 }
 
-/** 等行高列宽的假几何：格 100x32，scroll 由闭包变量驱动（模拟滚动跟随） */
-function stubGeometry(scroll: { left: number; top: number }): FloatGeometry {
+/** 等行高列宽的假几何：scroll/cell 由闭包变量驱动（模拟滚动跟随与行列 resize 后尺寸变更） */
+function stubGeometry(
+  scroll: { left: number; top: number },
+  cell: { width: number; height: number } = { width: 100, height: 32 },
+): FloatGeometry {
   return {
-    cellOrigin: (col, row) => ({ x: col * 100 - scroll.left, y: row * 32 - scroll.top }),
-    cellSize: () => ({ width: 100, height: 32 }),
+    cellOrigin: (col, row) => ({
+      x: col * cell.width - scroll.left,
+      y: row * cell.height - scroll.top,
+    }),
+    cellSize: () => ({ width: cell.width, height: cell.height }),
   }
 }
 
@@ -72,6 +78,68 @@ describe('FloatObjectLayer 承载与定位', () => {
     const node = layer.root.children[0]?.children[0]
     expect({ x: node?.x, y: node?.y }).toEqual({ x: 54, y: 40 })
     expect(invalidated.at(-1)).toEqual({ type: 'full' })
+  })
+
+  it('recalcGeometry：行高/列宽 resize 后 from→to 锚定对象随新行列尺寸伸缩；显式尺寸对象不受影响', () => {
+    const { layer, invalidated } = stubLayer()
+    const cell = { width: 100, height: 32 }
+    const floats = new FloatObjectLayer({
+      layer,
+      geometry: stubGeometry({ left: 0, top: 0 }, cell),
+    })
+    // 跨 2 列 × 2 行：from (1,2)+offset(4,8) → to (3,4) 右下缘
+    const anchor = { from: { col: 1, row: 2 }, to: { col: 3, row: 4 }, offsetX: 4, offsetY: 8 }
+    floats.add({ id: 'anchored', kind: 'image', anchor })
+    floats.add({ id: 'explicit', kind: 'image', anchor, size: { width: 120, height: 60 } })
+    invalidated.length = 0
+
+    // 列宽 100→160：x 随 from 格原点右移，宽伸到 col3 新右缘 4*160=640；高不变
+    cell.width = 160
+    floats.recalcGeometry()
+    let anchored = layer.root.children[0]?.children[0]
+    expect({
+      x: anchored?.x,
+      y: anchored?.y,
+      width: anchored?.width,
+      height: anchored?.height,
+    }).toEqual({
+      x: 164,
+      y: 72,
+      width: 476,
+      height: 88,
+    })
+
+    // 行高 32→48：y 随 from 格原点下移，高伸到 row4 新底 5*48=240；宽不变
+    cell.height = 48
+    floats.recalcGeometry()
+    anchored = layer.root.children[0]?.children[0]
+    expect({
+      x: anchored?.x,
+      y: anchored?.y,
+      width: anchored?.width,
+      height: anchored?.height,
+    }).toEqual({
+      x: 164,
+      y: 104,
+      width: 476,
+      height: 136,
+    })
+
+    // 显式像素尺寸对象：位置随锚点跟随，尺寸不随行列伸缩
+    const explicit = layer.root.children[0]?.children[1]
+    expect({
+      x: explicit?.x,
+      y: explicit?.y,
+      width: explicit?.width,
+      height: explicit?.height,
+    }).toEqual({
+      x: 164,
+      y: 104,
+      width: 120,
+      height: 60,
+    })
+    // 每次重算整层失效一次
+    expect(invalidated).toEqual([{ type: 'full' }, { type: 'full' }])
   })
 
   it('update 合并 patch 并重排（双包围盒失效）；remove 移除节点', () => {

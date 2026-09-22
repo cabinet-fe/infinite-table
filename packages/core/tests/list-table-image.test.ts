@@ -199,6 +199,53 @@ describe('ListTable 浮动对象层', () => {
     expect(table.floatObjects.getAt(153, 160)).toBeNull()
   })
 
+  it('行高/列宽 resize 后：锚定对象几何随新行列尺寸重算，显式尺寸对象尺寸不受影响', () => {
+    const { host, table } = createImageTable()
+    table.floatObjects.add(FLOAT)
+    table.floatObjects.add({ ...FLOAT, id: 'f2', size: { width: 50, height: 30 } })
+    // 浮动容器是 sky root 的末子节点（最后挂载 = 层内最顶）
+    const nodeAt = (index: number) => host.layers.get('sky')?.root.children.at(-1)?.children[index]
+
+    // setColWidth：to 列（col2）100→200 → 右缘 48+100+200+100=448，宽 196→296，x 不变
+    table.setColWidth(2, 200)
+    expect({
+      x: nodeAt(0)?.x,
+      y: nodeAt(0)?.y,
+      width: nodeAt(0)?.width,
+      height: nodeAt(0)?.height,
+    }).toEqual({
+      x: 152,
+      y: 108,
+      width: 296,
+      height: 56,
+    })
+    // setRowHeight：from 行（row2）32→64 → row3 底 36+32+32+64+32=196，高 56→88，y 不变
+    table.setRowHeight(2, 64)
+    expect({
+      x: nodeAt(0)?.x,
+      y: nodeAt(0)?.y,
+      width: nodeAt(0)?.width,
+      height: nodeAt(0)?.height,
+    }).toEqual({
+      x: 152,
+      y: 108,
+      width: 296,
+      height: 88,
+    })
+    // 显式像素尺寸对象：位置随锚点，尺寸不随行列伸缩
+    expect({
+      x: nodeAt(1)?.x,
+      y: nodeAt(1)?.y,
+      width: nodeAt(1)?.width,
+      height: nodeAt(1)?.height,
+    }).toEqual({
+      x: 152,
+      y: 108,
+      width: 50,
+      height: 30,
+    })
+  })
+
   it('浮动图片经 ImageService 加载；onChange 事件供宿主入库', async () => {
     const { loader, table } = createImageTable()
     const events: string[] = []
