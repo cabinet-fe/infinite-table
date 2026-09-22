@@ -41,6 +41,8 @@ function createManager(
     resolveEditable?: (col: number, row: number) => boolean
     canWrite?: boolean
     resolveValue?: (col: number, row: number) => unknown
+    /** 编辑器字符上限缺省（options 级；列级 editorMaxLength 优先） */
+    editorMaxLength?: number
     /** 锚定格滚出视口（cellRect 返回 null） */
     offscreen?: boolean
     /** 是否注入 subscribeScrollFrame（滚动跟随接线） */
@@ -71,6 +73,7 @@ function createManager(
     columns: overrides.columns ?? [{ field: 'name', title: 'Name', editor: 'text' }],
     registry,
     resolveEditable: overrides.resolveEditable,
+    editorMaxLength: overrides.editorMaxLength,
     writeTarget,
     resolveValue: overrides.resolveValue ?? (() => 'a'),
     cellRect: () => cellRect,
@@ -252,6 +255,44 @@ describe('EditManager 编辑生命周期', () => {
     })
     h.manager.startEdit(0, 0)
     expect(h.created[0]!.tagName).toBe('textarea')
+  })
+
+  it('编辑器字符上限透传：列级优先、options 级兜底、未配置不截断（初值与提交口径）', () => {
+    // 列级设定：初值（resolveValue 基础值）与提交口径均截断
+    const limited = createManager({
+      columns: [{ field: 'name', title: 'Name', editor: 'text', editorMaxLength: 3 }],
+      resolveValue: () => 'abcdef',
+    })
+    limited.manager.startEdit(0, 0)
+    expect(limited.created[0]!.value).toBe('abc')
+    limited.created[0]!.value = 'abcdef'
+    limited.manager.commitEdit()
+    expect(limited.writes).toEqual([{ col: 0, row: 0, value: 'abc' }])
+
+    // options 级兜底（列未覆盖）
+    const fallback = createManager({ editorMaxLength: 2 })
+    fallback.manager.startEdit(0, 0)
+    fallback.created[0]!.value = 'xyz'
+    fallback.manager.commitEdit()
+    expect(fallback.writes).toEqual([{ col: 0, row: 0, value: 'xy' }])
+
+    // 列级覆盖 options（列值优先于缺省）
+    const override = createManager({
+      editorMaxLength: 2,
+      columns: [{ field: 'name', title: 'Name', editor: 'text', editorMaxLength: 5 }],
+    })
+    override.manager.startEdit(0, 0)
+    override.created[0]!.value = 'abcdef'
+    override.manager.commitEdit()
+    expect(override.writes).toEqual([{ col: 0, row: 0, value: 'abcde' }])
+
+    // 未配置：初值与提交口径均不截断（缺省行为不变）
+    const unlimited = createManager({ resolveValue: () => 'abcdef' })
+    unlimited.manager.startEdit(0, 0)
+    expect(unlimited.created[0]!.value).toBe('abcdef')
+    unlimited.created[0]!.value = 'abcdefgh'
+    unlimited.manager.commitEdit()
+    expect(unlimited.writes).toEqual([{ col: 0, row: 0, value: 'abcdefgh' }])
   })
 })
 

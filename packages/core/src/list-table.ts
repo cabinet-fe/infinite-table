@@ -319,6 +319,7 @@ export class ListTable {
       columns: options.columns,
       registry: this.editorRegistry,
       resolveEditable: options.resolveEditable,
+      editorMaxLength: options.editorMaxLength,
       writeTarget: {
         canWrite: (col, row) => this.canWriteCell(col, row),
         write: (col, row, value) => this.writeCell(col, row, value),

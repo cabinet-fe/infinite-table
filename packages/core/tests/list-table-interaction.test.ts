@@ -220,6 +220,28 @@ describe('ListTable 选区', () => {
     expect(broadcasts).toBe(1)
     expect(table.getSelection().focus).toEqual({ col: 1, row: 0 })
   })
+
+  // 回归锁定（下游语义）：外部回推选区是「应用快照」而非「导航过去」——视口外选区不带回滚动
+  it('applyExternalSelection 应用视口外选区快照后 scrollLeft/scrollTop 不变（不滚动回推语义锁定）', () => {
+    const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
+    const { table } = createTable({ records })
+    // 滚到中部已知位置（800×600 视口，10 列 ×100 宽：left 200 已到最大值）
+    table.scrollTo(200, 640)
+    const before = table.getScrollState()
+    expect(before).toEqual({ left: 200, top: 640 })
+
+    // 快照落点远在视口外（可见行约 20~37）
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 8, row: 900 }, end: { col: 9, row: 950 } }],
+      focus: { col: 9, row: 950 },
+    })
+
+    expect(table.getScrollState()).toEqual(before)
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 8, row: 900 }, end: { col: 9, row: 950 } },
+    ])
+    expect(table.getSelection().focus).toEqual({ col: 9, row: 950 })
+  })
 })
 
 describe('ListTable 表头拖选连续扩展', () => {

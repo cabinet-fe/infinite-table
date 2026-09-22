@@ -27,6 +27,8 @@ export interface ColumnDefine {
   editor?: string
   /** 该列编辑器多行形态：true 走 textarea（缺省单行 input） */
   editorMultiline?: boolean
+  /** 该列编辑器字符上限：设定后编辑输入超限截断（覆盖 options.editorMaxLength）；未配置沿 options 级 */
+  editorMaxLength?: number
   /** 该列文本自动换行：开启后超宽文本在格内断行，不向右侧空格溢出（可被逐格样式 hook 覆盖） */
   textWrap?: boolean
   /**
@@ -126,6 +128,8 @@ export interface ListTableOptions {
   editCellOnEnter?: boolean
   /** 编辑器注册表（可编第一级判定与格级路由）；缺省为空表，也可事后经 table.editorRegistry 注册 */
   editorRegistry?: EditorRegistry
+  /** 编辑器字符上限（options 级缺省，可按列 editorMaxLength 覆盖）；未配置不截断 */
+  editorMaxLength?: number
   /** ImageService 配置（位图 LRU 预算/并发/占位延迟/加载器注入等） */
   imageServiceOptions?: ImageServiceOptions
   /** 左侧冻结列数（数据列，不含行号列；缺省 0） */

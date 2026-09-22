@@ -10,6 +10,8 @@ import type {
 
 export class FakeEditorElement implements TextEditorElement {
   value = ''
+  /** 输入字符上限接线（真实 DOM 原生属性；假实现仅记录，不做截断语义） */
+  maxLength?: number
   readonly style: TextEditorElementStyle = {
     position: '',
     left: '',

@@ -29,12 +29,14 @@ export interface EditWriteTarget {
 export type EditCommitMove = 'down' | 'right'
 
 export interface EditManagerInit {
-  /** 列定义（editor 声明、editorMultiline 形态来源） */
+  /** 列定义（editor 声明、editorMultiline 形态与 editorMaxLength 列级上限来源） */
   columns: readonly ColumnDefine[]
   /** 编辑器注册表：可编第一级判定（列声明 editor 或格级路由命中） */
   registry: EditorRegistry
   /** 格级可编判定（第二级；缺省全部可编） */
   resolveEditable?: (col: number, row: number) => boolean
+  /** 编辑器字符上限缺省（options 级；列 editorMaxLength 优先）；未配置不截断 */
+  editorMaxLength?: number
   /** 回写目标（第三级判定 + 提交写值） */
   writeTarget: EditWriteTarget
   /** 编辑初值口径：基础值（未过 resolveDisplayValue） */
@@ -130,6 +132,7 @@ export class EditManager {
     const oldValue = this.init.resolveValue(col, row)
     const editor = createTextEditor({
       multiline: this.init.columns[col]?.editorMultiline ?? false,
+      maxLength: this.init.columns[col]?.editorMaxLength ?? this.init.editorMaxLength,
       font: this.init.cellFont?.(col, row),
       doc: this.init.doc,
     })

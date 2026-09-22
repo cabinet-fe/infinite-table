@@ -94,6 +94,30 @@ describe('文本编辑器', () => {
     expect(actions).toEqual(['cancel', 'commitDown', 'commitRight'])
   })
 
+  it('字符上限：设定后初值与提交口径均截断、元素接线原生 maxLength；未配置不截断', () => {
+    // 设定上限 3：元素接线原生 maxLength（真实 DOM 输入期原生截断），open 初值超限截断
+    const { doc, created } = createFakeDoc()
+    const editor = createTextEditor({ doc, maxLength: 3 })
+    editor.open(new FakeEditorHost(), { x: 0, y: 0, width: 10, height: 10 }, 'abcdef')
+    const element = created[0]!
+    expect(element.maxLength).toBe(3)
+    expect(element.value).toBe('abc')
+
+    // 程序化赋值绕过原生 maxLength（真实 DOM 亦如此）：提交口径兜底截断
+    element.value = 'abcdef'
+    expect(editor.getValue()).toBe('abc')
+
+    // 未配置：不接线、初值与提交口径均不截断（缺省行为不变）
+    const plain = createFakeDoc()
+    const unlimited = createTextEditor({ doc: plain.doc })
+    unlimited.open(new FakeEditorHost(), { x: 0, y: 0, width: 10, height: 10 }, 'abcdef')
+    const plainElement = plain.created[0]!
+    expect(plainElement.maxLength).toBeUndefined()
+    expect(plainElement.value).toBe('abcdef')
+    plainElement.value = 'abcdefgh'
+    expect(unlimited.getValue()).toBe('abcdefgh')
+  })
+
   it('close 摘除元素、解绑键盘并幂等；重开后键盘接线恢复', () => {
     const { doc, created } = createFakeDoc()
     const host = new FakeEditorHost()

@@ -27,6 +27,11 @@ export interface TextEditorElementStyle {
 /** 编辑器元素最小结构（真实 HTMLInputElement/HTMLTextAreaElement 天然满足） */
 export interface TextEditorElement {
   value: string
+  /**
+   * 输入字符上限（真实 HTMLInputElement/HTMLTextAreaElement 天然支持：输入期原生截断；
+   * 假实现可缺省忽略——open/getValue 的截断兜底不依赖它）。
+   */
+  maxLength?: number
   readonly style: TextEditorElementStyle
   focus(): void
   addEventListener(type: string, listener: (event: EditorKeyEvent) => void): void
@@ -50,6 +55,8 @@ export type TextEditorKeyAction = 'cancel' | 'commitDown' | 'commitRight'
 export interface TextEditorInit {
   /** true 走 textarea 多行形态（缺省单行 input） */
   multiline?: boolean
+  /** 编辑字符上限：设定后超限输入被截断（元素原生 maxLength 接线 + 初值与提交口径兜底截断）；未配置不截断 */
+  maxLength?: number
   /** 编辑字体（CSS font 串，随锚定格样式推导）；缺省不设（用浏览器缺省） */
   font?: string
   /** 元素创建源；缺省取 globalThis.document（无 DOM 环境必须注入） */
@@ -82,6 +89,14 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     throw new Error('createTextEditor 需要 DOM 文档；无 DOM 环境请注入 init.doc')
   }
   const element = doc.createElement(init.multiline ? 'textarea' : 'input')
+  // 字符上限：元素原生 maxLength 截断输入期键入/粘贴（程序化赋值不受其约束，open/getValue 各自兜底）
+  const maxLength = init.maxLength
+  if (maxLength != null) {
+    element.maxLength = maxLength
+  }
+  /** 提交口径截断：真实 DOM 输入已被原生截断，这里兜底程序化赋值路径（含假实现环境） */
+  const truncate = (value: string): string =>
+    maxLength == null ? value : value.slice(0, maxLength)
   // 基础视觉一次性写入（先于 open 的定位赋值，避免被覆盖）
   element.style.cssText =
     'margin:0;padding:4px;box-sizing:border-box;background-color:#FFFFFF;' +
@@ -131,7 +146,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
       host = hostElement
       element.style.position = 'absolute'
       moveTo(rect)
-      element.value = initialValue
+      element.value = truncate(initialValue)
       if (!opened) {
         host.appendChild(element)
         opened = true
@@ -141,7 +156,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     },
     moveTo,
     getValue() {
-      return element.value
+      return truncate(element.value)
     },
     close() {
       element.removeEventListener('keydown', handleKeyDown)
