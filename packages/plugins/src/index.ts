@@ -5,10 +5,14 @@ export type { TablePlugin } from '@infinite-table/core'
 // ---- sheet 插件（参考实现；ultra-ui 替换时由其无头模型层顶替） ----
 export { SheetStore } from './sheet/sheet-store'
 export type {
+  SheetCellMetaEntry,
+  SheetDisplayResolver,
   SheetFrozen,
   SheetStoreChangeEvent,
   SheetStoreChangeType,
   SheetStoreChangeListener,
+  SheetStoreMetaChangeEvent,
+  SheetStoreMetaChangeListener,
   SheetStoreOptions,
 } from './sheet/sheet-store'
 export { createFormulaDisplay } from './sheet/formula-display'
