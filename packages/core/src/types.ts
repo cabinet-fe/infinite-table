@@ -144,6 +144,18 @@ export interface ListTableOptions {
   headerHeight?: number
   /** 行号列宽度 */
   rowHeaderWidth?: number
+  /**
+   * 列头开关：false 关闭列头（构造期归一化为 headerHeight = 0，忽略显式 headerHeight）；
+   * 缺省 true 保持现状。关闭后内容原点上移到 y=0，原列头区域的命中/拖选/右键/resize/
+   * 角点全选全部走表体分支（与直接传 headerHeight: 0 的零高路径等价）。
+   */
+  showColHeader?: boolean
+  /**
+   * 行号列开关：false 关闭行号列（构造期归一化为 rowHeaderWidth = 0，忽略显式
+   * rowHeaderWidth）；缺省 true 保持现状。关闭后内容原点左移到 x=0，原行号列区域的
+   * 命中/拖选/右键/resize/角点全选全部走表体分支（与直接传 rowHeaderWidth: 0 等价）。
+   */
+  showRowHeader?: boolean
   /** 注入渲染宿主（测试/自定义管线）；缺省用 hostOptions 创建 */
   host?: RenderHost
   /** 未注入 host 时创建 RenderHost 的参数（width/height 取上面的视口尺寸） */

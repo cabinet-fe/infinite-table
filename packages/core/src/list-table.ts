@@ -254,8 +254,13 @@ export class ListTable {
     // 主题接入样式管线：几何与格样式默认取自主题，显式 options 优先
     this.theme = extendsTheme(options.theme)
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
-    this.headerHeight = options.headerHeight ?? this.theme.headerHeight
-    this.rowHeaderWidth = options.rowHeaderWidth ?? this.theme.rowHeaderWidth
+    // 行列头开关（showRowHeader/showColHeader）构造期归一化为零宽/零高：
+    // 几何（视口/内容原点/冻结偏移/命中/编辑浮层定位）全部经既有 headerHeight/
+    // rowHeaderWidth 路径取值，归一化后关闭侧自动退化为表体原点，无需分支扩散
+    this.headerHeight =
+      options.showColHeader === false ? 0 : (options.headerHeight ?? this.theme.headerHeight)
+    this.rowHeaderWidth =
+      options.showRowHeader === false ? 0 : (options.rowHeaderWidth ?? this.theme.rowHeaderWidth)
     const defaultColWidth = options.defaultColWidth ?? this.theme.defaultColWidth
     this.colWidths = options.columns.map((col) => col.width ?? defaultColWidth)
     this.colOffsets = computeColOffsets(this.colWidths)

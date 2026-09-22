@@ -70,8 +70,10 @@ export function hitResizeHandle(
   capability: ResizeCapability = {},
   threshold = RESIZE_HANDLE_THRESHOLD,
 ): ResizeTarget | null {
-  // 列手柄：指针在列头带内，接近某列右缘的视口位置
-  if (y >= 0 && y <= geo.headerHeight && x >= geo.rowHeaderWidth) {
+  // 列手柄：指针在列头带内，接近某列右缘的视口位置。
+  // 列头关闭（headerHeight = 0，showColHeader: false 的归一化结果）时带退化为 y=0 一条线，
+  // 手柄整体不可命中（关闭侧无表头可抓）
+  if (geo.headerHeight > 0 && y >= 0 && y <= geo.headerHeight && x >= geo.rowHeaderWidth) {
     const contentX = geo.toContentX(x)
     const colCount = geo.colOffsets.length - 1
     const first = firstEdgeAtLeast(geo.colOffsets, colCount, contentX - threshold)
@@ -82,8 +84,9 @@ export function hitResizeHandle(
       return { kind: 'col', index: first }
     }
   }
-  // 行手柄：指针在行号列带内，接近某行下缘的视口位置
-  if (x >= 0 && x <= geo.rowHeaderWidth && y >= geo.headerHeight) {
+  // 行手柄：指针在行号列带内，接近某行下缘的视口位置。
+  // 行号列关闭（rowHeaderWidth = 0）时同理不可命中
+  if (geo.rowHeaderWidth > 0 && x >= 0 && x <= geo.rowHeaderWidth && y >= geo.headerHeight) {
     const contentY = geo.toContentY(y)
     const rowCount = geo.rowOffsets.length - 1
     const first = firstEdgeAtLeast(geo.rowOffsets, rowCount, contentY - threshold)

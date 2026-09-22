@@ -313,25 +313,29 @@ export function updateSceneWindow(table: ListTable): void {
       table.rowHeaderNodes.delete(row)
     }
   }
-  for (const cols of [scrollableCols, frozenCols]) {
-    for (let col = cols.start; col < cols.end; col++) {
-      if (!table.colHeaderNodes.has(col)) {
-        const node = newColHeaderNode(table, col, left, styles)
-        headerGroup.appendChild(node)
-        table.colHeaderNodes.set(col, node)
+  if (showsColHeader(table)) {
+    for (const cols of [scrollableCols, frozenCols]) {
+      for (let col = cols.start; col < cols.end; col++) {
+        if (!table.colHeaderNodes.has(col)) {
+          const node = newColHeaderNode(table, col, left, styles)
+          headerGroup.appendChild(node)
+          table.colHeaderNodes.set(col, node)
+        }
       }
     }
   }
-  for (const rows of [scrollableRows, frozenRows]) {
-    for (let row = rows.start; row < rows.end; row++) {
-      if (!table.rowHeaderNodes.has(row)) {
-        const node = newRowHeaderNode(table, row, top, styles)
-        headerGroup.appendChild(node)
-        table.rowHeaderNodes.set(row, node)
+  if (showsRowHeader(table)) {
+    for (const rows of [scrollableRows, frozenRows]) {
+      for (let row = rows.start; row < rows.end; row++) {
+        if (!table.rowHeaderNodes.has(row)) {
+          const node = newRowHeaderNode(table, row, top, styles)
+          headerGroup.appendChild(node)
+          table.rowHeaderNodes.set(row, node)
+        }
       }
     }
   }
-  if (!table.cornerNode) {
+  if (!table.cornerNode && showsColHeader(table) && showsRowHeader(table)) {
     table.cornerNode = newCornerNode(table, styles)
     headerGroup.appendChild(table.cornerNode)
   }
@@ -593,6 +597,16 @@ function newHeaderGroup(table: ListTable): SceneNode {
   return new SceneNode({ pickable: false, width: table.width, height: table.height })
 }
 
+/** 列头是否开放渲染（showColHeader 归一化为 headerHeight = 0 时关闭） */
+function showsColHeader(table: ListTable): boolean {
+  return table.headerHeight > 0
+}
+
+/** 行号列是否开放渲染（showRowHeader 归一化为 rowHeaderWidth = 0 时关闭） */
+function showsRowHeader(table: ListTable): boolean {
+  return table.rowHeaderWidth > 0
+}
+
 /** 列头（冻结列固定、其余随横向滚动）+ 行号列（冻结行固定、其余随纵向滚动）+ 左上角 */
 function appendHeaders(
   table: ListTable,
@@ -605,23 +619,31 @@ function appendHeaders(
   scrollableCols: WindowRange,
 ): void {
   const styles = headerStyles(table)
+  // 关闭侧不建表头场景节点（场景与命中都不再出现该侧表头）
   // 滚动条带先画、冻结条带后画：滑动的行/列头被冻结头覆盖
-  for (const cols of [scrollableCols, frozenCols]) {
-    for (let col = cols.start; col < cols.end; col++) {
-      const node = newColHeaderNode(table, col, left, styles)
-      headerGroup.appendChild(node)
-      table.colHeaderNodes.set(col, node)
+  if (showsColHeader(table)) {
+    for (const cols of [scrollableCols, frozenCols]) {
+      for (let col = cols.start; col < cols.end; col++) {
+        const node = newColHeaderNode(table, col, left, styles)
+        headerGroup.appendChild(node)
+        table.colHeaderNodes.set(col, node)
+      }
     }
   }
-  for (const rows of [scrollableRows, frozenRows]) {
-    for (let row = rows.start; row < rows.end; row++) {
-      const node = newRowHeaderNode(table, row, top, styles)
-      headerGroup.appendChild(node)
-      table.rowHeaderNodes.set(row, node)
+  if (showsRowHeader(table)) {
+    for (const rows of [scrollableRows, frozenRows]) {
+      for (let row = rows.start; row < rows.end; row++) {
+        const node = newRowHeaderNode(table, row, top, styles)
+        headerGroup.appendChild(node)
+        table.rowHeaderNodes.set(row, node)
+      }
     }
   }
-  table.cornerNode = newCornerNode(table, styles)
-  headerGroup.appendChild(table.cornerNode)
+  // 角点是行号列×列头的交叉区，任一侧关闭即无角点
+  if (showsColHeader(table) && showsRowHeader(table)) {
+    table.cornerNode = newCornerNode(table, styles)
+    headerGroup.appendChild(table.cornerNode)
+  }
 }
 
 /** 三类表头分区样式：列头用 header、行号列用 rowHeader、左上角用 corner（缺省随 header 派生）；borderColor 同样投影为网格边 */
