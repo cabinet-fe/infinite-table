@@ -1,0 +1,256 @@
+{
+  "tool": "infinite-table-bench",
+  "env": "headless (bun 1.4.2, darwin/arm64)",
+  "dataset": "100000 行 × 20 列固定尺寸（视口 1280×720）",
+  "startedAt": "2026-09-22T01:03:25.752Z",
+  "durationMs": 199.48225000000002,
+  "passed": true,
+  "scenarios": [
+    {
+      "id": "ttff",
+      "title": "TTFF 首帧时间（100000 行 × 20 列固定尺寸，5 次）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "TTFF P50",
+          "value": "0.6ms"
+        },
+        {
+          "label": "TTFF 各次",
+          "value": "2.7 / 1.0 / 0.6 / 0.6 / 0.5"
+        },
+        {
+          "label": "constructor P50（不含首帧 flush）",
+          "value": "0.5ms"
+        }
+      ],
+      "checks": [
+        {
+          "label": "TTFF P50 ≤ 80ms（07 §1.2 M1）",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "scroll-fps",
+      "title": "滚动 FPS（100000 行固定行高，300 帧 × 120px）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "稳态滚动平均 FPS",
+          "value": "18395.0"
+        },
+        {
+          "label": "帧间隔 P95",
+          "value": "0.08ms"
+        },
+        {
+          "label": "帧间隔 P50",
+          "value": "0.04ms"
+        },
+        {
+          "label": "JS 侧帧耗时 P95（滚动 + 场景重建 + flush）",
+          "value": "0.08ms"
+        }
+      ],
+      "checks": [
+        {
+          "label": "稳态滚动平均 FPS ≥ 55（README 目标）",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "invalidation-area",
+      "title": "失效面积收敛（视口 1280×720，滚动/快跳/hover 并发）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "稳态滚动单帧 body 失效面积 / 视口（最大）",
+          "value": "0.950"
+        },
+        {
+          "label": "hover 并发单帧 body 失效面积 / 视口（最大）",
+          "value": "0.950"
+        },
+        {
+          "label": "body full 次数（稳态 / 快跳 / hover）",
+          "value": "0 / 0 / 0"
+        }
+      ],
+      "checks": [
+        {
+          "label": "稳态滚动无 full 全量重绘（≤ 0，README「无全量重绘路径」）",
+          "passed": true
+        },
+        {
+          "label": "快速拖滚动条无 full 全量重绘（≤ 0）",
+          "passed": true
+        },
+        {
+          "label": "单帧 body 失效面积收敛于单条 band（≤ 1× 视口）",
+          "passed": true
+        },
+        {
+          "label": "hover 并发不放大 body 失效面积（03 §4.2：hover 走 sky 独立重绘）",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "sheet-switch",
+      "title": "sheet 切换（全量重建，含首帧）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "均值",
+          "value": "0.15 ms"
+        },
+        {
+          "label": "轮次",
+          "value": "5"
+        }
+      ],
+      "checks": []
+    },
+    {
+      "id": "sheet-cell-writes",
+      "title": "sheet 逐格写（模型事件 → cell 失效）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "写入次数",
+          "value": "1000"
+        },
+        {
+          "label": "吞吐",
+          "value": "474 ops/ms"
+        },
+        {
+          "label": "body full 失效",
+          "value": "0"
+        },
+        {
+          "label": "body cell 失效",
+          "value": "1000"
+        }
+      ],
+      "checks": [
+        {
+          "label": "逐格写期间 body full 失效 0 次（要求 0）",
+          "passed": true
+        },
+        {
+          "label": "吞吐 474 ops/ms（下限 190）",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "sheet-paste",
+      "title": "sheet 大块粘贴（batchUpdate 收敛）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "粘贴格数",
+          "value": "500"
+        },
+        {
+          "label": "耗时",
+          "value": "0.30 ms"
+        },
+        {
+          "label": "body band 失效",
+          "value": "1"
+        },
+        {
+          "label": "body full 失效",
+          "value": "0"
+        }
+      ],
+      "checks": [
+        {
+          "label": "粘贴 500 格收敛 band 1 次（要求 1）",
+          "passed": true
+        },
+        {
+          "label": "粘贴期间 body full 0 次（要求 0）",
+          "passed": true
+        },
+        {
+          "label": "耗时 0.30 ms（上限 5）",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "id": "sheet-freeze-switch",
+      "title": "sheet 冻结切换（运行时全量重建）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "均值",
+          "value": "0.09 ms"
+        },
+        {
+          "label": "轮次",
+          "value": "20"
+        }
+      ],
+      "checks": []
+    },
+    {
+      "id": "sheet-big-init-writes",
+      "title": "sheet 大批量初始化写 + 大样式池（1/5/10 万行 × 12 列 × 20 色池）",
+      "passed": true,
+      "metrics": [
+        {
+          "label": "合计吞吐",
+          "value": "30026 ops/ms"
+        },
+        {
+          "label": "1 万行",
+          "value": "8.3 ms（28829 ops/ms）"
+        },
+        {
+          "label": "5 万行",
+          "value": "49.1 ms（24424 ops/ms）"
+        },
+        {
+          "label": "10 万行",
+          "value": "70.4 ms（34076 ops/ms）"
+        }
+      ],
+      "checks": [
+        {
+          "label": "1 万行初始化写收敛 band 1 次（要求 1）",
+          "passed": true
+        },
+        {
+          "label": "1 万行初始化写期间 body full 0 次（要求 0）",
+          "passed": true
+        },
+        {
+          "label": "5 万行初始化写收敛 band 1 次（要求 1）",
+          "passed": true
+        },
+        {
+          "label": "5 万行初始化写期间 body full 0 次（要求 0）",
+          "passed": true
+        },
+        {
+          "label": "10 万行初始化写收敛 band 1 次（要求 1）",
+          "passed": true
+        },
+        {
+          "label": "10 万行初始化写期间 body full 0 次（要求 0）",
+          "passed": true
+        },
+        {
+          "label": "初始化写吞吐 30026 ops/ms（下限 10000）",
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

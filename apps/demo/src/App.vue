@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onUnmounted, defineComponent, h } from 'vue'
 import { isSmokeMode } from './mount'
 import { mountDataForms } from './sections/data-forms'
 import { mountDisplay } from './sections/display'
@@ -7,6 +7,7 @@ import { mountInteraction } from './sections/interaction'
 import { mountMedia } from './sections/media'
 import { mountEditing } from './sections/editing'
 import { createSheetHandle, mountSheet } from './sections/sheet'
+import { createReportHandle, mountReport, type ReportDemo } from './sections/report'
 import { runSmoke } from './smoke'
 import type { DemoHandles } from './main'
 
@@ -17,6 +18,45 @@ import MediaView from './views/MediaView.vue'
 import EditingView from './views/EditingView.vue'
 import SheetView from './views/SheetView.vue'
 import SmokeView from './views/SmokeView.vue'
+
+// 报表式只读快照渲染视图（meta 迁移参考形态）：sections/report.ts 与其它演示区同一挂载形态，
+// 内联定义避免只为一个薄壳多建一个 view 文件
+const ReportView = defineComponent({
+  name: 'ReportView',
+  setup() {
+    const containerRef = ref<HTMLDivElement | null>(null)
+    let demo: ReportDemo | null = null
+    onMounted(() => {
+      if (containerRef.value) {
+        demo = mountReport(containerRef.value)
+      }
+    })
+    onUnmounted(() => {
+      demo = null
+    })
+    return () =>
+      h('div', { class: 'view-container' }, [
+        h('div', { class: 'view-header' }, [
+          h('div', { class: 'title-row' }, [
+            h('h2', null, '报表式只读快照渲染'),
+            h('div', { class: 'tags' }, [
+              h('span', { class: 'tag' }, '九字段快照 restore'),
+              h('span', { class: 'tag' }, 'readonly 渲染'),
+              h('span', { class: 'tag' }, '行列头关闭'),
+              h('span', { class: 'tag' }, '浮动图随快照接线'),
+            ]),
+          ]),
+          h(
+            'p',
+            { class: 'desc' },
+            '报表快照（cells/styles/merges/frozen/rowHeights/colWidths/images/meta/selection）全量灌入 SheetStore，' +
+              'readonly 渲染：禁编辑、禁尺寸拖改、不接填充/撤销写路径；meta 迁移时照搬「快照 → restore → 只读渲染」三段。',
+          ),
+        ]),
+        h('div', { ref: containerRef, class: 'demo-mount-area report-mount-area' }),
+      ])
+  },
+})
 
 interface MenuItem {
   key: string
@@ -71,6 +111,14 @@ const menuItems: MenuItem[] = [
     badge: '对标 ultra-ui',
     desc: '工具栏/公式栏/底部 tabs/右键菜单/查找替换/CSV/数据观察区',
     component: SheetView,
+  },
+  {
+    key: 'report',
+    label: '报表只读快照',
+    icon: '📄',
+    badge: 'meta 迁移参考',
+    desc: '九字段快照全量灌入模型 + readonly 渲染（禁编辑/禁尺寸/无写路径）',
+    component: ReportView,
   },
   {
     key: 'smoke',
@@ -128,6 +176,9 @@ onMounted(() => {
     // sheet 区：插件之上的完整 sheet 面（句柄供 checkSheet 断言）
     const sheetDemo = mountSheet(mountPoint)
     window.__SHEET_DEMO__ = createSheetHandle(sheetDemo)
+    // 报表区：快照灌入 + readonly 渲染（句柄供 checkReport 断言）
+    const reportDemo = mountReport(mountPoint)
+    window.__REPORT_DEMO__ = createReportHandle(reportDemo)
     // 自检异常也写结果信号（裸 void 会让超时方无从分辨挂错与卡死）
     void runSmoke(demos).catch((error) => {
       window.__SMOKE__ = {
@@ -457,6 +508,19 @@ onMounted(() => {
   padding: 24px;
   overflow-y: auto;
   height: 100vh;
+}
+
+/* 报表视图（App.vue 内联定义）：视图卡片样式经 :deep 穿透（其它视图各自 scoped 私有） */
+.main-content :deep(.report-mount-area section) {
+  background: #ffffff;
+  border: 1px solid #e5e8eb;
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.main-content :deep(.report-mount-area section h2),
+.main-content :deep(.report-mount-area section .desc) {
+  display: none;
 }
 
 .smoke-mode-banner {

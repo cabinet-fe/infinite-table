@@ -1,11 +1,14 @@
 // sheet 场景口径（S5）：切 sheet（全量重建）、逐格写（cell 级失效）、大块粘贴（batchUpdate
 // 收敛单次 band）、冻结切换（运行时重建）。headless 与浏览器跑同一份逻辑。
+// P9 增：大批量初始化写 + 大样式池（口径对齐下游 sheet-big-data：万行级批量写 + 20 色样式池）。
 
+import type { CellStyle } from '@infinite-table/core'
 import { SheetStore } from '@infinite-table/plugins'
 
 import type { BenchEnv, BenchTable } from './env'
-import type { ScenarioResult } from './report'
+import type { BenchCheck, BenchMetric, ScenarioResult } from './report'
 import {
+  SHEET_BIG_INIT_WRITE_THROUGHPUT_MIN_OPS_MS,
   SHEET_FREEZE_AVG_MAX_MS,
   SHEET_PASTE_MAX_MS,
   SHEET_SWITCH_AVG_MAX_MS,
@@ -183,11 +186,92 @@ async function runSheetFreezeSwitch(env: BenchEnv): Promise<ScenarioResult> {
   }
 }
 
+/** 场景⑤ 大批量初始化写 + 大样式池（口径对齐下游 sheet-big-data）：
+ * 1/5/10 万行 × 12 列批量初始化写（值 + 20 色样式池逐格落格），batchUpdate 收敛单次 band。
+ * 写入口径按 12 列全量落模型（下游 setCells 维度）；引擎建表面沿用 BenchEnv 固定 sheet 口径
+ * （8 列视口），窗口外写为纯模型成本——与下游「批量灌数后渲染」的形态一致。 */
+const BIG_INIT_SIZES = [10_000, 50_000, 100_000] as const
+const BIG_INIT_COLS = 12
+/** 样式池规模（下游口径 20 色） */
+const STYLE_POOL_SIZE = 20
+
+/** 20 色样式池：背景色 + 字重轮转，池内对象共享引用（同一下游口径：色池而非逐格新样式） */
+function createStylePool(): CellStyle[] {
+  return Array.from({ length: STYLE_POOL_SIZE }, (_, i) => ({
+    background: `hsl(${(i * 137) % 360} 45% ${52 + (i % 3) * 6}%)`,
+    fontWeight: i % 2 === 0 ? 700 : 400,
+  }))
+}
+
+async function runSheetBigInitWrites(env: BenchEnv): Promise<ScenarioResult> {
+  const metrics: BenchMetric[] = []
+  const checks: BenchCheck[] = []
+  let totalOps = 0
+  let totalElapsed = 0
+  for (const rows of BIG_INIT_SIZES) {
+    const store = new SheetStore({
+      rowCount: rows,
+      colCount: BIG_INIT_COLS,
+      defaultColWidth: 104,
+      defaultRowHeight: 28,
+    })
+    const bench: BenchTable = env.createSheetTable(store)
+    await bench.beginFrame()
+    bench.endFrame()
+    bench.meter.drain()
+    const pool = createStylePool()
+    const t0 = performance.now()
+    bench.table.batchUpdate(() => {
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < BIG_INIT_COLS; col++) {
+          store.setValue(col, row, row * BIG_INIT_COLS + col)
+          store.setStyle(col, row, pool[(row + col) % STYLE_POOL_SIZE]!)
+        }
+      }
+    })
+    bench.endFrame()
+    const elapsed = performance.now() - t0
+    const ops = rows * BIG_INIT_COLS * 2
+    totalOps += ops
+    totalElapsed += elapsed
+    const body = bench.meter.drain().get('body')
+    const bandCount = body?.band ?? 0
+    const fullCount = body?.full ?? 0
+    metrics.push({
+      label: `${rows / 10_000} 万行`,
+      value: `${elapsed.toFixed(1)} ms（${(ops / elapsed).toFixed(0)} ops/ms）`,
+    })
+    checks.push({
+      label: `${rows / 10_000} 万行初始化写收敛 band ${bandCount} 次（要求 1）`,
+      passed: bandCount === 1,
+    })
+    checks.push({
+      label: `${rows / 10_000} 万行初始化写期间 body full ${fullCount} 次（要求 0）`,
+      passed: fullCount === 0,
+    })
+    bench.destroy()
+  }
+  const throughput = totalOps / totalElapsed
+  metrics.unshift({ label: '合计吞吐', value: `${throughput.toFixed(0)} ops/ms` })
+  checks.push({
+    label: `初始化写吞吐 ${throughput.toFixed(0)} ops/ms（下限 ${SHEET_BIG_INIT_WRITE_THROUGHPUT_MIN_OPS_MS}）`,
+    passed: throughput >= SHEET_BIG_INIT_WRITE_THROUGHPUT_MIN_OPS_MS,
+  })
+  return {
+    id: 'sheet-big-init-writes',
+    title: `sheet 大批量初始化写 + 大样式池（${BIG_INIT_SIZES.map((r) => r / 10_000).join('/')} 万行 × ${BIG_INIT_COLS} 列 × ${STYLE_POOL_SIZE} 色池）`,
+    passed: checks.every((check) => check.passed),
+    metrics,
+    checks,
+  }
+}
+
 export async function runSheetScenarios(env: BenchEnv): Promise<ScenarioResult[]> {
   return [
     await runSheetSwitch(env),
     await runSheetCellWrites(env),
     await runSheetPaste(env),
     await runSheetFreezeSwitch(env),
+    await runSheetBigInitWrites(env),
   ]
 }

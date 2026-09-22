@@ -5,6 +5,7 @@
 // 结果写 window.__SMOKE__ 与 document.title。
 
 import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinite-table/core'
+import { snapshot } from '@infinite-table/plugins'
 
 import type { DemoHandles } from './main'
 import {
@@ -19,6 +20,12 @@ import {
 import { DISABLED_CELL, DISPLAY_COL } from './sections/editing'
 import { createSheetDisplay } from './sections/sheet/format'
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media'
+import {
+  REPORT_COL_WIDTHS,
+  REPORT_FLOAT_IMAGE_ID,
+  REPORT_ROWS,
+  REPORT_TITLE_BACKGROUND,
+} from './sections/report'
 
 export interface SmokeResult {
   done: boolean
@@ -649,6 +656,7 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkMedia(checker, demos)
   await checkEditing(checker, demos)
   await checkSheet(checker)
+  await checkReport(checker)
   const result: SmokeResult = {
     done: true,
     pass: checker.failures.length === 0,
@@ -1043,6 +1051,32 @@ async function checkSheet(checker: Checker): Promise<void> {
     assert(a === 0, `取消冻结后分隔线仍在 rgb(${r},${g},${b}) α=${a}`)
   })
 
+  await checker.step(
+    'sheet 浮动图上 shift+wheel 横滚：滚轮穿浮动对象落容器接线（替换下游 image-layer capture 补丁）',
+    async () => {
+      const container = activeContainer()
+      table.scrollTo(0, 0)
+      await frames(2)
+      // 预置浮动图锚 (5,1)~(6,2)：区域 x≈448..526、y≈30..84 内取 (500,60)
+      const rect = container.getBoundingClientRect()
+      container.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaX: 120,
+          deltaY: 0,
+          shiftKey: true,
+          clientX: rect.left + 500,
+          clientY: rect.top + 60,
+        }),
+      )
+      await frames(2)
+      assert(table.getScrollState().left === 120, '浮动图上 shift+wheel 未驱动横向滚动')
+      table.scrollTo(0, 0)
+      await frames(2)
+    },
+  )
+
   await checker.step('sheet numFmt：右键菜单设千分位 → 显示格式化；清除恢复', async () => {
     const container = activeContainer()
     table.scrollTo(0, 0)
@@ -1170,4 +1204,174 @@ async function checkSheet(checker: Checker): Promise<void> {
       await frames(2)
     },
   )
+}
+
+/** 报表演示区冒烟：快照全量灌入模型 + readonly 渲染（meta 迁移参考形态的行为锚点） */
+async function checkReport(checker: Checker): Promise<void> {
+  const handle = window.__REPORT_DEMO__
+  assert(handle, '缺少 __REPORT_DEMO__ 句柄')
+  const table = handle.getTable()
+  const store = handle.getStore()
+
+  await checker.step('report 快照灌入：九字段全量落模型，重采集等价（restore 往返）', () => {
+    const fixture = handle.buildSnapshot()
+    const roundTrip = snapshot(store)
+    // 值：条目数一致 + 抽样（标题/表头带/数据行/合计行）
+    assert(
+      roundTrip.cells.length === fixture.cells.length,
+      `快照格数 ${roundTrip.cells.length}，期望 ${fixture.cells.length}`,
+    )
+    assert(
+      store.getValue(0, REPORT_ROWS.title) === '2026 Q3 销售汇总报表' &&
+        store.getValue(1, REPORT_ROWS.headerTop) === '区域' &&
+        store.getValue(7, REPORT_ROWS.headerSub) === '环比',
+      '快照值抽样不符',
+    )
+    const dataSample = store.getValue(2, 10)
+    assert(dataSample !== undefined && dataSample !== null, '数据行值缺失')
+    assert(typeof store.getValue(4, REPORT_ROWS.summary) === 'number', '合计行数值缺失')
+    // 合并/冻结/尺寸：按界关键字集合比对
+    const keyOf = (r: { startCol: number; endCol: number; startRow: number; endRow: number }) =>
+      `${r.startCol},${r.startRow},${r.endCol},${r.endRow}`
+    assert(
+      roundTrip.merges.map(keyOf).sort().join('|') === fixture.merges.map(keyOf).sort().join('|'),
+      '合并区往返不等价',
+    )
+    assert(
+      roundTrip.frozen.colCount === fixture.frozen.colCount &&
+        roundTrip.frozen.rowCount === fixture.frozen.rowCount,
+      `冻结往返 ${JSON.stringify(roundTrip.frozen)}`,
+    )
+    assert(
+      roundTrip.colWidths.map((e) => `${e.col}:${e.width}`).join('|') ===
+        REPORT_COL_WIDTHS.map((width, col) => `${col}:${width}`).join('|'),
+      '列宽覆盖往返不等价',
+    )
+    assert(
+      roundTrip.rowHeights.map((e) => `${e.row}:${e.height}`).join('|') ===
+        fixture.rowHeights.map((e) => `${e.row}:${e.height}`).join('|'),
+      '行高覆盖往返不等价',
+    )
+    // 样式：格级条目数 + 列级条目 + 标题底色抽样
+    assert(
+      roundTrip.styles.cells.length === fixture.styles.cells.length,
+      `格级样式条目 ${roundTrip.styles.cells.length}，期望 ${fixture.styles.cells.length}`,
+    )
+    assert(
+      roundTrip.styles.columns.length === fixture.styles.columns.length &&
+        roundTrip.styles.columns.every((e) => e.style.textAlign === 'right'),
+      '列级样式往返不等价',
+    )
+    const titleStyle = roundTrip.styles.cells.find(
+      (e) => e.col === 0 && e.row === REPORT_ROWS.title,
+    )?.style
+    assert(
+      titleStyle?.background === REPORT_TITLE_BACKGROUND && titleStyle.fontWeight === 700,
+      '标题样式往返不符',
+    )
+    // meta：命名空间与条目（模板绑定 + 报表级）
+    assert(
+      roundTrip.meta
+        .map((g) => g.ns)
+        .sort()
+        .join(',') ===
+        fixture.meta
+          .map((g) => g.ns)
+          .sort()
+          .join(','),
+      'meta 命名空间往返不等价',
+    )
+    assert(
+      roundTrip.meta.reduce((sum, g) => sum + g.entries.length, 0) ===
+        fixture.meta.reduce((sum, g) => sum + g.entries.length, 0),
+      'meta 条目数往返不等价',
+    )
+    assert(
+      JSON.stringify(store.getCellMeta('report', 0, REPORT_ROWS.title)) ===
+        JSON.stringify({ template: 'quarterly-sales', version: 3 }),
+      '报表级 meta 抽样不符',
+    )
+  })
+
+  await checker.step('report 渲染可见：合并标题带跨满全表、快照内容上屏', async () => {
+    const container = handle.getContainer()
+    const body = layerCanvas(container, 'body')
+    // 行列头关闭（内容原点 0,0）：标题合并区 (0,0)~(7,0) 跨满 734px、高 42 ——
+    // 采样取带右端 (710,6)（避开居中标题文字的反锯齿），跨满即证明合并渲染生效
+    expectColor(body, 710, 6, REPORT_TITLE_BACKGROUND, '报表标题合并带')
+    // 表头带底色：(2,2) 起 x 256..366、y 106..138（纵合并 (2,2)~(2,3)）
+    expectColor(body, 300, 120, '#eef2f7', '表头带底色')
+    assert(
+      table.getCellText(0, REPORT_ROWS.title) === '2026 Q3 销售汇总报表',
+      `标题显示 ${table.getCellText(0, REPORT_ROWS.title)}`,
+    )
+    assert(
+      table.getCellText(4, REPORT_ROWS.summary) === String(store.getValue(4, REPORT_ROWS.summary)),
+      '合计销售额未渲染',
+    )
+  })
+
+  await checker.step('report 选区回灌与浮动图随快照接线 + 重灌幂等', async () => {
+    assert(table.floatObjects.size === 1, `浮动图数 ${table.floatObjects.size}`)
+    const floatImage = table.floatObjects.get(REPORT_FLOAT_IMAGE_ID)
+    assert(floatImage?.anchor.from.col === 5, '浮动图锚点未随快照应用')
+    const selection = table.getSelection()
+    assert(selection.ranges.length === 1, '快照选区未应用')
+    const bounds = normalizeRange(selection.ranges[0]!)
+    assert(
+      bounds.minCol === 0 &&
+        bounds.maxCol === 7 &&
+        bounds.minRow === REPORT_ROWS.summary &&
+        bounds.maxRow === REPORT_ROWS.summary,
+      `选区 (${bounds.minCol},${bounds.minRow})~(${bounds.maxCol},${bounds.maxRow})`,
+    )
+    // 重灌（restore 替换语义）：模型与浮动图对账后一切如初
+    handle.reloadSnapshot()
+    await frames(2)
+    assert(table.floatObjects.size === 1, '重灌后浮动图对账异常')
+    assert(store.getMerges().length === 10, '重灌后合并区丢失')
+    assert(table.getCellText(0, REPORT_ROWS.title) === '2026 Q3 销售汇总报表', '重灌后标题丢失')
+  })
+
+  await checker.step('report readonly 生效：禁编辑、禁尺寸拖改、填充柄无写路径', async () => {
+    const container = handle.getContainer()
+    // 双击数据格无编辑浮层（resolveEditable 恒 false）
+    const cellRect = table.getCellRelativeRect(2, 8)
+    assert(cellRect, '(2,8) 不在可视窗口')
+    const cx = cellRect.x + cellRect.width / 2
+    const cy = cellRect.y + cellRect.height / 2
+    dispatchPointer(container, 'pointerdown', cx, cy)
+    dispatchPointer(container, 'pointerup', cx, cy)
+    dispatchPointer(container, 'pointerdown', cx, cy)
+    dispatchPointer(container, 'pointerup', cx, cy)
+    assert(!container.querySelector('input, textarea'), 'readonly 双击出现编辑浮层')
+    assert(!table.startEdit(2, 8), 'readonly startEdit 未返回 false')
+    // 拖列边缘 +24：canResizeCol 恒 false → 宽度不变（禁交互写路径之尺寸面）
+    const edge = cellRect.x + cellRect.width
+    dispatchPointer(container, 'pointerdown', edge, cy)
+    dispatchPointer(container, 'pointermove', edge + 24, cy)
+    dispatchPointer(container, 'pointerup', edge + 24, cy)
+    assert(
+      table.getColWidth(2) === REPORT_COL_WIDTHS[2],
+      `readonly 列宽被拖改 ${table.getColWidth(2)}`,
+    )
+    // 填充柄拖拽：报表区不接填充生成 → 拖后值不变（禁交互写路径之填充面）
+    table.selectCells([{ start: { col: 4, row: 5 }, end: { col: 4, row: 7 } }])
+    await frames(2)
+    const anchorRect = table.getCellRelativeRect(4, 7)
+    assert(anchorRect, '(4,7) 不在可视窗口')
+    const hx = anchorRect.x + anchorRect.width - 2
+    const hy = anchorRect.y + anchorRect.height - 2
+    const before8 = store.getValue(4, 8)
+    const before9 = store.getValue(4, 9)
+    const dragX = anchorRect.x + anchorRect.width / 2
+    const dragY = hy + 64
+    dispatchPointer(container, 'pointerdown', hx, hy)
+    dispatchPointer(container, 'pointermove', dragX, dragY)
+    dispatchPointer(container, 'pointerup', dragX, dragY)
+    assert(
+      store.getValue(4, 8) === before8 && store.getValue(4, 9) === before9,
+      'readonly 填充拖拽产生了写入',
+    )
+  })
 }

@@ -1,5 +1,5 @@
 import { SceneNode } from '@infinite-table/render'
-import type { SceneEvent, SceneEventType } from '@infinite-table/render'
+import type { FrameTask, SceneEvent, SceneEventType } from '@infinite-table/render'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'
@@ -566,6 +566,104 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     fireBody(host, 'touchcancel', {})
     fireBody(host, 'touchmove', { x: 190, y: 100 })
     expect(table.getScrollState()).toEqual({ left: 10, top: 20 })
+  })
+
+  // ---- 触控/惯性口径（S7 P9）：内置触控 + 惯性对下游手写滚动的替换结论的行为锚点 ----
+  // 惯性帧经宿主 requestFrame 排队；StubHost 同步执行会把衰减级联压成一帧（时间不前进），
+  // 这里用排队帧 + 假时钟逐帧推进，还原真实帧调度形态。
+
+  /** 帧排队版假宿主：requestFrame 入队不执行，测试按批推进（惯性级联需要帧间时间前进） */
+  class QueuedFrameHost extends StubHost {
+    private queue: FrameTask[] = []
+
+    override requestFrame(task: FrameTask): void {
+      this.queue.push(task)
+    }
+
+    get pendingFrames(): number {
+      return this.queue.length
+    }
+
+    /** 执行当前已排队的一批帧任务（先推进时间再执行；执行中新排的帧进下一批） */
+    pumpBatch(advance: () => void): void {
+      const batch = this.queue.splice(0)
+      advance()
+      for (const task of batch) {
+        task()
+      }
+    }
+
+    /** 逐批排空（每批先推进时间；上限护栏防时间不前进时的死循环） */
+    drainBatches(advance: () => void): void {
+      let guard = 0
+      while (this.queue.length > 0 && guard++ < 10_000) {
+        this.pumpBatch(advance)
+      }
+    }
+  }
+
+  it('触控甩动惯性：touchend 按最近采样求初速度，惯性接管继续滚动并衰减停止', () => {
+    vi.useFakeTimers()
+    try {
+      const host = new QueuedFrameHost()
+      const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
+      const table = new ListTable({ ...BASE_OPTIONS, host, records })
+
+      vi.setSystemTime(1_000)
+      fireBody(host, 'touchstart', { x: 200, y: 200 })
+      vi.setSystemTime(1_040)
+      fireBody(host, 'touchmove', { x: 200, y: 160 })
+      vi.setSystemTime(1_080)
+      fireBody(host, 'touchmove', { x: 200, y: 120 })
+      // 手势期两段各 40px；touchend（80px 处、120ms 窗口）→ 初速度 1px/ms 手指上滑
+      vi.setSystemTime(1_120)
+      fireBody(host, 'touchend', { x: 200, y: 80 })
+      expect(table.getScrollState().top).toBe(80)
+      expect(table.inertia.isRunning).toBe(true)
+
+      // 惯性首帧：dt=16ms、摩擦 0.95，位移 = (1 + 0.95)/2 × 16 ≈ 15.6（内容向下滚）
+      host.pumpBatch(() => vi.setSystemTime(1_136))
+      expect(table.getScrollState().top).toBeCloseTo(80 + 15.6, 5)
+      // 次帧继续推进但衰减（位移小于首帧）
+      host.pumpBatch(() => vi.setSystemTime(1_152))
+      const afterSecond = table.getScrollState().top
+      expect(afterSecond).toBeGreaterThan(80 + 15.6)
+      expect(afterSecond - (80 + 15.6)).toBeLessThan(15.6)
+
+      // 速度衰减到停止阈值后不再排帧、位置落定
+      let now = 1_152
+      host.drainBatches(() => vi.setSystemTime((now += 16)))
+      const settled = table.getScrollState().top
+      expect(table.inertia.isRunning).toBe(false)
+      expect(host.pendingFrames).toBe(0)
+      expect(settled).toBeGreaterThan(afterSecond)
+      vi.setSystemTime(now + 100)
+      expect(table.getScrollState().top).toBe(settled)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('触控轻点：初速度低于停止阈值时 touchend 不产生惯性滚动', () => {
+    vi.useFakeTimers()
+    try {
+      const host = new QueuedFrameHost()
+      const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
+      const table = new ListTable({ ...BASE_OPTIONS, host, records })
+
+      vi.setSystemTime(2_000)
+      fireBody(host, 'touchstart', { x: 200, y: 200 })
+      // 100ms 内位移 ~1.4px → 初速度 ≈0.014px/ms，低于停止阈值 0.05
+      vi.setSystemTime(2_100)
+      fireBody(host, 'touchend', { x: 201, y: 201 })
+      let now = 2_100
+      host.drainBatches(() => vi.setSystemTime((now += 16)))
+      expect(table.inertia.isRunning).toBe(false)
+      expect(host.pendingFrames).toBe(0)
+      expect(table.getScrollState()).toEqual({ left: 0, top: 0 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

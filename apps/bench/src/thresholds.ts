@@ -25,3 +25,9 @@ export const SHEET_WRITE_THROUGHPUT_MIN_OPS_MS = 190
 export const SHEET_PASTE_MAX_MS = 5
 /** sheet 冻结切换均值上限（基线 0.04ms） */
 export const SHEET_FREEZE_AVG_MAX_MS = 0.2
+
+// ---- sheet 大批量初始化写场景阈值（P9；基线来源：headless 2026-09-22，M 系列 macOS，
+// 1/5/10 万行 × 12 列 × 值+样式双写合计吞吐基线 ≈37000 ops/ms，取约 1/4 下界防回归） ----
+
+/** 大批量初始化写 + 大样式池合计吞吐下限（ops/ms，值+样式合计操作数口径） */
+export const SHEET_BIG_INIT_WRITE_THROUGHPUT_MIN_OPS_MS = 10_000
