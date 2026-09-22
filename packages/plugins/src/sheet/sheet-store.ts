@@ -11,10 +11,10 @@ import {
   type TableModel,
 } from '@infinite-table/core'
 
-/** Store 变更事件类型：value 值 / style 样式（格级或列级） / geometry 行列尺寸 / freeze 冻结 / merge 合并区 */
-export type SheetStoreChangeType = 'value' | 'style' | 'geometry' | 'freeze' | 'merge'
+/** Store 变更事件类型：value 值 / style 样式（格级或列级） / geometry 行列尺寸 / freeze 冻结 / merge 合并区 / rebuild 批量重建汇总 */
+export type SheetStoreChangeType = 'value' | 'style' | 'geometry' | 'freeze' | 'merge' | 'rebuild'
 
-/** Store 变更事件：type 必带；value/style(格级) 携带格坐标，style(列级)/geometry(列) 只带 col，geometry(行) 只带 row（merge/freeze 只带类型） */
+/** Store 变更事件：type 必带；value/style(格级) 携带格坐标，style(列级)/geometry(列) 只带 col，geometry(行) 只带 row（merge/freeze/rebuild 只带类型，rebuild 表示全量重建落定、宿主按全量刷新处理） */
 export interface SheetStoreChangeEvent {
   type: SheetStoreChangeType
   col?: number
@@ -28,6 +28,19 @@ export interface SheetCellMetaEntry<T = unknown> {
   col: number
   row: number
   value: T
+}
+
+/** 格级样式枚举条目（entriesCellStyles 产物） */
+export interface SheetCellStyleEntry {
+  col: number
+  row: number
+  style: CellStyle
+}
+
+/** 列级样式枚举条目（entriesColumnStyles 产物） */
+export interface SheetColumnStyleEntry {
+  col: number
+  style: CellStyle
 }
 
 /** cell meta 变更事件：ns 必带；单格写/清携带格坐标，命名空间整体清空只带 ns */
@@ -88,6 +101,10 @@ export class SheetStore {
   private merges: CellRange[] = []
   private readonly listeners = new Set<SheetStoreChangeListener>()
   private readonly metaListeners = new Set<SheetStoreMetaChangeListener>()
+  /** 批量重建深度：> 0 期间逐格广播静默，归零发一次汇总 */
+  private rebuildDepth = 0
+  /** 批量重建期间被触碰的 meta 命名空间（归零时按字典序各发一条 ns 级汇总） */
+  private rebuildMetaTouched: Set<string> | null = null
 
   constructor(private readonly options: SheetStoreOptions) {
     this.values = new SheetModel(options.rowCount, options.colCount)
@@ -166,11 +183,16 @@ export class SheetStore {
     }
   }
 
+  /** 枚举全部格级样式，按行主序（行升序、行内列升序）确定性返回；空返回 []（快照采集/批量重建清场用） */
+  entriesCellStyles(): SheetCellStyleEntry[] {
+    return [...this.styles.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([key, style]) => ({ ...this.fromCellKey(key), style }))
+  }
+
   /** 越界判定（含负坐标） */
   private outOfRange(col: number, row: number): boolean {
-    return (
-      col < 0 || row < 0 || col >= this.options.colCount || row >= this.options.rowCount
-    )
+    return col < 0 || row < 0 || col >= this.options.colCount || row >= this.options.rowCount
   }
 
   // ---- 列级样式片段 ----
@@ -190,6 +212,13 @@ export class SheetStore {
   clearColumnStyle(col: number): void {
     this.colStyles.delete(col)
     this.dispatch({ type: 'style', col })
+  }
+
+  /** 枚举全部列级样式片段，按列升序确定性返回；空返回 []（快照采集/批量重建清场用） */
+  entriesColumnStyles(): SheetColumnStyleEntry[] {
+    return [...this.colStyles.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([col, style]) => ({ col, style }))
   }
 
   /**
@@ -270,6 +299,11 @@ export class SheetStore {
     return map
   }
 
+  /** 枚举全部 cell meta 命名空间，按字典序确定性返回；空返回 []（快照采集/批量重建清场用） */
+  getCellMetaNamespaces(): string[] {
+    return [...this.cellMeta.keys()].sort()
+  }
+
   // ---- 行列尺寸 ----
 
   /** 列宽：逐列覆盖优先，缺省回落构造值 */
@@ -287,8 +321,20 @@ export class SheetStore {
     this.dispatch({ type: 'geometry', col })
   }
 
+  /** 清除列宽覆盖（该列回落缺省宽度）；广播 geometry 事件（仅 col） */
+  clearColWidth(col: number): void {
+    this.colWidths.delete(col)
+    this.dispatch({ type: 'geometry', col })
+  }
+
   setRowHeight(row: number, height: number): void {
     this.rowHeights.set(row, height)
+    this.dispatch({ type: 'geometry', row })
+  }
+
+  /** 清除行高覆盖（该行回落缺省行高）；广播 geometry 事件（仅 row） */
+  clearRowHeight(row: number): void {
+    this.rowHeights.delete(row)
     this.dispatch({ type: 'geometry', row })
   }
 
@@ -326,6 +372,32 @@ export class SheetStore {
 
   // ---- 变更通知 ----
 
+  /**
+   * 批量重建支撑入口（snapshot restore 灌回用）：update 内全部写路径不逐格/逐项广播——
+   * value/style/geometry/freeze/merge 静默，meta-change 只记录被触碰的命名空间；
+   * update 返回后发一次汇总：onChange 一条 { type: 'rebuild' }（宿主按全量刷新处理），
+   * onMetaChange 每个被触碰命名空间一条 { ns }（字典序）。
+   * 嵌套 rebuild 只在最外层收口时汇总一次；update 抛错也收口汇总（状态已部分写入，宿主仍需全量刷新）后原样上抛。
+   */
+  rebuild(update: () => void): void {
+    this.rebuildDepth += 1
+    try {
+      update()
+    } finally {
+      this.rebuildDepth -= 1
+      if (this.rebuildDepth === 0) {
+        const touched = this.rebuildMetaTouched
+        this.rebuildMetaTouched = null
+        this.notify(this.listeners, { type: 'rebuild' })
+        if (touched) {
+          for (const ns of [...touched].sort()) {
+            this.notify(this.metaListeners, { ns })
+          }
+        }
+      }
+    }
+  }
+
   /** 订阅 Store 变更；返回退订函数 */
   onChange(listener: SheetStoreChangeListener): () => void {
     this.listeners.add(listener)
@@ -339,10 +411,17 @@ export class SheetStore {
   }
 
   private dispatch(event: SheetStoreChangeEvent): void {
+    if (this.rebuildDepth > 0) {
+      return
+    }
     this.notify(this.listeners, event)
   }
 
   private dispatchMeta(event: SheetStoreMetaChangeEvent): void {
+    if (this.rebuildDepth > 0) {
+      ;(this.rebuildMetaTouched ??= new Set<string>()).add(event.ns)
+      return
+    }
     this.notify(this.metaListeners, event)
   }
 

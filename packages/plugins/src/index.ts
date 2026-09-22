@@ -6,6 +6,8 @@ export type { TablePlugin } from '@infinite-table/core'
 export { SheetStore } from './sheet/sheet-store'
 export type {
   SheetCellMetaEntry,
+  SheetCellStyleEntry,
+  SheetColumnStyleEntry,
   SheetDisplayResolver,
   SheetFrozen,
   SheetStoreChangeEvent,
@@ -15,6 +17,19 @@ export type {
   SheetStoreMetaChangeListener,
   SheetStoreOptions,
 } from './sheet/sheet-store'
+export { restore, snapshot } from './sheet/snapshot'
+export type {
+  SheetRestoreWiring,
+  SheetSnapshot,
+  SheetSnapshotCell,
+  SheetSnapshotCellStyle,
+  SheetSnapshotColWidth,
+  SheetSnapshotColumnStyle,
+  SheetSnapshotExtras,
+  SheetSnapshotMeta,
+  SheetSnapshotRowHeight,
+  SheetSnapshotStyles,
+} from './sheet/snapshot'
 export { createFormulaDisplay } from './sheet/formula-display'
 export type { FormulaDisplayFn, FormulaEvaluator } from './sheet/formula-display'
 export { excelKeymapPreset } from './sheet/keymap'
