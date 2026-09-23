@@ -31,6 +31,8 @@ export interface DomEventLike {
   shiftKey?: boolean
   ctrlKey?: boolean
   metaKey?: boolean
+  /** 指针按键（0 主键 / 1 中键 / 2 次键）；触摸与缺省为 0（主键） */
+  button?: number
   /** 阻止默认行为（如 contextmenu 的浏览器原生菜单）；合成事件可缺省 */
   preventDefault?(): void
   /** 触摸事件的触点列表（取第一个触点归一化坐标） */
@@ -51,6 +53,8 @@ export interface SceneEvent {
   readonly shiftKey: boolean
   readonly ctrlKey: boolean
   readonly metaKey: boolean
+  /** 指针按键（0 主键 / 1 中键 / 2 次键）；键盘/触摸为 undefined（按主键处理） */
+  readonly button?: number
   readonly originalEvent: DomEventLike
 }
 
@@ -144,6 +148,7 @@ export class EventSystem {
       shiftKey: domEvent.shiftKey ?? false,
       ctrlKey: domEvent.ctrlKey ?? false,
       metaKey: domEvent.metaKey ?? false,
+      button: domEvent.button,
       originalEvent: domEvent,
     }
     // 冒泡：命中节点 → 父链直至层根；未命中/键盘事件从最顶层根开始

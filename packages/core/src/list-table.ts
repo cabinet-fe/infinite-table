@@ -12,6 +12,7 @@
 // 编辑（P2/P3）：双击（含触控双击）进入编辑，EditManager 为编辑状态唯一源，
 // DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位；
 // 编辑中滚动浮层逐帧跟随锚定格，锚定格滚出视口按 Enter 语义自动提交。
+// 容器 resize 原地自适应：构造后经 resize() 调整视口尺寸，滚动位置与选区保留、不重建实例。
 // 运行时可变（P8）：冻结列数/行数与合并区开放运行时修改（「合并不跨冻结边界」
 // 构造期校验延伸到运行时），resize 拖拽会话补结束事件，editCellOnEnter 键位开关。
 //
@@ -126,8 +127,17 @@ export class ListTable {
   /** @internal 列宽前缀和 */
   colOffsets: number[]
   colWidths: number[]
-  readonly width: number
-  readonly height: number
+  /** 视口尺寸（构造后经 resize 原地调整；width/height 只读透出） */
+  private tableWidth: number
+  private tableHeight: number
+  /** 表视口宽（CSS 像素） */
+  get width(): number {
+    return this.tableWidth
+  }
+  /** 表视口高（CSS 像素） */
+  get height(): number {
+    return this.tableHeight
+  }
   /** @internal 生效主题 */
   readonly theme: TableTheme
   readonly rowHeight: number
@@ -150,8 +160,11 @@ export class ListTable {
   media: LayerHandle | null = null
   /** @internal 当前窗口内的图片格节点，key 见 cellKey（随窗口重建） */
   readonly imageCellNodes = new Map<number, ImageCellNode>()
-  /** 浮动对象层（首次访问 floatObjects 时惰性建承载容器，挂在已用的 sky 层最顶） */
-  private floatLayer: FloatObjectLayer | null = null
+  /**
+   * @internal 浮动对象层（首次访问 floatObjects 时惰性建承载容器，挂在已用的 sky 层最顶）。
+   * 原始字段供交互路由读写（未挂载为 null 时不强建层）；宿主面走 floatObjects getter。
+   */
+  floatLayer: FloatObjectLayer | null = null
   /** 已注册插件（销毁时逆序卸载） */
   private readonly plugins: TablePlugin[] = []
   /** @internal 当前窗口内的数据格节点，key 见 cellKey（合并区只登记主格，随窗口重建） */
@@ -228,6 +241,12 @@ export class ListTable {
   fillHandleDoubleTap = false
   /** 编辑状态唯一源：进入/提交/取消生命周期 */
   readonly editManager: EditManager
+  /**
+   * 编辑拾取模式（宿主驱动，公式引用拾取用）：编辑中指针点选/拖选其它格不提交当前会话，
+   * 选区照常流动（宿主经 onSelectionChange 消费拾取段）；双击进编辑与填充柄在此模式下让位。
+   * 点在行列头带/空白仍遵循既有选区行为；置回 false 恢复「点别处即提交」的缺省语义。
+   */
+  editPickMode = false
   /** 编辑器注册表（可编第一级判定与格级路由），可注入或事后注册 */
   readonly editorRegistry: EditorRegistry
   /** 编辑器浮层挂载容器（hostOptions.container）；缺省离屏不落 DOM */
@@ -249,8 +268,8 @@ export class ListTable {
   private readonly columnStyles = new Map<number, CellStyle>()
 
   constructor(public readonly options: ListTableOptions) {
-    this.width = options.width
-    this.height = options.height
+    this.tableWidth = options.width
+    this.tableHeight = options.height
     // 主题接入样式管线：几何与格样式默认取自主题，显式 options 优先
     this.theme = extendsTheme(options.theme)
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
@@ -296,7 +315,7 @@ export class ListTable {
       this.sky.root,
       {
         cellRect: (col, row) => cellRectInViewport(this, col, row),
-        bodyViewport: this.bodyViewport,
+        bodyViewport: () => this.bodyViewport,
       },
       this.theme.interaction,
     )
@@ -340,11 +359,15 @@ export class ListTable {
         }
       },
       emitStart: (event) => {
+        // 编辑中锚定格内容隐藏（DOM 浮层取代内容渲染，溢出部分一并隐去）
+        this.setCellContentHidden(event.col, event.row, true)
         for (const listener of this.editStartListeners) {
           listener(event)
         }
       },
       emitEnd: (event) => {
+        // 会话结束恢复内容渲染（提交路径的 refreshCell 与本次失效同帧收敛）
+        this.setCellContentHidden(event.col, event.row, false)
         for (const listener of this.editEndListeners) {
           listener(event)
         }
@@ -379,6 +402,10 @@ export class ListTable {
    * 浮动对象层（格上图片/图表）：承载容器挂在 sky 层最顶（在选区/hover 浮层之上）。
    * 锚点经 resolveCellX/resolveCellYFromOffsets 换算层坐标（含冻结与滚动偏移），
    * 滚动时 syncPositions 帧级跟随；行高/列宽 resize 提交后 recalcGeometry 随新行列尺寸重算。
+   * 绘制裁剪在 body 视口内（视口随容器 resize 经 setBodyViewport 更新）：滚动跟随平移进
+   * 表头带的部分不画，行列头保持在浮动对象之上不被盖住。
+   * 交互：命中由指针路由优先接管（list-table-interaction），点选选中、拖拽结束经
+   * onDragEnd 抛落点换算的新锚点，宿主写回模型；只读（isReadonly）不启用拖拽。
    */
   get floatObjects(): FloatObjectLayer {
     if (!this.floatLayer) {
@@ -402,8 +429,11 @@ export class ListTable {
             ),
           }),
           cellSize: (col, row) => ({ width: this.getColWidth(col), height: this.rowHeightAt(row) }),
+          // 拖拽落点换算：视口点 → 数据格（行列头带/空白 null → 回弹），与选区命中同一口径
+          cellAtPoint: (x, y) => cellAt(this, x, y),
         },
         imageService: this.imageService,
+        bodyViewport: this.bodyViewport,
       })
     }
     return this.floatLayer
@@ -651,6 +681,30 @@ export class ListTable {
     this.applyGeometryChange()
   }
 
+  // ---- 容器 resize 原地自适应 ----
+
+  /**
+   * 构造后原地调整视口尺寸：宿主画布经 host.resize 重设（不 teardown 重建实例），
+   * 滚动位置与选区保留（滚动边界重算时仅按新视口夹取）；几何变更统一走
+   * applyGeometryChange（滚动边界重算 + 场景全量重建 + 整层失效）。
+   */
+  resize(width: number, height: number): void {
+    const nextWidth = Math.max(0, width)
+    const nextHeight = Math.max(0, height)
+    if (nextWidth === this.tableWidth && nextHeight === this.tableHeight) {
+      return
+    }
+    this.tableWidth = nextWidth
+    this.tableHeight = nextHeight
+    this.host.resize(nextWidth, nextHeight)
+    // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
+    this.overlay.resize()
+    if (this.floatLayer) {
+      this.floatLayer.setBodyViewport(this.bodyViewport)
+    }
+    this.applyGeometryChange()
+  }
+
   // ---- 几何/滚动查询（P0-7） ----
 
   /** 数据格在视口中的矩形（CSS 像素）；行/列在可视窗口外返回 null */
@@ -859,6 +913,26 @@ export class ListTable {
   /** 当前是否处于编辑会话中 */
   isEditing(): boolean {
     return this.editManager.isEditing()
+  }
+
+  /** @internal 编辑会话锚定格内容隐藏开关：编辑中不画格内容（含溢出走廊一起失效），结束恢复；节点不在窗口内为空操作 */
+  private setCellContentHidden(col: number, row: number, hidden: boolean): void {
+    const master = this.mergeCells.masterOf(col, row)
+    const node = this.cellNodes.get(cellKey(master?.col ?? col, master?.row ?? row))
+    if (!node || node.contentHidden === hidden) {
+      return
+    }
+    node.contentHidden = hidden
+    // 失效区并入溢出右界：溢出文本画出本格右缘，隐藏/恢复都要覆盖整段
+    this.host.submitInvalidation('body', {
+      type: 'cell',
+      region: {
+        x: node.x,
+        y: node.y,
+        width: Math.max(node.width, node.textMaxX),
+        height: node.height,
+      },
+    })
   }
 
   /** 订阅编辑提交事件（col/row/oldValue/newValue，undo 可据此实现）；返回退订函数 */

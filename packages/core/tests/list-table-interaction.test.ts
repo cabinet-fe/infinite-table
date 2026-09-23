@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'
 import type { FillDragEndEvent, FillHandleDoubleClickEvent } from '../src/fill-handle'
+import type { FloatDragEndEvent } from '../src/float/float-object-layer'
 import { ListTable } from '../src/list-table'
 import type { SelectionSnapshot } from '../src/selection'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
@@ -869,8 +870,9 @@ describe('ListTable 编辑', () => {
 
     expect(model.data.get('0:0')).toBe('Zed')
     expect(container.children).toEqual([])
-    // 编辑提交只产生一次本格 cell 失效：模型 echo 被 ModelBinding 吞掉，无回环二次刷新
-    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(1)
+    // 本格 cell 失效恰 3 次：开场内容隐藏 + 提交刷新 + 收场恢复；
+    // 模型 echo 被 ModelBinding 吞掉，无回环带来的额外刷新
+    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(3)
   })
 
   it('model 形态 onCellChange 事件带 oldValue/newValue', () => {
@@ -1098,5 +1100,185 @@ describe('ListTable 合并格编辑', () => {
     expect(element.style.top).toBe('35px')
     expect(element.style.width).toBe('202px')
     expect(element.style.height).toBe('66px')
+  })
+})
+
+describe('右键不改选区', () => {
+  it('多段选区上右键按下不塌缩选区、不开启拖选会话（contextmenu 落点补偿可正常生效）', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }, { name: 'b' }] })
+    table.selectCells([
+      { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
+      { start: { col: 3, row: 3 }, end: { col: 4, row: 4 } },
+    ])
+    const before = table.getSelectedCellRanges()
+    // 右键按下（button 2）落在第一段内部：选区保持原状
+    fireBody(host, 'pointerdown', { x: cellX(0), y: cellY(0), button: 2 })
+    expect(table.selecting).toBe(false)
+    expect(table.getSelectedCellRanges()).toEqual(before)
+    // 右键落在选区外：选区同样保持（宿主在 contextmenu 里自行改选）
+    fireBody(host, 'pointerup', { x: cellX(6), y: cellY(6), button: 2 })
+    fireBody(host, 'pointerdown', { x: cellX(6), y: cellY(6), button: 2 })
+    expect(table.getSelectedCellRanges()).toEqual(before)
+    // contextmenu 事件不受影响照常抛出
+    const menus: TableContextMenuEvent[] = []
+    table.onContextMenu((event) => menus.push(event))
+    fireBody(host, 'contextmenu', { x: cellX(6), y: cellY(6) })
+    expect(menus).toHaveLength(1)
+  })
+
+  it('左键仍替换选区（button 缺省视为主键，既有行为回归）', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }, { name: 'b' }] })
+    table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 1, row: 1 } }])
+    fireBody(host, 'pointerdown', { x: cellX(6), y: cellY(1) })
+    expect(table.selecting).toBe(true)
+    const bounds = table.getSelectedCellRanges()[0]!
+    expect(bounds.start).toEqual({ col: 6, row: 1 })
+    expect(bounds.end).toEqual({ col: 6, row: 1 })
+  })
+})
+
+describe('编辑拾取模式与编辑态内容隐藏', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function createEditingTable(extra: Partial<ListTableOptions> = {}) {
+    const host = new StubHost()
+    const container = new FakeEditorHost()
+    const { doc, created } = createFakeDoc()
+    vi.stubGlobal('document', doc)
+    const registry = new EditorRegistry()
+    registry.registerEditor('text', {})
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      columns: Array.from({ length: 5 }, (_, i) => ({
+        field: `f${i}`,
+        title: `C${i}`,
+        editor: 'text' as const,
+      })),
+      records: [
+        { f0: 'Ada', f1: '36' },
+        { f0: 'Bob', f1: '25' },
+      ],
+      host,
+      hostOptions: { container: container as unknown as HTMLElement },
+      editorRegistry: registry,
+      ...extra,
+    })
+    return { host, table, created }
+  }
+
+  it('editPickMode：编辑中点选其它格不提交会话，选区照常流动；双击不进编辑', () => {
+    const { host, table } = createEditingTable()
+    expect(table.startEdit(0, 0)).toBe(true)
+    table.editPickMode = true
+    // 点选 (2,1)：会话保持、选区流动到被拾取格
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(1) })
+    expect(table.isEditing()).toBe(true)
+    expect(table.editManager.editingCell()).toEqual({ col: 0, row: 0 })
+    const bounds = table.getSelectedCellRanges()[0]!
+    expect(bounds.start).toEqual({ col: 2, row: 1 })
+    // 双击（连击窗口内两次按下-抬起）不进拾取格编辑
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(1) })
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(1) })
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(1) })
+    expect(table.isEditing()).toBe(true)
+    expect(table.editManager.editingCell()).toEqual({ col: 0, row: 0 })
+    // 会话提交后拾取点选仍正常提交语义回归：关闭拾取后点别处即提交
+    fireBody(host, 'pointerdown', { x: cellX(3), y: cellY(1), button: 2 })
+    table.editPickMode = false
+    fireBody(host, 'pointerdown', { x: cellX(3), y: cellY(1) })
+    expect(table.isEditing()).toBe(false)
+  })
+
+  it('缺省（未开拾取）编辑中点选其它格即提交（既有行为回归）', () => {
+    const { host, table } = createEditingTable()
+    expect(table.startEdit(0, 0)).toBe(true)
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(1) })
+    expect(table.isEditing()).toBe(false)
+  })
+
+  it('编辑会话锚定格内容隐藏（含滚动重建后的新装配节点），提交/取消恢复', () => {
+    const { host, table } = createEditingTable()
+    expect(table.startEdit(0, 0)).toBe(true)
+    const node = findNode(host, 0, 0)
+    expect(node?.contentHidden).toBe(true)
+    // 提交 → 恢复内容渲染
+    table.commitEdit()
+    expect(node?.contentHidden).toBe(false)
+    // 取消路径同样恢复；滚动重建（全量 rebuild）按当前会话重放隐藏态
+    expect(table.startEdit(1, 1)).toBe(true)
+    expect(findNode(host, 1, 1)?.contentHidden).toBe(true)
+    table.cancelEdit()
+    expect(findNode(host, 1, 1)?.contentHidden).toBe(false)
+  })
+})
+
+describe('ListTable 浮动图片命中拦截', () => {
+  /** 预置一张浮动图片：锚 (1,2)+（4,8）→ 视口 (152,108) 尺寸 (196,56)；行数须覆盖锚定行 */
+  function createTableWithImage(extra: Partial<ListTableOptions> = {}) {
+    const ctx = createTable({
+      records: Array.from({ length: 10 }, (_, i) => ({ name: `r${i}` })),
+      ...extra,
+    })
+    const floats = ctx.table.floatObjects
+    floats.add({
+      id: 'img',
+      kind: 'image',
+      anchor: { from: { col: 1, row: 2 }, to: { col: 2, row: 3 }, offsetX: 4, offsetY: 8 },
+      src: 'img.png',
+    })
+    return { ...ctx, floats }
+  }
+
+  it('pointerdown 命中图片：点选 + 开启拖拽，事件不落入单元格选区；抬起抛落点换算的新锚点', () => {
+    const { host, table, floats } = createTableWithImage()
+    const drops: FloatDragEndEvent[] = []
+    floats.onDragEnd((event) => drops.push(event))
+
+    // 按下命中图片：选中且进入拖拽会话；不形成单元格选区、不进编辑
+    fireBody(host, 'pointerdown', { x: 160, y: 120 })
+    expect(floats.getSelectedId()).toBe('img')
+    expect(floats.isDragging()).toBe(true)
+    expect(table.getSelection().ranges).toEqual([])
+
+    // 拖拽跟随 + 抬起：按对象左上角视觉位置反查落点（col2,row5 → from 平移 (+1,+3)，余量 (4,12)）
+    fireBody(host, 'pointermove', { x: 260, y: 220 })
+    fireBody(host, 'pointerup', { x: 260, y: 220 })
+    expect(drops).toEqual([
+      {
+        id: 'img',
+        anchor: { from: { col: 2, row: 5 }, to: { col: 3, row: 6 }, offsetX: 4, offsetY: 12 },
+      },
+    ])
+    expect(floats.isDragging()).toBe(false)
+    // 整个手势未产生单元格选区（拦截生效）
+    expect(table.getSelection().ranges).toEqual([])
+  })
+
+  it('pointerdown 未命中图片：清除图片选中，单元格选区照常', () => {
+    const { host, table, floats } = createTableWithImage()
+    floats.select('img')
+    fireBody(host, 'pointerdown', { x: cellX(4), y: cellY(4) })
+    expect(floats.getSelectedId()).toBeNull()
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 4, row: 4 }, end: { col: 4, row: 4 } },
+    ])
+  })
+
+  it('只读（isReadonly）：命中图片只选中不开启拖拽，拖动抬起无锚点事件', () => {
+    const { host, table, floats } = createTableWithImage()
+    floats.isReadonly = true
+    const drops: FloatDragEndEvent[] = []
+    floats.onDragEnd((event) => drops.push(event))
+
+    fireBody(host, 'pointerdown', { x: 160, y: 120 })
+    expect(floats.getSelectedId()).toBe('img')
+    expect(floats.isDragging()).toBe(false)
+    fireBody(host, 'pointermove', { x: 260, y: 220 })
+    fireBody(host, 'pointerup', { x: 260, y: 220 })
+    expect(drops).toEqual([])
+    // 只读点按也不落入单元格选区
+    expect(table.getSelection().ranges).toEqual([])
   })
 })

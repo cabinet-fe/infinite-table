@@ -88,6 +88,11 @@ export class CellNode extends SceneNode {
   renderer: CellRenderer | null
   /** 文本可绘制局部右界；等于 width 表示不溢出 */
   textMaxX: number
+  /**
+   * 内容隐藏（编辑会话锚定格）：不绘制渲染器内容（背景/边框照画），DOM 编辑浮层取代之；
+   * 溢出文本一并隐去（失效区并入 textMaxX 由编辑接线负责），会话结束置回 false。
+   */
+  contentHidden = false
   /** 文本测量宽缓存：font 串/text 值任一变化即失效重测，免每次 paint 拼键；style 引用仅用于免重复组装 font 串 */
   private measureStyle: CellStyle | null = null
   private measureFont = ''
@@ -119,25 +124,33 @@ export class CellNode extends SceneNode {
       ctx.fillStyle = this.style.background
       ctx.fillRect(0, 0, this.width, this.height)
     }
-    const renderer = this.renderer ?? BUILTIN_CELL_RENDERERS[this.cellType]
-    const textWidth = this.measureTextWidth(ctx)
-    renderer({
-      ctx,
-      col: this.col,
-      row: this.row,
-      width: this.width,
-      height: this.height,
-      text: this.text,
-      value: this.value,
-      style: this.style,
-      textWidth,
-      // 内置 text 路径已在测量内经 resolveFont 推导并缓存 font 串，直接复用
-      // 同一结果（测量 font = 绘制 font，渲染器不再重复组装）；其它路径传
-      // undefined，由渲染器回退 cellStyleFont(style)（R3-2）
-      font: textWidth === undefined ? undefined : this.measureFont,
-      textMaxX: this.textMaxX,
-    })
-    this.paintBorders(ctx)
+    // 溢出格（textMaxX > width）right 边先于内容：溢出文本要盖住本格右缘的共享网格线/
+    // 边框（Excel 式网格线在文字之下）；无溢出保持「边框后画压内容」序（强边不被内容盖）
+    const overflowRight = this.textMaxX > this.width
+    if (overflowRight && this.border?.right) {
+      this.paintRightEdge(ctx)
+    }
+    if (!this.contentHidden) {
+      const renderer = this.renderer ?? BUILTIN_CELL_RENDERERS[this.cellType]
+      const textWidth = this.measureTextWidth(ctx)
+      renderer({
+        ctx,
+        col: this.col,
+        row: this.row,
+        width: this.width,
+        height: this.height,
+        text: this.text,
+        value: this.value,
+        style: this.style,
+        textWidth,
+        // 内置 text 路径已在测量内经 resolveFont 推导并缓存 font 串，直接复用
+        // 同一结果（测量 font = 绘制 font，渲染器不再重复组装）；其它路径传
+        // undefined，由渲染器回退 cellStyleFont(style)（R3-2）
+        font: textWidth === undefined ? undefined : this.measureFont,
+        textMaxX: this.textMaxX,
+      })
+    }
+    this.paintBorders(ctx, overflowRight)
   }
 
   /**
@@ -180,8 +193,9 @@ export class CellNode extends SceneNode {
    * 逐边边框：按各边线型绘制（fillRect 保证像素对齐），后画压在内容之上。
    * 画「生效边框」（共享边裁决产物，shared-edges.ts）：非所有者的 left/top 已剔除、
    * 所有者边已并入邻居对侧强边；直接构造（未走裁决）时跟随 style.border。
+   * skipRight 供溢出格调用（right 边已提前到内容之前画，此处跳过防重复）。
    */
-  private paintBorders(ctx: RenderContext): void {
+  private paintBorders(ctx: RenderContext, skipRight = false): void {
     const border = this.border
     if (!border) {
       return
@@ -196,8 +210,17 @@ export class CellNode extends SceneNode {
     if (border.left) {
       paintEdge(ctx, border.left, 0, 0, height, false)
     }
-    if (border.right) {
+    if (border.right && !skipRight) {
       paintEdge(ctx, border.right, width - border.right.width, 0, height, false)
     }
+  }
+
+  /** right 边单独提前绘制（溢出格内容之前，文字盖过共享网格线） */
+  private paintRightEdge(ctx: RenderContext): void {
+    const right = this.border?.right
+    if (!right) {
+      return
+    }
+    paintEdge(ctx, right, this.width - right.width, 0, this.height, false)
   }
 }

@@ -8,12 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'
 import { ListTable } from '../src/list-table'
-import type {
-  CellRef,
-  DataRecord,
-  ListTableOptions,
-  TableContextMenuEvent,
-} from '../src/types'
+import type { CellRef, DataRecord, ListTableOptions, TableContextMenuEvent } from '../src/types'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
 import { StubHost } from './testing/stub-host'
 
@@ -114,7 +109,11 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
   })
 
   it('滚动帧增量维护不复活关闭侧表头节点', () => {
-    const { table } = createTable({ records: records100, showRowHeader: false, showColHeader: false })
+    const { table } = createTable({
+      records: records100,
+      showRowHeader: false,
+      showColHeader: false,
+    })
     table.scrollTo(200, 640)
     expect(table.colHeaderNodes.size).toBe(0)
     expect(table.rowHeaderNodes.size).toBe(0)
@@ -142,7 +141,11 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
 
 describe('ListTable 行列头关闭：命中与选区', () => {
   it('双关：原表头带命中走表体分支，角点全选与表头拖选不触发，表体拖选不回归', () => {
-    const { host, table } = createTable({ records: records3, showRowHeader: false, showColHeader: false })
+    const { host, table } = createTable({
+      records: records3,
+      showRowHeader: false,
+      showColHeader: false,
+    })
     // 原列头带 (y<36) 命中数据格而非表头
     expect(table.getCellAtRelativePosition(150, 10)).toEqual({ col: 1, row: 0 })
     // 原行号列带 (x<48) 命中数据格
@@ -208,7 +211,11 @@ describe('ListTable 行列头关闭：命中与选区', () => {
 
 describe('ListTable 行列头关闭：contextmenu 落点区域', () => {
   it('双关：原表头带落点区域恒为 body 且命中数据格', () => {
-    const { host, table } = createTable({ records: records3, showRowHeader: false, showColHeader: false })
+    const { host, table } = createTable({
+      records: records3,
+      showRowHeader: false,
+      showColHeader: false,
+    })
     const seen: Array<{ region: TableContextMenuEvent['region']; cell: CellRef | null }> = []
     table.onContextMenu((event) => seen.push({ region: event.region, cell: event.cell }))
     fireBody(host, 'contextmenu', { x: 150, y: 10 })

@@ -44,10 +44,7 @@ export class CanvasLayer implements LayerHandle {
     this.root = new SceneNode({ width, height, pickable: false })
   }
 
-  /**
-   * 调整层尺寸并整层失效。
-   * 预留能力：当前 core 无调用方（层尺寸随宿主创建固定），仅测试覆盖。
-   */
+  /** 调整层尺寸并整层失效（宿主 resize 的逐层落地入口） */
   setSize(width: number, height: number, dpr?: number): void {
     this.width = width
     this.height = height

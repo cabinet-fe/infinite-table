@@ -496,6 +496,9 @@ function appendCell(
   // 文本溢出右界（Excel 式溢出到右侧空格；换行/表头/合并/图片/自定义渲染格不溢出）
   const limitX = imageUrl ? null : textOverflowLimitX(table, col, row, style, left)
   node.textMaxX = limitX === null ? node.width : limitX - node.x
+  // 编辑会话锚定格内容隐藏：滚动/几何重建会新建节点，装配时按当前会话重放该状态
+  const editing = table.editManager.isEditing() ? table.editManager.editingCell() : null
+  node.contentHidden = editing !== null && editing.col === col && editing.row === row
   table.body.root.appendChild(node)
   table.cellNodes.set(cellKey(col, row), node)
   if (imageUrl) {

@@ -7,8 +7,14 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { ImageService, type LoadedImage } from '../../src/media/image-service'
-import type { FloatGeometry, FloatObject } from '../../src/float/float-object-layer'
+import type { CellRef } from '../../src/types'
+import type {
+  FloatDragEndEvent,
+  FloatGeometry,
+  FloatObject,
+} from '../../src/float/float-object-layer'
 import { FloatObjectLayer } from '../../src/float/float-object-layer'
+import { RecordingContext } from '../testing/recording-context'
 
 /** 记录失效的假层 */
 function stubLayer() {
@@ -29,6 +35,7 @@ function stubLayer() {
 function stubGeometry(
   scroll: { left: number; top: number },
   cell: { width: number; height: number } = { width: 100, height: 32 },
+  cellAtPoint?: (x: number, y: number) => CellRef | null,
 ): FloatGeometry {
   return {
     cellOrigin: (col, row) => ({
@@ -36,6 +43,7 @@ function stubGeometry(
       y: row * cell.height - scroll.top,
     }),
     cellSize: () => ({ width: cell.width, height: cell.height }),
+    ...(cellAtPoint ? { cellAtPoint } : {}),
   }
 }
 
@@ -210,5 +218,175 @@ describe('FloatObjectLayer 承载与定位', () => {
     floats.dispose()
     expect(root.children).toHaveLength(0)
     floats.dispose()
+  })
+
+  it('节点不可拾取：指针事件穿透浮动对象（拖选/悬停不被图片截断）', () => {
+    const { layer } = stubLayer()
+    const floats = new FloatObjectLayer({ layer, geometry: stubGeometry({ left: 0, top: 0 }) })
+    floats.add(imageObject('a', { col: 0, row: 0 }))
+    const node = layer.root.children[0]?.children[0]
+    expect(node?.pickable).toBe(false)
+  })
+
+  it('bodyViewport 裁剪：伸进表头带的部分不画（行列头不被盖住）；整体在视口外不画', () => {
+    const { layer } = stubLayer()
+    const floats = new FloatObjectLayer({
+      layer,
+      geometry: stubGeometry({ left: 0, top: 0 }),
+      bodyViewport: { x: 10, y: 28, width: 780, height: 560 },
+    })
+    // 对象 (4,8)–(200,64)：上缘伸进表头带（viewport.y = 28）20px、左缘伸进行号列 6px
+    floats.add(imageObject('a', { col: 0, row: 0 }))
+    const containerNode = layer.root.children[0]
+    const node = containerNode?.children[0]
+    if (!node) {
+      throw new Error('浮动对象节点缺失')
+    }
+    const ctx = new RecordingContext()
+    node.paint(ctx)
+    // 局部裁剪矩形 = 视口与本格包围盒的交：(6,20) 尺寸 (190,36)，save/clip/restore 配对
+    expect(
+      ctx.calls.some((call) => call.name === 'rect' && call.args.join() === '6,20,190,36'),
+    ).toBe(true)
+    expect(ctx.calls[0]?.name).toBe('save')
+    expect(ctx.calls.at(-1)?.name).toBe('restore')
+
+    // 整体在视口上方（表头带内之外）：绘制短路，无任何调用
+    floats.add({
+      id: 'above',
+      kind: 'image',
+      anchor: { from: { col: 0, row: 0 }, to: { col: 0, row: 0 }, offsetX: 0, offsetY: -100 },
+      size: { width: 40, height: 24 },
+      src: 'above.png',
+    })
+    const above = containerNode?.children[1]
+    if (!above) {
+      throw new Error('第二个浮动对象节点缺失')
+    }
+    const empty = new RecordingContext()
+    above.paint(empty)
+    expect(empty.calls).toHaveLength(0)
+  })
+})
+
+describe('FloatObjectLayer 点选与拖拽（对齐 ultra-ui image-layer）', () => {
+  /** 带命中换算的拖拽测试台架：对象 a 锚在 (1,2)+（4,8），层坐标 (104,72) 尺寸 (196,56) */
+  function dragSetup(cellAtPoint?: (x: number, y: number) => CellRef | null) {
+    const { layer, invalidated } = stubLayer()
+    const floats = new FloatObjectLayer({
+      layer,
+      geometry: stubGeometry({ left: 0, top: 0 }, undefined, cellAtPoint),
+    })
+    floats.add(imageObject('a', { col: 1, row: 2 }))
+    invalidated.length = 0
+    return { layer, floats }
+  }
+
+  /** 格命中：层坐标按等分格换算（与 stubGeometry 的 cellOrigin 同口径） */
+  const hitCell = (x: number, y: number): CellRef | null =>
+    x < 0 || y < 0 ? null : { col: Math.floor(x / 100), row: Math.floor(y / 32) }
+
+  it('select：单选画 2px #2170E7 外扩选中环；清除后不再画', () => {
+    const { layer, floats } = dragSetup()
+    const node = layer.root.children[0]?.children[0]
+    if (!node) {
+      throw new Error('浮动对象节点缺失')
+    }
+    floats.select('a')
+    expect(floats.getSelectedId()).toBe('a')
+    const ctx = new RecordingContext()
+    node.paint(ctx)
+    // 环画在边界外侧 2px：四边细条（上/下/左/右），颜色对齐 ultra-ui SELECTION_COLOR
+    expect(ctx.fillStyle).toBe('#2170E7')
+    expect(ctx.callsOf('fillRect').slice(-4)).toEqual([
+      { name: 'fillRect', args: [-2, -2, 200, 2] },
+      { name: 'fillRect', args: [-2, 56, 200, 2] },
+      { name: 'fillRect', args: [-2, 0, 2, 56] },
+      { name: 'fillRect', args: [196, 0, 2, 56] },
+    ])
+
+    floats.clearSelection()
+    expect(floats.getSelectedId()).toBeNull()
+    const plain = new RecordingContext()
+    node.paint(plain)
+    // 无环：只剩占位绘制自身的一次 fillRect
+    expect(plain.callsOf('fillRect')).toHaveLength(1)
+  })
+
+  it('拖拽：阈值内不跟随；超阈值跟随指针，抬起按对象左上角视觉位置换算新锚点（余量 clamp 0）', () => {
+    const { layer, floats } = dragSetup(hitCell)
+    floats.select('a')
+    expect(floats.beginDrag('a', 110, 80)).toBe(true)
+    const node = layer.root.children[0]?.children[0]
+    // 位移 < 3px：未成拖拽，不跟随
+    floats.dragMove(112, 82)
+    expect({ x: node?.x, y: node?.y }).toEqual({ x: 104, y: 72 })
+    // 超阈值：对象随指针平移
+    floats.dragMove(120, 90)
+    expect({ x: node?.x, y: node?.y }).toEqual({ x: 114, y: 82 })
+
+    const events: FloatDragEndEvent[] = []
+    floats.onDragEnd((event) => events.push(event))
+    // 对象左上角 (114,82) 落在格 (1,2)：格原点 (100,64)，余量 (14,18)，from/to 不动、仅余量写回
+    floats.endDrag()
+    expect(events).toEqual([
+      {
+        id: 'a',
+        anchor: {
+          from: { col: 1, row: 2 },
+          to: { col: 2, row: 3 },
+          offsetX: 14,
+          offsetY: 18,
+        },
+      },
+    ])
+    expect(floats.isDragging()).toBe(false)
+  })
+
+  it('拖拽跨格：from 平移到落点格，to 随同一 delta 平移保持跨度', () => {
+    const { floats } = dragSetup(hitCell)
+    floats.beginDrag('a', 110, 80)
+    floats.dragMove(330, 200)
+    const events: FloatDragEndEvent[] = []
+    floats.onDragEnd((event) => events.push(event))
+    // 对象左上角 (324,192) 落在格 (3,6)：格原点 (300,192)，余量 (24,0)；delta (+2,+4)
+    floats.endDrag()
+    expect(events).toEqual([
+      {
+        id: 'a',
+        anchor: {
+          from: { col: 3, row: 6 },
+          to: { col: 4, row: 7 },
+          offsetX: 24,
+          offsetY: 0,
+        },
+      },
+    ])
+  })
+
+  it('点按未成拖拽不提交；落点在行列头带/空白回弹原锚点布局', () => {
+    const { layer, floats } = dragSetup(() => null)
+    const events: FloatDragEndEvent[] = []
+    floats.onDragEnd((event) => events.push(event))
+    // 点按（无位移）：选中已在按下完成，抬起无事件
+    floats.beginDrag('a', 110, 80)
+    floats.endDrag()
+    expect(events).toEqual([])
+    // 拖出后落点无效：不写回，视觉回弹原锚点位置
+    floats.beginDrag('a', 110, 80)
+    floats.dragMove(300, 300)
+    floats.endDrag()
+    expect(events).toEqual([])
+    const node = layer.root.children[0]?.children[0]
+    expect({ x: node?.x, y: node?.y }).toEqual({ x: 104, y: 72 })
+  })
+
+  it('只读（isReadonly 口径）：可选中查看，拖拽不启用', () => {
+    const { floats } = dragSetup(hitCell)
+    floats.isReadonly = true
+    floats.select('a')
+    expect(floats.getSelectedId()).toBe('a')
+    expect(floats.beginDrag('a', 110, 80)).toBe(false)
+    expect(floats.isDragging()).toBe(false)
   })
 })

@@ -165,4 +165,22 @@ describe('EventSystem 事件归一化', () => {
       expect(target.listenerCount(type)).toBe(0)
     }
   })
+
+  it('指针事件透传 button；不可拾取节点不拦截命中（穿透到下层）', () => {
+    const target = new FakeEventTarget()
+    const { roots, sky, body } = makeLayers()
+    const bodyCell = new SceneNode({ x: 0, y: 0, width: 50, height: 30 })
+    // sky 层浮动对象：不可拾取，命中穿透到 body 层数据格（拖选不被截断）
+    const skyFloat = new SceneNode({ x: 0, y: 0, width: 50, height: 30, pickable: false })
+    body.appendChild(bodyCell)
+    sky.appendChild(skyFloat)
+    const down: SceneEvent[] = []
+    bodyCell.on('pointerdown', (e) => down.push(e))
+    const system = new EventSystem(target, () => roots)
+    target.emit('pointerdown', { clientX: 10, clientY: 10, button: 2 })
+    expect(down).toHaveLength(1)
+    expect(down[0]?.button).toBe(2)
+    expect(down[0]?.target).toBe(bodyCell)
+    system.dispose()
+  })
 })

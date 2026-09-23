@@ -74,7 +74,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
       width: 100,
       height: 32,
     }),
-    bodyViewport: { x: 48, y: 36, width: 752, height: 564 },
+    bodyViewport: () => ({ x: 48, y: 36, width: 752, height: 564 }),
   }
 
   function makeContent(ranges: SelectionRange[], focus: SelectionSnapshot['focus']) {

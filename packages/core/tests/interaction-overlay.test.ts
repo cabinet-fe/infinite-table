@@ -52,7 +52,7 @@ function makeGeometry() {
       col >= 0 && row >= 0 && col < 100 && row < 100
         ? { x: 48 + col * 100, y: 36 + row * 32, width: 100, height: 32 }
         : null,
-    bodyViewport: VIEWPORT,
+    bodyViewport: () => VIEWPORT,
   }
 }
 

@@ -106,6 +106,19 @@ class CanvasRenderHost implements RenderHost {
     this.scheduler.request(task)
   }
 
+  /** 原地调整视口尺寸：记录新尺寸（后续建层取新值），已建层逐个重设（含 CSS 尺寸）并整层失效 */
+  resize(width: number, height: number, dpr?: number): void {
+    if (this.destroyed) {
+      return
+    }
+    this.width = width
+    this.height = height
+    for (const layer of this.layers.values()) {
+      layer.setSize(width, height, dpr)
+      this.applyCanvasCssSize(layer.canvasElement)
+    }
+  }
+
   measure(text: string, font: string): Size {
     if (this.measureText) {
       return this.measureText(text, font)
@@ -172,8 +185,7 @@ class CanvasRenderHost implements RenderHost {
     canvas.style.position = 'absolute'
     canvas.style.left = '0'
     canvas.style.top = '0'
-    canvas.style.width = `${this.width}px`
-    canvas.style.height = `${this.height}px`
+    this.applyCanvasCssSize(canvas)
     canvas.dataset.layerKind = kind
     // 按 LAYER_ORDER 声明 z 序插入：插到首个已挂载的更上层之前，
     // 使「先创建 body、后惰性创建 media」的实际用例下 DOM 叠放仍为 ground→body→media→sky
@@ -190,6 +202,18 @@ class CanvasRenderHost implements RenderHost {
       }
     }
     container.appendChild(canvas)
+  }
+
+  /** 上屏模式：canvas 的 CSS 尺寸跟随视口（离屏/假画布无 style 语义，跳过） */
+  private applyCanvasCssSize(canvas: RenderCanvas): void {
+    if (
+      this.options.container &&
+      typeof HTMLCanvasElement !== 'undefined' &&
+      canvas instanceof HTMLCanvasElement
+    ) {
+      canvas.style.width = `${this.width}px`
+      canvas.style.height = `${this.height}px`
+    }
   }
 
   private unmount(canvas: RenderCanvas): void {

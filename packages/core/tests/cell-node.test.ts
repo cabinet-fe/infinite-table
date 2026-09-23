@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'
 import type { CellRenderTarget } from '../src/cell-renderer'
+import { RecordingContext } from './testing/recording-context'
 
 interface RectCall {
   x: number
@@ -190,5 +191,87 @@ describe('CellNode 绘制', () => {
     expect(ctx.texts).toEqual([])
     expect(ctx.rects).toEqual([{ x: 1, y: 2, width: 3, height: 4, fill: '#000' }])
     expect(seen[0]).toMatchObject({ col: 2, row: 3, width: 100, height: 32, text: 'ignored' })
+  })
+})
+
+describe('CellNode 溢出与编辑隐藏', () => {
+  it('溢出格（textMaxX > width）：right 边先于文本绘制，文本盖过共享网格线且 right 只画一次', () => {
+    const ctx = new RecordingContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'x'.repeat(30),
+      style: {
+        border: {
+          right: { width: 1, color: '#E1E4E8' },
+          bottom: { width: 1, color: '#E1E4E8' },
+        },
+      },
+    })
+    node.textMaxX = 260
+    node.paint(ctx)
+    // right 边（x=99）先画、文本后画；bottom 边维持内容之后的默认序
+    const rightIdx = ctx.calls.findIndex((call) => call.name === 'fillRect' && call.args[0] === 99)
+    const textIdx = ctx.calls.findIndex((call) => call.name === 'fillText')
+    expect(rightIdx).toBeGreaterThanOrEqual(0)
+    expect(textIdx).toBeGreaterThan(rightIdx)
+    const bottomIdx = ctx.calls.findIndex(
+      (call) => call.name === 'fillRect' && call.args[0] === 0 && call.args[1] === 31,
+    )
+    expect(bottomIdx).toBeGreaterThan(textIdx)
+    // right 边不重复绘制（paintBorders 跳过已提前绘制的 right）
+    expect(
+      ctx.calls.filter((call) => call.name === 'fillRect' && call.args[0] === 99),
+    ).toHaveLength(1)
+  })
+
+  it('无溢出：边框仍在内容之后（强边压内容，行为不变）', () => {
+    const ctx = new RecordingContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'x'.repeat(30),
+      style: { border: { right: { width: 1, color: '#E1E4E8' } } },
+    })
+    node.paint(ctx)
+    const rightIdx = ctx.calls.findIndex((call) => call.name === 'fillRect' && call.args[0] === 99)
+    const textIdx = ctx.calls.findIndex((call) => call.name === 'fillText')
+    expect(textIdx).toBeGreaterThanOrEqual(0)
+    expect(rightIdx).toBeGreaterThan(textIdx)
+  })
+
+  it('contentHidden：内容不绘制，背景与边框照画', () => {
+    const ctx = new RecordingContext()
+    const node = new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: 'x'.repeat(30),
+      style: {
+        background: '#fff',
+        border: { right: { width: 1, color: '#E1E4E8' } },
+      },
+    })
+    node.textMaxX = 260
+    node.contentHidden = true
+    node.paint(ctx)
+    expect(ctx.callsOf('fillText')).toHaveLength(0)
+    // 背景（0,0,100,32）与 right 边（x=99）都在
+    expect(
+      ctx.calls.some(
+        (call) =>
+          call.name === 'fillRect' &&
+          call.args[0] === 0 &&
+          call.args[1] === 0 &&
+          call.args[2] === 100 &&
+          call.args[3] === 32,
+      ),
+    ).toBe(true)
+    expect(ctx.calls.some((call) => call.name === 'fillRect' && call.args[0] === 99)).toBe(true)
   })
 })

@@ -22,6 +22,10 @@
 - vitest；单测放包内 `tests/` 目录，测试专用辅助（fake/stub）放 `tests/testing/`
 - 渲染相关行为用浏览器冒烟（apps/demo）验证；性能基准场景在 apps/bench，性能回归不许进 main
 
+## 内部库检索
+
+- 写代码或查阅内部库 API（`@veltra/*`、`@cat-kit/*`、`@meta/*`）前，用 docs-search 技能检索，禁止凭训练数据猜测
+
 ## 明确禁止
 
 - cooking `spec.md` 缺少可被 `spec-files.mjs parse` 通过的「影响文件」章节

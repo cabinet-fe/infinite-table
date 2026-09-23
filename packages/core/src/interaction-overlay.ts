@@ -19,8 +19,8 @@ import type { InteractionTokens } from './theme'
 export interface OverlayGeometry {
   /** 数据格在视口中的矩形；行/列在可视窗口外返回 null */
   cellRect(col: number, row: number): Region | null
-  /** 数据区在视口中的可绘制矩形（扣除行列头） */
-  readonly bodyViewport: Region
+  /** 数据区在视口中的可绘制矩形（扣除行列头；闭包实时读取，容器 resize 原地自适应） */
+  bodyViewport(): Region
 }
 
 /** resize 拖拽指示线（视口坐标） */
@@ -71,7 +71,7 @@ export class OverlayNode extends SceneNode {
     if (!content) {
       return
     }
-    const viewport = this.geometry.bodyViewport
+    const viewport = this.geometry.bodyViewport()
     ctx.save()
     ctx.beginPath()
     ctx.rect(viewport.x, viewport.y, viewport.width, viewport.height)
@@ -108,7 +108,7 @@ export class OverlayNode extends SceneNode {
     if (!hover) {
       return
     }
-    const viewport = this.geometry.bodyViewport
+    const viewport = this.geometry.bodyViewport()
     const cell = this.geometry.cellRect(hover.col, hover.row)
     if (!cell) {
       return
@@ -252,9 +252,15 @@ export class InteractionOverlay {
     interaction: InteractionTokens,
   ) {
     this.node = new OverlayNode(geometry, interaction)
-    this.node.width = geometry.bodyViewport.x + geometry.bodyViewport.width
-    this.node.height = geometry.bodyViewport.y + geometry.bodyViewport.height
+    this.resize()
     skyRoot.appendChild(this.node)
+  }
+
+  /** 视口尺寸变化后重设浮层节点覆盖范围（容器 resize 原地自适应路径） */
+  resize(): void {
+    const viewport = this.geometry.bodyViewport()
+    this.node.width = viewport.x + viewport.width
+    this.node.height = viewport.y + viewport.height
   }
 
   /** 更新浮层内容；返回是否有可见内容（无内容时节点隐藏，供调用方跳过 sky 失效） */

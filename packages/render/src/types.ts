@@ -96,8 +96,8 @@ export interface LayerHandle {
   /** 该层画布（上屏模式下即挂载在容器中的 canvas 元素） */
   readonly canvasElement: RenderCanvas
   /**
-   * 调整层尺寸（w/h 为 CSS 像素，dpr 缺省沿用当前值）。
-   * 预留能力：当前 core 无调用方（滚动走重建+band 路线，层尺寸随宿主创建固定），仅测试覆盖。
+   * 调整层尺寸（w/h 为 CSS 像素，dpr 缺省沿用当前值）并整层失效。
+   * 宿主 resize（容器 resize 原地自适应路径）的逐层落地入口。
    */
   setSize(width: number, height: number, dpr?: number): void
   /** 对本层声明三档失效，等价于 host.submitInvalidation(kind, inv) */
@@ -111,7 +111,7 @@ export interface LayerHandle {
 }
 
 /**
- * RenderHost 窄接口：外部仅凭该接口完成建层、提交三档失效、请求帧、读测量。
+ * RenderHost 窄接口：外部仅凭该接口完成建层、提交三档失效、请求帧、读测量、原地调整视口尺寸。
  * 场景内容的读写经 LayerHandle.root 的场景树 API 进行。
  */
 export interface RenderHost {
@@ -123,6 +123,8 @@ export interface RenderHost {
   requestFrame(task: FrameTask): void
   /** 文本测量（CSS 像素） */
   measure(text: string, font: string): Size
+  /** 原地调整视口尺寸（CSS 像素，dpr 缺省沿用当前值）：已建层逐个重设尺寸并整层失效 */
+  resize(width: number, height: number, dpr?: number): void
   /** 销毁：取消挂起帧、解绑事件、回收池化画布 */
   destroy(): void
 }

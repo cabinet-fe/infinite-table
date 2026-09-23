@@ -1,0 +1,25 @@
+{
+  "name": "@infinite-table/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@infinite-table/core": "workspace:*",
+    "@infinite-table/plugins": "workspace:*",
+    "@veltra/sheet": "file:../../../ultra-ui/packages/sheet",
+    "@veltra/sheet-core": "file:../../../ultra-ui/packages/sheet-core",
+    "@veltra/styles": "file:../../../ultra-ui/packages/styles",
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "@vitejs/plugin-vue-jsx": "^5.1.6",
+    "sass-embedded": "1.104.1"
+  }
+}

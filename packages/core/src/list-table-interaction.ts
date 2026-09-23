@@ -62,15 +62,37 @@ export function bindInteractionEvents(table: ListTable): void {
 }
 
 function onPointerDown(table: ListTable, event: SceneEvent): void {
+  // 非主键（右/中键）不改选区、不开启任何会话：右键只抛 contextmenu，选区保留给
+  // 「菜单作用于既有选区」的语义（落点在选区外由宿主在 contextmenu 里自行改选）
+  if (event.button !== undefined && event.button !== 0) {
+    return
+  }
   table.pointerDownAt = { x: event.x, y: event.y }
   // 新按下终结任何残留的表头拖选会话（正常流由 pointerup 结束）
   table.headerDrag = null
-  // 编辑中点击其它格/空白：先提交当前会话（同一时刻至多一个编辑会话）
+  // 浮动对象命中优先（浮动层在 sky 最顶、盖在格内容之上）：命中即点选 + 开启拖拽会话
+  // （只读仍选中、不拖拽），事件不落入编辑提交/单元格选区；未命中清除图片选中
+  // （对齐 ultra-ui「点其它处取消选中」）
+  const floats = table.floatLayer
+  if (floats) {
+    const floatObject = floats.getAt(event.x, event.y)
+    if (floatObject) {
+      floats.select(floatObject.id)
+      floats.beginDrag(floatObject.id, event.x, event.y)
+      return
+    }
+    floats.clearSelection()
+  }
+  // 编辑中点击其它格/空白：先提交当前会话（同一时刻至多一个编辑会话）；
+  // 编辑拾取模式（editPickMode）命中数据格除外——不提交，选区流动由宿主消费为引用插入
   const hit = cellAt(table, event.x, event.y)
   const editing = table.editManager.editingCell()
   if (editing && (!hit || hit.col !== editing.col || hit.row !== editing.row)) {
-    table.editManager.commitEdit()
+    if (!(table.editPickMode && hit)) {
+      table.editManager.commitEdit()
+    }
   }
+  const picking = editing !== null && table.editPickMode
   const handle = hitResizeHandle(event.x, event.y, resizeGeometry(table), {
     canResizeCol: table.options.canResizeCol,
     canResizeRow: table.options.canResizeRow,
@@ -85,8 +107,9 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     )
     return
   }
-  // 填充柄按下：开启拖拽会话并抛按下事件（不改选区，填充生成不在内核）
-  const fillRange = fillHandleHit(table, event.x, event.y)
+  // 填充柄按下：开启拖拽会话并抛按下事件（不改选区，填充生成不在内核）；
+  // 拾取会话中让位——编辑态的填充柄不属于公式输入流，点选一律按引用拾取走选区
+  const fillRange = picking ? null : fillHandleHit(table, event.x, event.y)
   if (fillRange) {
     const bounds = normalizeRange(fillRange)
     const origin = { col: bounds.maxCol, row: bounds.maxRow }
@@ -154,6 +177,11 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
 }
 
 function onPointerMove(table: ListTable, event: SceneEvent): void {
+  // 图片拖拽会话优先：跟随指针（不更新悬停/选区）
+  if (table.floatLayer?.isDragging()) {
+    table.floatLayer.dragMove(event.x, event.y)
+    return
+  }
   if (table.resizeSession) {
     updateResizeLine(table, event)
     return
@@ -201,6 +229,16 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
 }
 
 function onPointerUp(table: ListTable, event: SceneEvent): void {
+  // 图片拖拽会话结束：落点换算在浮动层（按对象视觉位置反查，onDragEnd 抛新锚点给宿主写回）
+  if (table.floatLayer?.isDragging()) {
+    table.floatLayer.endDrag()
+    return
+  }
+  // 点按图片（未成拖拽，含只读）：选中语义在按下完成，抬起不落选区/双击进编辑
+  const floats = table.floatLayer
+  if (floats && floats.getSelectedId() !== null && floats.getAt(event.x, event.y)) {
+    return
+  }
   if (table.resizeSession) {
     const session = table.resizeSession
     table.resizeSession = null
@@ -256,7 +294,10 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   }
   table.selecting = false
   table.selection.endDrag()
-  detectDoubleTap(table, event)
+  // 拾取会话中抬起不做双击进编辑（画布点选都是引用拾取，落双击会顶掉编辑会话）
+  if (!(table.editPickMode && table.editManager.isEditing())) {
+    detectDoubleTap(table, event)
+  }
 }
 
 /**

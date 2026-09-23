@@ -225,6 +225,12 @@ export function mountFormulaBar(
 
   let mirroredEditor: HTMLTextAreaElement | HTMLInputElement | null = null
   let suspended = false
+  // ---- 公式组合会话（显式状态，替代「输入区持有 DOM 焦点」的脆弱探测）----
+  // 'bar'：公式栏输入区编辑；'engine'：引擎格内编辑会话（编辑器镜像 mirroredEditor）。
+  // 会话中画布点选/拖选把引用插入编辑目标光标处（不提交），键入经容器 keydown 路由回目标；
+  // 只有显式提交/取消结束会话（画布点击/失焦都是拾取路径，不打断）。非公式纯文本编辑不进会话。
+  let composing: 'bar' | 'engine' | null = null
+  let boundContainer: HTMLElement | null = null
   let suggestIndex = -1
   let suggestItems: FormulaFunctionInfo[] = []
   let suggestContext: SuggestContext | null = null
@@ -244,8 +250,8 @@ export function mountFormulaBar(
   }
 
   const refreshEditorChrome = (): void => {
-    // 编辑态（引擎会话或输入区聚焦）显示 ✓/✗；输入区按内容自适应增高（上限 8 行）
-    const editing = suspended || document.activeElement === input
+    // 编辑态（引擎会话/组合会话/输入区聚焦）显示 ✓/✗；输入区按内容自适应增高（上限 8 行）
+    const editing = suspended || composing !== null || document.activeElement === input
     confirmButton.classList.toggle('is-visible', editing)
     cancelButton.classList.toggle('is-visible', editing)
     input.style.height = ''
@@ -392,36 +398,80 @@ export function mountFormulaBar(
     refreshEditorChrome()
   }
 
-  // ---- 引用拾取：输入区聚焦且公式态时，画布点选/拖选把地址插入光标处（不提交） ----
+  // ---- 引用拾取：组合会话中画布点选/拖选把地址插入编辑目标光标处（不提交） ----
   let refPickStart = -1
 
+  /** 组合会话的编辑目标（引擎格内编辑器镜像或公式栏输入区）；无会话/镜像缺失为 null */
+  const composeTarget = (): {
+    el: HTMLTextAreaElement | HTMLInputElement
+    engine: boolean
+  } | null => {
+    if (composing === 'engine') {
+      return mirroredEditor ? { el: mirroredEditor, engine: true } : null
+    }
+    if (composing === 'bar') {
+      return { el: input, engine: false }
+    }
+    return null
+  }
+
+  /** 编辑目标变更后的统一后续：引擎目标先镜像回输入区（建议/提示/染色框以输入区为 UI 锚） */
+  const afterComposeInput = (target: {
+    el: HTMLTextAreaElement | HTMLInputElement
+    engine: boolean
+  }): void => {
+    if (target.engine) {
+      input.value = target.el.value
+      input.setSelectionRange(
+        target.el.selectionStart ?? input.value.length,
+        target.el.selectionEnd ?? input.value.length,
+      )
+    }
+    renderSuggestions()
+    renderCalltip()
+    refreshEditorChrome()
+    syncRefHighlights()
+  }
+
   const insertRefAtCursor = (): void => {
+    const target = composeTarget()
+    if (!target) {
+      return
+    }
     const range = ctx.table().getSelectedCellRanges()[0]
     if (!range) {
       return
     }
-    const text =
-      range.start.col === range.end.col && range.start.row === range.end.row
-        ? formatCellAddress(range.start.col, range.start.row)
-        : `${formatCellAddress(range.start.col, range.start.row)}:${formatCellAddress(range.end.col, range.end.row)}`
-    const at = refPickStart >= 0 ? refPickStart : (input.selectionStart ?? input.value.length)
-    // 吃掉插入点前紧邻的旧引用 token（连续拖选时原位替换）
-    const before = input.value.slice(0, at).replace(/[A-Za-z0-9:]+$/, '')
+    const single = range.start.col === range.end.col && range.start.row === range.end.row
+    // 编辑中的格自身不拾取（点编辑格 = 无操作，防自引用）
+    const editing = target.engine ? ctx.table().editManager.editingCell() : null
+    if (editing && single && range.start.col === editing.col && range.start.row === editing.row) {
+      return
+    }
+    const text = single
+      ? formatCellAddress(range.start.col, range.start.row)
+      : `${formatCellAddress(range.start.col, range.start.row)}:${formatCellAddress(range.end.col, range.end.row)}`
+    const at =
+      refPickStart >= 0 ? refPickStart : (target.el.selectionStart ?? target.el.value.length)
+    // 吃掉插入点前紧邻的旧引用 token（连续拖选时原位替换；新参数由键入 , 另起新 token）
+    const before = target.el.value.slice(0, at).replace(/[A-Za-z0-9:]+$/, '')
     refPickStart = before.length
-    input.value = before + text + input.value.slice(at)
-    input.setSelectionRange(refPickStart + text.length, refPickStart + text.length)
-    renderCalltip()
-    refreshEditorChrome()
-    // 引用拾取插入后新引用即刻出框（与拖选跟手一致）
-    syncRefHighlights()
+    target.el.value = before + text + target.el.value.slice(at)
+    target.el.setSelectionRange(refPickStart + text.length, refPickStart + text.length)
+    afterComposeInput(target)
   }
 
-  /** 提交：写回 Store + 局部刷新 */
+  /** 组合会话锚定格（会话开始时的焦点格）：拾取会移动选区，提交仍写回锚定格 */
+  let composeCell: { col: number; row: number } | null = null
+
+  /** 提交：写回 Store + 局部刷新（写回组合会话锚定格，非当前选区） */
   const commit = (): void => {
-    const cell = focusCell()
+    const cell = composeCell ?? focusCell()
     if (!cell) {
       return
     }
+    composing = null
+    composeCell = null
     suspended = true
     ctx.store().setValue(cell.col, cell.row, input.value === '' ? null : input.value)
     ctx.table().refreshCell(cell.col, cell.row)
@@ -435,10 +485,124 @@ export function mountFormulaBar(
   }
 
   const cancel = (): void => {
+    composing = null
+    composeCell = null
     refresh()
     input.blur()
     syncRefHighlights()
   }
+
+  // ---- 容器键入路由：组合会话中 DOM 焦点在表格容器（画布点选拾取后），
+  // 键入仍要进公式——可打印字符/退格写入编辑目标光标处，Enter 提交、Esc 取消、
+  // 左右移光标；其余按键（含修饰键组合）放行给全局快捷键 ----
+  const applyEdited = (
+    target: { el: HTMLTextAreaElement | HTMLInputElement; engine: boolean },
+    edit: (value: string, start: number, end: number) => { text: string; caret: number } | null,
+  ): void => {
+    const el = target.el
+    const value = el.value
+    const start = el.selectionStart ?? value.length
+    const end = Math.max(start, el.selectionEnd ?? start)
+    const next = edit(value, start, end)
+    if (!next) {
+      return
+    }
+    refPickStart = -1
+    el.value = next.text
+    el.setSelectionRange(next.caret, next.caret)
+    afterComposeInput(target)
+  }
+
+  const onContainerKeyDown = (event: KeyboardEvent): void => {
+    const target = composeTarget()
+    if (!target) {
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      event.stopPropagation()
+      if (target.engine) {
+        hideSuggestions()
+        ctx.table().commitEdit()
+        return
+      }
+      if (suggestItems.length > 0 && suggestIndex >= 0) {
+        applySuggestion(suggestItems[suggestIndex]!.name)
+        return
+      }
+      commit()
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      if (target.engine) {
+        ctx.table().cancelEdit()
+      } else {
+        cancel()
+      }
+      return
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return
+    }
+    if (
+      (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+      suggestItems.length > 0 &&
+      !target.engine
+    ) {
+      event.preventDefault()
+      suggestIndex =
+        (suggestIndex + (event.key === 'ArrowDown' ? 1 : suggestItems.length - 1)) %
+        suggestItems.length
+      refreshSuggestActive()
+      return
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      const el = target.el
+      const start = el.selectionStart ?? el.value.length
+      const end = Math.max(start, el.selectionEnd ?? start)
+      const caret =
+        event.key === 'ArrowLeft'
+          ? Math.max(0, start === end ? start - 1 : start)
+          : Math.min(el.value.length, end + 1)
+      el.setSelectionRange(caret, caret)
+      return
+    }
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'Tab') {
+      event.preventDefault()
+      return
+    }
+    if (event.key === 'Backspace') {
+      event.preventDefault()
+      event.stopPropagation()
+      applyEdited(target, (value, start, end) =>
+        end > start
+          ? { text: value.slice(0, start) + value.slice(end), caret: start }
+          : start > 0
+            ? { text: value.slice(0, start - 1) + value.slice(start), caret: start - 1 }
+            : null,
+      )
+      return
+    }
+    if (event.key.length === 1) {
+      event.preventDefault()
+      event.stopPropagation()
+      applyEdited(target, (value, start, end) => ({
+        text: value.slice(0, start) + event.key + value.slice(end),
+        caret: start + 1,
+      }))
+    }
+  }
+
+  // 名称框聚焦即结束组合会话（跳转语义与公式编辑互斥；引擎会话进行中则不抢，编辑继续）
+  nameBox.addEventListener('focus', () => {
+    if (!suspended) {
+      composing = null
+      composeCell = null
+    }
+  })
 
   // 名称框跳转
   nameBox.addEventListener('keydown', (event) => {
@@ -510,6 +674,15 @@ export function mountFormulaBar(
   })
   input.addEventListener('input', () => {
     refPickStart = -1
+    // 输入出公式即进入组合会话（显式会话替代焦点探测）；公式文本被清空/改写为非公式即止
+    const formula = input.value.trimStart().startsWith('=')
+    if (composing === null && formula) {
+      composing = 'bar'
+      composeCell = focusCell()
+    } else if (composing === 'bar' && !formula) {
+      composing = null
+      composeCell = null
+    }
     renderSuggestions()
     renderCalltip()
     refreshEditorChrome()
@@ -519,13 +692,22 @@ export function mountFormulaBar(
   input.addEventListener('keyup', renderCalltip)
   input.addEventListener('click', renderCalltip)
   input.addEventListener('focus', () => {
+    // 带公式文本聚焦进入组合会话（纯文本编辑不进会话：画布点选即改选，保持既有行为）
+    if (!suspended && input.value.trimStart().startsWith('=')) {
+      composing = 'bar'
+      composeCell = focusCell()
+    }
     refreshEditorChrome()
     renderCalltip()
     // 带着已有公式文本聚焦进入编辑态：补画染色框
     syncRefHighlights()
   })
   input.addEventListener('blur', () => {
-    refPickStart = -1
+    // 组合会话中失焦是「移焦画布拾取」的正常路径：不清会话不清拾取锚点；
+    // 非会话失焦维持旧行为（拾取锚点复位）
+    if (composing === null) {
+      refPickStart = -1
+    }
     // 失焦即退出公式栏编辑态：染色框立即清（不等下方 chrome 延时）
     syncRefHighlights()
     window.setTimeout(() => {
@@ -600,6 +782,9 @@ export function mountFormulaBar(
 
   const insertSnippet = (name: string): void => {
     input.value = `=${name}()`
+    // 函数插入即进入组合会话（锚定当前焦点格）
+    composing = 'bar'
+    composeCell = focusCell()
     input.focus()
     // 光标落括号内（免手动补右括号，与建议确认一致）
     input.setSelectionRange(input.value.length - 1, input.value.length - 1)
@@ -624,11 +809,16 @@ export function mountFormulaBar(
   // 绘制通道用 core 的 setHighlightRanges（sky 浮层，随滚动帧同内容源重绘）；
   // 引用提取用 formulas 的容错扫描器 scanFormulaReferences（半截公式不抛错）。
   const REF_HIGHLIGHT_COLORS = ['#2e75b6', '#c00000', '#548235', '#7030a0', '#bf8f00', '#0e9aa7']
+  /** 引擎组合会话中被编辑格自身的持续高亮色（Excel 绿，区别于引用循环色板） */
+  const EDITING_CELL_COLOR = '#107c41'
 
-  /** 编辑中的文本：引擎会话取编辑器镜像值（退化时取公式栏镜像），公式栏聚焦取输入区；非编辑态 null */
+  /** 编辑中的文本：组合会话取编辑目标（引擎取镜像，公式栏取输入区），非会话公式栏聚焦取输入区；否则 null */
   const editingText = (): string | null => {
-    if (suspended) {
-      return mirroredEditor?.value ?? input.value
+    if (composing === 'engine') {
+      return mirroredEditor?.value ?? null
+    }
+    if (composing === 'bar') {
+      return input.value
     }
     return document.activeElement === input ? input.value : null
   }
@@ -672,6 +862,21 @@ export function mountFormulaBar(
         color: REF_HIGHLIGHT_COLORS[highlights.length % REF_HIGHLIGHT_COLORS.length]!,
       })
     }
+    // 引擎组合会话中被编辑格自身持续高亮（选区已随拾取流动到被拾取段，Excel 语义）
+    if (composing === 'engine' && boundTable) {
+      const editing = boundTable.editManager.editingCell()
+      if (editing) {
+        highlights.unshift({
+          bounds: {
+            minCol: editing.col,
+            minRow: editing.row,
+            maxCol: editing.col,
+            maxRow: editing.row,
+          },
+          color: EDITING_CELL_COLOR,
+        })
+      }
+    }
     table.setHighlightRanges(highlights)
   }
 
@@ -682,30 +887,47 @@ export function mountFormulaBar(
     if (table === boundTable) {
       return
     }
-    // 切走前清掉旧表的引用染色框（池化实例复显时不能残留）
+    // 切走前清掉旧表的引用染色框（池化实例复显时不能残留）；组合会话随切表结束
     boundTable?.setHighlightRanges([])
+    if (composing !== null) {
+      composing = null
+      composeCell = null
+      if (boundTable) {
+        boundTable.editPickMode = false
+      }
+    }
     for (const off of bindings) {
       off()
     }
+    boundContainer?.removeEventListener('keydown', onContainerKeyDown, true)
+    boundContainer = null
     mirroredEditor?.removeEventListener('input', onEditorInput)
     mirroredEditor = null
+    // 容器键入路由挂活跃实例容器（捕获阶段先于场景事件，组合会话中接管键入）
+    const container = table.options.hostOptions?.container
+    if (container) {
+      container.addEventListener('keydown', onContainerKeyDown, true)
+      boundContainer = container
+    }
     bindings = [
       table.onSelectionChange(() => {
-        // 引用拾取：输入区聚焦且公式态时，画布选区 → 光标处插入地址（不提交）
-        if (
-          !suspended &&
-          document.activeElement === input &&
-          input.value.trimStart().startsWith('=')
-        ) {
+        const target = composeTarget()
+        if (target && target.el.value.trimStart().startsWith('=')) {
+          // 组合会话（公式态）：画布选区 → 编辑目标光标处插入引用（不提交）
           insertRefAtCursor()
           return
         }
+        // 非公式态（含会话残留但文本已清空）：回落普通显示刷新
         refresh()
       }),
       table.onEditStart((edit) => {
         suspended = true
+        const initial = edit.initialValue == null ? '' : String(edit.initialValue)
+        // 公式格编辑进入引擎组合会话：开启引擎拾取（画布点选/拖选不提交，选区段即引用）
+        composing = initial.trimStart().startsWith('=') ? 'engine' : null
+        table.editPickMode = composing === 'engine'
         nameBox.value = formatCellAddress(edit.col, edit.row)
-        input.value = edit.initialValue == null ? '' : String(edit.initialValue)
+        input.value = initial
         // 编辑器元素在表格容器内（demo 级镜像：监听其 input 事件）
         const editorEl = table.options.hostOptions?.container?.querySelector('textarea, input')
         if (editorEl instanceof HTMLTextAreaElement || editorEl instanceof HTMLInputElement) {
@@ -720,6 +942,9 @@ export function mountFormulaBar(
         mirroredEditor?.removeEventListener('input', onEditorInput)
         mirroredEditor = null
         suspended = false
+        composing = null
+        composeCell = null
+        table.editPickMode = false
         refresh()
         // 引擎会话结束（提交/取消/滚出视口）：清染色框
         syncRefHighlights()
@@ -748,6 +973,8 @@ export function mountFormulaBar(
         off()
       }
       bindings = []
+      boundContainer?.removeEventListener('keydown', onContainerKeyDown, true)
+      boundContainer = null
       boundTable?.setHighlightRanges([])
       boundTable = null
       mirroredEditor?.removeEventListener('input', onEditorInput)

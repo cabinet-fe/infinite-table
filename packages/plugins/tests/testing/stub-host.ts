@@ -49,6 +49,8 @@ export class StubHost implements RenderHost {
     return { width: 0, height: 0 }
   }
 
+  resize(): void {}
+
   destroy(): void {
     this.destroyed = true
   }
