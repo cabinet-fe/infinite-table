@@ -1,7 +1,7 @@
 // ListTable 内部协作模块共享的常量与纯辅助。
 // 仅供包内 list-table 协作模块（scene/media/interaction）与主类使用，不进入公共入口。
 
-import { rangeCrossesBoundary, type CellRange } from './cell-range'
+import type { CellRange } from './cell-range'
 import { normalizeRange, type SelectionSnapshot } from './selection'
 
 /** 行号列/表头节点用 -1 标记非数据格坐标 */
@@ -13,17 +13,27 @@ export const HEADER_COORD = -1
  */
 export { cellKey } from './cell-range'
 
-/** 「合并不跨冻结边界」校验（构造期语义，运行时冻结/合并变更同样适用）；违规抛错，调用方保持原状 */
-export function assertMergesWithinBoundary(
+/**
+ * 合并区模型越界校验（构造期语义，运行时合并/几何变更同样适用）：
+ * 行列范围越出表格（负坐标或越界）的合并区抛错，调用方保持原状；
+ * 横跨冻结边界线的合并区合法——场景侧按主格冻结带归属钉固、整块绘制在
+ * 滚动内容之上（见 list-table-scene 的跨边界主格重挂）。
+ */
+export function assertMergesWithinTable(
   ranges: readonly CellRange[],
-  frozenColCount: number,
-  frozenRowCount: number,
+  colCount: number,
+  rowCount: number,
 ): void {
   for (const range of ranges) {
-    if (rangeCrossesBoundary(range, frozenColCount, frozenRowCount)) {
+    if (
+      range.startCol < 0 ||
+      range.startRow < 0 ||
+      range.endCol >= colCount ||
+      range.endRow >= rowCount
+    ) {
       throw new Error(
         `merge range [${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}] ` +
-          'crosses the frozen boundary',
+          'is outside the table bounds',
       )
     }
   }

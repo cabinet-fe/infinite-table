@@ -5,8 +5,15 @@ import type { CellRef } from './types'
 export type HoverListener = (hover: CellRef | null) => void
 
 export class HoverState {
+  /** true 时悬停跟踪整体短路：set/clear 均为无操作、不再广播（hover 显式开关的落点） */
+  private readonly disabled: boolean
+
   private current: CellRef | null = null
   private readonly listeners = new Set<HoverListener>()
+
+  constructor(disabled = false) {
+    this.disabled = disabled
+  }
 
   get cell(): CellRef | null {
     return this.current
@@ -19,6 +26,9 @@ export class HoverState {
 
   /** 悬停到指定格；地址未变时不广播 */
   set(col: number, row: number): void {
+    if (this.disabled) {
+      return
+    }
     if (this.current && this.current.col === col && this.current.row === row) {
       return
     }
@@ -27,7 +37,7 @@ export class HoverState {
   }
 
   clear(): void {
-    if (!this.current) {
+    if (this.disabled || !this.current) {
       return
     }
     this.current = null

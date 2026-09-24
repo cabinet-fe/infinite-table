@@ -6,12 +6,15 @@
 import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
 
 import { CellNode } from './cell-node'
+import { rangeCrossesBoundary } from './cell-range'
 import type { CellBorder, CellBorderEdge, CellStyle } from './cell-style'
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
   resolveCellX,
   resolveCellYFromOffsets,
+  spanHeight,
+  spanWidth,
   unionRegions,
   type WindowRange,
 } from './grid-layout'
@@ -175,6 +178,11 @@ export function rebuildScene(table: ListTable): void {
  *    溢出进滚入列（冻结只按「列」带截断溢出，见 textOverflowLimitX）。
  * 3. 表头最上（合并主格上缘可伸进列头带）：表头收进单一容器节点且恒为 root
  *    末子节点（R2-5，见 rebuildScene）；bodyChanged 时仅把容器重挂树尾一次。
+ * 4. 跨冻结边界合并主格钉固在上：主格按其冻结带归属定位（滚动不平移），整块
+ *    尺寸盖住滚动区延伸段；增量补建把新滚入格挂树尾会画在主格之上（滚动格盖住
+ *    合并区延伸段——错切），故 bodyChanged 时把跨边界主格（body 与 media 两层）
+ *    重挂树尾（remountCrossBoundaryMergeMasters），恢复全量重建「冻结带后画于
+ *    滚动带」的次序；合并区互不重叠，重挂集合内部无绘制交叠，相互次序无语义。
  * band 失效语义不变（onScroll 维持原横/纵带提交）。
  */
 export function updateSceneWindow(table: ListTable): void {
@@ -340,11 +348,38 @@ export function updateSceneWindow(table: ListTable): void {
     headerGroup.appendChild(table.cornerNode)
   }
   if (bodyChanged) {
+    // 跨边界合并主格先重挂树尾（滚动补建格之上），表头容器随后重挂保持「表头最上」
+    remountCrossBoundaryMergeMasters(table)
     // appendChild 自带摘除重挂：单节点定位替代原先逐表头搬移
     root.appendChild(headerGroup)
     if (table.frameNode) {
       // 外框重挂树尾：恒在数据格与表头之上
       root.appendChild(table.frameNode)
+    }
+  }
+}
+
+/**
+ * 跨冻结边界合并主格重挂树尾（增量路径专用，见 updateSceneWindow z 序契约 4）：
+ * 跨边界合并区的主格恒落在冻结带（跨界即 startCol/startRow 在冻结侧），按冻结带
+ * 钉固不动、整块延伸段覆盖滑过的滚动带格；全量重建中主格所在冻结带本就后画于
+ * 滚动带，无需处理。body 与 media 两层同序处理（图片主格与滚动带图片格同层）。
+ */
+function remountCrossBoundaryMergeMasters(table: ListTable): void {
+  for (const range of table.mergeCells.ranges) {
+    if (!rangeCrossesBoundary(range, table.frozenColCount, table.frozenRowCount)) {
+      continue
+    }
+    const key = cellKey(range.startCol, range.startRow)
+    const cellNode = table.cellNodes.get(key)
+    if (cellNode) {
+      table.body.root.removeChild(cellNode)
+      table.body.root.appendChild(cellNode)
+    }
+    const imageNode = table.imageCellNodes.get(key)
+    if (imageNode && table.media) {
+      table.media.root.removeChild(imageNode)
+      table.media.root.appendChild(imageNode)
     }
   }
 }
@@ -484,8 +519,10 @@ function appendCell(
       table.frozenRowCount,
       table.headerHeight,
     ),
-    width: (table.colOffsets[endCol + 1] ?? 0) - (table.colOffsets[col] ?? 0),
-    height: (table.rowOffsets[endRow + 1] ?? 0) - (table.rowOffsets[row] ?? 0),
+    // 合并主格取整块跨度（跨冻结边界时主格按冻结带钉固，延伸段盖滚动区，见
+    // remountCrossBoundaryMergeMasters）；普通格跨度即自身格尺寸
+    width: spanWidth(table.colOffsets, col, endCol),
+    height: spanHeight(table.rowOffsets, row, endRow),
     text: imageUrl ? '' : table.pipeline.resolveText(col, row),
     value: table.pipeline.resolveValue(col, row),
     cellType: table.options.columns[col]?.cellType,

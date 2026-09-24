@@ -293,6 +293,16 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
     expect(defaultTheme.frameStyle).toEqual({ lineWidth: 0, color: '#e5e6eb', shadow: false })
   })
 
+  it('hover 显式开关：缺省不关闭且不影响既有 token；disableHover 覆盖生效', () => {
+    expect(defaultTheme.hover).toEqual({ disableHover: false })
+    expect(extendsTheme().hover).toEqual({ disableHover: false })
+    expect(extendsTheme({ hover: { disableHover: true } }).hover).toEqual({ disableHover: true })
+    // 开关覆盖不外溢：其余 token 继承默认主题
+    const disabled = extendsTheme({ hover: { disableHover: true } })
+    expect(disabled.interaction).toEqual(defaultTheme.interaction)
+    expect(disabled.body).toEqual(defaultTheme.body)
+  })
+
   it('冻结分隔线 token 派生：缺省继承默认主题（比网格线深一档），显式覆盖生效', () => {
     const derived = extendsTheme({ interaction: { selectionBorder: '#ff0000' } })
     expect(derived.interaction.freezeDividerColor).toBe('#c9cdd4')

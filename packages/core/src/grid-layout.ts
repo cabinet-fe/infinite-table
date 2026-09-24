@@ -240,6 +240,24 @@ export function resolveCellYFromOffsets(
   return headerHeight + (rowOffsets[row] ?? 0) - (row < frozenRowCount ? 0 : scrollTop)
 }
 
+/**
+ * 合并区整块跨度尺寸（层坐标像素，前缀和差值一次得出）：与冻结列/行计数无关——
+ * 跨冻结边界线的合并区主格按其自身坐标的冻结带归属钉固（resolveCellX/
+ * resolveCellYFromOffsets 的冻结分支），尺寸恒取整块跨度，冻结计数变化只改变
+ * 钉固归属、不错切包围盒。场景建格与交互合并包围盒共用，两处不再各算一遍。
+ */
+export function spanWidth(colOffsets: readonly number[], startCol: number, endCol: number): number {
+  return (colOffsets[endCol + 1] ?? 0) - (colOffsets[startCol] ?? 0)
+}
+
+export function spanHeight(
+  rowOffsets: readonly number[],
+  startRow: number,
+  endRow: number,
+): number {
+  return (rowOffsets[endRow + 1] ?? 0) - (rowOffsets[startRow] ?? 0)
+}
+
 /** 多个矩形的最小包围盒；空数组返回 null（批量更新合并失效用） */
 export function unionRegions(regions: readonly Region[]): Region | null {
   if (regions.length === 0) {

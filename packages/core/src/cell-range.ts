@@ -27,8 +27,9 @@ export function rangeContains(range: CellRange, col: number, row: number): boole
 }
 
 /**
- * 区间是否跨越冻结边界：跨界的合并区在冻结/滚动分层下无法正确布局，
- * ListTable 构造时据此拒绝。
+ * 区间是否跨越冻结边界（纯谓词）：跨冻结边界的合并区合法——场景侧按主格所在
+ * 冻结带钉固、整块绘制在滚动内容之上（list-table-scene 增量重挂）；
+ * 场景与测试用它识别跨边界合并区，不再作为构造期拒绝依据。
  */
 export function rangeCrossesBoundary(
   range: CellRange,

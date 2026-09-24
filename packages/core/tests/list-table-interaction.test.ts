@@ -245,6 +245,40 @@ describe('ListTable 选区', () => {
   })
 })
 
+describe('ListTable hover 显式开关', () => {
+  it('缺省（不配置开关）：指针移动 hover 照常产生，移出数据区清除', () => {
+    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
+    expect(table.hoverState.cell).toEqual({ col: 1, row: 0 })
+    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+
+    // 移到列头（非数据区）：hover 清除并提交一次失效擦掉高亮
+    host.submitted.length = 0
+    fireBody(host, 'pointermove', { x: cellX(1), y: 10 })
+    expect(table.hoverState.cell).toBeNull()
+    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+  })
+
+  it('theme.hover.disableHover 开启：指针移动 hover 完全不产生（不跟踪、不提交浮层失效）', () => {
+    const { host, table } = createTable({
+      records: [{ name: 'a' }],
+      theme: { hover: { disableHover: true } },
+    })
+    // 数据格间移动、原地不动、移出数据区：全程无跟踪、无任何 sky 浮层提交
+    fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: 10 })
+    expect(table.hoverState.cell).toBeNull()
+    expect(host.submitted).toEqual([])
+    // hover 关闭不外溢：选区交互照常
+    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(0) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 0 }, end: { col: 1, row: 0 } },
+    ])
+  })
+})
+
 describe('ListTable 表头拖选连续扩展', () => {
   const dragRecords = Array.from({ length: 20 }, (_, i) => ({ name: `r${i}` }))
   // 列头/行头格视口坐标（带内居中，避开行列缘 ±4px 的 resize 手柄区）

@@ -113,14 +113,16 @@ describe('ListTable 冻结', () => {
     ])
   })
 
-  it('合并区不允许跨冻结边界：构造即抛错', () => {
-    expect(() =>
-      createTable({
-        records: records100(),
-        frozenColCount: 1,
-        mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }],
-      }),
-    ).toThrow(/frozen boundary/)
+  it('合并区跨冻结边界：构造合法（场景按主格冻结带钉固绘制，见 list-table-frozen-merge.test.ts）', () => {
+    const { host, table } = createTable({
+      records: records100(),
+      frozenColCount: 1,
+      mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }],
+    })
+    expect(table.mergeCells.ranges).toHaveLength(1)
+    // 主格钉固冻结列：x=48，整块宽 200；覆盖格不建节点
+    expect(findNode(host, 0, 0)).toMatchObject({ x: 48, width: 200 })
+    expect(findNode(host, 1, 0)).toBeUndefined()
   })
 
   it('冻结数运行时可变：setFrozenColCount/setFrozenRowCount 后冻结区、窗口与下一帧渲染即时反映', () => {
@@ -160,16 +162,19 @@ describe('ListTable 冻结', () => {
     expect(table.getFrozenColCount()).toBe(0)
   })
 
-  it('运行时改冻结数使既有合并区跨边界：抛错并保持原状', () => {
+  it('运行时改冻结数使合并区跨边界：合法，主格按新边界钉固', () => {
     const { host, table } = createTable({
       records: records100(),
       mergeCells: [{ startCol: 1, startRow: 0, endCol: 2, endRow: 0 }],
     })
-    expect(() => table.setFrozenColCount(2)).toThrow(/frozen boundary/)
-    expect(table.getFrozenColCount()).toBe(0)
-    // 原状：合并区仍为 [1,0 ~ 2,0]（主格宽 200，覆盖格无节点）
+    expect(() => table.setFrozenColCount(2)).not.toThrow()
+    expect(table.getFrozenColCount()).toBe(2)
+    // 原状：合并区仍为 [1,0 ~ 2,0]（主格宽 200，覆盖格无节点），主格随冻结列 2 归属冻结带
     expect(findNode(host, 1, 0)).toMatchObject({ x: 148, y: 36, width: 200 })
     expect(findNode(host, 2, 0)).toBeUndefined()
+    // 横向滚动：主格已在冻结带内，钉固不平移
+    table.scrollTo(120, 0)
+    expect(findNode(host, 1, 0)).toMatchObject({ x: 148, width: 200 })
   })
 })
 
@@ -243,7 +248,7 @@ describe('ListTable 合并单元格', () => {
     expect(findNode(host, 3, 2)).toBeDefined()
   })
 
-  it('合并区运行时增删：重叠或跨冻结边界抛错并保持原状，删除按归一化匹配', () => {
+  it('合并区运行时增删：重叠或越界抛错并保持原状，跨冻结边界合法，删除按归一化匹配', () => {
     const { host, table } = createTable({ records: records100(), frozenColCount: 1 })
     table.addMergeCell({ startCol: 2, startRow: 1, endCol: 3, endRow: 2 })
     expect(findNode(host, 2, 1)).toMatchObject({ width: 200, height: 64 })
@@ -255,12 +260,16 @@ describe('ListTable 合并单元格', () => {
     )
     expect(findNode(host, 4, 2)).toBeDefined()
 
-    // 跨冻结边界（冻结列 0 与滚动列 1 之间）：抛错，集合原状
-    expect(() => table.addMergeCell({ startCol: 0, startRow: 5, endCol: 1, endRow: 5 })).toThrow(
-      /frozen boundary/,
+    // 越出表格（endCol 10 ≥ 列数 10）：抛错（越界），集合原状
+    expect(() => table.addMergeCell({ startCol: 8, startRow: 5, endCol: 10, endRow: 5 })).toThrow(
+      /outside the table bounds/,
     )
-    expect(findNode(host, 0, 5)).toMatchObject({ width: 100 })
-    expect(findNode(host, 1, 5)).toBeDefined()
+    expect(table.mergeCells.ranges).toHaveLength(1)
+
+    // 跨冻结边界（冻结列 0 与滚动列 1 之间）：合法，主格钉固冻结列整块绘制
+    table.addMergeCell({ startCol: 0, startRow: 5, endCol: 1, endRow: 5 })
+    expect(findNode(host, 0, 5)).toMatchObject({ x: 48, width: 200 })
+    expect(findNode(host, 1, 5)).toBeUndefined()
 
     // 逆序坐标删除同一区间（归一化匹配），逐格恢复
     table.removeMergeCell({ startCol: 3, startRow: 2, endCol: 2, endRow: 1 })

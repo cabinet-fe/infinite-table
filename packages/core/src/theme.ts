@@ -71,6 +71,12 @@ export interface InteractionTokens {
   freezeDividerWidth: number
 }
 
+/** hover 显式开关：等价 VTable `hover: { disableHover: true }` 的关闭语义（缺省 hover 照常） */
+export interface HoverInteraction {
+  /** true 关闭 hover：悬停跟踪与高亮绘制链路整体短路，悬停不产生任何高亮 */
+  disableHover: boolean
+}
+
 /** 表格外框样式 token */
 export interface FrameStyle {
   /** 外框线宽（CSS 像素）；0 不绘制 */
@@ -97,6 +103,8 @@ export interface TableTheme {
   underlayBackgroundColor: string
   /** 交互浮层 token */
   interaction: InteractionTokens
+  /** hover 显式开关（缺省不关闭） */
+  hover: HoverInteraction
   /** 表格外框 */
   frameStyle: FrameStyle
 }
@@ -115,6 +123,8 @@ export interface ThemeOverride {
   corner?: Partial<CellStyleTokens>
   underlayBackgroundColor?: string
   interaction?: Partial<InteractionTokens>
+  /** hover 显式开关（缺省继承 base） */
+  hover?: Partial<HoverInteraction>
   frameStyle?: Partial<FrameStyle>
 }
 
@@ -163,6 +173,7 @@ export const defaultTheme: TableTheme = {
     freezeDividerColor: '#c9cdd4',
     freezeDividerWidth: 1,
   },
+  hover: { disableHover: false },
   frameStyle: {
     lineWidth: 0,
     color: '#e5e6eb',
@@ -191,6 +202,7 @@ export function extendsTheme(
     corner: { ...header, ...override.corner },
     underlayBackgroundColor: override.underlayBackgroundColor ?? base.underlayBackgroundColor,
     interaction: { ...base.interaction, ...override.interaction },
+    hover: { disableHover: override.hover?.disableHover ?? base.hover.disableHover },
     frameStyle: { ...base.frameStyle, ...override.frameStyle },
   }
 }

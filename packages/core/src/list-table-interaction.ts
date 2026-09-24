@@ -17,7 +17,14 @@ import {
   resolveFillTarget,
   resolveFocusRange,
 } from './fill-handle'
-import { findColAt, findRowAt, resolveCellX, resolveCellYFromOffsets } from './grid-layout'
+import {
+  findColAt,
+  findRowAt,
+  resolveCellX,
+  resolveCellYFromOffsets,
+  spanHeight,
+  spanWidth,
+} from './grid-layout'
 import type { ListTable } from './list-table'
 import { nextActiveCell, revealAxis } from './keyboard-navigation'
 import { applyHeaderHighlight } from './list-table-scene'
@@ -219,6 +226,10 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
       }
       ensureCellVisible(table, cell.col, cell.row)
     }
+    return
+  }
+  // hover 显式开关：开启后不喂跟踪也不清浮层（hoverState 同时短路，绘制链路无输入）
+  if (table.theme.hover.disableHover) {
     return
   }
   if (cell) {
@@ -654,6 +665,8 @@ export function cellRectInViewport(table: ListTable, col: number, row: number): 
 /**
  * 数据格视口矩形（合并感知）：合并区任意格返回整块包围盒（编辑浮层跨满合并区），
  * 普通格同 cellRectInViewport；主格不在可视窗口返回 null。
+ * 跨冻结边界合并区：主格按冻结带钉固，包围盒取整块跨度（与场景建格同一几何，
+ * 见 grid-layout spanWidth/spanHeight），主格可见（冻结侧恒可见）即整块返回。
  */
 export function mergeAwareCellRect(table: ListTable, col: number, row: number): Region | null {
   const range = table.mergeCells.rangeAt(col, row)
@@ -664,15 +677,12 @@ export function mergeAwareCellRect(table: ListTable, col: number, row: number): 
   if (!base) {
     return null
   }
-  let width = 0
-  for (let c = range.startCol; c <= range.endCol; c++) {
-    width += table.getColWidth(c)
+  return {
+    x: base.x,
+    y: base.y,
+    width: spanWidth(table.colOffsets, range.startCol, range.endCol),
+    height: spanHeight(table.rowOffsets, range.startRow, range.endRow),
   }
-  let height = 0
-  for (let r = range.startRow; r <= range.endRow; r++) {
-    height += table.rowHeightAt(r)
-  }
-  return { x: base.x, y: base.y, width, height }
 }
 
 /** 滚动跟随：非冻结轴上让目标格完整进入视口（冻结轴恒可见，跳过） */

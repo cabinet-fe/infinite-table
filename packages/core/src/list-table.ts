@@ -13,14 +13,15 @@
 // DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位；
 // 编辑中滚动浮层逐帧跟随锚定格，锚定格滚出视口按 Enter 语义自动提交。
 // 容器 resize 原地自适应：构造后经 resize() 调整视口尺寸，滚动位置与选区保留、不重建实例。
-// 运行时可变（P8）：冻结列数/行数与合并区开放运行时修改（「合并不跨冻结边界」
-// 构造期校验延伸到运行时），resize 拖拽会话补结束事件，editCellOnEnter 键位开关。
+// 运行时可变（P8）：冻结列数/行数与合并区开放运行时修改（合并区模型越界构造期
+// 校验延伸到运行时；跨冻结边界合并区合法，主格按冻结带钉固绘制），resize 拖拽
+// 会话补结束事件，editCellOnEnter 键位开关。
 //
 // 按职责拆分的协作模块（6.6，纯移动不改行为，均为包内实现细节、不进公共入口）：
 // - list-table-scene.ts：场景全量重建与滚动帧增量窗口、分带建格、行列头装配、溢出右界支撑
 // - list-table-media.ts：media 层与 ImageService 接线（图片格装配/局部刷新/窗口化调度）
 // - list-table-interaction.ts：指针/触摸/键盘/contextmenu 事件接线与 sky 浮层刷新
-// - list-table-internal.ts：共享常量与纯辅助（cellKey/HEADER_COORD/合并边界校验）
+// - list-table-internal.ts：共享常量与纯辅助（cellKey/HEADER_COORD/合并区越界校验）
 // 协作模块以 ListTable 实例为参数，只触碰标注 @internal 的内部成员；
 // @internal 成员不构成公共 API（公共 API 以 src/index.ts 显式导出为准）。
 
@@ -63,7 +64,7 @@ import {
   mergeAwareCellRect,
   refreshOverlay,
 } from './list-table-interaction'
-import { assertMergesWithinBoundary, cellKey, HEADER_COORD } from './list-table-internal'
+import { assertMergesWithinTable, cellKey, HEADER_COORD } from './list-table-internal'
 import { onImageServiceLoad, refreshImageCell, updateImageWindow } from './list-table-media'
 import {
   effectiveBorder,
@@ -192,8 +193,8 @@ export class ListTable {
   rowOffsets: number[]
   /** @internal 选区状态机 */
   readonly selection = new SelectionState()
-  /** @internal 悬停格跟踪 */
-  readonly hoverState = new HoverState()
+  /** @internal 悬停格跟踪（主题 hover 开关关闭时整体短路） */
+  readonly hoverState: HoverState
   /** @internal sky 交互浮层 */
   readonly overlay: InteractionOverlay
   /** @internal 触控滚动采样 */
@@ -297,7 +298,11 @@ export class ListTable {
     this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
     this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
     this.mergeCells = new MergeCellMap(options.mergeCells)
-    assertMergesWithinBoundary(this.mergeCells.ranges, this.frozenColCount, this.frozenRowCount)
+    assertMergesWithinTable(
+      this.mergeCells.ranges,
+      this.options.columns.length,
+      this.pipeline.rowCount,
+    )
     this.host =
       options.host ??
       createRenderHost({ width: this.width, height: this.height, ...options.hostOptions })
@@ -311,6 +316,8 @@ export class ListTable {
       (dx, dy) => this.scroll.scrollBy(dx, dy),
       (task) => this.host.requestFrame(task),
     )
+    // 悬停跟踪受主题 hover 开关控制：disableHover 时 set/clear 全程无操作
+    this.hoverState = new HoverState(this.theme.hover.disableHover)
     this.overlay = new InteractionOverlay(
       this.sky.root,
       {
@@ -781,25 +788,25 @@ export class ListTable {
     return this.frozenRowCount
   }
 
-  /** 运行时修改冻结列数：夹取到 [0, 列数]；会使既有合并区跨冻结边界时抛错并保持原状 */
+  /** 运行时修改冻结列数：夹取到 [0, 列数]；跨冻结边界的既有合并区按新边界重钉主格（合法） */
   setFrozenColCount(count: number): void {
     this.applyFrozenCounts(count, this.frozenRowCount)
   }
 
-  /** 运行时修改冻结行数：夹取到 [0, 行数]；会使既有合并区跨冻结边界时抛错并保持原状 */
+  /** 运行时修改冻结行数：夹取到 [0, 行数]；跨冻结边界的既有合并区按新边界重钉主格（合法） */
   setFrozenRowCount(count: number): void {
     this.applyFrozenCounts(this.frozenColCount, count)
   }
 
   /**
-   * 运行时整体替换合并区：重叠/跨冻结边界等校验全部通过才生效（否则抛错保持原状），
-   * 生效即全量重建，合并渲染与命中即时反映新集合。
+   * 运行时整体替换合并区：重叠/模型越界等校验全部通过才生效（否则抛错保持原状），
+   * 生效即全量重建，合并渲染与命中即时反映新集合；跨冻结边界的合并区合法。
    */
   setMergeCells(ranges: readonly CellRange[]): void {
     this.replaceMergeCells(new MergeCellMap(ranges))
   }
 
-  /** 运行时新增一个合并区：与既有区间重叠或跨冻结边界时抛错并保持原状 */
+  /** 运行时新增一个合并区：与既有区间重叠或越出表格时抛错并保持原状；跨冻结边界合法 */
   addMergeCell(range: CellRange): void {
     this.replaceMergeCells(new MergeCellMap([...this.mergeCells.ranges, range]))
   }
@@ -820,22 +827,24 @@ export class ListTable {
     this.replaceMergeCells(new MergeCellMap(next))
   }
 
-  /** 冻结数运行时变更：先校验既有合并区（失败抛错原状不变），落地后走几何变更全量重建 */
+  /**
+   * 冻结数运行时变更：跨冻结边界的既有合并区合法（主格按新边界重钉、场景全量
+   * 重建），合并区模型不因冻结数变化而越界，无需合并校验，直接走几何变更重建。
+   */
   private applyFrozenCounts(frozenColCount: number, frozenRowCount: number): void {
     const nextCols = clampFrozenCount(frozenColCount, this.options.columns.length)
     const nextRows = clampFrozenCount(frozenRowCount, this.pipeline.rowCount)
     if (nextCols === this.frozenColCount && nextRows === this.frozenRowCount) {
       return
     }
-    assertMergesWithinBoundary(this.mergeCells.ranges, nextCols, nextRows)
     this.frozenColCount = nextCols
     this.frozenRowCount = nextRows
     this.applyGeometryChange()
   }
 
-  /** 合并区集合运行时替换：先校验（失败抛错原状不变），落地后走几何变更全量重建 */
+  /** 合并区集合运行时替换：先做模型越界校验（失败抛错原状不变），落地后走几何变更全量重建 */
   private replaceMergeCells(next: MergeCellMap): void {
-    assertMergesWithinBoundary(next.ranges, this.frozenColCount, this.frozenRowCount)
+    assertMergesWithinTable(next.ranges, this.options.columns.length, this.pipeline.rowCount)
     this.mergeCells = next
     this.applyGeometryChange()
   }

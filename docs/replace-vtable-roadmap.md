@@ -39,7 +39,7 @@
 | `editor: EDITOR_NAME` + `editCellTrigger: 'doubleclick'` | `EditorRegistry.registerEditor` + 双击内置 + `excelKeymapPreset`（editCellOnEnter） | 双击触发内置；Enter 键位用预设展开 options |
 | `frozenRowCount/frozenColCount`（**计数含表头**） | 构造 options + `setFrozenRowCount/setFrozenColCount` | **±1 换算**：ultra-ui 传「数据冻结数+1」，infinite-table 只收数据冻结数 |
 | `keyboardOptions` | `editCellOnEnter`、`ctrlMultiSelect` | 组合语义用 `excelKeymapPreset`；Ctrl+A 全选内置（角落点击）；编辑态方向键语义锁定：编辑会话中方向键不提交（`onEditEnd` 不触发）不移格（活动格不变），光标移动留在编辑器内——已由 `packages/core/tests/editing/editing-semantics.test.ts` 回归单测锁定 |
-| `customMergeCell(col,row,table)` | 构造 `mergeCells` + `setMergeCells/addMergeCell/removeMergeCell` | 动态回调改为显式集合替换（Store 为源，见 demo 冻结/合并面板）；合并不跨冻结边界校验内置（越界抛错保持原状） |
+| `customMergeCell(col,row,table)` | 构造 `mergeCells` + `setMergeCells/addMergeCell/removeMergeCell` | 动态回调改为显式集合替换（Store 为源，见 demo 冻结/合并面板）；合并区模型越界校验内置（抛错保持原状），跨冻结边界合并区合法（主格按冻结带钉固，见 `list-table-frozen-merge.test.ts`） |
 | `hover: {disableHover:true}` | 主题 `interaction.hoverCell/hoverBand` 置全透明 | 等价关闭 |
 | `eventOptions: {preventDefaultContextMenu:true}` | 无需配置 | 引擎无默认菜单，`onContextMenu` 纯事件 |
 

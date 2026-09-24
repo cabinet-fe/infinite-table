@@ -116,7 +116,12 @@ export { ImageCellNode } from './media/image-cell-node'
 export type { ImageCellNodeInit } from './media/image-cell-node'
 export type { ImageFit } from './media/draw-image'
 export { FloatObjectLayer } from './float/float-object-layer'
-export type { FloatGeometry, FloatObject, FloatObjectChange } from './float/float-object-layer'
+export type {
+  FloatDragEndEvent,
+  FloatGeometry,
+  FloatObject,
+  FloatObjectChange,
+} from './float/float-object-layer'
 export type {
   CellChangeEvent,
   CellRef,
