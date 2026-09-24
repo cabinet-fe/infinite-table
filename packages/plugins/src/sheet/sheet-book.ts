@@ -33,6 +33,17 @@ export type HostFactory = (def: SheetDef) => {
   hostOptions?: ListTableOptions['hostOptions']
 }
 
+/** 列标题 A..Z、AA..（Excel 口径；与 formulas colLetters 同式，本包不引 formulas 依赖） */
+function colTitle(col: number): string {
+  let title = ''
+  let rest = col
+  do {
+    title = String.fromCharCode(65 + (rest % 26)) + title
+    rest = Math.floor(rest / 26) - 1
+  } while (rest >= 0)
+  return title
+}
+
 export interface SheetBookOptions {
   /** 实例构造器（必注入：host 无法在插件层缺省创建） */
   createHost: HostFactory
@@ -107,9 +118,17 @@ export class SheetBook {
       table = new ListTable({
         width: 800,
         height: 600,
-        columns: [{ field: 'name', title: 'A' }],
         ...this.options.tableOptions,
         ...def.options,
+        // 列平面缺省按 Store 列数生成（引擎表格列数 = columns.length，Store 的
+        // 合并/选区按全列平面才合法）；宿主在 tableOptions/def.options 给出列定义时不覆盖
+        columns:
+          def.options?.columns ??
+          this.options.tableOptions?.columns ??
+          Array.from({ length: def.store.getColCount() }, (_, col) => ({
+            field: String(col),
+            title: colTitle(col),
+          })),
         model: def.store.asModel(),
         frozenColCount: frozen.colCount,
         frozenRowCount: frozen.rowCount,

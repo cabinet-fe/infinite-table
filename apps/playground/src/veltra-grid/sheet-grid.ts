@@ -395,26 +395,14 @@ export class SheetGrid {
     return veltraStyleToEngine(merged)
   }
 
-  /** 模型合并区 → 引擎 mergeCells（跨冻结边界的丢弃并告警：引擎约定禁止） */
+  /** 模型合并区 → 引擎 mergeCells（全量传入：引擎支持跨冻结边界合并区） */
   private mapMerges(): EngineCellRange[] {
-    const frozen = this.sheet.frozen
-    const out: EngineCellRange[] = []
-    for (const merge of this.sheet.merges.getMerges()) {
-      const crosses =
-        (merge.start.col < frozen.cols && merge.end.col >= frozen.cols) ||
-        (merge.start.row < frozen.rows && merge.end.row >= frozen.rows)
-      if (crosses) {
-        console.warn('[veltra-grid] 合并区跨冻结边界，引擎不支持，已跳过', merge)
-        continue
-      }
-      out.push({
-        startCol: merge.start.col,
-        startRow: merge.start.row,
-        endCol: merge.end.col,
-        endRow: merge.end.row,
-      })
-    }
-    return out
+    return this.sheet.merges.getMerges().map((merge) => ({
+      startCol: merge.start.col,
+      startRow: merge.start.row,
+      endCol: merge.end.col,
+      endRow: merge.end.row,
+    }))
   }
 
   // ---- 引擎事件 → 模型 / 回调 ----
@@ -616,7 +604,7 @@ export class SheetGrid {
     const frozen = this.sheet.frozen
     table.setFrozenColCount(frozen.cols)
     table.setFrozenRowCount(frozen.rows)
-    // 冻结变化后既有合并区可能跨界，重放过滤
+    // 冻结变化后重放合并区：跨边界合并区由引擎按新冻结分块重算钉固归属
     this.applyMerges()
   }
 

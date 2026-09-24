@@ -672,6 +672,167 @@ try {
       通过: ok,
     })
   }
+
+  // ---- 19. 跨冻结合并区：冻结行列 + 横跨冻结边界线的合并区
+  // （合并生效、选中/编辑命中主格、绘制无重复无缺失——引擎放开跨冻结边界合并区后适配层全量透传） ----
+  {
+    const fixture = await evalPage(async () => {
+      const pg = window.__PG__
+      const { SheetGrid } = await import('/src/veltra-grid/sheet-grid.ts')
+      const sheet = pg.workbook.addSheet('SpecFrozenMerge')
+      sheet.setFrozen(1, 1) // 冻结 1 行 1 列：边界线在列 1 / 行 1 之间
+      const range = { start: { row: 0, col: 0 }, end: { row: 1, col: 2 } } // 横跨两条冻结边界线
+      sheet.mergeCells(range)
+      sheet.setCellValue({ row: 0, col: 0 }, '跨冻结合并')
+      sheet.setCellStyle(range, { fill: { color: '#2563eb' } })
+      const host = document.createElement('div')
+      host.id = 'pg-frozen-merge-fixture'
+      host.style.cssText =
+        'position:fixed;right:12px;bottom:12px;width:520px;height:300px;z-index:9999;background:#fff;box-shadow:0 0 0 1px #ddd'
+      document.body.appendChild(host)
+      const grid = new SheetGrid({ container: host, sheet, rows: 14, cols: 6 })
+      const t = grid.getTable()
+      // 调试面暂存实例，供后续断言与清理
+      window.__PG_FM__ = { grid, sheet }
+      const master = t.getCellRelativeRect(0, 0) // 主格钉固冻结角（整块包围盒的左上原点）
+      const blockW = t.getColWidth(0) + t.getColWidth(1) + t.getColWidth(2)
+      const blockH = t.getRowHeight(0) + t.getRowHeight(1)
+      return {
+        mergeCount: t.mergeCells.ranges.length,
+        mergeRange: JSON.stringify(t.mergeCells.ranges[0] ?? null),
+        coveredText: t.getCellText(2, 1), // 覆盖格（双侧越界）取值路由主格
+        masterX: master ? master.x : null,
+        masterY: master ? master.y : null,
+        blockW,
+        blockH,
+      }
+    })
+    const mergeOk =
+      fixture.mergeCount === 1 &&
+      fixture.mergeRange === JSON.stringify({ startCol: 0, startRow: 0, endCol: 2, endRow: 1 }) &&
+      fixture.coveredText === '跨冻结合并' &&
+      fixture.masterX === 46 && // 行号列 46 之后、冻结列（80px）起点即主格原点
+      fixture.masterY === 28 && // 列头 28 之后
+      fixture.blockW === 240 && // 整块跨度 3 列（不错切到冻结侧 1 列）
+      fixture.blockH === 56 // 整块跨度 2 行
+    // 点选覆盖格（列 2 越过冻结列边界）→ 模型选区扩到合并区整块包围盒
+    const cover = await evalPage(() => {
+      const t = window.__PG_FM__.grid.getTable()
+      const rect = document.querySelector('#pg-frozen-merge-fixture').getBoundingClientRect()
+      return {
+        x: rect.x + t.getCellRelativeRect(0, 0).x + t.getColWidth(0) + t.getColWidth(1) + 40,
+        y: rect.y + t.getCellRelativeRect(0, 0).y + 14, // 行 0 内、列 2 中心
+      }
+    })
+    await page.mouse.click(cover.x, cover.y)
+    await page.waitForTimeout(300)
+    const selRange = await evalPage(() =>
+      JSON.stringify(window.__PG_FM__.sheet.getSelection().ranges[0] ?? null),
+    )
+    const selOk =
+      selRange === JSON.stringify({ start: { row: 0, col: 0 }, end: { row: 1, col: 2 } })
+    // 清选区（选区叠加层不污染像素采样），画布像素断言：填充四象限无缺失、文本只画一次
+    await evalPage(() => window.__PG_FM__.sheet.selectCell({ row: 12, col: 5 }))
+    await page.waitForTimeout(300)
+    const pixels = await evalPage(() => {
+      const t = window.__PG_FM__.grid.getTable()
+      const dpr = window.devicePixelRatio || 1
+      const canvases = [...document.querySelectorAll('#pg-frozen-merge-fixture canvas')]
+      const master = t.getCellRelativeRect(0, 0)
+      const x0 = Math.round(master.x * dpr)
+      const y0 = Math.round(master.y * dpr)
+      const pw = Math.round((t.getColWidth(0) + t.getColWidth(1) + t.getColWidth(2)) * dpr)
+      const ph = Math.round((t.getRowHeight(0) + t.getRowHeight(1)) * dpr)
+      // 合成多图层：任一图层命中即算（返回蓝填充判定用 RGB）
+      const at = (px, py) => {
+        for (const cv of canvases) {
+          const d = cv.getContext('2d').getImageData(px, py, 1, 1).data
+          if (d[3] > 0 && !(d[0] > 240 && d[1] > 240 && d[2] > 240)) return [d[0], d[1], d[2]]
+        }
+        return [255, 255, 255]
+      }
+      const isBlue = ([r, g, b]) =>
+        Math.abs(r - 37) < 40 && Math.abs(g - 99) < 40 && Math.abs(b - 235) < 40
+      // 四象限中心 + 远角内侧（2px 内缩）：跨冻结边界两侧都画出（无缺失、不错切）
+      const probes = [
+        [x0 + Math.round(40 * dpr), y0 + Math.round(14 * dpr)],
+        [x0 + Math.round(200 * dpr), y0 + Math.round(14 * dpr)],
+        [x0 + Math.round(40 * dpr), y0 + Math.round(42 * dpr)],
+        [x0 + Math.round(200 * dpr), y0 + Math.round(42 * dpr)],
+        [x0 + pw - Math.round(4 * dpr), y0 + ph - Math.round(4 * dpr)],
+      ].map(([px, py]) => isBlue(at(px, py)))
+      // 文本只画一次：整块逐列找深色文本像素（蓝底 b 高、文本近黑 b 低），列簇数 = 1
+      const darkCol = Array.from({ length: pw }, () => false)
+      for (let yy = 2; yy < ph - 2; yy++) {
+        for (let xx = 2; xx < pw - 2; xx++) {
+          if (!darkCol[xx]) {
+            const [r, g, b] = at(x0 + xx, y0 + yy)
+            if (b < 140 && r < 120 && g < 120) darkCol[xx] = true
+          }
+        }
+      }
+      const gapTolerance = Math.round(20 * dpr)
+      let clusters = 0
+      let lastHit = -Infinity
+      for (let xx = 0; xx < pw; xx++) {
+        if (darkCol[xx]) {
+          if (xx - lastHit > gapTolerance) clusters++
+          lastHit = xx
+        }
+      }
+      return { probes, textClusters: clusters }
+    })
+    // 双击覆盖格编辑 → 命中主格：编辑初值为锚点值，提交写回锚点、覆盖格同步
+    await page.mouse.dblclick(cover.x, cover.y)
+    await page.waitForTimeout(200)
+    const editor = page.locator('#pg-frozen-merge-fixture input')
+    const editInitial = await editor.inputValue()
+    await editor.fill('改值')
+    await editor.press('Enter')
+    await page.waitForTimeout(300)
+    const editResult = await evalPage(() => {
+      const sheet = window.__PG_FM__.sheet
+      const t = window.__PG_FM__.grid.getTable()
+      return {
+        anchorV: sheet.getCellData({ row: 0, col: 0 })?.v,
+        coveredText: t.getCellText(2, 1),
+        editorClosed: !document.querySelector('#pg-frozen-merge-fixture input'),
+      }
+    })
+    const ok =
+      mergeOk &&
+      selOk &&
+      pixels.probes.every(Boolean) &&
+      pixels.textClusters === 1 &&
+      editInitial === '跨冻结合并' &&
+      editResult.anchorV === '改值' &&
+      editResult.coveredText === '改值' &&
+      editResult.editorClosed
+    step('跨冻结合并区（合并生效；点选/编辑命中主格；绘制无重复无缺失）', {
+      merge: {
+        count: fixture.mergeCount,
+        range: fixture.mergeRange,
+        covered: fixture.coveredText,
+        masterX: fixture.masterX,
+        masterY: fixture.masterY,
+        blockW: fixture.blockW,
+        blockH: fixture.blockH,
+      },
+      selRange,
+      fillsAllPainted: pixels.probes.every(Boolean),
+      textClusters: pixels.textClusters,
+      editInitial,
+      edit: editResult,
+      通过: ok,
+    })
+    // 清理：释放演练格、移除挂载节点与临时 sheet（还原页面终态）
+    await evalPage(() => {
+      window.__PG_FM__.grid.release()
+      document.getElementById('pg-frozen-merge-fixture')?.remove()
+      window.__PG__.workbook.removeSheet('SpecFrozenMerge')
+      delete window.__PG_FM__
+    })
+  }
 } catch (err) {
   step('!!异常中断', { error: String(err) })
 }
