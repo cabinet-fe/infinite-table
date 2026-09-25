@@ -50,3 +50,19 @@ export { borderPresetLine, buildBorderPresetCells } from './sheet/border-presets
 export type { BorderLineStyle, BorderPreset, BorderPresetCell } from './sheet/border-presets'
 export { decodeDataUrlImage, numFmtToXlsxCode, sheetToWriteSheet } from './sheet/xlsx-export'
 export type { SheetExportSource, SheetImagePayload, SheetNumFmt } from './sheet/xlsx-export'
+
+// ---- chart 插件（单元格图表：声明解析 + Chart.js 按需加载，出图通路见 spec chart-support） ----
+export { createChartPlugin, CHART_PLUGIN_NAME } from './chart/chart-plugin'
+export type { ChartPluginHandle, ChartPluginOptions } from './chart/chart-plugin'
+export { loadChartJs } from './chart/chart-loader'
+export type { ChartJsModule } from './chart/chart-loader'
+export { parseChartDeclaration } from './chart/parse'
+export type {
+  ChartCellDeclaration,
+  ChartDatasetDeclaration,
+  ChartDatasetSpec,
+  ChartParseResult,
+  ChartSpec,
+  ChartSpecType,
+  ChartType,
+} from './chart/types'
