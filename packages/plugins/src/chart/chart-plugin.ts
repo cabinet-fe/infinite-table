@@ -32,31 +32,36 @@ export interface ChartPluginHandle extends TablePlugin {
 export const CHART_PLUGIN_NAME = 'chart'
 
 export function createChartPlugin(options: ChartPluginOptions = {}): ChartPluginHandle {
-  // 声明对象身份级 memo：格声明通常来自稳定数据对象，场景重建/走廊扫描的重复解析降为 O(1)
-  const mediaMemo = new WeakMap<object, CellChartMedia | null>()
+  // 声明身份 + 内容 key 双重校验 memo：场景重建/走廊扫描对图表格反复解析，声明内容未变
+  // 时复用同一 media（O(1) 复用产物对象）。声明常被宿主就地改数据（记录式数据源，对象
+  // 身份不变），故每次 resolve 重算内容 key 比对：key 变了即换新 media——produce 闭包
+  // 捕获旧 spec，必须整体重建，refreshCell 才能凭新 key 定向失效该格缓存并重出图。
+  const mediaMemo = new WeakMap<object, CellChartMedia>()
 
   const resolveChartMedia = (col: number, row: number): CellChartMedia | null => {
     const declaration = options.resolveCellChart?.(col, row)
     if (!declaration) {
       return null
     }
-    if (mediaMemo.has(declaration)) {
-      return mediaMemo.get(declaration) ?? null
-    }
     const result = parseChartDeclaration(declaration)
-    let media: CellChartMedia | null = null
-    if (result.ok) {
-      const spec = result.spec
-      media = {
-        key: chartContentKey(spec),
-        produce: async (size) =>
-          renderChartBitmap({
-            spec,
-            ...size,
-            module: await options.chartJsModule,
-            createCanvas: options.createCanvas,
-          }),
-      }
+    if (!result.ok) {
+      return null
+    }
+    const key = chartContentKey(result.spec)
+    const memoized = mediaMemo.get(declaration)
+    if (memoized && memoized.key === key) {
+      return memoized
+    }
+    const spec = result.spec
+    const media: CellChartMedia = {
+      key,
+      produce: async (size) =>
+        renderChartBitmap({
+          spec,
+          ...size,
+          module: await options.chartJsModule,
+          createCanvas: options.createCanvas,
+        }),
     }
     mediaMemo.set(declaration, media)
     return media
