@@ -142,6 +142,45 @@ describe('文本编辑器', () => {
     expect(actions).toEqual(['commitDown'])
   })
 
+  it('onBlur 订阅失焦动作：元素 blur 触发，重复订阅替换前一处理器', () => {
+    const { doc, created } = createFakeDoc()
+    const editor = createTextEditor({ doc })
+    const calls: string[] = []
+    const host = new FakeEditorHost()
+    editor.open(host, { x: 0, y: 0, width: 10, height: 10 }, 'a')
+    const element = created[0]!
+
+    editor.onBlur(() => calls.push('first'))
+    element.dispatchBlur()
+    expect(calls).toEqual(['first'])
+
+    // 与 onKey 同口径：重复订阅替换，前一处理器不再触发
+    editor.onBlur(() => calls.push('second'))
+    element.dispatchBlur()
+    expect(calls).toEqual(['first', 'second'])
+  })
+
+  it('close 后失焦不再触发；重开后接线恢复', () => {
+    const { doc, created } = createFakeDoc()
+    const editor = createTextEditor({ doc })
+    let calls = 0
+    editor.onBlur(() => calls++)
+    const host = new FakeEditorHost()
+    const element = created[0]!
+
+    editor.open(host, { x: 0, y: 0, width: 10, height: 10 }, 'a')
+    element.dispatchBlur()
+    expect(calls).toBe(1)
+
+    editor.close()
+    element.dispatchBlur()
+    expect(calls).toBe(1)
+
+    editor.open(host, { x: 0, y: 0, width: 10, height: 10 }, 'b')
+    element.dispatchBlur()
+    expect(calls).toBe(2)
+  })
+
   it('无 DOM 环境且未注入 doc 时抛错提示', () => {
     const globalDoc = globalThis.document
     // @ts-expect-error 测试模拟无 DOM 环境

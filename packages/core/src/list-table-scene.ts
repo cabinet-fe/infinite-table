@@ -563,12 +563,7 @@ function isEmptyTextCell(table: ListTable, col: number, row: number): boolean {
 
 /**
  * 文本溢出允许的层坐标走廊区间；null 表示该格不溢出（裁剪在本格内）。
- * Excel 规则（P4 研究笔记 §1/§7 终判口径）：溢出方向按对齐——left（缺省）向右溢、
- * right 向左溢、center 向两侧溢（阻断判定按 Univer 语义：left 只看右壁、right 只看
- * 左壁、center 两壁皆阻断才算阻断，单侧空即向空侧溢）；走廊遇首个非空格停（含合并、
- * 图片、自定义渲染、checkbox 格，空白串按非空阻断）；换行、ellipsis/clip、合并、
- * 图片、自定义渲染格自身不溢出；不越冻结列带边界（对齐 Excel 冻结窗格），滚动带
- * 止于最后一列。
+ * 走廊扫描与阻断判定见 corridorCols（同一实现），此处只做列号 → 层坐标换算。
  */
 export interface TextOverflowLimits {
   /** 走廊左界（层坐标）：无左溢时即本格左缘 */
@@ -584,6 +579,40 @@ export function textOverflowLimits(
   style: CellStyle,
   left: number,
 ): TextOverflowLimits | null {
+  const corridor = corridorCols(table, col, row, style)
+  if (corridor === null) {
+    return null
+  }
+  const inFrozenBand = col < table.frozenColCount
+  // 列左缘的层坐标（冻结带内不随滚动位移）
+  const colLeft = (c: number): number =>
+    table.rowHeaderWidth + (table.colOffsets[c] ?? 0) - (inFrozenBand ? 0 : left)
+  return { minX: colLeft(corridor.leftStart), maxX: colLeft(corridor.rightEnd) }
+}
+
+/** 溢出走廊的列号区间：[leftStart, rightEnd) 含源格与被覆盖空格 */
+export interface CorridorCols {
+  /** 走廊左端列号（含）：无左溢时即源格列号 */
+  leftStart: number
+  /** 走廊右端列号（不含）：无右溢时即源格列号 + 1 */
+  rightEnd: number
+}
+
+/**
+ * 文本溢出走廊的列号扫描（textOverflowLimits 的扫描主体，走廊内部标记共用同一实现）；
+ * null 表示该格不溢出（裁剪在本格内）。Excel 规则（P4 研究笔记 §1/§7 终判口径）：
+ * 溢出方向按对齐——left（缺省）向右溢、right 向左溢、center 向两侧溢（阻断判定按
+ * Univer 语义：left 只看右壁、right 只看左壁、center 两壁皆阻断才算阻断，单侧空即
+ * 向空侧溢）；走廊遇首个非空格停（含合并、图片、自定义渲染、checkbox 格，空白串按
+ * 非空阻断）；换行、ellipsis/clip、合并、图片、自定义渲染格自身不溢出；不越冻结列带
+ * 边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
+ */
+export function corridorCols(
+  table: ListTable,
+  col: number,
+  row: number,
+  style: CellStyle,
+): CorridorCols | null {
   if (
     style.textOverflow !== undefined ||
     style.textWrap === true ||
@@ -598,9 +627,6 @@ export function textOverflowLimits(
   const inFrozenBand = col < table.frozenColCount
   const bandStart = inFrozenBand ? 0 : table.frozenColCount
   const bandEnd = inFrozenBand ? table.frozenColCount : table.options.columns.length
-  // 列左缘的层坐标（冻结带内不随滚动位移）
-  const colLeft = (c: number): number =>
-    table.rowHeaderWidth + (table.colOffsets[c] ?? 0) - (inFrozenBand ? 0 : left)
   const align = style.textAlign ?? 'left'
   // 右走廊：left/center 向右扫到首个非空格或带边界；right 不向右溢
   let rightEnd = col + 1
@@ -625,7 +651,7 @@ export function textOverflowLimits(
   if (align === 'center' && rightEnd === col + 1 && leftStart === col) {
     return null
   }
-  return { minX: colLeft(leftStart), maxX: colLeft(rightEnd) }
+  return { leftStart, rightEnd }
 }
 
 /**
@@ -656,12 +682,67 @@ export function overflowSourceColRight(table: ListTable, col: number, row: numbe
   return null
 }
 
+/** 数据列带（冻结列带 + 滚动列带）：行内走廊内部标记的扫描范围 */
+export function dataColBands(table: ListTable): WindowRange[] {
+  return [
+    { start: 0, end: table.frozenColCount },
+    table.cols,
+  ]
+}
+
+/**
+ * 行内溢出走廊内部标记（WPS 口径竖线跳画的场景侧判定，P3）：先清后标——标记只反映
+ * 当前扫描结果，全量重建/滚动增量/refreshCell 三路径调同一实现即天然一致。扫描行内
+ * 窗口各格的溢出走廊（corridorCols，与 textOverflowLimits 同一扫描与阻断口径），把
+ * 溢出源格与被覆盖空格标为走廊内部（CellNode.corridorInterior）；标记值取覆盖本格
+ * 各走廊的最大右端列号——两源对溢共享空段时同格被多走廊覆盖，取最大者让更远走廊
+ * 主导共享段竖边跳画判定（右端更远的走廊必然也覆盖右侧邻居格）。只扫窗口内格：
+ * 窗外源格无节点不渲染文本，其走廊段照常画线（与全量重建一致）。
+ */
+export function markRowCorridorInterior(
+  table: ListTable,
+  row: number,
+  colBands: readonly WindowRange[],
+): void {
+  for (const band of colBands) {
+    for (let col = band.start; col < band.end; col++) {
+      const node = table.cellNodes.get(cellKey(col, row))
+      if (node) {
+        node.corridorInterior = null
+      }
+    }
+  }
+  for (const band of colBands) {
+    for (let col = band.start; col < band.end; col++) {
+      const node = table.cellNodes.get(cellKey(col, row))
+      if (!node) {
+        continue
+      }
+      const corridor = corridorCols(table, col, row, node.style)
+      if (corridor === null) {
+        continue
+      }
+      for (let c = corridor.leftStart; c < corridor.rightEnd; c++) {
+        const covered = table.cellNodes.get(cellKey(c, row))
+        if (
+          covered &&
+          (covered.corridorInterior === null || covered.corridorInterior < corridor.rightEnd)
+        ) {
+          covered.corridorInterior = corridor.rightEnd
+        }
+      }
+    }
+  }
+}
+
 /**
  * 全量重建的溢出 z 序不变量收口：溢出源节点重挂树尾，行内按列升序（与增量路径
  * canonicalizeRowOverflowOrder 同序）。列降序建格只保证右溢源（走廊左端）后画；
  * 左溢/双向源在走廊右端，会被走廊格反盖出「被覆盖单元格的表格线画在溢出文本之上」
  * 类伪影。重挂集合两两无绘制交叠（走廊只含空格、文本缘止于阻断格边界），唯两源
  * 对溢共享空段时叠画（确定性次序：右溢源先、左溢源后）。
+ * 重挂后逐行重标走廊内部标记（P3 竖线跳画）：全量重建的标记收口点，与增量路径
+ * （canonicalizeRowOverflowOrder）和 refreshCell 路径同口径。
  */
 function remountOverflowSources(table: ListTable): void {
   const sources = [...table.cellNodes.values()].filter(
@@ -672,11 +753,19 @@ function remountOverflowSources(table: ListTable): void {
     table.body.root.removeChild(node)
     table.body.root.appendChild(node)
   }
+  const colBands = dataColBands(table)
+  for (const rowBand of [{ start: 0, end: table.frozenRowCount }, table.rows]) {
+    for (let row = rowBand.start; row < rowBand.end; row++) {
+      markRowCorridorInterior(table, row, colBands)
+    }
+  }
 }
 
 /**
  * 增量路径的行内溢出 z 序规范（全量重建 remountOverflowSources 的行内同序）：
- * 把该行窗口内的全部溢出源按列升序重挂树尾，后画于本帧新建格与全部走廊节点。
+ * 把该行窗口内的全部溢出源按列升序重挂树尾，后画于本帧新建格与全部走廊节点；
+ * 随后整行重标走廊内部标记（P3）：新建格（滚动补建的走廊格/溢出源格）的标记与
+ * 全量重建同口径，被走廊覆盖状态随本行当前扫描结果先清后标。
  * 返回是否有重挂发生。
  */
 function canonicalizeRowOverflowOrder(
@@ -695,6 +784,7 @@ function canonicalizeRowOverflowOrder(
       }
     }
   }
+  markRowCorridorInterior(table, row, colBands)
   return moved
 }
 

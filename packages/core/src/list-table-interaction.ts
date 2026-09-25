@@ -207,7 +207,9 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     return
   }
   if (table.fillDrag) {
-    // 填充拖拽：轴锁定跟踪终点 + 边缘自动滚动 + 预览刷新（不更新选区，无写值）
+    // 填充拖拽：轴锁定跟踪终点 + 边缘自动滚动 + 预览刷新（不更新选区，无写值）；
+    // 会话全程保持十字光标（pointermove 抖动不闪回缺省，边缘驻留帧不经 move 也不改光标）
+    table.setContainerCursor('crosshair')
     const drag = table.fillDrag
     drag.pointer = { x: event.x, y: event.y }
     drag.edge = fillEdgeVelocity(table, event.x, event.y)
@@ -241,6 +243,10 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     }
     return
   }
+  // 填充柄十字光标（Excel 式）：走到此处即无任何会话（浮动图拖拽/resize/填充/表头拖选/
+  // 拖选均已提前返回）——指针悬停焦点段右下角柄命中区置 crosshair，未命中恢复缺省；
+  // 先于 hover 开关短路（光标管理与悬停绘制互相独立）
+  table.setContainerCursor(fillHandleHit(table, event.x, event.y) ? 'crosshair' : 'auto')
   // hover 显式开关：开启后不喂跟踪也不清浮层（hoverState 同时短路，绘制链路无输入）
   if (table.theme.hover.disableHover) {
     return

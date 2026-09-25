@@ -57,6 +57,12 @@ export interface EditManagerInit {
   moveSelection: (col: number, row: number, move: EditCommitMove) => void
   /** 会话结束（提交/取消）后焦点交还表格 */
   restoreFocus: () => void
+  /**
+   * 编辑器失焦策略（焦点移出画布点击公式栏/工具栏等 DOM 时；缺省 commit）：
+   * commit 按提交语义终止会话但不抢回焦点（宿主 DOM 继续持有），ignore 保持会话
+   * （公式引用拾取等宿主自行管理互锁的形态）。EditManager 不感知具体宿主形态。
+   */
+  resolveEditorBlur?: () => 'commit' | 'ignore'
   /** 编辑器挂载宿主（表格容器）；缺省离屏（不落 DOM，仅保留会话状态） */
   host?: TextEditorHost
   /** 元素创建源；缺省取 globalThis.document（无 DOM 环境必须注入） */
@@ -137,6 +143,7 @@ export class EditManager {
       doc: this.init.doc,
     })
     editor.onKey((action) => this.onEditorKey(action))
+    editor.onBlur(() => this.onEditorBlur())
     editor.open(this.host, rect, oldValue == null ? '' : String(oldValue))
     this.session = { col, row, oldValue, editor }
     this.init.emitStart?.({ col, row, initialValue: oldValue })
@@ -153,6 +160,24 @@ export class EditManager {
       return false
     }
     this.session = null
+    this.writeAndNotifyCommit(session, move)
+    this.init.restoreFocus()
+    return true
+  }
+
+  /** 失焦终止：会话存在时按策略处理——commit 走提交语义（不抢回焦点），ignore 空操作；无会话幂等无操作 */
+  private onEditorBlur(): void {
+    const session = this.session
+    if (!session || (this.init.resolveEditorBlur?.() ?? 'commit') !== 'commit') {
+      return
+    }
+    this.session = null
+    // 焦点已移出画布（宿主 DOM 持有），不调 restoreFocus 抢回
+    this.writeAndNotifyCommit(session)
+  }
+
+  /** 提交核心：写回/局部刷新/抛变更与会话结束事件（序不变）；move 给定时随后移动选区 */
+  private writeAndNotifyCommit(session: EditSession, move?: EditCommitMove): void {
     const newValue = session.editor.getValue()
     session.editor.close()
     this.init.writeTarget.write(session.col, session.row, newValue)
@@ -173,8 +198,6 @@ export class EditManager {
     if (move) {
       this.init.moveSelection(session.col, session.row, move)
     }
-    this.init.restoreFocus()
-    return true
   }
 
   /** 取消：不回写不抛事件，浮层关闭、焦点交还表格；无会话为空操作 */

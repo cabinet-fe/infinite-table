@@ -74,6 +74,8 @@ export interface TextEditor {
   close(): void
   /** 订阅键盘语义动作（Esc/Enter/Tab 已拦截默认行为与冒泡） */
   onKey(handler: (action: TextEditorKeyAction) => void): void
+  /** 订阅失焦动作（元素 blur 事件；重复订阅替换前一处理器，close 后不再触发） */
+  onBlur(handler: () => void): void
 }
 
 /** 编辑浮层边框宽（对齐 VTable InputEditor：2px 边框骑在格缘上，内外各半） */
@@ -111,6 +113,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
   let host: TextEditorHost | null = null
   let opened = false
   let keyHandler: ((action: TextEditorKeyAction) => void) | null = null
+  let blurHandler: (() => void) | null = null
 
   const handleKeyDown = (event: EditorKeyEvent): void => {
     const action =
@@ -129,6 +132,10 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     keyHandler?.(action)
   }
 
+  const handleBlur = (): void => {
+    blurHandler?.()
+  }
+
   const moveTo = (rect: Region): void => {
     // 边框骑格缘：矩形向外扩半边框宽，2px 边框在格缘内外各占 1px
     const half = EDITOR_BORDER_WIDTH / 2
@@ -142,6 +149,9 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     onKey(handler) {
       keyHandler = handler
     },
+    onBlur(handler) {
+      blurHandler = handler
+    },
     open(hostElement, rect, initialValue) {
       host = hostElement
       element.style.position = 'absolute'
@@ -151,6 +161,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
         host.appendChild(element)
         opened = true
         element.addEventListener('keydown', handleKeyDown)
+        element.addEventListener('blur', handleBlur)
       }
       element.focus()
     },
@@ -160,6 +171,7 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
     },
     close() {
       element.removeEventListener('keydown', handleKeyDown)
+      element.removeEventListener('blur', handleBlur)
       if (opened && host) {
         host.removeChild(element)
       }

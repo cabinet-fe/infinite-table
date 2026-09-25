@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
 import { findCellNode } from './testing/find-cell-node'
-import { paintTreeCanonical } from './testing/paint-tree'
+import { paintTreeCanonical, paintTreeForTest } from './testing/paint-tree'
 import { RecordingContext, type RecordedCall } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type { CellChangeEvent, ListTableOptions, TableModel } from '../src/types'
@@ -924,5 +924,277 @@ describe('三路径渲染一致（全量重建 / 滚动增量 / refreshCell）',
     }
     expectSourceAboveCorridors(refreshed.host)
     expect(paintOps(refreshed.host)).toEqual(paintOps(rebuilt.host))
+  })
+})
+
+/** paintTree 绘制流的 fillRect（层坐标）：回放 save/restore/translate 折算绝对位置 */
+function paintedRects(host: StubHost): Array<{
+  x: number
+  y: number
+  width: number
+  height: number
+}> {
+  const ctx = new RecordingContext()
+  paintTreeForTest(host.layers.get('body')!.root, ctx)
+  const stack: Array<{ x: number; y: number }> = [{ x: 0, y: 0 }]
+  const rects: Array<{ x: number; y: number; width: number; height: number }> = []
+  for (const call of ctx.calls) {
+    if (call.name === 'save') {
+      stack.push({ ...stack[stack.length - 1]! })
+    } else if (call.name === 'restore') {
+      stack.pop()
+    } else if (call.name === 'translate') {
+      const top = stack[stack.length - 1]!
+      top.x += call.args[0] as number
+      top.y += call.args[1] as number
+    } else if (call.name === 'fillRect') {
+      const top = stack[stack.length - 1]!
+      rects.push({
+        x: top.x + (call.args[0] as number),
+        y: top.y + (call.args[1] as number),
+        width: call.args[2] as number,
+        height: call.args[3] as number,
+      })
+    }
+  }
+  return rects
+}
+
+/**
+ * 走廊竖线跳画像素断言（WPS 口径，P3）：行带内纵向线条 = 细高 fillRect（每格 right
+ * 共享边 1px，横边/背景/文本排除），返回层坐标 x（升序）。行带取自该行任一数据格的
+ * 实际几何，表头带/外框条带按「完全落在行带内」过滤。
+ * 几何基准（缺省主题）：rowHeaderWidth 48、列宽 100、headerHeight 36、行高 32；
+ * col c 右共享边的线 x = 48 + 100c - 1。
+ */
+function rowVerticalLineXs(host: StubHost, row: number): number[] {
+  const root = host.layers.get('body')!.root
+  const probe = root.children.find(
+    (child): child is CellNode => child instanceof CellNode && child.row === row && child.col >= 0,
+  )
+  if (!probe) {
+    return []
+  }
+  const top = probe.y
+  const bottom = top + probe.height
+  return paintedRects(host)
+    .filter(
+      (rect) =>
+        rect.width <= 2 && rect.height >= 8 && rect.y >= top && rect.y + rect.height <= bottom,
+    )
+    .map((rect) => rect.x)
+    .sort((a, b) => a - b)
+}
+
+/** 指定 y 上的横向细线 x 集合（层坐标，升序）：走廊格上下横边保留断言用 */
+function horizontalLineXsAt(host: StubHost, y: number): number[] {
+  return paintedRects(host)
+    .filter((rect) => rect.height <= 2 && rect.width >= 8 && rect.y === y)
+    .map((rect) => rect.x)
+    .sort((a, b) => a - b)
+}
+
+describe('溢出走廊竖线跳画（WPS 口径）', () => {
+  const FIVE_COLUMNS = [
+    { field: 'f0' },
+    { field: 'f1' },
+    { field: 'f2' },
+    { field: 'f3' },
+    { field: 'f4' },
+  ]
+
+  it('左对齐右溢：走廊内（源格右缘到末段空格右缘）无纵向线条，走廊末端竖线保留', () => {
+    // 行 0：col 0 长文本右溢（走廊 [0,3)，覆盖 col 1/2 空格），col 2 非空阻断走廊、
+    // col 3/4 亦非空且右邻非空（自身走廊被立即阻断，排除短文本走廊干扰）
+    const { host } = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: LONG_TEXT, f2: 'x', f3: 'y', f4: 'z' }],
+      rowCount: 1,
+    })
+    // 标记装配：源格与被覆盖空格在走廊内部（值 = 走廊右端列号），阻断格在外
+    expect(findNode(host, 0, 0)?.corridorInterior).toBe(2)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(2)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
+    // 线 x：47 行号列右缘、247 走廊末端（col 1 right = col 2 左缘）、347/447/547 走廊外；
+    // 147（源格 right，旧覆盖式分支位置）跳画
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 347, 447, 547])
+  })
+
+  it('走廊格上下横边保留：走廊内格 bottom 与表头带 bottom 横线照画', () => {
+    const { host } = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: LONG_TEXT, f2: 'x', f3: 'y', f4: 'z' }],
+      rowCount: 1,
+    })
+    // 行 0 bottom（y = 36 + 32 - 1 = 67）：走廊格 col 1（x=148）与其余格横线全在
+    expect(horizontalLineXsAt(host, 67)).toEqual([0, 48, 148, 248, 348, 448])
+    // 表头带 bottom（y = 35）：走廊格上缘横线照画
+    expect(horizontalLineXsAt(host, 35)).toEqual([0, 48, 148, 248, 348, 448])
+  })
+
+  it('右对齐左溢：走廊内竖线隐藏，方向与右溢对称', () => {
+    // 行 0：col 3 长文本左溢（走廊 [2,4)，覆盖 col 2 空格）；col 1 非空阻断走廊但
+    // 其右邻 col 2 为空 → col 1 自身右溢走廊 [1,3) 存在（结构化走廊口径），其右缘
+    // 线（247）随自身走廊跳画；col 0 右缘线（147）在全部走廊之外照画
+    const { host } = createTable({
+      columns: [
+        { field: 'f0' },
+        { field: 'f1' },
+        { field: 'f2' },
+        { field: 'f3' },
+        { field: 'f4' },
+        { field: 'f5' },
+      ],
+      records: [{ f0: 'x', f1: 'y', f3: LONG_TEXT, f5: 'z' }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 3 ? { textAlign: 'right' } : null),
+    })
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(4)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(3)
+    expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
+    // 347 走廊内跳画（被覆盖空格 col 2 的右缘 = 源格左缘，WPS 口径随源格左溢跳画）；
+    // 447 源格右缘（非走廊侧）、147/547/647 走廊外照画
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 447, 547, 647])
+  })
+
+  it('居中双向溢：两侧走廊内竖线对称隐藏，走廊右末端竖线保留', () => {
+    // 行 0：col 3 居中长文本双向溢（走廊 [2,5)，覆盖 col 2/4 空格）；col 1/5 非空阻断；
+    // col 1 自身右溢走廊 [1,3) 使其右缘线（247）跳画（结构化走廊口径，与左溢同源）
+    const { host } = createTable({
+      columns: [
+        { field: 'f0' },
+        { field: 'f1' },
+        { field: 'f2' },
+        { field: 'f3' },
+        { field: 'f4' },
+        { field: 'f5' },
+      ],
+      records: [{ f0: 'x', f1: 'y', f3: LONG_TEXT, f5: 'z' }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 3 ? { textAlign: 'center' } : null),
+    })
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(5)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(5)
+    expect(findNode(host, 4, 0)?.corridorInterior).toBe(5)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(3)
+    expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
+    // 347/447 双向走廊内部跳画；547 走廊右末端（col 4 right = col 5 左缘）保留；
+    // 147/647 走廊外照画
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 547, 647])
+  })
+
+  it('两源对溢共享空段：共享段竖线按更远走廊跳画（标记取最大右端）', () => {
+    // col 1 右溢走廊 [1,5)、col 5 左溢走廊 [2,6)：共享空段 col 2..4 被两走廊覆盖，
+    // 标记取最大右端 6；col 0 右缘线（147）在两走廊之外照画
+    const { host } = createTable({
+      columns: [
+        { field: 'f0' },
+        { field: 'f1' },
+        { field: 'f2' },
+        { field: 'f3' },
+        { field: 'f4' },
+        { field: 'f5' },
+      ],
+      records: [{ f1: LONG_TEXT, f5: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 5 ? { textAlign: 'right' } : null),
+    })
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 4, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(5)
+    expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
+    // 247/347/447/547 共享段全跳画；647 左溢源右缘（非走廊侧）保留
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 647])
+  })
+
+  it('走廊内用户显式纵向边框同规则隐藏，走廊外显式边框照画', () => {
+    // col 0 长文本走廊 [0,3)：col 1 为走廊内部格（右缘非走廊末端）、col 3 走廊外
+    const { host } = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: LONG_TEXT, f3: 'x', f4: 'y' }],
+      rowCount: 1,
+      resolveCellStyle: (col) =>
+        col === 1 || col === 3 ? { border: { right: { width: 2, color: '#f00' } } } : null,
+    })
+    // col 1 显式 2px right 处于走廊内部 → 与网格线同规则跳画；col 3 走廊外照画
+    // （2px 线 x = 348 + 98 = 446）
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 347, 446, 547])
+    const explicit = paintedRects(host).filter((rect) => rect.width === 2)
+    expect(explicit.map((rect) => rect.x)).toEqual([446])
+  })
+})
+
+describe('走廊竖线三路径一致（全量重建 / refreshCell / 滚动增量）', () => {
+  const FIVE_COLUMNS = [
+    { field: 'f0' },
+    { field: 'f1' },
+    { field: 'f2' },
+    { field: 'f3' },
+    { field: 'f4' },
+  ]
+
+  it('邻居变空/变非空（refreshCell 联动）：走廊竖线状态与全量重建一致', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', LONG_TEXT)
+    model.data.set('2:0', 'x')
+    model.data.set('4:0', 'y')
+    const { host } = createTable({ columns: FIVE_COLUMNS, rowCount: 1, model })
+    // 初始：col 0 走廊 [0,2)、col 2 自身走廊 [2,4) → 147/347 跳画
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(2)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 447, 547])
+    // 邻居变空：col 0 走廊伸到 [0,4)，col 1/2/3 竖线全跳画
+    model.data.delete('2:0')
+    model.emit({ col: 2, row: 0, oldValue: 'x', newValue: undefined })
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(4)
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 447, 547])
+    // 与同数据全量重建逐像素一致
+    const rebuilt = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: LONG_TEXT, f4: 'y' }],
+      rowCount: 1,
+    })
+    expect(rowVerticalLineXs(host, 0)).toEqual(rowVerticalLineXs(rebuilt.host, 0))
+    // 邻居变非空：走廊收回，竖线状态回到初始全量重建水平
+    model.data.set('2:0', 'x')
+    model.emit({ col: 2, row: 0, oldValue: undefined, newValue: 'x' })
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 447, 547])
+  })
+
+  it('溢出源 contentHidden 隐藏/恢复：走廊竖线状态不变（与全量重建一致）', () => {
+    const { host } = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: LONG_TEXT, f2: 'x', f3: 'y', f4: 'z' }],
+      rowCount: 1,
+    })
+    const before = rowVerticalLineXs(host, 0)
+    expect(before).toEqual([47, 247, 347, 447, 547])
+    // 编辑会话隐藏源格内容：走廊扫描只看取值与样式，标记与竖线状态不随隐藏变化
+    const source = findNode(host, 0, 0)!
+    source.contentHidden = true
+    expect(rowVerticalLineXs(host, 0)).toEqual(before)
+    // 会话结束恢复：同样不变
+    source.contentHidden = false
+    expect(rowVerticalLineXs(host, 0)).toEqual(before)
+  })
+
+  it('滚动增量重建：走廊竖线状态与全量重建一致（含源格滚出窗口的走廊段）', () => {
+    const columns = Array.from({ length: 10 }, (_, i) => ({ field: `f${i}` }))
+    const records = [{ f2: LONG_TEXT, f7: 'x' }]
+    const rebuilt = createTable({ columns, records, rowCount: 1 })
+    const scrolled = createTable({ columns, records, rowCount: 1 })
+    // 滚离再滚回：增量补建/摘除后整行重标，竖线状态与从未滚动的全量重建一致
+    scrolled.table.scrollTo(350, 0)
+    scrolled.table.scrollTo(0, 0)
+    expect(rowVerticalLineXs(scrolled.host, 0)).toEqual(rowVerticalLineXs(rebuilt.host, 0))
+    // 源格 col 2 滚出窗口（scroll 350）：窗外源格无节点不渲染文本，走廊段照常画线，
+    // 增量路径与「同滚动位置全量重建」（几何变更触发）逐像素一致
+    scrolled.table.scrollTo(350, 0)
+    scrolled.table.setColWidth(0, 100)
+    const rebuiltAtScroll = createTable({ columns, records, rowCount: 1 })
+    rebuiltAtScroll.table.scrollTo(350, 0)
+    expect(rowVerticalLineXs(scrolled.host, 0)).toEqual(rowVerticalLineXs(rebuiltAtScroll.host, 0))
   })
 })

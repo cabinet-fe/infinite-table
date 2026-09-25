@@ -58,6 +58,17 @@ export class FakeEditorElement implements TextEditorElement {
     }
     return { prevented, stopped }
   }
+
+  /** 派发失焦事件（blur 接线用；真实 DOM 由焦点移动触发） */
+  dispatchBlur(): void {
+    for (const listener of this.listeners.get('blur') ?? []) {
+      listener({
+        key: undefined,
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      })
+    }
+  }
 }
 
 export class FakeEditorHost implements TextEditorHost {

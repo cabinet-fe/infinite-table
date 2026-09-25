@@ -195,7 +195,7 @@ describe('CellNode 绘制', () => {
 })
 
 describe('CellNode 溢出与编辑隐藏', () => {
-  it('溢出格（textMaxX > width）：right 边先于文本绘制，文本盖过共享网格线且 right 只画一次', () => {
+  it('溢出格处于走廊内部（corridorInterior）：right 共享边跳画（WPS 口径），bottom 边照常', () => {
     const ctx = new RecordingContext()
     const node = new CellNode({
       col: 0,
@@ -211,20 +211,45 @@ describe('CellNode 溢出与编辑隐藏', () => {
       },
     })
     node.textMaxX = 260
+    // 场景装配标记：col 0 的走廊右端列号为 3 → 右侧邻居（col 1）与本格同处走廊内部
+    node.corridorInterior = 3
     node.paint(ctx)
-    // right 边（x=99）先画、文本后画；bottom 边维持内容之后的默认序
-    const rightIdx = ctx.calls.findIndex((call) => call.name === 'fillRect' && call.args[0] === 99)
+    // 走廊内部竖边不绘制（用户显式边框同规则，替代旧「right 边先于内容」覆盖式分支）
+    expect(
+      ctx.calls.filter((call) => call.name === 'fillRect' && call.args[0] === 99),
+    ).toHaveLength(0)
+    expect(ctx.callsOf('fillText')).toHaveLength(1)
+    // bottom 边不受走廊影响（只跳纵向线条），维持内容之后的默认序
     const textIdx = ctx.calls.findIndex((call) => call.name === 'fillText')
-    expect(rightIdx).toBeGreaterThanOrEqual(0)
-    expect(textIdx).toBeGreaterThan(rightIdx)
     const bottomIdx = ctx.calls.findIndex(
       (call) => call.name === 'fillRect' && call.args[0] === 0 && call.args[1] === 31,
     )
     expect(bottomIdx).toBeGreaterThan(textIdx)
-    // right 边不重复绘制（paintBorders 跳过已提前绘制的 right）
-    expect(
-      ctx.calls.filter((call) => call.name === 'fillRect' && call.args[0] === 99),
-    ).toHaveLength(1)
+  })
+
+  it('溢出格不在走廊内部（corridorInterior 为 null 或走廊末端）：right 边内容之后照常绘制一次', () => {
+    // null = 走廊外；col + 1 = 本格为走廊末端格（右缘即走廊末端竖线），均照常绘制
+    for (const mark of [null, 1]) {
+      const ctx = new RecordingContext()
+      const node = new CellNode({
+        col: 0,
+        row: 0,
+        width: 100,
+        height: 32,
+        text: 'x'.repeat(30),
+        style: { border: { right: { width: 1, color: '#E1E4E8' } } },
+      })
+      node.textMaxX = 260
+      if (mark !== null) {
+        node.corridorInterior = mark
+      }
+      node.paint(ctx)
+      const rights = ctx.calls.filter((call) => call.name === 'fillRect' && call.args[0] === 99)
+      expect(rights).toHaveLength(1)
+      const rightIdx = ctx.calls.findIndex((call) => call.name === 'fillRect' && call.args[0] === 99)
+      const textIdx = ctx.calls.findIndex((call) => call.name === 'fillText')
+      expect(rightIdx).toBeGreaterThan(textIdx)
+    }
   })
 
   it('无溢出：边框仍在内容之后（强边压内容，行为不变）', () => {

@@ -67,8 +67,10 @@ import {
 import { assertMergesWithinTable, cellKey, HEADER_COORD } from './list-table-internal'
 import { onImageServiceLoad, refreshImageCell, updateImageWindow } from './list-table-media'
 import {
+  dataColBands,
   effectiveBorder,
   headerStyles,
+  markRowCorridorInterior,
   overflowSourceCol,
   overflowSourceColRight,
   rebuildScene,
@@ -410,6 +412,9 @@ export class ListTable {
       },
       moveSelection: (col, row, move) => this.moveSelectionAfterCommit(col, row, move),
       restoreFocus: () => this.container?.focus(),
+      // 失焦终止策略按当前拾取模式动态判定：公式引用拾取会话失焦不终止（宿主互锁），
+      // 其余情况焦点移出画布即按提交语义结束会话（emitEnd 接线恢复 contentHidden）
+      resolveEditorBlur: () => (this.editPickMode ? 'ignore' : 'commit'),
       // 真实容器运行时满足最小宿主结构（编辑器元素本就是真 Node）
       host: this.container as TextEditorHost | undefined,
       // 滚动帧驱动编辑跟随：浮层逐帧对齐锚定格，滚出视口自动提交
@@ -587,6 +592,10 @@ export class ListTable {
     )
     node.textMaxX = limits === null ? node.width : limits.maxX - node.x
     node.textMinX = limits === null ? 0 : limits.minX - node.x
+    // 走廊伸缩即竖线跳画范围变化（P3）：本格走廊变化或两侧来源走廊联动变化时，
+    // 整行重标走廊内部标记（先清后标，与全量重建同口径）；标记不随 contentHidden
+    // 变化（走廊扫描只看取值与样式，隐藏/恢复前后标记与全量重建一致）
+    let corridorChanged = node.textMaxX !== prevMaxX || node.textMinX !== prevMinX
     const regions: Region[] = [node.getGlobalBounds()]
     if (prevMaxX > node.width || prevMinX < 0) {
       regions.push(overflowExtentRegion(node, prevMinX, prevMaxX))
@@ -625,6 +634,7 @@ export class ListTable {
           sourceLimits === null ? sourceNode.width : sourceLimits.maxX - sourceNode.x
         sourceNode.textMinX = sourceLimits === null ? 0 : sourceLimits.minX - sourceNode.x
         if (sourceNode.textMaxX !== sourceOldMaxX || sourceNode.textMinX !== sourceOldMinX) {
+          corridorChanged = true
           regions.push(overflowExtentRegion(sourceNode, sourceOldMinX, sourceOldMaxX))
           regions.push(overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX))
         }
@@ -633,6 +643,9 @@ export class ListTable {
           this.remountOverflowSourceNode(sourceNode)
         }
       }
+    }
+    if (corridorChanged) {
+      markRowCorridorInterior(this, masterRow, dataColBands(this))
     }
     const region = unionRegions(regions) ?? regions[0]!
     if (this.batchDepth > 0) {
@@ -751,6 +764,16 @@ export class ListTable {
         : { minCol: anchor.col, minRow: anchor.row, maxCol: anchor.col, maxRow: anchor.row }
     }
     refreshOverlay(this)
+  }
+
+  /**
+   * @internal 容器光标写入（填充柄十字光标等指针光标管理）：直写 hostOptions.container
+   * 的 style.cursor；未传容器（无 DOM 环境/离屏构造）静默容错不抛错。
+   */
+  setContainerCursor(cursor: string): void {
+    if (this.container) {
+      this.container.style.cursor = cursor
+    }
   }
 
   // ---- 行列 resize（P5，canResizeRow 能力见 ListTableOptions） ----

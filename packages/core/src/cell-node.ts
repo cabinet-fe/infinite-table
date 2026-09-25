@@ -97,6 +97,15 @@ export class CellNode extends SceneNode {
    * 溢出文本一并隐去（失效区并入 textMaxX 由编辑接线负责），会话结束置回 false。
    */
   contentHidden = false
+  /**
+   * 溢出走廊内部标记（WPS 口径竖线跳画）：本格为溢出源格或被溢出文本覆盖的空格时，
+   * 取覆盖本格的各走廊中最大右端列号（不含，列号口径）；null = 不在任何走廊内。
+   * 由场景装配逐行维护（markRowCorridorInterior，全量重建/增量补建/refreshCell 三路径
+   * 先清后标同口径）。right 共享边跳画判定：值 > col + 1 表示右侧邻居与本格同处同一
+   * 走廊内部（共享竖边被溢出文本覆盖），跳画；值 = col + 1（本格为走廊末端格，右缘即
+   * 走廊末端竖线）或 null（走廊外）照常绘制。上下横边、背景、内容绘制不受影响。
+   */
+  corridorInterior: number | null = null
   /** 文本测量宽缓存：font 串/text 值任一变化即失效重测，免每次 paint 拼键；style 引用仅用于免重复组装 font 串 */
   private measureStyle: CellStyle | null = null
   private measureFont = ''
@@ -129,14 +138,6 @@ export class CellNode extends SceneNode {
       ctx.fillStyle = this.style.background
       ctx.fillRect(0, 0, this.width, this.height)
     }
-    // 右溢格（textMaxX > width）right 边先于内容：溢出文本要盖住本格右缘的共享网格线/
-    // 边框（Excel 式网格线在文字之下）；无右溢保持「边框后画压内容」序（强边不被内容
-    // 盖）。左溢无需对称处理：源格 left 边经共享边裁决归左邻所有（首列不左溢），
-    // 左邻先画其 right 边、源格后画（z 序不变量）文本自然盖过
-    const overflowRight = this.textMaxX > this.width
-    if (overflowRight && this.border?.right) {
-      this.paintRightEdge(ctx)
-    }
     if (!this.contentHidden) {
       const renderer = this.renderer ?? BUILTIN_CELL_RENDERERS[this.cellType]
       const textWidth = this.measureTextWidth(ctx)
@@ -158,7 +159,7 @@ export class CellNode extends SceneNode {
         textMinX: this.textMinX,
       })
     }
-    this.paintBorders(ctx, overflowRight)
+    this.paintBorders(ctx)
   }
 
   /**
@@ -201,9 +202,11 @@ export class CellNode extends SceneNode {
    * 逐边边框：按各边线型绘制（fillRect 保证像素对齐），后画压在内容之上。
    * 画「生效边框」（共享边裁决产物，shared-edges.ts）：非所有者的 left/top 已剔除、
    * 所有者边已并入邻居对侧强边；直接构造（未走裁决）时跟随 style.border。
-   * skipRight 供溢出格调用（right 边已提前到内容之前画，此处跳过防重复）。
+   * right 共享边按走廊内部标记跳画（WPS 口径，见 corridorInterior）：溢出走廊覆盖
+   * 范围内不绘制纵向线条（默认网格线与用户显式边框同规则），替代旧「right 边先于
+   * 内容绘制」的覆盖式分支；走廊末端与走廊外照常绘制，其余各边不受影响。
    */
-  private paintBorders(ctx: RenderContext, skipRight = false): void {
+  private paintBorders(ctx: RenderContext): void {
     const border = this.border
     if (!border) {
       return
@@ -218,17 +221,9 @@ export class CellNode extends SceneNode {
     if (border.left) {
       paintEdge(ctx, border.left, 0, 0, height, false)
     }
-    if (border.right && !skipRight) {
+    const rightInCorridor = this.corridorInterior !== null && this.corridorInterior > this.col + 1
+    if (border.right && !rightInCorridor) {
       paintEdge(ctx, border.right, width - border.right.width, 0, height, false)
     }
-  }
-
-  /** right 边单独提前绘制（溢出格内容之前，文字盖过共享网格线） */
-  private paintRightEdge(ctx: RenderContext): void {
-    const right = this.border?.right
-    if (!right) {
-      return
-    }
-    paintEdge(ctx, right, this.width - right.width, 0, this.height, false)
   }
 }

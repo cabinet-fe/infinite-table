@@ -1135,6 +1135,60 @@ describe('ListTable 填充柄双击', () => {
   })
 })
 
+describe('ListTable 填充柄光标', () => {
+  // 选区 (0,0)：格矩形 48..148 × 36..68，柄方点骑右下角点 144..148 × 64..68
+  const HANDLE = { x: 146, y: 66 }
+
+  /** 带假容器（记录 style.cursor 写入）的表：容器经 hostOptions 注入 */
+  function createCursorTable() {
+    const host = new StubHost()
+    const container = { style: { cursor: '' } } as unknown as HTMLElement
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      records: Array.from({ length: 10 }, (_, i) => ({ name: `r${i}` })),
+      host,
+      hostOptions: { container },
+    })
+    host.submitted.length = 0
+    return { host, container, table }
+  }
+
+  it('悬停柄命中区容器 cursor 为 crosshair，移出恢复缺省；无选区任意悬停不为 crosshair', () => {
+    const { host, container, table } = createCursorTable()
+    const cursor = () => container.style.cursor
+
+    // 无选区：任意位置（含无柄可悬停的柄位）都不出十字光标
+    fireBody(host, 'pointermove', HANDLE)
+    expect(cursor()).toBe('auto')
+
+    // 有选区：指针落柄命中区（fillHandleRect 范围）→ crosshair；移出命中区 → 恢复缺省
+    table.selectCell(0, 0)
+    fireBody(host, 'pointermove', HANDLE)
+    expect(cursor()).toBe('crosshair')
+    fireBody(host, 'pointermove', { x: cellX(0), y: cellY(0) })
+    expect(cursor()).toBe('auto')
+  })
+
+  it('fillDrag 会话期间 pointermove 序列保持 crosshair 不闪回，会话结束后无命中恢复缺省', () => {
+    const { host, container, table } = createCursorTable()
+    const cursor = () => container.style.cursor
+    table.selectCell(0, 0)
+
+    // 悬停柄 → crosshair；按下进入 fillDrag 后任意 move（含远离柄的落点）不闪回
+    fireBody(host, 'pointermove', HANDLE)
+    expect(cursor()).toBe('crosshair')
+    fireBody(host, 'pointerdown', HANDLE)
+    fireBody(host, 'pointermove', { x: cellX(0), y: cellY(3) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(5) })
+    expect(cursor()).toBe('crosshair')
+
+    // 会话结束后的 move 走无会话判定：落点不在柄命中区 → 恢复缺省
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(5) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(5) })
+    expect(cursor()).toBe('auto')
+  })
+})
+
 describe('ListTable 表头高亮', () => {
   const records20 = Array.from({ length: 20 }, (_, i) => ({ name: `r${i}` }))
 
@@ -1385,6 +1439,27 @@ describe('编辑拾取模式与编辑态内容隐藏', () => {
     expect(findNode(host, 1, 1)?.contentHidden).toBe(true)
     table.cancelEdit()
     expect(findNode(host, 1, 1)?.contentHidden).toBe(false)
+  })
+
+  it('编辑中焦点移出画布（编辑器 blur）：提交语义终止会话并恢复内容渲染；拾取模式失焦会话保持', () => {
+    const { host, table, created } = createEditingTable()
+    expect(table.startEdit(0, 0)).toBe(true)
+    const node = findNode(host, 0, 0)
+    expect(node?.contentHidden).toBe(true)
+    // 失焦提交经既有 emitEnd 接线恢复 contentHidden（含溢出走廊失效区）
+    created[0]!.dispatchBlur()
+    expect(table.isEditing()).toBe(false)
+    expect(node?.contentHidden).toBe(false)
+    // 公式引用拾取会话（editPickMode）：失焦不终止会话；策略按失焦时点动态判定
+    expect(table.startEdit(0, 0)).toBe(true)
+    table.editPickMode = true
+    created[1]!.dispatchBlur()
+    expect(table.isEditing()).toBe(true)
+    expect(table.editManager.editingCell()).toEqual({ col: 0, row: 0 })
+    table.editPickMode = false
+    created[1]!.dispatchBlur()
+    expect(table.isEditing()).toBe(false)
+    expect(findNode(host, 0, 0)?.contentHidden).toBe(false)
   })
 })
 

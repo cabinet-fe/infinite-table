@@ -47,6 +47,8 @@ function createManager(
     offscreen?: boolean
     /** 是否注入 subscribeScrollFrame（滚动跟随接线） */
     withScrollFrame?: boolean
+    /** 编辑器失焦策略（缺省不注入 → EditManager 缺省 commit） */
+    resolveBlur?: () => 'commit' | 'ignore'
   } = {},
 ): ManagerHarness {
   const registry = new EditorRegistry()
@@ -94,6 +96,7 @@ function createManager(
     restoreFocus: () => {
       focusRestores++
     },
+    resolveEditorBlur: overrides.resolveBlur,
     host,
     doc,
     subscribeScrollFrame: overrides.withScrollFrame
@@ -407,5 +410,71 @@ describe('EditManager 会话开始/结束通知', () => {
     h.fireScrollFrame()
     expect(h.ends).toHaveLength(1)
     expect(h.ends[0]?.committed).toBe(true)
+  })
+})
+
+describe('EditManager 编辑器失焦互锁', () => {
+  it('会话开启后编辑器 blur：按提交语义终止（写回/刷新/事件序不变），不移动选区、不抢回焦点', () => {
+    const h = createManager()
+    h.manager.startEdit(0, 0)
+    h.created[0]!.value = 'b'
+    h.created[0]!.dispatchBlur()
+    expect(h.writes).toEqual([{ col: 0, row: 0, value: 'b' }])
+    expect(h.refreshes).toEqual([{ col: 0, row: 0 }])
+    expect(h.changes).toEqual([{ col: 0, row: 0, oldValue: 'a', newValue: 'b' }])
+    expect(h.ends[0]).toEqual({
+      col: 0,
+      row: 0,
+      initialValue: 'a',
+      finalValue: 'b',
+      committed: true,
+    })
+    expect(h.sequence).toEqual(['start', 'change', 'end'])
+    // 失焦提交不带选区移动，也不把焦点抢回画布（宿主 DOM 继续持有）
+    expect(h.moves).toEqual([])
+    expect(h.focusRestores()).toBe(0)
+    expect(h.manager.isEditing()).toBe(false)
+    expect(h.host.children).toEqual([])
+  })
+
+  it('策略返回 ignore（公式引用拾取形态）：blur 会话保持；策略按失焦时点动态判定', () => {
+    let mode: 'commit' | 'ignore' = 'ignore'
+    const h = createManager({ resolveBlur: () => mode })
+    h.manager.startEdit(0, 0)
+    h.created[0]!.value = 'b'
+    h.created[0]!.dispatchBlur()
+    expect(h.manager.isEditing()).toBe(true)
+    expect(h.manager.editingCell()).toEqual({ col: 0, row: 0 })
+    expect(h.writes).toEqual([])
+    expect(h.changes).toEqual([])
+    expect(h.ends).toEqual([])
+    expect(h.host.children).toEqual([h.created[0]])
+    // 宿主切回提交口径（如拾取模式关闭）后，下次失焦即按提交语义终止
+    mode = 'commit'
+    h.created[0]!.dispatchBlur()
+    expect(h.manager.isEditing()).toBe(false)
+    expect(h.writes).toEqual([{ col: 0, row: 0, value: 'b' }])
+    expect(h.focusRestores()).toBe(0)
+  })
+
+  it('会话结束后 blur 幂等：Enter 提交、Esc 取消再失焦均无二次写回/事件', () => {
+    const h = createManager()
+    h.manager.startEdit(0, 0)
+    h.created[0]!.value = 'b'
+    h.created[0]!.dispatchKey('Enter')
+    h.created[0]!.dispatchBlur()
+    expect(h.writes).toEqual([{ col: 0, row: 0, value: 'b' }])
+    expect(h.changes).toHaveLength(1)
+    expect(h.ends).toHaveLength(1)
+    expect(h.moves).toEqual([{ col: 0, row: 0, move: 'down' }])
+    expect(h.focusRestores()).toBe(1)
+
+    h.manager.startEdit(0, 0)
+    h.created[1]!.dispatchKey('Escape')
+    h.created[1]!.dispatchBlur()
+    expect(h.writes).toEqual([{ col: 0, row: 0, value: 'b' }])
+    expect(h.changes).toHaveLength(1)
+    expect(h.ends).toHaveLength(2)
+    expect(h.focusRestores()).toBe(2)
   })
 })
