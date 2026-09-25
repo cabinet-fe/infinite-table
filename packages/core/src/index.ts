@@ -114,6 +114,8 @@ export { MediaCache } from './media/media-cache'
 export type { MediaCacheOptions } from './media/media-cache'
 export { ImageCellNode } from './media/image-cell-node'
 export type { ImageCellNodeInit } from './media/image-cell-node'
+export { ChartCellNode } from './media/chart-cell-node'
+export type { ChartCellNodeInit } from './media/chart-cell-node'
 export type { ImageFit } from './media/draw-image'
 export { FloatObjectLayer } from './float/float-object-layer'
 export type {
@@ -125,12 +127,15 @@ export type {
 export type {
   CellChangeEvent,
   CellRef,
+  CellChartMedia,
+  CellChartMediaSize,
   ColumnDefine,
   ContextMenuListener,
   DataRecord,
   EditEndEvent,
   EditStartEvent,
   ListTableOptions,
+  ResolveCellChart,
   ResolveCellImage,
   ResolveDisplayValue,
   TableContextMenuEvent,

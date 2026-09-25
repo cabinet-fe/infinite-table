@@ -1,15 +1,18 @@
 // ListTable 媒体集成协作模块（拆自 list-table.ts，纯移动不改行为）：
-// L2 media 层惰性创建、图片格节点装配与局部刷新、ImageService 加载完成回写、
-// 图片加载窗口随滚动的窗口化调度。以 ListTable 实例为参数的协作函数，
-// 只触碰表实例上标注 @internal 的内部成员。
+// L2 media 层惰性创建、图片/图表格节点装配与局部刷新、ImageService 加载完成回写、
+// 图片加载窗口随滚动的窗口化调度、图表格出图路由（chart 预留位落地：位图由插件侧
+// 离屏出图，经 cell 级 MediaCache LRU 缓存与 blit，无闪协议同图片）。
+// 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
 import type { LayerHandle } from '@infinite-table/render'
 
 import { computeScrollableColWindow, computeScrollableRowWindowFromOffsets } from './grid-layout'
+import { ChartCellNode } from './media/chart-cell-node'
 import { ImageCellNode } from './media/image-cell-node'
-import type { ImageLoadEvent } from './media/image-service'
+import type { ImageLoadEvent, LoadedImage } from './media/image-service'
 import type { ListTable } from './list-table'
 import { cellKey } from './list-table-internal'
+import type { CellChartMedia, CellChartMediaSize } from './types'
 
 /** 图片加载窗口余量（px）：可视区域四周外扩的预挂范围，滚出即取消降级 */
 const IMAGE_WINDOW_MARGIN = 240
@@ -136,4 +139,119 @@ export function updateImageWindow(table: ListTable): void {
 
 function imageCacheKey(col: number, row: number, width: number, height: number): string {
   return `image:${col}:${row}:${Math.round(width)}x${Math.round(height)}`
+}
+
+// ---- 图表格路由（L2 media 的 chart 预留位落地） ----
+
+/**
+ * cell 级缓存 key：插件侧内容 key（按图表声明内容生成）+ 格几何 + 出图 DPR。
+ * 内容、尺寸、DPR 任一变更自然换 key（旧条目留在 LRU 由预算淘汰，不主动清理）。
+ */
+function chartCacheKey(contentKey: string, width: number, height: number, dpr: number): string {
+  return `chart:${contentKey}:${Math.round(width)}x${Math.round(height)}@${dpr}`
+}
+
+/**
+ * 建图表格节点（media 层）。无闪协议同图片格：
+ * cell 级 LRU 命中 → 首帧直接画真实位图（滚动滚回直接回贴，无占位帧）；
+ * 未命中 → 登记出图（插件侧离屏同步出图，首次含库加载为异步），placeholderDelay 内
+ * 连占位都不画，出图完成后定向失效本格、单帧切换。
+ */
+export function appendChartCell(
+  table: ListTable,
+  col: number,
+  row: number,
+  media: CellChartMedia,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const size: CellChartMediaSize = { width, height, dpr: table.hostDpr }
+  const cacheKey = chartCacheKey(media.key, width, height, table.hostDpr)
+  const node = new ChartCellNode({
+    col,
+    row,
+    x,
+    y,
+    width,
+    height,
+    cacheKey,
+    placeholderAfter: Date.now() + table.imageService.placeholderDelay,
+    // 边缘半格图表格经 body 视口裁剪，不越界画进表头/行号列区域
+    bodyViewport: table.bodyViewport,
+  })
+  const cached = table.mediaCache.get(cacheKey)
+  if (cached) {
+    node.setBitmap(cached)
+  } else {
+    requestChartBitmap(table, cacheKey, media, size, col, row)
+  }
+  mediaLayer(table).root.appendChild(node)
+  table.chartCellNodes.set(cellKey(col, row), node)
+}
+
+/**
+ * 图表格局部刷新：声明内容变更（换 key）则原位重建节点，声明消失则摘除 media 节点。
+ * 位图未变的格（key 相同）不做任何重建——缓存命中语义下重贴与保留等价。
+ */
+export function refreshChartCell(table: ListTable, col: number, row: number): void {
+  const key = cellKey(col, row)
+  const node = table.chartCellNodes.get(key)
+  if (!node || !table.media) {
+    return
+  }
+  const region = node.getGlobalBounds()
+  const media = table.chartMediaResolver?.(col, row) ?? null
+  if (!media) {
+    table.media.root.removeChild(node)
+    table.chartCellNodes.delete(key)
+  } else {
+    const cacheKey = chartCacheKey(media.key, node.width, node.height, table.hostDpr)
+    if (cacheKey !== node.cacheKey) {
+      table.media.root.removeChild(node)
+      table.chartCellNodes.delete(key)
+      appendChartCell(table, col, row, media, node.x, node.y, node.width, node.height)
+    }
+  }
+  table.host.submitInvalidation('media', { type: 'cell', region })
+}
+
+/**
+ * 出图请求：同 key 并发请求收敛为一次 produce（单飞），落定后位图写回 cell 级 LRU，
+ * 并回填各自仍在窗口内且 key 未变的请求格、定向失效（单飞共享任务，回填按请求方各自登记）。
+ * 出图失败按占位容错（不抛错），仅剥除单飞记录以便下次重试。
+ */
+function requestChartBitmap(
+  table: ListTable,
+  cacheKey: string,
+  media: CellChartMedia,
+  size: CellChartMediaSize,
+  col: number,
+  row: number,
+): void {
+  let task = table.chartRenderTasks.get(cacheKey)
+  if (!task) {
+    task = Promise.resolve()
+      .then(() => media.produce(size))
+      .catch((): LoadedImage | null => null)
+    table.chartRenderTasks.set(cacheKey, task)
+    task.then((image) => {
+      table.chartRenderTasks.delete(cacheKey)
+      if (image && !table.destroyed) {
+        table.mediaCache.put(cacheKey, image, Math.round(image.width * image.height * 4))
+      }
+    })
+  }
+  // 每个请求方各自等待落定回填（同 key 多格共享一次出图、各贴各格）
+  task.then((image) => {
+    if (!image || table.destroyed) {
+      return
+    }
+    const node = table.chartCellNodes.get(cellKey(col, row))
+    if (node && node.cacheKey === cacheKey) {
+      node.setBitmap(image)
+      table.host.submitInvalidation('media', { type: 'cell', region: node.getGlobalBounds() })
+    }
+  })
 }

@@ -19,7 +19,8 @@
 //
 // 按职责拆分的协作模块（6.6，纯移动不改行为，均为包内实现细节、不进公共入口）：
 // - list-table-scene.ts：场景全量重建与滚动帧增量窗口、分带建格、行列头装配、溢出右界支撑
-// - list-table-media.ts：media 层与 ImageService 接线（图片格装配/局部刷新/窗口化调度）
+// - list-table-media.ts：media 层与 ImageService 接线（图片格装配/局部刷新/窗口化调度、
+//   图表格出图路由：插件离屏出图位图经 cell 级缓存 blit，无闪协议同图片）
 // - list-table-interaction.ts：指针/触摸/键盘/contextmenu 事件接线与 sky 浮层刷新
 // - list-table-internal.ts：共享常量与纯辅助（cellKey/HEADER_COORD/合并区越界校验）
 // 协作模块以 ListTable 实例为参数，只触碰标注 @internal 的内部成员；
@@ -38,6 +39,7 @@ import { MergeCellMap, normalizeCellRange } from './cell-range'
 import type { CellRange } from './cell-range'
 import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
 import { CellValuePipeline } from './cell-value'
+import { ChartCellNode } from './media/chart-cell-node'
 import { EditManager, type EditCommitMove } from './editing/edit-manager'
 import type { TextEditorHost } from './editing/text-editor'
 import { EditorRegistry } from './editor-registry'
@@ -65,7 +67,12 @@ import {
   refreshOverlay,
 } from './list-table-interaction'
 import { assertMergesWithinTable, cellKey, HEADER_COORD } from './list-table-internal'
-import { onImageServiceLoad, refreshImageCell, updateImageWindow } from './list-table-media'
+import {
+  onImageServiceLoad,
+  refreshChartCell,
+  refreshImageCell,
+  updateImageWindow,
+} from './list-table-media'
 import {
   dataColBands,
   effectiveBorder,
@@ -106,6 +113,7 @@ import type {
   EditEndEvent,
   EditStartEvent,
   ListTableOptions,
+  ResolveCellChart,
 } from './types'
 import type {
   FillDragEndListener,
@@ -180,10 +188,18 @@ export class ListTable {
   readonly imageService: ImageService
   /** @internal cell 级位图 LRU：按格缓存已就绪位图引用，滚动重建时命中即首帧无闪 */
   readonly mediaCache = new MediaCache<LoadedImage>()
-  /** @internal L2 media 层：首个图片格出现时惰性创建 */
+  /** @internal L2 media 层：首个图片/图表格出现时惰性创建 */
   media: LayerHandle | null = null
   /** @internal 当前窗口内的图片格节点，key 见 cellKey（随窗口重建） */
   readonly imageCellNodes = new Map<number, ImageCellNode>()
+  /** @internal 当前窗口内的图表格节点，key 见 cellKey（随窗口重建；位图经 cell 级缓存直贴） */
+  readonly chartCellNodes = new Map<number, ChartCellNode>()
+  /** @internal 图表媒体解析器（chart 插件 mount 注入；null=无图表格能力，core 不含图表语义） */
+  chartMediaResolver: ResolveCellChart | null = null
+  /** @internal 出图单飞：同缓存 key 的并发出图收敛为一次 produce */
+  readonly chartRenderTasks = new Map<string, Promise<LoadedImage | null>>()
+  /** @internal 出图设备像素比（构造/resize 随宿主刷新；出图物理分辨率与显示层一致） */
+  hostDpr: number
   /**
    * @internal 浮动对象层（首次访问 floatObjects 时惰性建承载容器，挂在已用的 sky 层最顶）。
    * 原始字段供交互路由读写（未挂载为 null 时不强建层）；宿主面走 floatObjects getter。
@@ -209,7 +225,6 @@ export class ListTable {
   /** @internal 当前滚动窗口（[start, end) 行列区间，不含冻结区） */
   rows: WindowRange = { start: 0, end: 0 }
   cols: WindowRange = { start: 0, end: 0 }
-  private destroyed = false
   /** 逐行高度覆盖（行 resize 产物）；缺省用 rowHeight */
   private readonly rowHeights = new Map<number, number>()
   /** @internal 行高前缀和 */
@@ -241,6 +256,10 @@ export class ListTable {
   selectionAnchor: RangeBounds | null = null
   private batchDepth = 0
   private readonly batchRegions: Region[] = []
+  /** @internal 首次场景重建已完成；此后挂载的插件（table.use）由 mount 自行触发全量重建 */
+  sceneInitialized = false
+  /** @internal 已销毁（迟到结算的异步回写守卫；出图完成回写等） */
+  destroyed = false
   /** @internal contextmenu 事件订阅 */
   readonly contextMenuListeners = new Set<ContextMenuListener>()
   private readonly scrollFrameListeners = new Set<ScrollFrameListener>()
@@ -337,6 +356,8 @@ export class ListTable {
         dpr: resolveHostDpr(),
         ...options.hostOptions,
       })
+    // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先，缺省取宿主环境值（resize 随宿主刷新）
+    this.hostDpr = options.hostOptions?.dpr ?? resolveHostDpr()
     this.ownHost = !options.host
     this.body = this.host.createLayer({ kind: 'body' })
     this.sky = this.host.createLayer({ kind: 'sky' })
@@ -421,11 +442,13 @@ export class ListTable {
       subscribeScrollFrame: (listener) => this.onScrollFrame(listener),
     })
     bindInteractionEvents(this)
-    rebuildScene(this)
-    this.host.submitInvalidation('body', { type: 'full' })
+    // 插件先于首次场景重建挂载：图表格路由等渲染接线参与首帧（构造期注册经此路径生效）
     for (const plugin of options.plugins ?? []) {
       this.use(plugin)
     }
+    rebuildScene(this)
+    this.host.submitInvalidation('body', { type: 'full' })
+    this.sceneInitialized = true
   }
 
   /** 当前生效主题（基于默认主题 extends 派生） */
@@ -572,6 +595,7 @@ export class ListTable {
    */
   private refreshCellNodeContents(node: CellNode, masterCol: number, masterRow: number): void {
     refreshImageCell(this, masterCol, masterRow)
+    refreshChartCell(this, masterCol, masterRow)
     const prevMaxX = node.textMaxX
     const prevMinX = node.textMinX
     const prevHasText = node.text !== ''
@@ -820,6 +844,7 @@ export class ListTable {
     this.tableWidth = nextWidth
     this.tableHeight = nextHeight
     // 透传当前宿主环境 dpr：core 侧几何变更路径与运行期 DPR 保持一致
+    this.hostDpr = resolveHostDpr()
     this.host.resize(nextWidth, nextHeight, resolveHostDpr())
     // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
     this.overlay.resize()
@@ -1256,8 +1281,11 @@ export class ListTable {
     }
   }
 
-  /** 几何变更（行列尺寸/冻结数/合并区运行时变更）后：冻结区尺寸/滚动边界重算，全量重建一次 */
-  private applyGeometryChange(): void {
+  /**
+   * @internal 几何变更（行列尺寸/冻结数/合并区运行时变更）后：冻结区尺寸/滚动边界重算，
+   * 全量重建一次。官方插件晚挂载（table.use）时由 mount 触发，让渲染接线即时生效。
+   */
+  applyGeometryChange(): void {
     this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
     this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
     this.scroll.setViewportSize(

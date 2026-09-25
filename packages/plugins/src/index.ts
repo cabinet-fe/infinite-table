@@ -51,12 +51,14 @@ export type { BorderLineStyle, BorderPreset, BorderPresetCell } from './sheet/bo
 export { decodeDataUrlImage, numFmtToXlsxCode, sheetToWriteSheet } from './sheet/xlsx-export'
 export type { SheetExportSource, SheetImagePayload, SheetNumFmt } from './sheet/xlsx-export'
 
-// ---- chart 插件（单元格图表：声明解析 + Chart.js 按需加载，出图通路见 spec chart-support） ----
+// ---- chart 插件（单元格图表：声明解析 + Chart.js 按需加载 + 离屏出图，落 L2 media 位图管线） ----
 export { createChartPlugin, CHART_PLUGIN_NAME } from './chart/chart-plugin'
 export type { ChartPluginHandle, ChartPluginOptions } from './chart/chart-plugin'
 export { loadChartJs } from './chart/chart-loader'
 export type { ChartJsModule } from './chart/chart-loader'
 export { parseChartDeclaration } from './chart/parse'
+export { chartContentKey, renderChartBitmap } from './chart/render'
+export type { ChartRenderOptions } from './chart/render'
 export type {
   ChartCellDeclaration,
   ChartDatasetDeclaration,

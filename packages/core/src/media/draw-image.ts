@@ -1,8 +1,12 @@
-// media 内容共享的绘制助手：确定性占位与 fit 语义位图绘制（图片格与浮动对象共用）
+// media 内容共享的绘制助手：确定性占位、fit 语义位图绘制、body 视口裁剪
+// （图片格、图表格与浮动对象共用）
 
-import type { RenderContext } from '@infinite-table/render'
+import type { Region, RenderContext } from '@infinite-table/render'
 
 import type { LoadedImage } from './image-service'
+
+/** media 格内容底色：位图画布透明区域下的白底（图片格与图表格共用） */
+export const MEDIA_CELL_BACKGROUND = '#ffffff'
 
 const PLACEHOLDER_FILL = '#f0f1f2'
 
@@ -30,4 +34,30 @@ export function drawFittedImage(
   const dw = image.width * scale
   const dh = image.height * scale
   ctx.drawImage(image.source, (width - dw) / 2, (height - dh) / 2, dw, dh)
+}
+
+/**
+ * 绘制区与 body 视口的交集（换算到 bounds 的局部坐标）。
+ * 完全落在视口内、无视口或不相交时返回 null（无需/无法裁剪）。
+ */
+export function bodyViewportClip(bounds: Region, bodyViewport: Region | null): Region | null {
+  if (!bodyViewport) {
+    return null
+  }
+  const left = Math.max(bounds.x, bodyViewport.x)
+  const top = Math.max(bounds.y, bodyViewport.y)
+  const right = Math.min(bounds.x + bounds.width, bodyViewport.x + bodyViewport.width)
+  const bottom = Math.min(bounds.y + bounds.height, bodyViewport.y + bodyViewport.height)
+  if (right <= left || bottom <= top) {
+    return null
+  }
+  if (
+    left <= bounds.x &&
+    top <= bounds.y &&
+    right >= bounds.x + bounds.width &&
+    bottom >= bounds.y + bounds.height
+  ) {
+    return null
+  }
+  return { x: left - bounds.x, y: top - bounds.y, width: right - left, height: bottom - top }
 }

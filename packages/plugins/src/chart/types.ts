@@ -1,6 +1,6 @@
 // 单元格图表声明类型面：格内声明（类型 + 数据）与规范化产物 ChartSpec。
-// ChartSpec 为纯数据形态、与 chart.js 解耦；出图时由渲染通路映射为 ChartConfiguration
-// （P1 骨架只负责解析与按需加载，出图在 P2 接入 L2 media）。
+// ChartSpec 为纯数据形态、与 chart.js 解耦；离屏出图由渲染通路（render.ts）映射为
+// chart.js 配置，位图经 L2 media cell 级缓存 blit 上屏。
 
 /** 基线图表类型：柱状 bar / 折线 line / 面积 area / 饼图 pie */
 export type ChartType = 'bar' | 'line' | 'area' | 'pie'

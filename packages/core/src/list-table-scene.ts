@@ -26,7 +26,7 @@ import {
   isRowHeaderHighlighted,
   type HeaderHighlightInput,
 } from './list-table-internal'
-import { appendImageCell } from './list-table-media'
+import { appendChartCell, appendImageCell } from './list-table-media'
 import { resolveSharedEdges, strongerEdge } from './shared-edges'
 import { themeCellBase } from './theme'
 import type { FrameStyle } from './theme'
@@ -93,6 +93,7 @@ export function rebuildScene(table: ListTable): void {
     }
   }
   table.imageCellNodes.clear()
+  table.chartCellNodes.clear()
   // underlay 底色最先入树（首子节点）：格背景之下铺设
   const underlay = new UnderlayNode(table.theme.underlayBackgroundColor)
   underlay.width = table.width
@@ -230,7 +231,7 @@ export function updateSceneWindow(table: ListTable): void {
       partiallyVisible(range.startCol, range.endCol, colBands)
     )
   }
-  // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移（数据格与图片格同条件）
+  // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移（数据格与图片/图表格同条件）
   sweepWindowNodes(table, table.cellNodes, table.body.root, keepCell, left, top)
   sweepWindowNodes(
     table,
@@ -245,6 +246,8 @@ export function updateSceneWindow(table: ListTable): void {
       table.imageService.releaseRef(node.url, { col: node.col, row: node.row })
     },
   )
+  // 图表格位图不依赖窗口调度（cell 级缓存自持），滚出清扫即摘、滚回重建走缓存命中
+  sweepWindowNodes(table, table.chartCellNodes, table.media?.root ?? null, keepCell, left, top)
   let bodyChanged = false
   // 2) 新滚入行整行补建：先滚动区列降序、再冻结列降序（同行左格后画）
   const newRows = new Set<number>()
@@ -386,6 +389,11 @@ function remountCrossBoundaryMergeMasters(table: ListTable): void {
       table.media.root.removeChild(imageNode)
       table.media.root.appendChild(imageNode)
     }
+    const chartNode = table.chartCellNodes.get(key)
+    if (chartNode && table.media) {
+      table.media.root.removeChild(chartNode)
+      table.media.root.appendChild(chartNode)
+    }
   }
 }
 
@@ -510,8 +518,10 @@ function appendCell(
   }
   const endCol = range?.endCol ?? col
   const endRow = range?.endRow ?? row
-  // 图片格：body 节点只画背景/边框（文本留空），图片内容在 L2 media 层渲染
+  // 图片/图表格：body 节点只画背景/边框（文本留空），位图内容在 L2 media 层渲染
+  // （同格双声明时图片优先，图表让位——两通道互斥，宿主不应同时声明）
   const imageUrl = table.options.resolveCellImage?.(col, row)
+  const chartMedia = imageUrl ? null : (table.chartMediaResolver?.(col, row) ?? null)
   const style = table.resolveStyle(col, row)
   const node = new CellNode({
     col,
@@ -528,15 +538,15 @@ function appendCell(
     // remountCrossBoundaryMergeMasters）；普通格跨度即自身格尺寸
     width: spanWidth(table.colOffsets, col, endCol),
     height: spanHeight(table.rowOffsets, row, endRow),
-    text: imageUrl ? '' : table.pipeline.resolveText(col, row),
+    text: imageUrl || chartMedia ? '' : table.pipeline.resolveText(col, row),
     value: table.pipeline.resolveValue(col, row),
     cellType: table.options.columns[col]?.cellType,
     style,
     border: effectiveBorder(table, col, row, style),
     renderer: table.options.resolveCellRenderer?.(col, row) ?? null,
   })
-  // 文本溢出走廊（Excel 式按对齐方向溢出；换行/表头/合并/图片/自定义渲染格不溢出）
-  const limits = imageUrl ? null : textOverflowLimits(table, col, row, style, left)
+  // 文本溢出走廊（Excel 式按对齐方向溢出；换行/表头/合并/图片/图表/自定义渲染格不溢出）
+  const limits = imageUrl || chartMedia ? null : textOverflowLimits(table, col, row, style, left)
   node.textMaxX = limits === null ? node.width : limits.maxX - node.x
   node.textMinX = limits === null ? 0 : limits.minX - node.x
   // 编辑会话锚定格内容隐藏：滚动/几何重建会新建节点，装配时按当前会话重放该状态
@@ -546,16 +556,19 @@ function appendCell(
   table.cellNodes.set(cellKey(col, row), node)
   if (imageUrl) {
     appendImageCell(table, col, row, imageUrl, node.x, node.y, node.width, node.height)
+  } else if (chartMedia) {
+    appendChartCell(table, col, row, chartMedia, node.x, node.y, node.width, node.height)
   }
   return true
 }
 
-/** 空文本数据格判定（溢出邻居扫描用）：text 类型、无图片/自定义渲染/合并覆盖、取值文本为空 */
+/** 空文本数据格判定（溢出邻居扫描用）：text 类型、无图片/图表/自定义渲染/合并覆盖、取值文本为空 */
 function isEmptyTextCell(table: ListTable, col: number, row: number): boolean {
   return (
     (table.options.columns[col]?.cellType ?? 'text') === 'text' &&
     !table.options.resolveCellRenderer?.(col, row) &&
     !table.options.resolveCellImage?.(col, row) &&
+    !table.chartMediaResolver?.(col, row) &&
     !table.mergeCells.rangeAt(col, row) &&
     !table.pipeline.resolveText(col, row)
   )
@@ -603,8 +616,8 @@ export interface CorridorCols {
  * null 表示该格不溢出（裁剪在本格内）。Excel 规则（P4 研究笔记 §1/§7 终判口径）：
  * 溢出方向按对齐——left（缺省）向右溢、right 向左溢、center 向两侧溢（阻断判定按
  * Univer 语义：left 只看右壁、right 只看左壁、center 两壁皆阻断才算阻断，单侧空即
- * 向空侧溢）；走廊遇首个非空格停（含合并、图片、自定义渲染、checkbox 格，空白串按
- * 非空阻断）；换行、ellipsis/clip、合并、图片、自定义渲染格自身不溢出；不越冻结列带
+ * 向空侧溢）；走廊遇首个非空格停（含合并、图片、图表、自定义渲染、checkbox 格，空白串按
+ * 非空阻断）；换行、ellipsis/clip、合并、图片、图表、自定义渲染格自身不溢出；不越冻结列带
  * 边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
  */
 export function corridorCols(
@@ -619,6 +632,7 @@ export function corridorCols(
     (table.options.columns[col]?.cellType ?? 'text') !== 'text' ||
     table.options.resolveCellRenderer?.(col, row) ||
     table.options.resolveCellImage?.(col, row) ||
+    table.chartMediaResolver?.(col, row) ||
     table.mergeCells.rangeAt(col, row) ||
     !table.pipeline.resolveText(col, row)
   ) {

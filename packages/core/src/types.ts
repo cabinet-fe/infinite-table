@@ -6,7 +6,7 @@ import type { CellRange } from './cell-range'
 import type { CellType, ResolveCellRenderer } from './cell-renderer'
 import type { CellStyle, ResolveCellStyle } from './cell-style'
 import type { EditorRegistry } from './editor-registry'
-import type { ImageServiceOptions } from './media/image-service'
+import type { ImageServiceOptions, LoadedImage } from './media/image-service'
 import type { TablePlugin } from './plugin'
 import type { ThemeOverride } from './theme'
 
@@ -87,6 +87,28 @@ export interface CellRef {
  * 返回 null/undefined 走常规文本/自定义渲染管线。
  */
 export type ResolveCellImage = (col: number, row: number) => string | null | undefined
+
+/** 图表位图生产尺寸：width/height 为格 CSS 像素，dpr 为出图设备像素比 */
+export interface CellChartMediaSize {
+  width: number
+  height: number
+  dpr: number
+}
+
+/**
+ * 格内图表媒体描述（L2 media 的 chart 预留位）：core 只认内容 key 与位图生产者，
+ * 图表语义（类型/数据/库）全部在插件侧（chart 插件 mount 时注入解析器）。
+ * 位图经 cell 级 MediaCache LRU 缓存，滚动滚回命中即首帧直贴（无闪协议同图片）。
+ */
+export interface CellChartMedia {
+  /** 内容 key：按图表声明内容生成（内容变更自然换 key）；core 叠加格尺寸与 DPR 成完整缓存 key */
+  key: string
+  /** 位图生产：未命中 cell 级缓存时调用；首次含库加载为异步，同 key 并发出图由 core 单飞收敛 */
+  produce(size: CellChartMediaSize): Promise<LoadedImage> | LoadedImage
+}
+
+/** 按格图表 hook：返回媒体描述的格在 L2 media 层按位图渲染（图表语义在插件侧） */
+export type ResolveCellChart = (col: number, row: number) => CellChartMedia | null | undefined
 
 /**
  * 外部数据模型（模型事件订阅形态）：
