@@ -174,6 +174,124 @@ describe('SelectionState 拖选与整行整列', () => {
   })
 })
 
+describe('SelectionState 拖拽中外部回写保持锚点', () => {
+  it('拖拽中等值边界回写（模型归一化 min 角序）：段 start 仍为按下格锚点，仅焦点同步', () => {
+    const selection = new SelectionState()
+    // 从下方格按下，向上拖到反向目标：锚点在下方，焦点侧在上方
+    selection.beginDrag(2, 5)
+    selection.updateDrag(2, 2)
+    // 模型归一化回写：段 start 被重写为 min 角（row2），边界与当前拖拽段等值
+    selection.applyExternal({
+      ranges: [{ start: { col: 2, row: 2 }, end: { col: 2, row: 5 } }],
+      focus: { col: 2, row: 2 },
+    })
+    // 段原样保留：start 锚点不丢，end 仍为焦点侧反向目标
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 5 }, end: { col: 2, row: 2 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 2, row: 2 })
+  })
+
+  it('回写后继续拖拽越过锚点：边界连续扩展不塌缩', () => {
+    const selection = new SelectionState()
+
+    // 直接反向路径（spec 问题 1 复现）：从下方格按下、向上拖，模型回写后继续上拖。
+    // 锚点侧（row12）不动、上缘跟随指针；缺陷态以被重写的 min 角为锚继续上拖会塌缩丢段
+    selection.beginDrag(2, 12)
+    selection.updateDrag(2, 8)
+    selection.applyExternal({
+      ranges: [{ start: { col: 2, row: 8 }, end: { col: 2, row: 12 } }],
+      focus: { col: 2, row: 8 },
+    })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 12 }, end: { col: 2, row: 8 } },
+    ])
+    selection.updateDrag(2, 5)
+    expect(normalizeRange(selection.snapshot.ranges[0]!)).toEqual({
+      minCol: 2,
+      minRow: 5,
+      maxCol: 2,
+      maxRow: 12,
+    })
+
+    // 先下后上越过锚点路径：越过锚点后选区在锚点与指针之间连续变化，不跳变
+    selection.beginDrag(2, 5)
+    selection.updateDrag(2, 8)
+    selection.applyExternal({
+      ranges: [{ start: { col: 2, row: 5 }, end: { col: 2, row: 8 } }],
+      focus: { col: 2, row: 8 },
+    })
+    selection.updateDrag(2, 2)
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 5 }, end: { col: 2, row: 2 } },
+    ])
+    expect(normalizeRange(selection.snapshot.ranges[0]!)).toEqual({
+      minCol: 2,
+      minRow: 2,
+      maxCol: 2,
+      maxRow: 5,
+    })
+
+    // updateDragRange 路径（交互层以末段 start 为锚点与目标格求并）：锚点不被回写重写，
+    // 沿越过锚点方向继续拖不塌缩
+    selection.applyExternal({
+      ranges: [{ start: { col: 2, row: 2 }, end: { col: 2, row: 5 } }],
+      focus: { col: 2, row: 2 },
+    })
+    const anchor = selection.snapshot.ranges[0]!.start
+    expect(anchor).toEqual({ col: 2, row: 5 })
+    selection.updateDragRange(anchor, { col: 2, row: 1 })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 5 }, end: { col: 2, row: 1 } },
+    ])
+    expect(normalizeRange(selection.snapshot.ranges[0]!)).toEqual({
+      minCol: 2,
+      minRow: 1,
+      maxCol: 2,
+      maxRow: 5,
+    })
+  })
+
+  it('拖拽中非等值边界回写（如越界钳制后的段）：仍整段替换', () => {
+    const selection = new SelectionState()
+    selection.beginDrag(2, 5)
+    selection.updateDrag(2, 2)
+    // 边界与当前拖拽段不等值：维持既有整段替换行为
+    selection.applyExternal({
+      ranges: [{ start: { col: 0, row: 0 }, end: { col: 9, row: 9 } }],
+      focus: { col: 0, row: 0 },
+    })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 9, row: 9 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 0 })
+  })
+
+  it('非拖拽态 applyExternal：行为不变（整段替换）', () => {
+    const selection = new SelectionState()
+    selection.selectCell(2, 5)
+    // 非拖拽态即使等值边界也整段替换（模型归一化段照单应用）
+    selection.applyExternal({
+      ranges: [{ start: { col: 2, row: 2 }, end: { col: 2, row: 5 } }],
+      focus: { col: 2, row: 5 },
+    })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 2 }, end: { col: 2, row: 5 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 2, row: 5 })
+    // 多段快照照单替换
+    selection.applyExternal({
+      ranges: [
+        { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
+        { start: { col: 3, row: 3 }, end: { col: 4, row: 4 } },
+      ],
+      focus: { col: 4, row: 4 },
+    })
+    expect(selection.snapshot.ranges).toHaveLength(2)
+    expect(selection.snapshot.focus).toEqual({ col: 4, row: 4 })
+  })
+})
+
 describe('SelectionState 回驱防递归', () => {
   it('外部回写 applyExternal：应用但不广播，订阅方回写不回环', () => {
     const selection = new SelectionState()

@@ -36,6 +36,13 @@ export function normalizeRange(range: SelectionRange): RangeBounds {
   }
 }
 
+/** 两段的归一化边界是否等值（不看段方向） */
+function boundsEqual(a: RangeBounds, b: RangeBounds): boolean {
+  return (
+    a.minCol === b.minCol && a.minRow === b.minRow && a.maxCol === b.maxCol && a.maxRow === b.maxRow
+  )
+}
+
 export class SelectionState {
   private ranges: SelectionRange[] = []
   private focus: CellRef | null = null
@@ -161,8 +168,25 @@ export class SelectionState {
     this.emit()
   }
 
-  /** 外部模型回写选区：应用但不广播，防回环 */
+  /**
+   * 外部模型回写选区：应用但不广播，防回环。
+   * 拖拽进行中且传入快照恰为一段、其归一化边界与当前拖拽段等值时，不替换段（start 锚点与
+   * end 原样保留），仅同步焦点：外部模型把段归一化为 min 角序（start 被重写为 min 角），
+   * 照单替换会丢拖拽锚点，继续反向拖拽时按错误锚点扩展导致选区塌缩。
+   * 非拖拽态或边界不等值（如越界钳制后的段）维持既有整段替换行为。
+   */
   applyExternal(snapshot: SelectionSnapshot): void {
+    const dragSegment = this.ranges[this.ranges.length - 1]
+    const externalSegment = snapshot.ranges.length === 1 ? snapshot.ranges[0] : undefined
+    if (
+      this.dragging &&
+      dragSegment &&
+      externalSegment &&
+      boundsEqual(normalizeRange(externalSegment), normalizeRange(dragSegment))
+    ) {
+      this.focus = snapshot.focus ? { ...snapshot.focus } : null
+      return
+    }
     this.ranges = snapshot.ranges.map((range) => ({
       start: { ...range.start },
       end: { ...range.end },
