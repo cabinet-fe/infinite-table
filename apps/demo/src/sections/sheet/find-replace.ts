@@ -4,10 +4,11 @@
 
 import type { ListTable } from '@infinite-table/core'
 
-import type { SheetStore } from '@infinite-table/plugins'
+import type { SheetStore, UndoStack } from '@infinite-table/plugins'
 
 import { icon } from './icons'
 import { openAnchoredPopup, type PopupHandle } from './popup'
+import { applyValueWrites } from './undo-writes'
 
 interface Hit {
   col: number
@@ -30,6 +31,8 @@ export interface FindReplaceHandle {
 export function createFindReplace(ctx: {
   table: () => ListTable
   store: () => SheetStore
+  /** 撤销栈：替换写值经 applyValueWrites 落栈（值命令口径） */
+  stack: UndoStack
   notify: (text: string, kind?: 'info' | 'warn') => void
 }): FindReplaceHandle {
   const state = {
@@ -225,9 +228,13 @@ export function createFindReplace(ctx: {
         step(1)
         return
       }
-      ctx
-        .store()
-        .setValue(hit.col, hit.row, applyReplace(hit.raw, state.keyword, state.replacement))
+      applyValueWrites(ctx.store(), ctx.stack, [
+        {
+          col: hit.col,
+          row: hit.row,
+          value: applyReplace(hit.raw, state.keyword, state.replacement),
+        },
+      ])
       ctx.table().refreshCell(hit.col, hit.row)
       rescan()
       step(1)
@@ -290,12 +297,16 @@ export function createFindReplace(ctx: {
       }
     }
     ctx.table().batchUpdate(() => {
+      applyValueWrites(
+        store,
+        ctx.stack,
+        targets.map((hit) => ({
+          col: hit.col,
+          row: hit.row,
+          value: applyReplace(hit.raw as string, kw, replacement ?? state.replacement),
+        })),
+      )
       for (const hit of targets) {
-        store.setValue(
-          hit.col,
-          hit.row,
-          applyReplace(hit.raw as string, kw, replacement ?? state.replacement),
-        )
         ctx.table().refreshCell(hit.col, hit.row)
       }
     })

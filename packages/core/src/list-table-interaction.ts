@@ -765,6 +765,8 @@ export function refreshOverlay(table: ListTable): void {
     fillHandleRange: resolveFocusRange(table.selection.snapshot),
     // 填充拖拽预览：轴锁定后的纯扩展区（非拖拽中为 null）
     fillPreview,
+    // 选区锚点（编辑拾取会话中被编辑格保持选区绘制；setSelectionAnchor 写入，无为 null）
+    selectionAnchor: table.selectionAnchor,
     // 宿主高亮区域（公式引用染色框等；setHighlightRanges 写入，无为空数组）
     highlightRanges: table.highlightRanges,
     // 冻结分隔线：冻结列右缘 / 冻结行下缘（冻结数为 0 的轴为 null，不画）

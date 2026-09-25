@@ -63,6 +63,7 @@ function makeContent(partial: Partial<OverlayContent> = {}): OverlayContent {
     resizeLine: null,
     fillHandleRange: null,
     fillPreview: null,
+    selectionAnchor: null,
     highlightRanges: [],
     freezeDividers: { x: null, y: null },
     window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
@@ -215,6 +216,38 @@ describe('交互浮层主题 token', () => {
       { x: 346, y: 68, width: 2, height: 64, fill: '#ff0000' },
     ])
     // 清空后即无内容
+    expect(overlay.update(makeContent())).toBe(false)
+  })
+
+  it('选区锚点：选区样式绘制且先于高亮区域（引用染色框保持在上），非空即有内容', () => {
+    const skyRoot = new SceneNode()
+    const overlay = new InteractionOverlay(skyRoot, makeGeometry(), defaultTheme.interaction)
+    const node = skyRoot.children[0]!
+    // 锚点 (2,1) 单格：视口矩形 (248,68) 100×32
+    expect(
+      overlay.update(
+        makeContent({
+          selectionAnchor: { minCol: 2, minRow: 1, maxCol: 2, maxRow: 1 },
+          highlightRanges: [
+            { bounds: { minCol: 2, minRow: 1, maxCol: 2, maxRow: 1 }, color: '#ff0000' },
+          ],
+        }),
+      ),
+    ).toBe(true)
+    const ctx = new FillRecordingContext()
+    node.paint(ctx)
+    // 填充 + 四边边框用选区 token，且整体画在高亮区域边框之前（引用染色框不被盖住）
+    const anchorFillIndex = ctx.rects.findIndex(
+      (rect) => rect.fill === 'rgba(46, 106, 219, 0.08)' && rect.x === 248,
+    )
+    const anchorBorderIndex = ctx.rects.findIndex(
+      (rect) => rect.fill === '#2e6adb' && rect.x === 248 && rect.width === 100 && rect.height === 2,
+    )
+    const highlightIndex = ctx.rects.findIndex((rect) => rect.fill === '#ff0000')
+    expect(anchorFillIndex).toBeGreaterThanOrEqual(0)
+    expect(anchorBorderIndex).toBeGreaterThan(anchorFillIndex)
+    expect(highlightIndex).toBeGreaterThan(anchorBorderIndex)
+    // 清除锚点后无内容
     expect(overlay.update(makeContent())).toBe(false)
   })
 

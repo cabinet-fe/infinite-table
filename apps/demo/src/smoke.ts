@@ -135,8 +135,8 @@ function dispatchPointer(
   )
 }
 
-function dispatchKey(container: HTMLElement, key: string, shiftKey = false): void {
-  container.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key, shiftKey }))
+function dispatchKey(container: HTMLElement, key: string, shiftKey = false, ctrlKey = false): void {
+  container.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key, shiftKey, ctrlKey }))
 }
 
 function dispatchTouch(
@@ -670,6 +670,17 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   console.log('[smoke]', result.pass ? 'PASS' : 'FAIL', result.failures)
 }
 
+/** 菜单数值输入项定位：按标签文本找 .sheet-menu__count 项内输入框（标签是项内第一个 span） */
+function menuCountInput(label: string): HTMLInputElement {
+  const item = [...document.querySelectorAll<HTMLElement>('.sheet-menu__count')].find(
+    (el) => el.querySelector('span')?.textContent === label,
+  )
+  assert(item, `菜单数值项「${label}」未出现`)
+  const input = item.querySelector<HTMLInputElement>('input')
+  assert(input, `「${label}」输入框缺失`)
+  return input
+}
+
 /** sheet 演示区冒烟（插件之上的完整 sheet 面）：公式显示/填充生成/样式/结构操作/撤销/查找替换/CSV/tabs/resize 持久化 */
 async function checkSheet(checker: Checker): Promise<void> {
   const handle = window.__SHEET_DEMO__
@@ -684,6 +695,37 @@ async function checkSheet(checker: Checker): Promise<void> {
     return target
   }
 
+  /** 格内容区像素快照（内缩 2px 避开共享网格线；重绘断言用——getCellText 是活解析，证明不了画布重绘） */
+  const cellRegion = (
+    canvas: HTMLCanvasElement,
+    live: ListTable,
+    col: number,
+    row: number,
+  ): ImageData => {
+    const rect = live.getCellRelativeRect(col, row)
+    assert(rect, `格 (${col},${row}) 不在视口`)
+    const ctx = canvas.getContext('2d')
+    assert(ctx, '无法获取 canvas 2d 上下文')
+    return ctx.getImageData(
+      Math.round(rect.x) + 2,
+      Math.round(rect.y) + 2,
+      Math.max(1, Math.round(rect.width) - 4),
+      Math.max(1, Math.round(rect.height) - 4),
+    )
+  }
+
+  const sameRegion = (a: ImageData, b: ImageData): boolean => {
+    if (a.width !== b.width || a.height !== b.height) {
+      return false
+    }
+    for (let i = 0; i < a.data.length; i++) {
+      if (a.data[i] !== b.data[i]) {
+        return false
+      }
+    }
+    return true
+  }
+
   await checker.step('sheet 公式显示：Store 存原文、渲染求值、公式引擎', () => {
     assert(
       store.getValue(3, 2) === '=D1+D2',
@@ -693,6 +735,43 @@ async function checkSheet(checker: Checker): Promise<void> {
     assert(table.getCellText(3, 3) === '12', `SUM 区域显示 ${table.getCellText(3, 3)}`)
     assert(handle.controls.evaluate('D1*2+1') === 15, '公式引擎运算错误')
   })
+
+  await checker.step(
+    'sheet 溢出策略：缺省格 Excel 式溢出（走廊空格可见字形）、显式 ellipsis/clip 格语义保留',
+    async () => {
+      const container = activeContainer()
+      table.scrollTo(0, 0)
+      await frames(2)
+      table.clearSelection()
+      // 策略种子语义：B8 显式 ellipsis、C8 显式 clip、D8 缺省（未设 textOverflow）
+      assert(store.getStyle(1, 8)?.textOverflow === 'ellipsis', 'B8 显式 ellipsis 策略格丢失')
+      assert(store.getStyle(2, 8)?.textOverflow === 'clip', 'C8 显式 clip 策略格丢失')
+      assert(store.getStyle(3, 8)?.textOverflow === undefined, 'D8 缺省格不应显式设置 textOverflow')
+      // 缺省格 D8 超宽文本向右溢出：右邻空格 E8/F8 内可见字形（暗色像素），
+      // 走廊尽头 J8（文本止于 H8 内）保持干净——既证明溢出渲染、也排除整行误涂
+      const body = layerCanvas(container, 'body')
+      const darkCount = (col: number): number => {
+        const rect = table.getCellRelativeRect(col, 8)
+        assert(rect, `格 (${col},8) 不在视口`)
+        let dark = 0
+        for (let y = rect.y + 6; y < rect.y + rect.height - 6; y += 3) {
+          for (let x = rect.x + 4; x < rect.x + rect.width - 4; x += 3) {
+            const [r, g, b, a] = readPixel(body, Math.round(x), Math.round(y))
+            if (a > 0 && r + g + b < 360) {
+              dark++
+            }
+          }
+        }
+        return dark
+      }
+      const corridorE = darkCount(4)
+      const corridorF = darkCount(5)
+      const cleanJ = darkCount(9)
+      assert(corridorE > 10, `D8 右邻空格 E8 无溢出字形（暗像素 ${corridorE}）`)
+      assert(corridorF > 10, `D8 走廊第二格 F8 无溢出字形（暗像素 ${corridorF}）`)
+      assert(cleanJ < 5, `走廊尽头 J8 不应有字形（暗像素 ${cleanJ}）`)
+    },
+  )
 
   await checker.step('sheet 公式缓存失效：引用格变更后公式格重算', async () => {
     store.setValue(3, 0, 8)
@@ -707,6 +786,76 @@ async function checkSheet(checker: Checker): Promise<void> {
     await frames(2)
     assert(table.getCellText(3, 2) === '12', '还原后公式格未重算')
   })
+
+  await checker.step(
+    'sheet 公式自动重算：改 D1 后依赖公式格同一交互内自动重绘（无手动 refreshCell/滚动/重选）',
+    async () => {
+      const body = layerCanvas(activeContainer(), 'body')
+      table.scrollTo(0, 0)
+      await frames(2)
+      assert(
+        table.getCellText(3, 2) === '12' && table.getCellText(3, 3) === '12',
+        `前置：公式格应显示 12（实际 ${table.getCellText(3, 2)}/${table.getCellText(3, 3)}）`,
+      )
+      const d3Before = cellRegion(body, table, 3, 2)
+      const d4Before = cellRegion(body, table, 3, 3)
+      // D1: 7 → 10；不经 refreshCell，画布节点须随值变更自动重绘
+      store.setValue(3, 0, 10)
+      await frames(2)
+      assert(table.getCellText(3, 2) === '15', `=D1+D2 显示 ${table.getCellText(3, 2)}（期望 15）`)
+      assert(
+        table.getCellText(3, 3) === '15',
+        `=SUM(D1:D2) 显示 ${table.getCellText(3, 3)}（期望 15）`,
+      )
+      assert(!sameRegion(d3Before, cellRegion(body, table, 3, 2)), '=D1+D2 格画布未自动重绘')
+      assert(!sameRegion(d4Before, cellRegion(body, table, 3, 3)), '=SUM(D1:D2) 格画布未自动重绘')
+      // 还原 D1 → 显示与像素双双复原
+      store.setValue(3, 0, 7)
+      await frames(2)
+      assert(
+        table.getCellText(3, 2) === '12' && table.getCellText(3, 3) === '12',
+        '还原 D1 后依赖格未恢复 12',
+      )
+      assert(sameRegion(d3Before, cellRegion(body, table, 3, 2)), '还原后 =D1+D2 格像素未复原')
+    },
+  )
+
+  await checker.step(
+    'sheet 跨表自动重算：改 Sheet1!D1 后切到 sheet-2，跨表公式格显示值已取新结果',
+    async () => {
+      // sheet-2 F1 放跨表公式 =Sheet1!D1*2（D1=7 → 14）
+      handle.switchTo('sheet-2')
+      await frames(2)
+      const store2 = handle.getStore()
+      const table2 = handle.getTable()
+      store2.setValue(5, 0, '=Sheet1!D1*2')
+      await frames(2)
+      assert(
+        table2.getCellText(5, 0) === '14',
+        `跨表公式初值 ${table2.getCellText(5, 0)}（期望 14）`,
+      )
+      const body2 = layerCanvas(activeContainer(), 'body')
+      const f1Before = cellRegion(body2, table2, 5, 0)
+      // 回 sheet-1 改 D1（不滚动/不重选），sheet-2 池内实例应同步失效重绘
+      handle.switchTo('sheet-1')
+      await frames(2)
+      store.setValue(3, 0, 10)
+      await frames(2)
+      handle.switchTo('sheet-2')
+      await frames(2)
+      assert(
+        table2.getCellText(5, 0) === '20',
+        `切回后跨表公式 ${table2.getCellText(5, 0)}（期望 20）`,
+      )
+      assert(!sameRegion(f1Before, cellRegion(body2, table2, 5, 0)), '跨表公式格画布未取新结果')
+      // 清理夹具（D1 还原为 7，避免污染后续 tabs/xlsx 断言）
+      store2.setValue(5, 0, null)
+      handle.switchTo('sheet-1')
+      await frames(2)
+      store.setValue(3, 0, 7)
+      await frames(2)
+    },
+  )
 
   await checker.step('sheet 跨表引用：=SUM(Sheet2!A1:A2) 求值', async () => {
     // Sheet2 A1=0、A2=1 → 1
@@ -833,6 +982,83 @@ async function checkSheet(checker: Checker): Promise<void> {
     handle.getTable().setColWidth(2, previous)
   })
 
+  await checker.step(
+    'sheet 列宽菜单：右键列头数值输入 → 选区内列即时生效 + Store 持久化',
+    async () => {
+      const container = activeContainer()
+      table.scrollTo(0, 0)
+      await frames(2)
+      table.clearSelection()
+      const previous = store.getColWidth(3)
+      // 右键列头 D 列（col 3）中心：x = 46 + 3×80 + 40 = 326，列头带内 y=14；落点在选区外 → 先选中整列
+      const rect = container.getBoundingClientRect()
+      container.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          clientX: rect.left + 326,
+          clientY: rect.top + 14,
+        }),
+      )
+      const bounds = normalizeRange(table.getSelection().ranges[0]!)
+      assert(
+        bounds.minCol === 3 && bounds.maxCol === 3,
+        `右键列头未先选中整列：(${bounds.minCol},${bounds.minRow})~(${bounds.maxCol},${bounds.maxRow})`,
+      )
+      const input = menuCountInput('列宽')
+      input.value = '120'
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      assert(store.getColWidth(3) === 120, `Store 列宽 ${store.getColWidth(3)}`)
+      assert(table.getColWidth(3) === 120, `引擎列宽 ${table.getColWidth(3)}`)
+      // 画布即时生效：D 列加宽后 E 列（col 4）左缘 = 46 + 80×3 + 120 = 406
+      const col4 = table.getCellRelativeRect(4, 0)
+      assert(col4 && Math.round(col4.x) === 406, `E 列左缘 x=${col4?.x}（期望 406）`)
+      handle.switchTo('sheet-2')
+      handle.switchTo('sheet-1')
+      await frames(2)
+      assert(store.getColWidth(3) === 120, '切回后 Store 列宽丢失')
+      assert(handle.getTable().getColWidth(3) === 120, '切回后引擎列宽丢失')
+      store.setColWidth(3, previous)
+      handle.getTable().setColWidth(3, previous)
+    },
+  )
+
+  await checker.step(
+    'sheet 行高菜单：右键行号数值输入 → 选区内行即时生效 + Store 持久化',
+    async () => {
+      const container = activeContainer()
+      table.scrollTo(0, 0)
+      await frames(2)
+      table.clearSelection()
+      const previous = store.getRowHeight(5)
+      // 右键行号第 6 行（row 5）中心：行 5 顶 = 28(表头) + 28×3 + 44(行3加高) + 28 = 184，y=198；行号带 x=24
+      const rect = container.getBoundingClientRect()
+      container.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          clientX: rect.left + 24,
+          clientY: rect.top + 198,
+        }),
+      )
+      const bounds = normalizeRange(table.getSelection().ranges[0]!)
+      assert(
+        bounds.minRow === 5 && bounds.maxRow === 5,
+        `右键行号未先选中整行：(${bounds.minCol},${bounds.minRow})~(${bounds.maxCol},${bounds.maxRow})`,
+      )
+      const input = menuCountInput('行高')
+      input.value = '48'
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      assert(store.getRowHeight(5) === 48, `Store 行高 ${store.getRowHeight(5)}`)
+      assert(table.getRowHeight(5) === 48, `引擎行高 ${table.getRowHeight(5)}`)
+      handle.switchTo('sheet-2')
+      handle.switchTo('sheet-1')
+      await frames(2)
+      assert(store.getRowHeight(5) === 48, '切回后 Store 行高丢失')
+      assert(handle.getTable().getRowHeight(5) === 48, '切回后引擎行高丢失')
+      store.setRowHeight(5, previous)
+      handle.getTable().setRowHeight(5, previous)
+    },
+  )
+
   await checker.step('sheet 填充生成：拖柄 → generateFill 写值（batchUpdate 收敛）', async () => {
     const container = activeContainer()
     store.setValue(1, 1, 100)
@@ -913,6 +1139,106 @@ async function checkSheet(checker: Checker): Promise<void> {
     assert(alpha === 0, `清空后染色框未撤除（α=${alpha}）`)
   })
 
+  await checker.step(
+    'sheet 公式拾取选区保持：公式栏会话点选引用格后被编辑格选区态仍在、提交后不残留',
+    async () => {
+      const container = activeContainer()
+      const live = handle.getTable()
+      const sky = layerCanvas(container, 'sky')
+      const input = document.querySelector<HTMLTextAreaElement>('.sheet-fx-input')
+      assert(input, '公式输入区缺失')
+      // 锚定 B4：选中后带公式文本进入组合会话
+      live.selectCell(1, 3)
+      input.focus()
+      input.value = '=B2+'
+      input.setSelectionRange(4, 4)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await frames(2)
+      // 画布点选 C3：选区流动到 C3，引用插入光标处
+      const c3 = live.getCellRelativeRect(2, 2)
+      assert(c3, 'C3 不在视口')
+      dispatchPointer(container, 'pointerdown', c3.x + c3.width / 2, c3.y + c3.height / 2)
+      dispatchPointer(container, 'pointerup', c3.x + c3.width / 2, c3.y + c3.height / 2)
+      await frames(2)
+      assert(input.value === '=B2+C3', `引用插入结果 ${input.value}（期望 =B2+C3）`)
+      // 被编辑格 B4 选区态仍在：选区边框与填充不随点选消失
+      const b4 = live.getCellRelativeRect(1, 3)
+      assert(b4, 'B4 不在视口')
+      expectColor(sky, b4.x + b4.width / 2, b4.y + 1, '#2170E7', '拾取中 B4 选区边框')
+      assert(
+        readPixel(sky, b4.x + b4.width / 2, b4.y + b4.height / 2)[3] > 0,
+        '拾取中 B4 选区填充丢失',
+      )
+      // Enter 提交写回锚定格 B4，选区态恢复常规（不残留）
+      dispatchKey(container, 'Enter')
+      await frames(2)
+      assert(
+        store.getValue(1, 3) === '=B2+C3',
+        `公式应写回锚定格 B4（实际 ${String(store.getValue(1, 3))}）`,
+      )
+      assert(readPixel(sky, b4.x + b4.width / 2, b4.y + 1)[3] === 0, '提交后 B4 选区边框残留')
+      assert(
+        readPixel(sky, b4.x + b4.width / 2, b4.y + b4.height / 2)[3] === 0,
+        '提交后 B4 选区填充残留',
+      )
+      // 清理夹具
+      store.setValue(1, 3, null)
+      live.refreshCell(1, 3)
+    },
+  )
+
+  await checker.step(
+    'sheet 公式拾取选区保持：引擎会话拾取中被编辑格绿框与选区态并存、取消后不残留',
+    async () => {
+      const container = activeContainer()
+      const live = handle.getTable()
+      const sky = layerCanvas(container, 'sky')
+      store.setValue(1, 3, '=B2')
+      live.refreshCell(1, 3)
+      live.selectCell(1, 3)
+      assert(live.startEdit(1, 3), '进入编辑失败')
+      const editor = container.querySelector<HTMLTextAreaElement>('textarea, input')
+      assert(editor, '编辑器浮层缺失')
+      editor.value = '=B2+'
+      editor.setSelectionRange(4, 4)
+      editor.dispatchEvent(new Event('input', { bubbles: true }))
+      await frames(2)
+      const b4 = live.getCellRelativeRect(1, 3)
+      assert(b4, 'B4 不在视口')
+      // 引擎会话标记绿框与选区锚点填充并存
+      expectColor(sky, b4.x + b4.width / 2, b4.y + 1, '#107c41', '编辑会话绿框')
+      assert(readPixel(sky, b4.x + b4.width / 2, b4.y + b4.height / 2)[3] > 0, '编辑格选区填充缺失')
+      // 画布点选 C3：会话不提交、选区流动、引用插入编辑器
+      const c3 = live.getCellRelativeRect(2, 2)
+      assert(c3, 'C3 不在视口')
+      dispatchPointer(container, 'pointerdown', c3.x + c3.width / 2, c3.y + c3.height / 2)
+      dispatchPointer(container, 'pointerup', c3.x + c3.width / 2, c3.y + c3.height / 2)
+      await frames(2)
+      assert(editor.value === '=B2+C3', `编辑器引用插入结果 ${editor.value}（期望 =B2+C3）`)
+      const bounds = normalizeRange(live.getSelection().ranges[0]!)
+      assert(
+        bounds.minCol === 2 && bounds.minRow === 2,
+        `拾取后选区应流动到 C3（实际 (${bounds.minCol},${bounds.minRow})）`,
+      )
+      // 选区已离开 B4，被编辑格选区态仍在（绿框 + 选区填充）
+      expectColor(sky, b4.x + b4.width / 2, b4.y + 1, '#107c41', '拾取后绿框保持')
+      assert(
+        readPixel(sky, b4.x + b4.width / 2, b4.y + b4.height / 2)[3] > 0,
+        '拾取后 B4 选区填充丢失',
+      )
+      // Esc 取消：恢复常规选区，选区态不残留
+      dispatchKey(container, 'Escape')
+      await frames(2)
+      assert(
+        readPixel(sky, b4.x + b4.width / 2, b4.y + b4.height / 2)[3] === 0,
+        '取消后 B4 选区填充残留',
+      )
+      // 清理夹具
+      store.setValue(1, 3, null)
+      live.refreshCell(1, 3)
+    },
+  )
+
   await checker.step('sheet 样式工具栏：选区写样式 + toggle 取消', () => {
     table.selectCells([{ start: { col: 0, row: 20 }, end: { col: 0, row: 20 } }])
     handle.controls.toolbar.applyFragment({ fontWeight: 700 }, 'set')
@@ -939,6 +1265,67 @@ async function checkSheet(checker: Checker): Promise<void> {
     assert(store.getValue(0, 10) === '修改', '重做未回写')
     store.setValue(0, 10, null)
   })
+
+  await checker.step(
+    'sheet 撤销/重做键盘路径：合成 keydown 经 document 级监听链触发（不直调 UndoStack API）',
+    async () => {
+      const container = activeContainer()
+      const live = handle.getTable()
+      const z = (): void => dispatchKey(container, 'z', false, true)
+      const shiftZ = (): void => dispatchKey(container, 'z', true, true)
+      const y = (): void => dispatchKey(container, 'y', false, true)
+
+      // 空栈：按键为空操作且不报错（哨兵值保持不变）
+      handle.history.clear()
+      assert(!handle.history.canUndo() && !handle.history.canRedo(), '清空后撤销栈应空')
+      store.setValue(0, 11, '键盘基线')
+      live.refreshCell(0, 11)
+      z()
+      assert(store.getValue(0, 11) === '键盘基线', '空栈 Ctrl+Z 不应改值')
+
+      // 引擎编辑提交入栈 → 键盘撤销/重做回写，画布即时重绘
+      live.scrollTo(0, 0)
+      await frames(2)
+      live.selectCell(0, 11)
+      assert(live.startEdit(0, 11), '进入编辑失败')
+      const editor = container.querySelector<HTMLInputElement>('textarea, input')
+      assert(editor, '编辑器浮层缺失')
+      editor.value = '键盘修改'
+      assert(live.commitEdit(), '提交失败')
+      assert(store.getValue(0, 11) === '键盘修改', '编辑提交未落 Store')
+      await frames(2)
+      const body = layerCanvas(container, 'body')
+      const editedRegion = cellRegion(body, live, 0, 11)
+      z()
+      await frames(2)
+      assert(store.getValue(0, 11) === '键盘基线', '键盘 Ctrl+Z 撤销未回写')
+      assert(handle.history.canRedo(), '撤销后应可重做')
+      assert(!sameRegion(editedRegion, cellRegion(body, live, 0, 11)), '撤销后画布未重绘')
+      shiftZ()
+      await frames(2)
+      assert(store.getValue(0, 11) === '键盘修改', 'Ctrl+Shift+Z 重做未回写')
+      assert(sameRegion(editedRegion, cellRegion(body, live, 0, 11)), '重做后画布未还原')
+      z()
+      y()
+      assert(store.getValue(0, 11) === '键盘修改', 'Ctrl+Z 后 Ctrl+Y 重做未回写')
+
+      // 直写 Store 的值路径（查找替换）经值命令入栈：键盘撤销同样可回退
+      store.setValue(6, 9, '替换目标词')
+      live.refreshCell(6, 9)
+      const count = handle.controls.find.replaceAll('替换目标词', '已替换词')
+      assert(count === 1, `替换数量 ${count}`)
+      z()
+      assert(store.getValue(6, 9) === '替换目标词', '查找替换结果的键盘撤销未回写')
+      shiftZ()
+      assert(store.getValue(6, 9) === '已替换词', '查找替换的重做未回写')
+
+      store.setValue(0, 11, null)
+      store.setValue(6, 9, null)
+      live.refreshCell(0, 11)
+      live.refreshCell(6, 9)
+      handle.history.clear()
+    },
+  )
 
   await checker.step('sheet 查找替换：命中选中 + 全量替换', () => {
     store.setValue(6, 6, '查找目标甲')

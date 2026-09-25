@@ -162,6 +162,12 @@ export interface SheetDemoHandle {
   /** 撤销/重做（值命令） */
   undo: () => void
   redo: () => void
+  /** 撤销栈状态与重置（空栈断言 / 冒烟驱动） */
+  history: {
+    canUndo: () => boolean
+    canRedo: () => boolean
+    clear: () => void
+  }
   /** 关键查询 API 一次性快照（控制台 / 自动化断言用） */
   queries: () => {
     activeId: string | null
@@ -306,7 +312,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     }
     const undoBinding = bindCellChangeUndo({ table: created, store, stack })
     const offs = [
-      bindStoreFill(created, store),
+      bindStoreFill(created, store, stack),
       bindResizePersistence(created, store),
       () => undoBinding.dispose(),
     ]
@@ -384,6 +390,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   const contextMenu = mountContextMenu({
     table,
     store,
+    stack,
     notify,
     setNumFmt: numFmtControl.set,
   })
@@ -428,7 +435,12 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     notify(`已在行 ${at + 1} 上插入行`)
   }
 
-  // ---- 全局快捷键（Ctrl/Cmd+Z 撤销、Shift+Z/Y 重做、F 查找；输入控件内不接管） ----
+  // ---- 全局快捷键（Ctrl/Cmd+Z 撤销、Shift+Z/Y 重做、F 查找；输入控件内与编辑会话中不接管撤销/重做） ----
+  /** 撤销/重做接管条件：网格聚焦（焦点不在输入控件，见下方 target 过滤）且活跃表不在编辑会话 */
+  const canUndoRedo = (): boolean => {
+    const active = bundle.activeTable()
+    return active != null && !active.isEditing()
+  }
   const onKeydown = (event: KeyboardEvent): void => {
     if (!app.isConnected || !(event.ctrlKey || event.metaKey)) {
       return
@@ -441,16 +453,18 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     if (key === 'f') {
       event.preventDefault()
       toolbar.toggleFind()
-    } else if (key === 'z' && !event.shiftKey) {
+    } else if (key === 'z' && !event.shiftKey && canUndoRedo()) {
       event.preventDefault()
       stack.undo()
       notify('已撤销')
       toolbar.refreshStates()
-    } else if (key === 'z' || key === 'y') {
+      inspector.refresh()
+    } else if ((key === 'z' || key === 'y') && canUndoRedo()) {
       event.preventDefault()
       stack.redo()
       notify('已重做')
       toolbar.refreshStates()
+      inspector.refresh()
     }
   }
   document.addEventListener('keydown', onKeydown)
@@ -493,6 +507,11 @@ export function createSheetHandle(demo: SheetDemo): SheetDemoHandle {
     ids: () => demo.getBundle().ids(),
     undo: () => demo.getUndo().undo(),
     redo: () => demo.getUndo().redo(),
+    history: {
+      canUndo: () => demo.getUndo().canUndo,
+      canRedo: () => demo.getUndo().canRedo,
+      clear: () => demo.getUndo().clear(),
+    },
     controls: demo.getControls(),
     queries: () => {
       const table = demo.table

@@ -1,6 +1,7 @@
 // 数据结构观察区（对标 ultra-ui 演示页 inspector）：手动刷新快照（非实时订阅），
 // 懒渲染 JSON 区块（展开才挂载 DOM）、key 级语法高亮、复制反馈、放大对话框（可拖拽/最大化）。
-// 数据源全部来自 SheetStore / ListTable 公开 API（稀疏全表扫描仅在点击刷新时执行一次）。
+// 数据源全部来自 SheetStore / ListTable 公开 API（稀疏全表扫描仅在点击刷新时执行一次）；
+// 键盘撤销/重做（sheet.ts）回写后经 refresh() 追加一次快照刷新，画布与观察区同步反映回写结果。
 
 import type { ListTable } from '@infinite-table/core'
 
@@ -69,6 +70,8 @@ const BLOCKS: readonly BlockDef[] = [
 
 export interface InspectorHandle {
   destroy(): void
+  /** 立即重取当前活动表快照（撤销/重做回写后由宿主调用，观察区即时反映） */
+  refresh(): void
 }
 
 export function mountInspector(
@@ -471,6 +474,7 @@ export function mountInspector(
   }
 
   return {
+    refresh,
     destroy() {
       window.clearTimeout(copyTimer)
       panel.remove()

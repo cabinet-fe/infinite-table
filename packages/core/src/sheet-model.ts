@@ -45,10 +45,14 @@ export class SheetModel implements TableModel {
     return this.rows[row]?.[col]
   }
 
-  /** 写值并同步通知订阅者；越界（含负坐标）为空操作 */
+  /** 写值并同步通知订阅者；越界（含负坐标）为空操作。无订阅者时跳过事件构造（批量灌数热路径免逐写分配） */
   setCellValue(col: number, row: number, value: unknown): void {
     const cells = this.rows[row]
     if (!cells || col < 0 || col >= cells.length) {
+      return
+    }
+    if (this.listeners.size === 0) {
+      cells[col] = value
       return
     }
     const oldValue = cells[col]

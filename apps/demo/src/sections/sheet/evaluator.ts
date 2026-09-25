@@ -41,8 +41,11 @@ export interface SheetEvaluator {
   ): (formula: string, col: number, row: number) => string | number
   /** 直接求值（冒烟/控制台驱动面；formula 可带前导 =）；临时求值不进缓存，每次全新求值 */
   evaluateIn(sheetId: string, store: SheetStore, formula: string): EvaluatedValue
-  /** 值变更通知（Store value 事件驱动）：更新图边 + 标脏波及公式与易失格 */
-  notifyValueChange(sheetId: string, col: number, row: number): void
+  /**
+   * 值变更通知（Store value 事件驱动）：更新图边 + 标脏波及公式与易失格；
+   * 返回本次被标脏的全部格坐标（含被改格自身与跨表依赖方），宿主据此通知画布重绘失效格
+   */
+  notifyValueChange(sheetId: string, col: number, row: number): SheetCellCoord[]
   /** 全部缓存标脏（sheet 改名等使跨表名解析面变化时用；图边以规范 id 记录，不受影响） */
   invalidateAll(): void
   /** 清除指定 sheet 的缓存与图节点（sheet 移除时用） */
@@ -249,9 +252,11 @@ export function createSheetEvaluator(host: SheetEvaluatorHost): SheetEvaluator {
       // 临时控制台求值：不进缓存（独立命名空间键永远脏不了，缓存即泄漏）
       return toDisplay(evaluate(body, resolverFor(sheetId, store)))
     },
-    notifyValueChange(sheetId, col, row) {
+    notifyValueChange(sheetId, col, row): SheetCellCoord[] {
       const key = keyOf(sheetId, col, row)
       const coord: SheetCellCoord = { sheet: sheetId, col, row }
+      /** 本次被标脏格（自身 + 波及 + 易失，按 dirty 去重），交宿主重绘 */
+      const invalidated: SheetCellCoord[] = [coord]
       const raw = host.resolveSheet(sheetId)?.store.getValue(col, row)
       if (typeof raw === 'string' && raw.startsWith('=')) {
         // 公式：重新注册依赖（全量替换旧边）+ 标脏自身
@@ -271,11 +276,20 @@ export function createSheetEvaluator(host: SheetEvaluatorHost): SheetEvaluator {
         dirty.add(key)
       }
       for (const affected of graph.affectedBy([coord])) {
-        dirty.add(keyOf(affected.sheet, affected.col, affected.row))
+        const affectedKey = keyOf(affected.sheet, affected.col, affected.row)
+        if (!dirty.has(affectedKey)) {
+          dirty.add(affectedKey)
+          invalidated.push(affected)
+        }
       }
       for (const volatileCell of graph.volatileCells()) {
-        dirty.add(keyOf(volatileCell.sheet, volatileCell.col, volatileCell.row))
+        const volatileKey = keyOf(volatileCell.sheet, volatileCell.col, volatileCell.row)
+        if (!dirty.has(volatileKey)) {
+          dirty.add(volatileKey)
+          invalidated.push(volatileCell)
+        }
       }
+      return invalidated
     },
     invalidateAll() {
       for (const key of cache.keys()) {

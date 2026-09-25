@@ -48,6 +48,8 @@ export interface OverlayContent {
   readonly fillHandleRange: SelectionRange | null
   /** 填充拖拽预览区（轴锁定后的纯扩展区；非拖拽中为 null） */
   readonly fillPreview: RangeBounds | null
+  /** 选区锚点（编辑拾取会话中被编辑格保持的选区绘制；无为 null） */
+  readonly selectionAnchor: RangeBounds | null
   /** 宿主高亮区域（公式引用染色框等）；无为空数组 */
   readonly highlightRanges: readonly HighlightRange[]
   /** 冻结分隔线位置（视口坐标；x = 冻结列右缘竖线、y = 冻结行下缘横线，冻结数为 0 的轴为 null） */
@@ -79,6 +81,7 @@ export class OverlayNode extends SceneNode {
     this.paintFreezeDividers(ctx, content, viewport)
     this.paintHover(ctx, content)
     this.paintSelection(ctx, content)
+    this.paintSelectionAnchor(ctx, content)
     this.paintHighlightRanges(ctx, content)
     this.paintFillPreview(ctx, content)
     this.paintFillHandle(ctx, content)
@@ -127,16 +130,32 @@ export class OverlayNode extends SceneNode {
       if (!rect) {
         continue
       }
-      ctx.fillStyle = this.interaction.selectionFill
-      ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
-      // 四边边框（RenderContext 无 stroke，用细条填充）
-      ctx.fillStyle = this.interaction.selectionBorder
-      const w = this.interaction.selectionBorderWidth
-      ctx.fillRect(rect.x, rect.y, rect.width, w)
-      ctx.fillRect(rect.x, rect.y + rect.height - w, rect.width, w)
-      ctx.fillRect(rect.x, rect.y, w, rect.height)
-      ctx.fillRect(rect.x + rect.width - w, rect.y, w, rect.height)
+      this.paintSelectionRect(ctx, rect)
     }
+  }
+
+  /** 选区锚点：编辑拾取会话中被编辑格持续保持的选区绘制（选区已流动到拾取段，本格不丢选中态） */
+  private paintSelectionAnchor(ctx: RenderContext, content: OverlayContent): void {
+    if (!content.selectionAnchor) {
+      return
+    }
+    const rect = this.boundsRect(content.selectionAnchor, content)
+    if (!rect) {
+      return
+    }
+    this.paintSelectionRect(ctx, rect)
+  }
+
+  /** 选区样式矩形：主题 token 填充 + 四边细条边框（RenderContext 无 stroke，用细条填充） */
+  private paintSelectionRect(ctx: RenderContext, rect: Region): void {
+    ctx.fillStyle = this.interaction.selectionFill
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
+    ctx.fillStyle = this.interaction.selectionBorder
+    const w = this.interaction.selectionBorderWidth
+    ctx.fillRect(rect.x, rect.y, rect.width, w)
+    ctx.fillRect(rect.x, rect.y + rect.height - w, rect.width, w)
+    ctx.fillRect(rect.x, rect.y, w, rect.height)
+    ctx.fillRect(rect.x + rect.width - w, rect.y, w, rect.height)
   }
 
   /** 宿主高亮区域：四边细条边框（无填充），逐条取宿主指定颜色；完全在可视窗口外跳过 */
@@ -270,6 +289,7 @@ export class InteractionOverlay {
       content.hover !== null ||
       content.resizeLine !== null ||
       content.fillPreview !== null ||
+      content.selectionAnchor !== null ||
       content.highlightRanges.length > 0 ||
       content.freezeDividers.x !== null ||
       content.freezeDividers.y !== null

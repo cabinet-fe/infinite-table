@@ -105,6 +105,16 @@ export class SheetStore {
   private rebuildDepth = 0
   /** 批量重建期间被触碰的 meta 命名空间（归零时按字典序各发一条 ns 级汇总） */
   private rebuildMetaTouched: Set<string> | null = null
+  /**
+   * 模型事件转发（惰性挂载）：首个 onChange 订阅者出现时挂上、最后一个退订时摘除。
+   * 无订阅者期间模型写零事件成本（批量灌数热路径），事件语义不变——零订阅者时
+   * 的通知本就不可观察。转发覆盖引擎回写（asModel().setCellValue）与 setValue
+   * 两条写路径；setValue 自身只写模型，不经此转发会重复发事件的路径。
+   */
+  private detachModelForward: (() => void) | null = null
+  private readonly modelForward = (change: { col: number; row: number }): void => {
+    this.notifyChange('value', change.col, change.row)
+  }
 
   constructor(private readonly options: SheetStoreOptions) {
     this.values = new SheetModel(options.rowCount, options.colCount)
@@ -112,11 +122,6 @@ export class SheetStore {
     this.defaultRowHeight = options.defaultRowHeight ?? 32
     this.baseStyle = options.baseStyle ?? {}
     this.resolveDisplayValue = options.resolveDisplayValue
-    // 模型事件（含引擎回写）一次性转发为 Store 的 value 广播；
-    // setValue 自身只写模型，不经此转发会重复发事件的路径
-    this.values.onCellChange((change) => {
-      this.dispatch({ type: 'value', col: change.col, row: change.row })
-    })
   }
 
   /** 行数 */
@@ -161,13 +166,13 @@ export class SheetStore {
   /** 写格级样式（整体替换该格样式） */
   setStyle(col: number, row: number, style: CellStyle): void {
     this.styles.set(this.styleKey(col, row), style)
-    this.dispatch({ type: 'style', col, row })
+    this.notifyChange('style', col, row)
   }
 
   /** 清除格级样式（回落主题/列级管线） */
   clearStyle(col: number, row: number): void {
     this.styles.delete(this.styleKey(col, row))
-    this.dispatch({ type: 'style', col, row })
+    this.notifyChange('style', col, row)
   }
 
   /** 样式坐标 key：行 × 列数 + 列（维度构造期固定，行列数内有唯一性） */
@@ -205,13 +210,13 @@ export class SheetStore {
   /** 写列级样式片段（getEffectiveStyle 合成中层，整列生效）；广播 style 事件（仅 col） */
   setColumnStyle(col: number, style: CellStyle): void {
     this.colStyles.set(col, style)
-    this.dispatch({ type: 'style', col })
+    this.notifyChange('style', col)
   }
 
   /** 清除列级样式片段（该列回落基础样式）；广播 style 事件（仅 col） */
   clearColumnStyle(col: number): void {
     this.colStyles.delete(col)
-    this.dispatch({ type: 'style', col })
+    this.notifyChange('style', col)
   }
 
   /** 枚举全部列级样式片段，按列升序确定性返回；空返回 []（快照采集/批量重建清场用） */
@@ -318,24 +323,24 @@ export class SheetStore {
 
   setColWidth(col: number, width: number): void {
     this.colWidths.set(col, width)
-    this.dispatch({ type: 'geometry', col })
+    this.notifyChange('geometry', col)
   }
 
   /** 清除列宽覆盖（该列回落缺省宽度）；广播 geometry 事件（仅 col） */
   clearColWidth(col: number): void {
     this.colWidths.delete(col)
-    this.dispatch({ type: 'geometry', col })
+    this.notifyChange('geometry', col)
   }
 
   setRowHeight(row: number, height: number): void {
     this.rowHeights.set(row, height)
-    this.dispatch({ type: 'geometry', row })
+    this.notifyChange('geometry', undefined, row)
   }
 
   /** 清除行高覆盖（该行回落缺省行高）；广播 geometry 事件（仅 row） */
   clearRowHeight(row: number): void {
     this.rowHeights.delete(row)
-    this.dispatch({ type: 'geometry', row })
+    this.notifyChange('geometry', undefined, row)
   }
 
   /** 全部列宽覆盖（宿主切 sheet 后逐列应用用） */
@@ -356,7 +361,7 @@ export class SheetStore {
 
   setFrozen(frozen: SheetFrozen): void {
     this.frozen = { ...frozen }
-    this.dispatch({ type: 'freeze' })
+    this.notifyChange('freeze')
   }
 
   // ---- 合并区 ----
@@ -367,7 +372,7 @@ export class SheetStore {
 
   setMerges(ranges: readonly CellRange[]): void {
     this.merges = ranges.map(normalizeCellRange)
-    this.dispatch({ type: 'merge' })
+    this.notifyChange('merge')
   }
 
   // ---- 变更通知 ----
@@ -398,10 +403,20 @@ export class SheetStore {
     }
   }
 
-  /** 订阅 Store 变更；返回退订函数 */
+  /** 订阅 Store 变更；返回退订函数。首个订阅挂载模型事件转发，最后一个退订摘除（见 modelForward） */
   onChange(listener: SheetStoreChangeListener): () => void {
+    const first = this.listeners.size === 0
     this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
+    if (first) {
+      this.detachModelForward ??= this.values.onCellChange(this.modelForward)
+    }
+    return () => {
+      this.listeners.delete(listener)
+      if (this.listeners.size === 0) {
+        this.detachModelForward?.()
+        this.detachModelForward = null
+      }
+    }
   }
 
   /** 订阅 cell meta 变更（独立于 onChange 的事件面，命名为 meta-change）；返回退订函数 */
@@ -410,16 +425,24 @@ export class SheetStore {
     return () => this.metaListeners.delete(listener)
   }
 
-  private dispatch(event: SheetStoreChangeEvent): void {
-    if (this.rebuildDepth > 0) {
+  /**
+   * 变更广播统一出口（写路径热路径）：批量重建期间静默、无订阅者短路；
+   * 短路先于事件对象构造（调用方传字段而非对象），批量灌数时每写一格
+   * 不再付出事件分配成本。
+   */
+  private notifyChange(type: SheetStoreChangeType, col?: number, row?: number): void {
+    if (this.rebuildDepth > 0 || this.listeners.size === 0) {
       return
     }
-    this.notify(this.listeners, event)
+    this.notify(this.listeners, { type, col, row })
   }
 
   private dispatchMeta(event: SheetStoreMetaChangeEvent): void {
     if (this.rebuildDepth > 0) {
       ;(this.rebuildMetaTouched ??= new Set<string>()).add(event.ns)
+      return
+    }
+    if (this.metaListeners.size === 0) {
       return
     }
     this.notify(this.metaListeners, event)

@@ -1,10 +1,11 @@
 // 网格右键菜单（对标 ultra-ui sheet-context-menu 的三套形态）：
-// 行号右键（上/下方插入行·数量输入、删除行、冻结到当前行）；列头右键（左/右侧插入列、删除列、冻结到当前列）；
+// 行号右键（上/下方插入行·数量输入、删除行、行高·数值输入、冻结到当前行）；
+// 列头右键（左/右侧插入列、删除列、列宽·数值输入、冻结到当前列）；
 // 正文右键（合并/取消合并、插入浮动图片）。落点在选区外时先选中该格/整行/整列。
 
 import type { ListTable } from '@infinite-table/core'
 
-import type { SheetStore } from '@infinite-table/plugins'
+import type { SheetStore, UndoStack } from '@infinite-table/plugins'
 
 import { openFixedPopup } from './popup'
 import {
@@ -25,9 +26,15 @@ export interface ContextMenuHandle {
   destroy(): void
 }
 
+/** 行列尺寸输入 clamp 域：下限对齐引擎最小行列尺寸（core resize MIN_COL_WIDTH/MIN_ROW_HEIGHT = 20，未公开导出；输入先钳到同域避免 Store 与引擎钳制发散），上限防呆 */
+const SIZE_MIN = 20
+const SIZE_MAX = 1000
+
 export function mountContextMenu(ctx: {
   table: () => ListTable
   store: () => SheetStore
+  /** 撤销栈：「清空内容」值命令入栈 */
+  stack: UndoStack
   notify: (text: string, kind?: 'info' | 'warn') => void
   /** numFmt 侧车写路径（绑定活跃 sheet；fmt undefined = 清除）。格刷新由本模块触发 */
   setNumFmt: (col: number, row: number, fmt: NumFmt | undefined) => void
@@ -124,17 +131,18 @@ export function mountContextMenu(ctx: {
       if (!bounds || row < bounds.minRow || row > bounds.maxRow) {
         table.selectCells([{ start: { col: 0, row }, end: { col: store.getColCount() - 1, row } }])
       }
+      const target = boundsOf()!
       openFixedPopup(clientX, clientY, {
         build: (el, close) => {
           el.classList.add('sheet-popup', 'sheet-popup--menu')
           el.append(
-            countItem({
+            numberItem({
               label: '在上方插入',
               unit: '行',
               onConfirm: (count) => insertRowsAt(row, count),
               close,
             }),
-            countItem({
+            numberItem({
               label: '在下方插入',
               unit: '行',
               onConfirm: (count) => insertRowsAt(row + 1, count),
@@ -143,6 +151,21 @@ export function mountContextMenu(ctx: {
             actionItem(`删除行 ${row + 1}`, () =>
               structural(() => deleteRow(store, row), `已删除行 ${row + 1}`),
             ),
+            numberItem({
+              label: '行高',
+              unit: 'px',
+              value: store.getRowHeight(row),
+              min: SIZE_MIN,
+              max: SIZE_MAX,
+              onConfirm: (height) => {
+                for (let r = target.minRow; r <= target.maxRow; r++) {
+                  store.setRowHeight(r, height)
+                  table.setRowHeight(r, height)
+                }
+                ctx.notify(`已设置行高 ${height}px`)
+              },
+              close,
+            }),
             separator(),
             checkedItem(`冻结到当前行`, store.getFrozen().rowCount === row + 1, () =>
               applyFrozen({ rowCount: row + 1 }),
@@ -164,17 +187,18 @@ export function mountContextMenu(ctx: {
       if (!bounds || col < bounds.minCol || col > bounds.maxCol) {
         table.selectCells([{ start: { col, row: 0 }, end: { col, row: store.getRowCount() - 1 } }])
       }
+      const target = boundsOf()!
       openFixedPopup(clientX, clientY, {
         build: (el, close) => {
           el.classList.add('sheet-popup', 'sheet-popup--menu')
           el.append(
-            countItem({
+            numberItem({
               label: '在左侧插入',
               unit: '列',
               onConfirm: (count) => insertColsAt(col, count),
               close,
             }),
-            countItem({
+            numberItem({
               label: '在右侧插入',
               unit: '列',
               onConfirm: (count) => insertColsAt(col + 1, count),
@@ -183,6 +207,21 @@ export function mountContextMenu(ctx: {
             actionItem(`删除列 ${colLetters(col)}`, () =>
               structural(() => deleteCol(store, col), `已删除列 ${colLetters(col)}`),
             ),
+            numberItem({
+              label: '列宽',
+              unit: 'px',
+              value: store.getColWidth(col),
+              min: SIZE_MIN,
+              max: SIZE_MAX,
+              onConfirm: (width) => {
+                for (let c = target.minCol; c <= target.maxCol; c++) {
+                  store.setColWidth(c, width)
+                  table.setColWidth(c, width)
+                }
+                ctx.notify(`已设置列宽 ${width}px`)
+              },
+              close,
+            }),
             separator(),
             checkedItem('冻结到当前列', store.getFrozen().colCount === col + 1, () =>
               applyFrozen({ colCount: col + 1 }),
@@ -269,7 +308,7 @@ export function mountContextMenu(ctx: {
           }),
           separator(),
           actionItem('清空内容', () => {
-            clearValues(store, current)
+            clearValues(store, current, ctx.stack)
             refreshAllGrid(table, store)
             ctx.notify('已清空选区内容')
           }),
@@ -386,12 +425,19 @@ function numFmtSubmenu(
 }
 
 /** 数量输入项：「在上方插入 [3] 行」——Enter 确认执行（keepOpen，不点外不关） */
-function countItem(options: {
+function numberItem(options: {
   label: string
   unit: string
-  onConfirm: (count: number) => void
+  /** 初始值与确认 clamp 域（插入数量缺省 1..100；行列尺寸传当前值与 SIZE_MIN/SIZE_MAX） */
+  value?: number
+  min?: number
+  max?: number
+  onConfirm: (value: number) => void
   close: () => void
 }): HTMLElement {
+  const min = options.min ?? 1
+  const max = options.max ?? 100
+  const initial = options.value ?? 1
   const item = document.createElement('div')
   item.className = 'sheet-menu__count'
   const label = document.createElement('span')
@@ -399,17 +445,17 @@ function countItem(options: {
   const input = document.createElement('input')
   input.type = 'number'
   input.className = 'sheet-menu__count-input'
-  input.min = '1'
-  input.max = '100'
+  input.min = String(min)
+  input.max = String(max)
   input.step = '1'
-  input.value = '1'
+  input.value = String(initial)
   const unit = document.createElement('span')
   unit.textContent = options.unit
   item.append(label, input, unit)
   const confirm = (): void => {
-    const count = Math.max(1, Math.min(100, Math.floor(Number(input.value) || 1)))
+    const value = Math.max(min, Math.min(max, Math.floor(Number(input.value) || initial)))
     options.close()
-    options.onConfirm(count)
+    options.onConfirm(value)
   }
   input.addEventListener('keydown', (event) => {
     event.stopPropagation()

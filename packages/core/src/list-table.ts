@@ -90,6 +90,7 @@ import {
 import { ScrollManager, type ScrollDelta, type ScrollState } from './scroll-manager'
 import {
   SelectionState,
+  type RangeBounds,
   type SelectionListener,
   type SelectionRange,
   type SelectionSnapshot,
@@ -234,6 +235,8 @@ export class ListTable {
   overlayHadContent = false
   /** @internal 宿主高亮区域（公式引用染色框等）：sky 浮层内容源之一，setHighlightRanges 写入 */
   highlightRanges: readonly HighlightRange[] = []
+  /** @internal 选区锚点（编辑拾取会话中被编辑格保持的选区绘制）：sky 浮层内容源之一，setSelectionAnchor 写入 */
+  selectionAnchor: RangeBounds | null = null
   private batchDepth = 0
   private readonly batchRegions: Region[] = []
   /** @internal contextmenu 事件订阅 */
@@ -516,13 +519,18 @@ export class ListTable {
     const master = this.mergeCells.masterOf(col, row)
     const masterCol = master?.col ?? col
     const masterRow = master?.row ?? row
-    const prevBorder = this.cellNodes.get(cellKey(masterCol, masterRow))?.style.border
-    this.refreshCellNode(col, row)
+    const node = this.cellNodes.get(cellKey(masterCol, masterRow))
+    if (!node) {
+      // 快速退出：主格不在可视窗口（无场景节点可刷；图片节点只随数据格建，同样不存在）。
+      // 批量写的绝大多数落在窗口外，模型事件→局部刷新的热路径就此一次查找收束。
+      return
+    }
+    const prevBorder = node.style.border
+    this.refreshCellNodeContents(node, masterCol, masterRow)
     // 共享边联动（shared-edges.ts）：本格 left/top 边改变左/上邻居（共享边所有者）的生效边。
     // 样式按不可变约定使用，边框引用未变则邻居生效边不变、跳过联动；
     // 联动刷新自身不再级联（各邻居生效边只依赖其自身样式与本格对侧边），无循环。
-    const node = this.cellNodes.get(cellKey(masterCol, masterRow))
-    if (!node || node.style.border === prevBorder) {
+    if (node.style.border === prevBorder) {
       return
     }
     const range = this.mergeCells.rangeAt(masterCol, masterRow)
@@ -541,11 +549,19 @@ export class ListTable {
     const master = this.mergeCells.masterOf(col, row)
     const masterCol = master?.col ?? col
     const masterRow = master?.row ?? row
-    refreshImageCell(this, masterCol, masterRow)
     const node = this.cellNodes.get(cellKey(masterCol, masterRow))
     if (!node) {
       return
     }
+    this.refreshCellNodeContents(node, masterCol, masterRow)
+  }
+
+  /**
+   * 节点内容刷新主体（节点已解析出）：图片格联动、内容/样式/生效边框重投影、
+   * 溢出走廊重算与两侧来源联动、失效区提交（批量更新期间改为收集）。
+   */
+  private refreshCellNodeContents(node: CellNode, masterCol: number, masterRow: number): void {
+    refreshImageCell(this, masterCol, masterRow)
     const prevMaxX = node.textMaxX
     const prevMinX = node.textMinX
     const prevHasText = node.text !== ''
@@ -707,6 +723,28 @@ export class ListTable {
    */
   setHighlightRanges(ranges: readonly HighlightRange[]): void {
     this.highlightRanges = ranges
+    refreshOverlay(this)
+  }
+
+  /**
+   * 设置选区锚点（公式拾取等编辑会话用）：锚定格以选区样式（填充 + 边框）持续绘制，
+   * 实际选区照常流动（拾取段消费为引用），被编辑格不丢选中态；合并格按整块包围盒绘制；
+   * 传 null 清除（会话结束恢复常规选区行为）。
+   */
+  setSelectionAnchor(anchor: CellRef | null): void {
+    if (!anchor) {
+      this.selectionAnchor = null
+    } else {
+      const merge = this.mergeCells.rangeAt(anchor.col, anchor.row)
+      this.selectionAnchor = merge
+        ? {
+            minCol: merge.startCol,
+            minRow: merge.startRow,
+            maxCol: merge.endCol,
+            maxRow: merge.endRow,
+          }
+        : { minCol: anchor.col, minRow: anchor.row, maxCol: anchor.col, maxRow: anchor.row }
+    }
     refreshOverlay(this)
   }
 

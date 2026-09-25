@@ -464,6 +464,14 @@ export function mountFormulaBar(
   /** 组合会话锚定格（会话开始时的焦点格）：拾取会移动选区，提交仍写回锚定格 */
   let composeCell: { col: number; row: number } | null = null
 
+  /**
+   * 组合会话中被编辑格的选区锚点（core setSelectionAnchor）：拾取全程以选区样式持续绘制，
+   * 选区随拾取流动到被拾取段也不丢选中态；会话结束即清，恢复常规选区行为。
+   */
+  const syncSelectionAnchor = (cell: { col: number; row: number } | null): void => {
+    boundTable?.setSelectionAnchor(cell)
+  }
+
   /** 提交：写回 Store + 局部刷新（写回组合会话锚定格，非当前选区） */
   const commit = (): void => {
     const cell = composeCell ?? focusCell()
@@ -472,6 +480,7 @@ export function mountFormulaBar(
     }
     composing = null
     composeCell = null
+    syncSelectionAnchor(null)
     suspended = true
     ctx.store().setValue(cell.col, cell.row, input.value === '' ? null : input.value)
     ctx.table().refreshCell(cell.col, cell.row)
@@ -487,6 +496,7 @@ export function mountFormulaBar(
   const cancel = (): void => {
     composing = null
     composeCell = null
+    syncSelectionAnchor(null)
     refresh()
     input.blur()
     syncRefHighlights()
@@ -601,6 +611,7 @@ export function mountFormulaBar(
     if (!suspended) {
       composing = null
       composeCell = null
+      syncSelectionAnchor(null)
     }
   })
 
@@ -679,9 +690,11 @@ export function mountFormulaBar(
     if (composing === null && formula) {
       composing = 'bar'
       composeCell = focusCell()
+      syncSelectionAnchor(composeCell)
     } else if (composing === 'bar' && !formula) {
       composing = null
       composeCell = null
+      syncSelectionAnchor(null)
     }
     renderSuggestions()
     renderCalltip()
@@ -692,10 +705,12 @@ export function mountFormulaBar(
   input.addEventListener('keyup', renderCalltip)
   input.addEventListener('click', renderCalltip)
   input.addEventListener('focus', () => {
-    // 带公式文本聚焦进入组合会话（纯文本编辑不进会话：画布点选即改选，保持既有行为）
-    if (!suspended && input.value.trimStart().startsWith('=')) {
+    // 带公式文本聚焦进入组合会话（纯文本编辑不进会话：画布点选即改选，保持既有行为）；
+    // 已在会话中则不重锚（拾取后回点输入区，锚定格仍是会话开始时的被编辑格）
+    if (!suspended && composing === null && input.value.trimStart().startsWith('=')) {
       composing = 'bar'
       composeCell = focusCell()
+      syncSelectionAnchor(composeCell)
     }
     refreshEditorChrome()
     renderCalltip()
@@ -785,6 +800,7 @@ export function mountFormulaBar(
     // 函数插入即进入组合会话（锚定当前焦点格）
     composing = 'bar'
     composeCell = focusCell()
+    syncSelectionAnchor(composeCell)
     input.focus()
     // 光标落括号内（免手动补右括号，与建议确认一致）
     input.setSelectionRange(input.value.length - 1, input.value.length - 1)
@@ -887,8 +903,9 @@ export function mountFormulaBar(
     if (table === boundTable) {
       return
     }
-    // 切走前清掉旧表的引用染色框（池化实例复显时不能残留）；组合会话随切表结束
+    // 切走前清掉旧表的引用染色框与选区锚点（池化实例复显时不能残留）；组合会话随切表结束
     boundTable?.setHighlightRanges([])
+    boundTable?.setSelectionAnchor(null)
     if (composing !== null) {
       composing = null
       composeCell = null
@@ -923,9 +940,11 @@ export function mountFormulaBar(
       table.onEditStart((edit) => {
         suspended = true
         const initial = edit.initialValue == null ? '' : String(edit.initialValue)
-        // 公式格编辑进入引擎组合会话：开启引擎拾取（画布点选/拖选不提交，选区段即引用）
+        // 公式格编辑进入引擎组合会话：开启引擎拾取（画布点选/拖选不提交，选区段即引用）；
+        // 被编辑格设为选区锚点（拾取全程保持选区态，绿框与选区态并存）；非公式编辑清除残留锚点
         composing = initial.trimStart().startsWith('=') ? 'engine' : null
         table.editPickMode = composing === 'engine'
+        table.setSelectionAnchor(composing === 'engine' ? { col: edit.col, row: edit.row } : null)
         nameBox.value = formatCellAddress(edit.col, edit.row)
         input.value = initial
         // 编辑器元素在表格容器内（demo 级镜像：监听其 input 事件）
@@ -945,6 +964,7 @@ export function mountFormulaBar(
         composing = null
         composeCell = null
         table.editPickMode = false
+        table.setSelectionAnchor(null)
         refresh()
         // 引擎会话结束（提交/取消/滚出视口）：清染色框
         syncRefHighlights()
@@ -976,6 +996,7 @@ export function mountFormulaBar(
       boundContainer?.removeEventListener('keydown', onContainerKeyDown, true)
       boundContainer = null
       boundTable?.setHighlightRanges([])
+      boundTable?.setSelectionAnchor(null)
       boundTable = null
       mirroredEditor?.removeEventListener('input', onEditorInput)
       hideSuggestions()

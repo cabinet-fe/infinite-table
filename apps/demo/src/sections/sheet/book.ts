@@ -8,7 +8,7 @@
 
 import type { ListTable, ListTableOptions } from '@infinite-table/core'
 
-import { colLetters } from '@infinite-table/formulas'
+import { colLetters, type SheetCellCoord } from '@infinite-table/formulas'
 import { SheetBook, SheetStore, type SheetDef } from '@infinite-table/plugins'
 
 import { attachWheel, resolveDpr } from '../../mount'
@@ -128,6 +128,31 @@ export function createDemoBook(
       editor: 'text',
     }))
 
+  /** 失效格 → 画布重绘：按所属 sheet 分组，在池内实例上批量局部刷新（批内失效合并一次提交；
+   *  未建实例的 sheet 切回时经全量首绘取新值；隐藏容器实例照常重绘位图，切回即见新值） */
+  const repaintInvalidated = (cells: readonly SheetCellCoord[]): void => {
+    const bySheet = new Map<string, SheetCellCoord[]>()
+    for (const cell of cells) {
+      const list = bySheet.get(cell.sheet)
+      if (list) {
+        list.push(cell)
+      } else {
+        bySheet.set(cell.sheet, [cell])
+      }
+    }
+    for (const [sheetId, list] of bySheet) {
+      const table = book.get(sheetId)
+      if (!table) {
+        continue
+      }
+      table.batchUpdate(() => {
+        for (const cell of list) {
+          table.refreshCell(cell.col, cell.row)
+        }
+      })
+    }
+  }
+
   /** 注册定义：样式 hook 与显示链（公式求值 → numFmt 格式化）都闭包绑定自己的 Store；value 事件通知 evaluator 标脏 */
   const registerWith = (id: string, store: SheetStore, options?: RegisterSheetOptions): void => {
     stores.set(id, store)
@@ -139,9 +164,11 @@ export function createDemoBook(
     storeWatchOffs.set(
       id,
       store.onChange((event) => {
-        // 只有值变更影响公式结果；样式/几何/冻结/合并不触碰公式缓存
+        // 只有值变更影响公式结果；样式/几何/冻结/合并不触碰公式缓存。
+        // 值写路径统一汇聚点：编辑提交（引擎回写）/填充/查找替换/清空内容全部经
+        // Store value 事件到达这里，依赖失效 + 画布重绘一次收口
         if (event.type === 'value' && event.col !== undefined && event.row !== undefined) {
-          evaluator.notifyValueChange(id, event.col, event.row)
+          repaintInvalidated(evaluator.notifyValueChange(id, event.col, event.row))
         }
       }),
     )

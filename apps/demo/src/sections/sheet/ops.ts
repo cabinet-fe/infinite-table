@@ -4,7 +4,9 @@
 
 import type { CellRange, CellStyle, ListTable } from '@infinite-table/core'
 
-import type { SheetStore } from '@infinite-table/plugins'
+import type { SheetStore, UndoStack } from '@infinite-table/plugins'
+
+import { applyValueWrites } from './undo-writes'
 
 /** 读全表非空值/样式快照（稀疏） */
 interface GridSnapshot {
@@ -82,16 +84,19 @@ export function syncMergesToTable(
   }
 }
 
-/** 清空选区值（样式保留） */
+/** 清空选区值（样式保留）；清空作为值命令入撤销栈 */
 export function clearValues(
   store: SheetStore,
   bounds: { minCol: number; maxCol: number; minRow: number; maxRow: number },
+  stack: UndoStack,
 ): void {
+  const writes: { col: number; row: number; value: null }[] = []
   for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
     for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-      store.setValue(col, row, null)
+      writes.push({ col, row, value: null })
     }
   }
+  applyValueWrites(store, stack, writes)
 }
 
 /** 合并选区（调用方需 try/catch 引擎校验）；返回合并区间 */

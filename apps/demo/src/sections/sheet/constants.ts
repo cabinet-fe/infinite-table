@@ -93,10 +93,13 @@ export const VALUE_SEEDS: ReadonlyArray<{ key: string; value: unknown }> = [
   { key: '2,7', value: 'dashed' },
   { key: '3,7', value: 'dotted' },
   { key: '4,7', value: 'double' },
-  { key: '0,8', value: '溢出' },
-  { key: '1,8', value: OVERFLOW_TEXT },
-  { key: '2,8', value: OVERFLOW_TEXT },
-  { key: '3,8', value: OVERFLOW_TEXT },
+  // 溢出策略行：每格文本自带策略标注——B8 省略号（显式 ellipsis）、C8 裁剪（显式 clip）、
+  // D8 缺省溢出（未设 textOverflow，按 Excel 式溢出到右侧空格）。缺省格的省略号误读
+  // 防线：本行三格策略互不相同且自描述，见 S10-P3 实现说明。
+  { key: '0,8', value: '溢出策略' },
+  { key: '1,8', value: `省略号：${OVERFLOW_TEXT}` },
+  { key: '2,8', value: `裁剪：${OVERFLOW_TEXT}` },
+  { key: '3,8', value: `缺省溢出：${OVERFLOW_TEXT}` },
   { key: '0,9', value: '内边距' },
   { key: '1,9', value: '左内边距24' },
   { key: '2,9', value: '四边内边距' },
