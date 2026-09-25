@@ -498,12 +498,17 @@ export class ListTable {
     return this.pipeline.resolveText(master?.col ?? col, master?.row ?? row)
   }
 
-  /** 表格回驱模型：模型 echo 由 ModelBinding 吞掉防回环，随后本格局部刷新一次 */
+  /**
+   * 表格回驱模型：回环窗口内模型同步 echo 的变更格（含同步重算的派生格）
+   * 收集去重后统一逐格局部刷新；被编辑格的显式刷新与收集结果合并去重，每格恰好刷一次。
+   */
   updateCell(col: number, row: number, value: unknown): void {
     if (!this.binding) {
       return
     }
-    this.binding.writeBack(col, row, value)
+    const echoed = this.binding.writeBack(col, row, value)
+    // 先刷收集的派生格，再显式刷被编辑格：走廊计算读到的是已更新的邻居节点
+    this.refreshEchoedCells(echoed, col, row)
     this.refreshCell(col, row)
   }
 
@@ -1184,16 +1189,33 @@ export class ListTable {
     return field !== undefined && this.options.records?.[row] != null
   }
 
-  /** 写回数据源：model 形态经 ModelBinding（echo 防回环）；records 形态改行对象 field 字段 */
+  /**
+   * 写回数据源：model 形态经 ModelBinding（echo 收集去重，派生格统一刷新；
+   * 被编辑格由提交方显式刷新，见 refreshEchoedCells）；records 形态改行对象 field 字段
+   */
   private writeCell(col: number, row: number, value: unknown): void {
     if (this.binding) {
-      this.binding.writeBack(col, row, value)
+      this.refreshEchoedCells(this.binding.writeBack(col, row, value), col, row)
       return
     }
     const field = this.options.columns[col]?.field
     const record = this.options.records?.[row]
     if (field !== undefined && record) {
       record[field] = value
+    }
+  }
+
+  /** 回驱收尾：窗口内模型 echo 的变更格统一逐格局部刷新；被编辑格由调用方显式刷新，跳过去重 */
+  private refreshEchoedCells(
+    changes: readonly CellChangeEvent[],
+    editedCol: number,
+    editedRow: number,
+  ): void {
+    for (const change of changes) {
+      if (change.col === editedCol && change.row === editedRow) {
+        continue
+      }
+      this.refreshCell(change.col, change.row)
     }
   }
 

@@ -133,8 +133,19 @@ describe('ListTable 数据供给三形态', () => {
   })
 })
 
-describe('ListTable 回驱防递归', () => {
-  it('updateCell 回驱模型：echo 被吞掉不回环，本格只刷新一次', () => {
+/** 同步重算的假模型：setCellValue 回驱本格外，同步发派生格 (1,0) 的变更（模拟公式依赖重算） */
+class RecalcEchoModel extends EchoModel {
+  override setCellValue(col: number, row: number, value: unknown): void {
+    super.setCellValue(col, row, value)
+    if (col === 0 && row === 0) {
+      this.data.set('1:0', 'derived')
+      this.emit({ col: 1, row: 0, oldValue: undefined, newValue: 'derived' })
+    }
+  }
+}
+
+describe('ListTable 回驱窗口收集刷新', () => {
+  it('updateCell 回驱：编辑格 echo 与显式刷新合并去重，本格只刷新一次，不回环', () => {
     const model = new EchoModel(100)
     const { host, table } = createTable({ model })
     host.submitted.length = 0
@@ -142,9 +153,26 @@ describe('ListTable 回驱防递归', () => {
     expect(model.setCalls).toBe(1)
     expect(model.getCellValue(0, 0)).toBe('x')
     expect(findNode(host, 0, 0)?.text).toBe('x')
-    // 仅 updateCell 自己的局部刷新一次，echo 没有触发第二次；失效区并入溢出走廊
+    // 编辑格恰一次 cell 失效；失效区并入溢出走廊（右邻全空）
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 1000, height: 32 } } },
+    ])
+  })
+
+  it('updateCell 回驱：模型同步重算发出的派生格逐格刷新一次（编辑格不重复刷新）', () => {
+    const model = new RecalcEchoModel(100)
+    const { host, table } = createTable({ model })
+    host.submitted.length = 0
+    table.updateCell(0, 0, 'x')
+    expect(model.setCalls).toBe(1)
+    expect(findNode(host, 0, 0)?.text).toBe('x')
+    // 派生格当帧更新，无需滚动或重建
+    expect(findNode(host, 1, 0)?.text).toBe('derived')
+    // 编辑格一次（显式刷新，echo 去重，右邻已有派生内容无走廊）+ 派生格一次（走廊到表缘）；
+    // 派生格先刷：编辑格走廊计算读到已更新的邻居节点
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: 148, y: 36, width: 900, height: 32 } } },
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
     ])
   })
 })

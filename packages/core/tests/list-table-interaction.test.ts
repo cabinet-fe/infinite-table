@@ -1003,7 +1003,7 @@ describe('ListTable 编辑', () => {
     expect(created[0]!.style.top).toBe('567px')
   })
 
-  it('model 形态经 ModelBinding 回写（echo 不回环，只一次本格刷新）', () => {
+  it('model 形态经 ModelBinding 回写（编辑格恰好一次刷新，无回环）', () => {
     const model = new EchoModel(10)
     model.data.set('0:0', 'Ada')
     const { host, container, created } = createEditingTable({ model, records: undefined })
@@ -1015,8 +1015,33 @@ describe('ListTable 编辑', () => {
     expect(model.data.get('0:0')).toBe('Zed')
     expect(container.children).toEqual([])
     // 本格 cell 失效恰 3 次：开场内容隐藏 + 提交刷新 + 收场恢复；
-    // 模型 echo 被 ModelBinding 吞掉，无回环带来的额外刷新
+    // 编辑格 echo 与显式刷新合并去重，无回环带来的额外刷新
     expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(3)
+  })
+
+  it('model 形态编辑提交：回驱窗口内模型同步重算的派生格逐格刷新恰一次', () => {
+    // 模拟公式依赖重算：写入 (0,0) 后同步发派生格 (1,0) 的变更
+    class RecalcEchoModel extends EchoModel {
+      override setCellValue(col: number, row: number, value: unknown): void {
+        super.setCellValue(col, row, value)
+        if (col === 0 && row === 0) {
+          this.data.set('1:0', 'D1')
+          this.emit({ col: 1, row: 0, oldValue: undefined, newValue: 'D1' })
+        }
+      }
+    }
+    const model = new RecalcEchoModel(10)
+    model.data.set('0:0', 'Ada')
+    const { host, created } = createEditingTable({ model, records: undefined })
+
+    fireDoubleTap(host, 0, 0)
+    created[0]!.value = 'Zed'
+    created[0]!.dispatchKey('Enter')
+
+    // 派生格当帧更新，无需滚动或重建
+    expect(findNode(host, 1, 0)?.text).toBe('D1')
+    // 编辑格 3 次（开场隐藏 + 提交刷新 + 收场恢复，echo 去重）+ 派生格恰 1 次提交刷新
+    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(4)
   })
 
   it('model 形态 onCellChange 事件带 oldValue/newValue', () => {
