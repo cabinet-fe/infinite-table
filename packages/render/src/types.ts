@@ -113,6 +113,8 @@ export interface LayerHandle {
 /**
  * RenderHost 窄接口：外部仅凭该接口完成建层、提交三档失效、请求帧、读测量、原地调整视口尺寸。
  * 场景内容的读写经 LayerHandle.root 的场景树 API 进行。
+ * 运行环境 DPR 变化（浏览器缩放/跨屏）由宿主自行跟随：以新 dpr 重设全部已建层物理尺寸并
+ * 整层重绘，滚动位置与场景内容不动、实例不重建（无 window 环境不监听）。
  */
 export interface RenderHost {
   /** 按 kind 取层句柄；同 kind 重复调用幂等返回同一句柄 */
@@ -123,7 +125,10 @@ export interface RenderHost {
   requestFrame(task: FrameTask): void
   /** 文本测量（CSS 像素） */
   measure(text: string, font: string): Size
-  /** 原地调整视口尺寸（CSS 像素，dpr 缺省沿用当前值）：已建层逐个重设尺寸并整层失效 */
+  /**
+   * 原地调整视口尺寸（CSS 像素，dpr 缺省沿用当前值；显式传参同步宿主内部 dpr，
+   * 后续建层取新值）：已建层逐个重设尺寸并整层失效
+   */
   resize(width: number, height: number, dpr?: number): void
   /** 销毁：取消挂起帧、解绑事件、回收池化画布 */
   destroy(): void

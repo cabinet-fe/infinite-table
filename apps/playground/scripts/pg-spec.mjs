@@ -10,6 +10,9 @@ const { chromium } = await import(
 
 const url = process.argv[2] ?? 'http://localhost:7790/'
 
+// 引擎源码经 vite /@fs 入口在页内 import（bare specifier 无法在 evaluate 上下文解析）
+const coreEntryHref = `/@fs${new URL('../../../packages/core/src/index.ts', import.meta.url).pathname}`
+
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const errors = []
@@ -928,6 +931,216 @@ try {
         滚动不变: rowResult.left === setup.left && rowResult.top === setup.top,
       },
       通过: colOk && rowOk,
+    })
+  }
+
+  // ---- 21. DPR 清晰度：CDP 把 deviceScaleFactor 提到 2 → 各已建层 canvas 物理尺寸跟随新 DPR
+  // （滚动位置、选区、实例身份不变）；devicePixelRatio=2 页面上未显式传 dpr 建表直接取环境值 ----
+  {
+    const before = await evalPage(() => {
+      const pg = window.__PG__
+      const grid = pg.grid()
+      const t = grid.getTable()
+      // 留下非零滚动与选区，断言 DPR 切换不触碰滚动/选区/实例身份
+      t.setScrollLeft(120)
+      t.setScrollTop(240)
+      pg.sheet().selectCell({ row: 3, col: 2 })
+      return {
+        marker: grid.tableInstanceMarker,
+        scroll: t.getScrollState(),
+        ranges: JSON.stringify(t.getSelectedCellRanges()),
+      }
+    })
+    await page.waitForTimeout(200)
+    const session = await page.context().newCDPSession(page)
+    // 尺寸同步 +1：模拟真实缩放/跨屏（viewport 随 deviceScaleFactor 一起动），
+    // 纯改 dsf 而尺寸不动的 CDP 覆盖不派发 resize/resolution 变更事件
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 1441,
+      height: 901,
+      deviceScaleFactor: 2,
+      mobile: false,
+    })
+    await page.waitForTimeout(500)
+    const followed = await evalPage(() => {
+      const pg = window.__PG__
+      const grid = pg.grid()
+      const t = grid.getTable()
+      const dpr = window.devicePixelRatio
+      const canvases = [...document.querySelectorAll('.u-sheet__grid-instance canvas')].map(
+        (cv) => ({
+          width: cv.width,
+          height: cv.height,
+          cssW: parseFloat(cv.style.width),
+          cssH: parseFloat(cv.style.height),
+        }),
+      )
+      return {
+        dpr,
+        canvasCount: canvases.length,
+        canvases,
+        follow: canvases.every(
+          (cv) => cv.width === Math.round(cv.cssW * dpr) && cv.height === Math.round(cv.cssH * dpr),
+        ),
+        marker: grid.tableInstanceMarker,
+        scroll: t.getScrollState(),
+        ranges: JSON.stringify(t.getSelectedCellRanges()),
+      }
+    })
+    // devicePixelRatio=2 的页面上未显式传 dpr 建表：缺省直接取环境值（spec 验收第 1 条口径）
+    const bare = await evalPage(async (href) => {
+      const { ListTable } = await import(href)
+      const host = document.createElement('div')
+      host.id = 'pg-dpr-fixture'
+      host.style.cssText = 'position:fixed;left:0;top:0;width:400px;height:200px;visibility:hidden'
+      document.body.appendChild(host)
+      const table = new ListTable({
+        width: 400,
+        height: 200,
+        columns: [{ width: 100 }, { width: 100 }, { width: 100 }],
+        records: [{ a: 1 }, { a: 2 }, { a: 3 }],
+        hostOptions: { container: host },
+      })
+      const dpr = window.devicePixelRatio
+      const canvases = [...host.querySelectorAll('canvas')].map((cv) => ({
+        width: cv.width,
+        height: cv.height,
+        cssW: parseFloat(cv.style.width),
+        cssH: parseFloat(cv.style.height),
+      }))
+      const ok =
+        canvases.length > 0 &&
+        canvases.every(
+          (cv) => cv.width === Math.round(cv.cssW * dpr) && cv.height === Math.round(cv.cssH * dpr),
+        )
+      table.destroy()
+      host.remove()
+      return { dpr, ok }
+    }, coreEntryHref)
+    // 还原 deviceScaleFactor：跟随回 1×（监听按新 resolution 重武装的实测口径）
+    await session.send('Emulation.clearDeviceMetricsOverride')
+    await page.waitForTimeout(500)
+    const restored = await evalPage(() => {
+      const dpr = window.devicePixelRatio
+      const canvases = [...document.querySelectorAll('.u-sheet__grid-instance canvas')]
+      return {
+        dpr,
+        follow: canvases.every(
+          (cv) =>
+            cv.width === Math.round(parseFloat(cv.style.width) * dpr) &&
+            cv.height === Math.round(parseFloat(cv.style.height) * dpr),
+        ),
+      }
+    })
+    const ok =
+      followed.dpr === 2 &&
+      followed.canvasCount > 0 &&
+      followed.follow &&
+      followed.marker === before.marker &&
+      followed.scroll.left === before.scroll.left &&
+      followed.scroll.top === before.scroll.top &&
+      followed.ranges === before.ranges &&
+      bare.dpr === 2 &&
+      bare.ok &&
+      restored.dpr === 1 &&
+      restored.follow
+    step(
+      'DPR 清晰度（CDP 变更 deviceScaleFactor：物理尺寸跟随、滚动/选区/实例不变；缺省 dpr 取环境值）',
+      {
+        跟随: {
+          dpr: followed.dpr,
+          canvasCount: followed.canvasCount,
+          canvases: followed.canvases,
+          follow: followed.follow,
+          marker: followed.marker,
+          scroll: followed.scroll,
+        },
+        缺省建表: bare,
+        还原: restored,
+        通过: ok,
+      },
+    )
+  }
+  // ---- 22. Excel 式溢出：sheet 主题 body 分区不再强制 ellipsis——写入超宽左对齐文本，
+  // 相邻空格内可见溢出字形（像素断言）；右对齐文本向左溢（样式投影断言），右侧保持干净 ----
+  {
+    await evalPage(async () => {
+      const pg = window.__PG__
+      const { SheetGrid } = await import('/src/veltra-grid/sheet-grid.ts')
+      const sheet = pg.workbook.addSheet('SpecOverflow')
+      const LONG = 'A'.repeat(30) // 超宽（约 250px > 列宽 80px）
+      sheet.setCellValue({ row: 1, col: 1 }, LONG) // 左对齐（缺省）→ 向右溢
+      sheet.setCellValue({ row: 3, col: 3 }, LONG) // 右对齐 → 向左溢
+      sheet.setCellStyle(
+        { start: { row: 3, col: 3 }, end: { row: 3, col: 3 } },
+        { align: { horizontal: 'right' } },
+      )
+      const host = document.createElement('div')
+      host.id = 'pg-overflow-fixture'
+      host.style.cssText =
+        'position:fixed;right:12px;bottom:12px;width:520px;height:300px;z-index:9999;background:#fff;box-shadow:0 0 0 1px #ddd'
+      document.body.appendChild(host)
+      const grid = new SheetGrid({ container: host, sheet, rows: 8, cols: 8 })
+      window.__PG_OV__ = { grid, sheet }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return true
+    })
+    const pixels = await evalPage(() => {
+      const t = window.__PG_OV__.grid.getTable()
+      const dpr = window.devicePixelRatio || 1
+      const canvases = [...document.querySelectorAll('#pg-overflow-fixture canvas')]
+      const at = (px, py) => {
+        for (const cv of canvases) {
+          const d = cv.getContext('2d').getImageData(px, py, 1, 1).data
+          if (d[3] > 0 && !(d[0] > 240 && d[1] > 240 && d[2] > 240)) return [d[0], d[1], d[2]]
+        }
+        return [255, 255, 255]
+      }
+      // 格内暗色字形采样点数（网格线 #E1E4E8 不计入，内缩 4px 避边框）
+      const darkCount = (col, row) => {
+        const cell = t.getCellRelativeRect(col, row)
+        const w = t.getColWidth(col)
+        const h = t.getRowHeight(row)
+        let dark = 0
+        for (let py = cell.y + 4; py < cell.y + h - 4; py += 3) {
+          for (let px = cell.x + 4; px < cell.x + w - 4; px += 3) {
+            const [r, g, b] = at(Math.round(px * dpr), Math.round(py * dpr))
+            if (r + g + b < 360) dark++
+          }
+        }
+        return dark
+      }
+      return {
+        // 左对齐源格与右邻空格：溢出字形可见
+        leftSource: darkCount(1, 1),
+        leftNeighbor: darkCount(2, 1),
+        leftFar: darkCount(3, 1),
+        // 右对齐源格：左邻空格可见溢出、右侧空格干净（不向右溢）
+        rightSource: darkCount(3, 3),
+        rightNeighbor: darkCount(2, 3),
+        rightClean: darkCount(4, 3),
+      }
+    })
+    const ok =
+      pixels.leftSource > 10 &&
+      pixels.leftNeighbor > 10 &&
+      pixels.leftFar > 10 &&
+      pixels.rightSource > 10 &&
+      pixels.rightNeighbor > 10 &&
+      pixels.rightClean < 5
+    step(
+      'Excel 式溢出（body 主题去强制 ellipsis：超宽左对齐文本右邻空格可见字形；右对齐向左溢、右侧干净）',
+      {
+        采样: pixels,
+        通过: ok,
+      },
+    )
+    // 清理：销毁实例、移除夹具与临时 sheet（还原页面终态）
+    await evalPage(() => {
+      window.__PG_OV__.grid.destroy()
+      document.getElementById('pg-overflow-fixture')?.remove()
+      window.__PG__.workbook.removeSheet('SpecOverflow')
+      delete window.__PG_OV__
     })
   }
 } catch (err) {

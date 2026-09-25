@@ -28,6 +28,50 @@ function makeManualScheduler() {
   }
 }
 
+/** matchMedia 桩：记录查询串与 change 监听，供 DPR 变更探测用例手动触发 */
+class FakeMediaQueryList {
+  readonly listeners: Array<() => void> = []
+  constructor(readonly query: string) {}
+  addEventListener(_type: 'change', listener: () => void): void {
+    this.listeners.push(listener)
+  }
+  removeEventListener(_type: 'change', listener: () => void): void {
+    const index = this.listeners.indexOf(listener)
+    if (index >= 0) {
+      this.listeners.splice(index, 1)
+    }
+  }
+}
+
+/** 桩掉全局 window（携带可变的 devicePixelRatio、resize 监听记录与 matchMedia 记录器） */
+function stubWindow(devicePixelRatio: number) {
+  const mediaQueries: FakeMediaQueryList[] = []
+  const resizeListeners: Array<() => void> = []
+  const win = {
+    devicePixelRatio,
+    addEventListener(type: string, listener: () => void): void {
+      if (type === 'resize') {
+        resizeListeners.push(listener)
+      }
+    },
+    removeEventListener(type: string, listener: () => void): void {
+      if (type === 'resize') {
+        const index = resizeListeners.indexOf(listener)
+        if (index >= 0) {
+          resizeListeners.splice(index, 1)
+        }
+      }
+    },
+    matchMedia: (query: string) => {
+      const mediaQuery = new FakeMediaQueryList(query)
+      mediaQueries.push(mediaQuery)
+      return mediaQuery
+    },
+  }
+  vi.stubGlobal('window', win)
+  return { win, mediaQueries, resizeListeners }
+}
+
 class PaintNode extends SceneNode {
   painted = 0
   override paint(_ctx: RenderContext): void {
@@ -186,6 +230,88 @@ describe('RenderHost 窄接口', () => {
     scheduler.step()
     const ctx = (body.canvasElement as FakeCanvas).context
     expect(ctx.callsOf('clearRect')).toEqual([{ name: 'clearRect', args: [0, 0, 400, 300] }])
+    host.destroy()
+  })
+
+  it('缺省 dpr 取运行环境值（无 window 回落 1）；显式注入 dpr 优先于环境值', () => {
+    const { mediaQueries, resizeListeners } = stubWindow(2)
+    try {
+      const host = createRenderHost({ width: 800, height: 600, createCanvas: createFakeCanvas })
+      const body = host.createLayer({ kind: 'body' })
+      expect(body.canvasElement.width).toBe(1600)
+      expect(body.canvasElement.height).toBe(1200)
+      host.destroy()
+
+      // 浏览器形态环境：DPR 探测按环境 resolution 武装（headless 无 window 环境不武装）
+      expect(mediaQueries).toHaveLength(1)
+      expect(mediaQueries[0]!.query).toBe('(resolution: 2dppx)')
+      expect(mediaQueries[0]!.listeners).toHaveLength(0)
+      expect(resizeListeners).toHaveLength(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    // 显式注入 dpr 的构造路径行为不变：注入值优先于环境值（stubWindow(2) 已还原）
+    const injected = createHost()
+    expect(injected.createLayer({ kind: 'body' }).canvasElement.width).toBe(1600)
+    injected.destroy()
+  })
+
+  it('运行期 DPR 变更（resize / matchMedia 双通道）：全部已建层以新 dpr 重设物理尺寸并整层重绘', () => {
+    const { win, mediaQueries, resizeListeners } = stubWindow(1)
+    try {
+      const scheduler = makeManualScheduler()
+      const host = createRenderHost({
+        width: 800,
+        height: 600,
+        ...scheduler.options,
+        createCanvas: createFakeCanvas,
+      })
+      const body = host.createLayer({ kind: 'body' })
+      const sky = host.createLayer({ kind: 'sky' })
+      expect(body.canvasElement.width).toBe(800)
+      expect(mediaQueries).toHaveLength(1)
+      expect(resizeListeners).toHaveLength(1)
+
+      // resize 通道：window.devicePixelRatio 变更后 resize 触发跟随
+      win.devicePixelRatio = 2
+      resizeListeners[0]!()
+      expect(body.canvasElement.width).toBe(1600)
+      expect(body.canvasElement.height).toBe(1200)
+      expect(sky.canvasElement.width).toBe(1600)
+      expect(scheduler.scheduled).toHaveLength(1)
+      scheduler.step()
+      const ctx = (body.canvasElement as FakeCanvas).context
+      expect(ctx.callsOf('clearRect')).toEqual([{ name: 'clearRect', args: [0, 0, 800, 600] }])
+      // 探测按新 resolution 重武装
+      expect(mediaQueries).toHaveLength(2)
+      expect(mediaQueries[0]!.listeners).toHaveLength(0)
+      expect(mediaQueries[1]!.query).toBe('(resolution: 2dppx)')
+
+      // matchMedia 通道：resolution 失配触发跟随回 1×，同样重武装
+      win.devicePixelRatio = 1
+      mediaQueries[1]!.listeners[0]!()
+      expect(body.canvasElement.width).toBe(800)
+      expect(mediaQueries).toHaveLength(3)
+      expect(mediaQueries[2]!.query).toBe('(resolution: 1dppx)')
+
+      host.destroy()
+      expect(resizeListeners).toHaveLength(0)
+      expect(mediaQueries[2]!.listeners).toHaveLength(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('resize 显式传 dpr：内部 dpr 同步更新，已建层与后续新建层都取新值', () => {
+    const host = createHost()
+    const ground = host.createLayer({ kind: 'ground' })
+    host.resize(400, 300, 1)
+    expect(ground.canvasElement.width).toBe(400)
+    expect(ground.canvasElement.height).toBe(300)
+    const body = host.createLayer({ kind: 'body' })
+    expect(body.canvasElement.width).toBe(400)
+    expect(body.canvasElement.height).toBe(300)
     host.destroy()
   })
 

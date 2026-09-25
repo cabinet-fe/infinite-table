@@ -1,6 +1,6 @@
 // ListTable 场景重建协作模块（拆自 list-table.ts，纯移动不改行为）：
 // 可视窗口场景树的全量重建与滚动帧增量窗口（6.2：滚入建/滚出摘/存活平移）、
-// 分带建格与行列头装配、Excel 式文本溢出右界支撑（refreshCell 的溢出联动依赖）。
+// 分带建格与行列头装配、Excel 式文本溢出走廊支撑（refreshCell 的溢出联动依赖）。
 // 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
 import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
@@ -128,6 +128,9 @@ export function rebuildScene(table: ListTable): void {
   appendCellBand(table, scrollableRows, frozenCols, left, top)
   appendCellBand(table, frozenRows, scrollableCols, left, top)
   appendCellBand(table, frozenRows, frozenCols, left, top)
+  // 溢出 z 序不变量收口（行内列升序重挂树尾）：列降序建格只保证右溢源（走廊左端）
+  // 后画；左溢/双向源在走廊右端，会被走廊格反盖出「表格线画在溢出文本之上」伪影
+  remountOverflowSources(table)
   // 表头收进单一容器节点（R2-5）：容器恒为 root 末子节点，表头整体在全部数据格之上；
   // 滚动帧有新建数据格时只需重挂容器单节点（原先逐表头 removeChild+appendChild，
   // 单节点 removeChild 含 indexOf+splice，整体为 O(表头数×窗口节点数)）。
@@ -162,21 +165,22 @@ export function rebuildScene(table: ListTable): void {
  * 1. 滚动区在下、冻结条带居中：两带几何不相交，带间绘制顺序无语义，
  *    「新节点挂树尾」不会破坏带间关系；全量重建带序为
  *    滚动带 → 部分可见合并区 → 冻结列带 → 冻结行带 → 冻结角 → 表头容器。
- * 2. 同行左格后画（Excel 式溢出文本不被右侧格背景盖住）：
- *    全量重建 = 带内按列降序建格（左格最后画）；增量侧 = 新滚入行整行降序补建
- *    （步骤 ②，含冻结列）+ 滚入列降序补建（步骤 ③ 前半）+ 对 `[0, firstEntering)`
- *    × 全部行带中 `textMaxX > width` 的存活格按列升序 removeChild+appendChild
- *    重挂树尾（步骤 ③ 后半）。等价性逐点对照：
- *    - 升序重挂保持「越靠左越后画」；重挂格后画于本帧新补建的滚入格，
- *      覆盖「溢出格穿过新滚入列」的组合（横向右滚的典型形态）；
- *    - 向左滚动时滚入列在左缘：滚入格挂树尾即在其右侧存活格之上，
- *      与全量重建「小列号后画」一致；右侧存活格不向左溢出，无需重挂；
- *    - 溢出格同行内被 ≥1 个空格隔开（溢出走廊必然全空，且文本右缘止于下一
- *      非空格左缘），重挂集合内部两两无绘制交叠——升序与全量重建的降序虽非
- *      字面同序，可见输出等价；升序保证重挂格整体后画于本帧滚入格。
- *    步骤 ③ 扫描口径的边界：对「新行已在步骤 ② 整行补建」的行跳过（整行降序
- *    已内含左格后画）；对冻结带行不跳过——冻结「行」上的滚动区列格仍可向右
- *    溢出进滚入列（冻结只按「列」带截断溢出，见 textOverflowLimitX）。
+ * 2. 同行溢出源后画于同条带全部走廊节点（Excel 式溢出文本不被走廊格背景/网格线盖住）：
+ *    全量重建 = 带内按列降序建格（右溢源在走廊左端天然后画）+ remountOverflowSources
+ *    把全部溢出源按行内列升序重挂树尾（左溢/双向源在走廊右端，降序建格会被走廊格反盖）；
+ *    增量侧 = 新滚入行整行降序补建（步骤 ②，含冻结列）+ 滚入列降序补建（步骤 ③ 前半）
+ *    + 行内溢出 z 序规范（步骤 ③ 后半，canonicalizeRowOverflowOrder：对新建行与被新建
+ *    列触及的行，把行内全部溢出源按列升序重挂树尾）。等价性逐点对照：
+ *    - 新建格挂树尾会画在存活溢出源之上（源走廊穿过新列区的典型形态），行内规范把
+ *      源重挂回树尾；重挂集合 = 行内全部溢出源，与全量重建 remountOverflowSources
+ *      的行内列升序同序（两源对溢共享空段时右溢源先、左溢源后，确定性次序）；
+ *    - 向左滚动时滚入列在左缘：滚入格挂树尾即在其右侧存活格之上，与全量重建
+ *      「小列号后画」一致；右侧存活格只可能向左溢出（走廊穿新列区），由行内规范覆盖；
+ *    - 溢出格同行内被 ≥1 个空格隔开（溢出走廊必然全空，且文本缘止于阻断格边界），
+ *      重挂集合内部两两无绘制交叠，唯两源对溢共享空段时例外（接受叠画）。
+ *    步骤 ③ 扫描口径的边界：对「新行已在步骤 ② 整行补建」的行不跳过——新建行含
+ *    左溢源同样需要行内规范；对冻结带行不跳过——冻结「行」上的滚动区列格仍可溢出
+ *    进滚入列（冻结只按「列」带截断溢出，见 textOverflowLimits）。
  * 3. 表头最上（合并主格上缘可伸进列头带）：表头收进单一容器节点且恒为 root
  *    末子节点（R2-5，见 rebuildScene）；bodyChanged 时仅把容器重挂树尾一次。
  * 4. 跨冻结边界合并主格钉固在上：主格按其冻结带归属定位（滚动不平移），整块
@@ -243,10 +247,12 @@ export function updateSceneWindow(table: ListTable): void {
   )
   let bodyChanged = false
   // 2) 新滚入行整行补建：先滚动区列降序、再冻结列降序（同行左格后画）
+  const newRows = new Set<number>()
   for (let row = scrollableRows.start; row < scrollableRows.end; row++) {
     if (inRange(row, prevRows)) {
       continue
     }
+    newRows.add(row)
     for (let col = scrollableCols.end - 1; col >= scrollableCols.start; col--) {
       bodyChanged = appendCell(table, col, row, left, top) || bodyChanged
     }
@@ -254,7 +260,7 @@ export function updateSceneWindow(table: ListTable): void {
       bodyChanged = appendCell(table, col, row, left, top) || bodyChanged
     }
   }
-  // 3) 存活行补建滚入列（降序），并把可溢出进新列区的左侧存活格重挂到行尾
+  // 3) 存活行补建滚入列（降序），再做行内溢出 z 序规范（重挂树尾）
   const enteringCols: number[] = []
   for (let col = scrollableCols.start; col < scrollableCols.end; col++) {
     if (!inRange(col, prevCols)) {
@@ -272,19 +278,17 @@ export function updateSceneWindow(table: ListTable): void {
         }
       }
     }
-    const firstEntering = enteringCols[0]!
+  }
+  // 3.5) 行内溢出 z 序规范（见 updateSceneWindow 契约 2）：横向滚动有新建列时全部行
+  // 统一规范（新建格挂树尾画在存活溢出源之上）；纯纵向滚动只有新建行需要
+  // （新建行整行降序补建后，行内左溢源仍会被走廊格反盖）
+  if (enteringCols.length > 0 || newRows.size > 0) {
     for (const band of rowBands) {
       for (let row = band.start; row < band.end; row++) {
-        for (let col = 0; col < firstEntering; col++) {
-          const node = table.cellNodes.get(cellKey(col, row))
-          // 溢出格必须后画于其溢出目标（Excel 式溢出只进右侧空格）；
-          // 升序重挂保持「越靠左越后画」的既有行内 z 序
-          if (node && node.textMaxX > node.width) {
-            table.body.root.removeChild(node)
-            table.body.root.appendChild(node)
-            bodyChanged = true
-          }
+        if (enteringCols.length === 0 && !newRows.has(row)) {
+          continue
         }
+        bodyChanged = canonicalizeRowOverflowOrder(table, row, colBands) || bodyChanged
       }
     }
   }
@@ -434,7 +438,7 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
   }
 }
 
-/** 建一个行列带内的数据格节点；同行按列降序建（后画在上），左格溢出文本不被右格背景盖住 */
+/** 建一个行列带内的数据格节点；同行按列降序建（后画在上），右溢源（走廊左端）文本不被走廊格背景盖住；左溢源由 remountOverflowSources 收口 */
 function appendCellBand(
   table: ListTable,
   rows: WindowRange,
@@ -531,9 +535,10 @@ function appendCell(
     border: effectiveBorder(table, col, row, style),
     renderer: table.options.resolveCellRenderer?.(col, row) ?? null,
   })
-  // 文本溢出右界（Excel 式溢出到右侧空格；换行/表头/合并/图片/自定义渲染格不溢出）
-  const limitX = imageUrl ? null : textOverflowLimitX(table, col, row, style, left)
-  node.textMaxX = limitX === null ? node.width : limitX - node.x
+  // 文本溢出走廊（Excel 式按对齐方向溢出；换行/表头/合并/图片/自定义渲染格不溢出）
+  const limits = imageUrl ? null : textOverflowLimits(table, col, row, style, left)
+  node.textMaxX = limits === null ? node.width : limits.maxX - node.x
+  node.textMinX = limits === null ? 0 : limits.minX - node.x
   // 编辑会话锚定格内容隐藏：滚动/几何重建会新建节点，装配时按当前会话重放该状态
   const editing = table.editManager.isEditing() ? table.editManager.editingCell() : null
   node.contentHidden = editing !== null && editing.col === col && editing.row === row
@@ -557,17 +562,28 @@ function isEmptyTextCell(table: ListTable, col: number, row: number): boolean {
 }
 
 /**
- * 文本溢出允许的层坐标右界；null 表示该格不溢出（裁剪在本格内）。
- * Excel 规则：只溢出到右侧相邻空格，遇非空格停；换行、ellipsis/clip、checkbox、合并、图片、
- * 自定义渲染格不溢出；冻结列带不越过带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
+ * 文本溢出允许的层坐标走廊区间；null 表示该格不溢出（裁剪在本格内）。
+ * Excel 规则（P4 研究笔记 §1/§7 终判口径）：溢出方向按对齐——left（缺省）向右溢、
+ * right 向左溢、center 向两侧溢（阻断判定按 Univer 语义：left 只看右壁、right 只看
+ * 左壁、center 两壁皆阻断才算阻断，单侧空即向空侧溢）；走廊遇首个非空格停（含合并、
+ * 图片、自定义渲染、checkbox 格，空白串按非空阻断）；换行、ellipsis/clip、合并、
+ * 图片、自定义渲染格自身不溢出；不越冻结列带边界（对齐 Excel 冻结窗格），滚动带
+ * 止于最后一列。
  */
-export function textOverflowLimitX(
+export interface TextOverflowLimits {
+  /** 走廊左界（层坐标）：无左溢时即本格左缘 */
+  minX: number
+  /** 走廊右界（层坐标）：无右溢时即本格右缘 */
+  maxX: number
+}
+
+export function textOverflowLimits(
   table: ListTable,
   col: number,
   row: number,
   style: CellStyle,
   left: number,
-): number | null {
+): TextOverflowLimits | null {
   if (
     style.textOverflow !== undefined ||
     style.textWrap === true ||
@@ -580,23 +596,41 @@ export function textOverflowLimitX(
     return null
   }
   const inFrozenBand = col < table.frozenColCount
+  const bandStart = inFrozenBand ? 0 : table.frozenColCount
   const bandEnd = inFrozenBand ? table.frozenColCount : table.options.columns.length
-  let end = col + 1
-  while (end < bandEnd && isEmptyTextCell(table, end, row)) {
-    end++
+  // 列左缘的层坐标（冻结带内不随滚动位移）
+  const colLeft = (c: number): number =>
+    table.rowHeaderWidth + (table.colOffsets[c] ?? 0) - (inFrozenBand ? 0 : left)
+  const align = style.textAlign ?? 'left'
+  // 右走廊：left/center 向右扫到首个非空格或带边界；right 不向右溢
+  let rightEnd = col + 1
+  if (align !== 'right') {
+    while (rightEnd < bandEnd && isEmptyTextCell(table, rightEnd, row)) {
+      rightEnd++
+    }
   }
-  if (end === col + 1) {
+  // 左走廊：right/center 向左扫到首个非空格或带边界；left 不向左溢
+  let leftStart = col
+  if (align !== 'left') {
+    while (leftStart > bandStart && isEmptyTextCell(table, leftStart - 1, row)) {
+      leftStart--
+    }
+  }
+  if (align === 'left' && rightEnd === col + 1) {
     return null
   }
-  // 列左缘的层坐标（冻结带内不随滚动位移）
-  return inFrozenBand
-    ? table.rowHeaderWidth + (table.colOffsets[end] ?? 0)
-    : table.rowHeaderWidth + (table.colOffsets[end] ?? 0) - left
+  if (align === 'right' && leftStart === col) {
+    return null
+  }
+  if (align === 'center' && rightEnd === col + 1 && leftStart === col) {
+    return null
+  }
+  return { minX: colLeft(leftStart), maxX: colLeft(rightEnd) }
 }
 
 /**
- * 左侧最近的非空格列号（溢出来源候选）：从左邻向带首扫，中间全空格无文本不可溢出，
- * 再往左被首个非空格挡住。返回后由调用方重算其溢出右界（不可溢出则收敛回本格宽）
+ * 左侧最近的非空格列号（右溢来源候选）：从左邻向带首扫，中间全空格无文本不可溢出，
+ * 再往左被首个非空格挡住。返回后由调用方重算其溢出走廊（不可溢出则收敛回本格宽）
  */
 export function overflowSourceCol(table: ListTable, col: number, row: number): number | null {
   const bandStart = col < table.frozenColCount ? 0 : table.frozenColCount
@@ -606,6 +640,62 @@ export function overflowSourceCol(table: ListTable, col: number, row: number): n
     }
   }
   return null
+}
+
+/**
+ * 右侧最近的非空格列号（左溢来源候选）：从右邻向带尾扫，中间全空格无文本不可溢出，
+ * 再往右被首个非空格挡住。返回后由调用方重算其溢出走廊（不可溢出则收敛回本格）
+ */
+export function overflowSourceColRight(table: ListTable, col: number, row: number): number | null {
+  const bandEnd = col < table.frozenColCount ? table.frozenColCount : table.options.columns.length
+  for (let c = col + 1; c < bandEnd; c++) {
+    if (!isEmptyTextCell(table, c, row)) {
+      return c
+    }
+  }
+  return null
+}
+
+/**
+ * 全量重建的溢出 z 序不变量收口：溢出源节点重挂树尾，行内按列升序（与增量路径
+ * canonicalizeRowOverflowOrder 同序）。列降序建格只保证右溢源（走廊左端）后画；
+ * 左溢/双向源在走廊右端，会被走廊格反盖出「被覆盖单元格的表格线画在溢出文本之上」
+ * 类伪影。重挂集合两两无绘制交叠（走廊只含空格、文本缘止于阻断格边界），唯两源
+ * 对溢共享空段时叠画（确定性次序：右溢源先、左溢源后）。
+ */
+function remountOverflowSources(table: ListTable): void {
+  const sources = [...table.cellNodes.values()].filter(
+    (node) => node.textMaxX > node.width || node.textMinX < 0,
+  )
+  sources.sort((a, b) => a.row - b.row || a.col - b.col)
+  for (const node of sources) {
+    table.body.root.removeChild(node)
+    table.body.root.appendChild(node)
+  }
+}
+
+/**
+ * 增量路径的行内溢出 z 序规范（全量重建 remountOverflowSources 的行内同序）：
+ * 把该行窗口内的全部溢出源按列升序重挂树尾，后画于本帧新建格与全部走廊节点。
+ * 返回是否有重挂发生。
+ */
+function canonicalizeRowOverflowOrder(
+  table: ListTable,
+  row: number,
+  colBands: readonly WindowRange[],
+): boolean {
+  let moved = false
+  for (const band of colBands) {
+    for (let col = band.start; col < band.end; col++) {
+      const node = table.cellNodes.get(cellKey(col, row))
+      if (node && (node.textMaxX > node.width || node.textMinX < 0)) {
+        table.body.root.removeChild(node)
+        table.body.root.appendChild(node)
+        moved = true
+      }
+    }
+  }
+  return moved
 }
 
 /** 合并区主格落在窗口外但区间部分可见时补建主格节点（位置可越出视口，绘制由 cull 裁剪）；返回是否新建 */

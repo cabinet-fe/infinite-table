@@ -63,7 +63,8 @@ export function sheetChromeTheme(): ThemeOverride {
       background: '#ffffff',
       borderColor: GRID_BORDER,
       padding: [2, 6, 2, 6],
-      textOverflow: 'ellipsis',
+      // 缺省不设 textOverflow：body 格按引擎 Excel 式溢出显示（左/中/右对齐分向溢出，
+      // 走廊遇非空格停）；显式 ellipsis/clip 样式仍截断。表头分区保留 ellipsis。
       // 无样式格文本对齐 ultra-ui（VTable DEFAULT bodyStyle.fontSize 14 + 全局字色
       // #000、字族 Arial,sans-serif）；引擎缺省为 12px sans-serif #1f2329，需显式给出
       color: '#000',

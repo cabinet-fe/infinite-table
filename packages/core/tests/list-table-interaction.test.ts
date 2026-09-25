@@ -409,9 +409,7 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
     const row = visible.rows.start + 2
     const y = scrolledRowHeaderY(row, top)
     fireBody(host, 'pointerdown', { x: 10, y })
-    expect(table.getSelection().ranges).toEqual([
-      { start: { col: 0, row }, end: { col: 19, row } },
-    ])
+    expect(table.getSelection().ranges).toEqual([{ start: { col: 0, row }, end: { col: 19, row } }])
     // focus.row 等于被点行，focus.col 落可视数据列带内
     expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
     expect(table.getSelection().focus!.col).toBeGreaterThanOrEqual(visible.cols.start)
@@ -465,9 +463,7 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
 
     const row = visible.rows.end - 1
     fireBody(host, 'pointerdown', { x: 10, y: scrolledRowHeaderY(row, top) })
-    expect(table.getSelection().ranges).toEqual([
-      { start: { col: 0, row }, end: { col: 19, row } },
-    ])
+    expect(table.getSelection().ranges).toEqual([{ start: { col: 0, row }, end: { col: 19, row } }])
     expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
     expect(table.getScrollLeft()).toBe(left)
     expect(table.getScrollTop()).toBe(top)

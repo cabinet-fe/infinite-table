@@ -74,6 +74,8 @@ export interface CellNodeInit extends SceneNodeInit {
   renderer?: CellRenderer | null
   /** 文本可绘制局部右界（≥ width 表示可溢出到右侧空格；缺省= width，裁剪在本格） */
   textMaxX?: number
+  /** 文本可绘制局部左界（≤ 0 表示可溢出到左侧空格；缺省= 0，不向左溢出） */
+  textMinX?: number
 }
 
 export class CellNode extends SceneNode {
@@ -86,8 +88,10 @@ export class CellNode extends SceneNode {
   /** 生效绘制边框（共享边裁决产物；null = 不画边框）；style 被整体替换时不随之变化 */
   border: CellBorder | null
   renderer: CellRenderer | null
-  /** 文本可绘制局部右界；等于 width 表示不溢出 */
+  /** 文本可绘制局部右界；等于 width 表示不向右溢出 */
   textMaxX: number
+  /** 文本可绘制局部左界；等于 0 表示不向左溢出 */
+  textMinX: number
   /**
    * 内容隐藏（编辑会话锚定格）：不绘制渲染器内容（背景/边框照画），DOM 编辑浮层取代之；
    * 溢出文本一并隐去（失效区并入 textMaxX 由编辑接线负责），会话结束置回 false。
@@ -111,6 +115,7 @@ export class CellNode extends SceneNode {
     this.border = 'border' in init ? (init.border ?? null) : (this.style.border ?? null)
     this.renderer = init.renderer ?? null
     this.textMaxX = init.textMaxX ?? init.width ?? 0
+    this.textMinX = init.textMinX ?? 0
   }
 
   /** 刷新管线产物（文本与基础值）；测量缓存按 text 值变更自动失效 */
@@ -124,8 +129,10 @@ export class CellNode extends SceneNode {
       ctx.fillStyle = this.style.background
       ctx.fillRect(0, 0, this.width, this.height)
     }
-    // 溢出格（textMaxX > width）right 边先于内容：溢出文本要盖住本格右缘的共享网格线/
-    // 边框（Excel 式网格线在文字之下）；无溢出保持「边框后画压内容」序（强边不被内容盖）
+    // 右溢格（textMaxX > width）right 边先于内容：溢出文本要盖住本格右缘的共享网格线/
+    // 边框（Excel 式网格线在文字之下）；无右溢保持「边框后画压内容」序（强边不被内容
+    // 盖）。左溢无需对称处理：源格 left 边经共享边裁决归左邻所有（首列不左溢），
+    // 左邻先画其 right 边、源格后画（z 序不变量）文本自然盖过
     const overflowRight = this.textMaxX > this.width
     if (overflowRight && this.border?.right) {
       this.paintRightEdge(ctx)
@@ -148,6 +155,7 @@ export class CellNode extends SceneNode {
         // undefined，由渲染器回退 cellStyleFont(style)（R3-2）
         font: textWidth === undefined ? undefined : this.measureFont,
         textMaxX: this.textMaxX,
+        textMinX: this.textMinX,
       })
     }
     this.paintBorders(ctx, overflowRight)

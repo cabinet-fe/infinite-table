@@ -70,8 +70,9 @@ import {
   effectiveBorder,
   headerStyles,
   overflowSourceCol,
+  overflowSourceColRight,
   rebuildScene,
-  textOverflowLimitX,
+  textOverflowLimits,
   updateSceneWindow,
 } from './list-table-scene'
 import type { ImageCellNode } from './media/image-cell-node'
@@ -111,6 +112,25 @@ import type {
 
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
+
+/** 宿主环境 dpr：存在全局 window 时取运行环境值，无 window 环境（headless/离屏测试）回落 1 */
+function resolveHostDpr(): number {
+  return typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+}
+
+/**
+ * 溢出源节点的全局失效矩形：覆盖本格与双向溢出走廊（minX ≤ 0 为左溢伸出的负向段）。
+ * 场景树节点 x/y 即层坐标（body root 在层原点），与 getGlobalBounds 一致。
+ */
+function overflowExtentRegion(node: CellNode, minX: number, maxX: number): Region {
+  const left = Math.min(0, minX)
+  return {
+    x: node.x + left,
+    y: node.y,
+    width: Math.max(node.width, maxX) - left,
+    height: node.height,
+  }
+}
 
 export class ListTable {
   /** @internal 渲染宿主（注入或缺省创建） */
@@ -305,7 +325,13 @@ export class ListTable {
     )
     this.host =
       options.host ??
-      createRenderHost({ width: this.width, height: this.height, ...options.hostOptions })
+      createRenderHost({
+        width: this.width,
+        height: this.height,
+        // 缺省透传宿主环境 dpr（hostOptions.dpr 显式注入优先）：Retina 下不再 1× 被放大上屏
+        dpr: resolveHostDpr(),
+        ...options.hostOptions,
+      })
     this.ownHost = !options.host
     this.body = this.host.createLayer({ kind: 'body' })
     this.sky = this.host.createLayer({ kind: 'sky' })
@@ -481,8 +507,9 @@ export class ListTable {
   /**
    * 局部刷新单格：被合并覆盖的坐标路由到主格节点；窗口内则更新节点内容、
    * 重投影样式并登记 cell 失效（合并区失效为主格包围盒），窗口外忽略；
-   * 失效区并入溢出 extents：旧溢出区防文字变短残影、新溢出区补画；本格变空时
-   * 向左扩到最近溢出来源格，让它的溢出收回；
+   * 失效区并入溢出走廊：旧走廊防文字变短残影、新走廊补画；本格变空时向两侧扩到
+   * 最近溢出来源格（左邻右溢/居中源、右邻左溢/居中源），让它们的走廊收敛或延伸；
+   * 节点获得溢出能力时重挂树尾（z 序不变量：溢出源后画于同条带走廊节点）；
    * 批量更新（batchUpdate）期间失效区域改为收集，批末合并为一次 band 提交
    */
   refreshCell(col: number, row: number): void {
@@ -519,8 +546,8 @@ export class ListTable {
     if (!node) {
       return
     }
-    const prevBounds = node.getGlobalBounds()
     const prevMaxX = node.textMaxX
+    const prevMinX = node.textMinX
     const prevHasText = node.text !== ''
     node.setContent(
       this.pipeline.resolveText(masterCol, masterRow),
@@ -530,49 +557,60 @@ export class ListTable {
     // 生效边框随样式重算（共享边裁决：本格 right/bottom 与右/下邻居对侧边取强）
     node.border = effectiveBorder(this, masterCol, masterRow, node.style)
     node.renderer = this.options.resolveCellRenderer?.(masterCol, masterRow) ?? null
-    const limitX = textOverflowLimitX(
+    const limits = textOverflowLimits(
       this,
       masterCol,
       masterRow,
       node.style,
       this.scroll.state.left,
     )
-    node.textMaxX = limitX === null ? node.width : limitX - node.x
+    node.textMaxX = limits === null ? node.width : limits.maxX - node.x
+    node.textMinX = limits === null ? 0 : limits.minX - node.x
     const regions: Region[] = [node.getGlobalBounds()]
-    if (prevMaxX > node.width) {
-      regions.push({
-        x: prevBounds.x,
-        y: prevBounds.y,
-        width: prevMaxX,
-        height: prevBounds.height,
-      })
+    if (prevMaxX > node.width || prevMinX < 0) {
+      regions.push(overflowExtentRegion(node, prevMinX, prevMaxX))
     }
-    if (node.textMaxX > node.width) {
-      const bounds = regions[0]!
-      regions.push({ x: bounds.x, y: bounds.y, width: node.textMaxX, height: bounds.height })
+    if (node.textMaxX > node.width || node.textMinX < 0) {
+      regions.push(overflowExtentRegion(node, node.textMinX, node.textMaxX))
+      // z 序不变量：源格后画于同条带全部走廊节点（左溢走廊在源格左侧，降序建格
+      // 的行内次序会让走廊格画在源文本之上）
+      this.remountOverflowSourceNode(node)
     }
-    // 左侧溢出来源联动：本格变空（来源格穿过本格继续溢出）、变非空（来源格溢出收回）、
-    // 保持为空（本格重绘会擦掉来源格经过本格的文本）时，重算来源格右界并并入其新旧溢出区
+    // 两侧溢出来源联动：本格变空（左邻右溢/居中源穿过本格、右邻左溢/居中源伸回本格）、
+    // 变非空（来源格走廊收回）、保持为空（本格重绘会擦掉来源格经过本格的文本）时，
+    // 重算来源格走廊并并入其新旧溢出区
     if (!node.text || prevHasText !== (node.text !== '')) {
-      const sourceCol = overflowSourceCol(this, masterCol, masterRow)
-      const sourceNode =
-        sourceCol !== null ? this.cellNodes.get(cellKey(sourceCol, masterRow)) : undefined
-      if (sourceCol !== null && sourceNode) {
-        const oldExtent = sourceNode.textMaxX
-        const sourceLimit = textOverflowLimitX(
+      for (const sourceCol of [
+        overflowSourceCol(this, masterCol, masterRow),
+        overflowSourceColRight(this, masterCol, masterRow),
+      ]) {
+        if (sourceCol === null) {
+          continue
+        }
+        const sourceNode = this.cellNodes.get(cellKey(sourceCol, masterRow))
+        if (!sourceNode) {
+          continue
+        }
+        const sourceOldMinX = sourceNode.textMinX
+        const sourceOldMaxX = sourceNode.textMaxX
+        const sourceLimits = textOverflowLimits(
           this,
           sourceCol,
           masterRow,
           sourceNode.style,
           this.scroll.state.left,
         )
-        sourceNode.textMaxX = sourceLimit === null ? sourceNode.width : sourceLimit - sourceNode.x
-        regions.push({
-          x: sourceNode.x,
-          y: sourceNode.y,
-          width: Math.max(oldExtent, sourceNode.textMaxX),
-          height: sourceNode.height,
-        })
+        sourceNode.textMaxX =
+          sourceLimits === null ? sourceNode.width : sourceLimits.maxX - sourceNode.x
+        sourceNode.textMinX = sourceLimits === null ? 0 : sourceLimits.minX - sourceNode.x
+        if (sourceNode.textMaxX !== sourceOldMaxX || sourceNode.textMinX !== sourceOldMinX) {
+          regions.push(overflowExtentRegion(sourceNode, sourceOldMinX, sourceOldMaxX))
+          regions.push(overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX))
+        }
+        if (sourceNode.textMaxX > sourceNode.width || sourceNode.textMinX < 0) {
+          // 来源格获得/保持溢出：重挂树尾保证其走廊文本画在走廊格之上
+          this.remountOverflowSourceNode(sourceNode)
+        }
       }
     }
     const region = unionRegions(regions) ?? regions[0]!
@@ -581,6 +619,18 @@ export class ListTable {
       return
     }
     this.host.submitInvalidation('body', { type: 'cell', region })
+  }
+
+  /** 溢出源节点重挂树尾（z 序不变量：源格后画于同条带全部走廊节点）；表头容器与外框随后重挂保持最上 */
+  private remountOverflowSourceNode(node: CellNode): void {
+    this.body.root.removeChild(node)
+    this.body.root.appendChild(node)
+    if (this.headerGroup) {
+      this.body.root.appendChild(this.headerGroup)
+    }
+    if (this.frameNode) {
+      this.body.root.appendChild(this.frameNode)
+    }
   }
 
   /** 批量更新：fn 内的多次变更合并，结束时只提交一次 band 失效（一帧收敛一次渲染提交） */
@@ -703,7 +753,8 @@ export class ListTable {
     }
     this.tableWidth = nextWidth
     this.tableHeight = nextHeight
-    this.host.resize(nextWidth, nextHeight)
+    // 透传当前宿主环境 dpr：core 侧几何变更路径与运行期 DPR 保持一致
+    this.host.resize(nextWidth, nextHeight, resolveHostDpr())
     // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
     this.overlay.resize()
     if (this.floatLayer) {
@@ -932,15 +983,10 @@ export class ListTable {
       return
     }
     node.contentHidden = hidden
-    // 失效区并入溢出右界：溢出文本画出本格右缘，隐藏/恢复都要覆盖整段
+    // 失效区并入溢出走廊：溢出文本画出本格两侧缘，隐藏/恢复都要覆盖整段
     this.host.submitInvalidation('body', {
       type: 'cell',
-      region: {
-        x: node.x,
-        y: node.y,
-        width: Math.max(node.width, node.textMaxX),
-        height: node.height,
-      },
+      region: overflowExtentRegion(node, node.textMinX, node.textMaxX),
     })
   }
 

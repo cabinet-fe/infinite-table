@@ -31,8 +31,10 @@ export interface CellRenderTarget {
   textWidth?: number
   /** 节点已推导的 font 串（内置 text 路径由 CellNode 与测量同源传入）；缺省时渲染器自行 cellStyleFont(style) */
   font?: string
-  /** 文本可绘制的局部右界：等于 width 即裁剪在本格，更大表示可溢出到右侧空格 */
+  /** 文本可绘制的局部右界：等于 width 即右侧裁剪在本格，更大表示可溢出到右侧空格 */
   textMaxX?: number
+  /** 文本可绘制的局部左界：等于 0 即左侧裁剪在本格，更小（负值）表示可溢出到左侧空格 */
+  textMinX?: number
 }
 
 /** 单元格渲染器：在格内局部坐标系绘制内容（背景与边框由节点负责） */
@@ -114,7 +116,8 @@ function textBaselineY(
 /**
  * 内置 text 渲染：对齐与字体随样式（缺省左对齐垂直居中），绘制区内缩 padding。
  * 超宽文本按 textOverflow：ellipsis 以省略号截断、clip 在内容盒内直接裁剪；
- * 未设置保持既有 Excel 式溢出（左对齐溢出到右侧空格，clip 到允许右界）或格内换行。
+ * 未设置保持 Excel 式溢出（走廊区间 [textMinX, textMaxX] 由场景按对齐方向算出，
+ * 对齐锚点恒在源格），或格内换行。
  */
 export const renderTextCell: CellRenderer = ({
   ctx,
@@ -125,6 +128,7 @@ export const renderTextCell: CellRenderer = ({
   textWidth,
   font,
   textMaxX,
+  textMinX,
 }) => {
   if (!text) {
     return
@@ -149,12 +153,16 @@ export const renderTextCell: CellRenderer = ({
       drawClippedText(ctx, text, box, baselineY, measured, style)
       return
     }
-    // 未设置：左对齐（缺省）溢出画进右侧空格（textMaxX > width），中/右对齐裁剪在本格
-    const canOverflow = (style.textAlign ?? 'left') === 'left'
+    // 未设置：Excel 式溢出——clip 区间按对齐方向取走廊界：left（缺省）只用右界向右溢、
+    // right 只用左界向左溢、center 双向；对齐锚点不动（文本整体随源格对齐展开，
+    // 被截断侧在走廊边界裁掉）。直构节点未传界时界即本格边缘，退化为格内裁剪。
+    const align = style.textAlign ?? 'left'
+    const clipLeft = align === 'left' ? 0 : Math.min(0, textMinX ?? 0)
+    const clipRight = align === 'right' ? width : Math.max(width, textMaxX ?? width)
     const x = alignedX(style.textAlign, box, measured)
     ctx.save()
     ctx.beginPath()
-    ctx.rect(0, 0, canOverflow ? Math.max(width, textMaxX ?? width) : width, height)
+    ctx.rect(clipLeft, 0, clipRight - clipLeft, height)
     ctx.clip()
     ctx.fillText(text, x, baselineY)
     drawTextDecorations(ctx, x, baselineY, measured, style)

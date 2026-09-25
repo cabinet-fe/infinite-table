@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { CellNode } from '../src/cell-node'
 import { ListTable } from '../src/list-table'
 import { findCellNode } from './testing/find-cell-node'
+import { paintTreeCanonical } from './testing/paint-tree'
+import { RecordingContext, type RecordedCall } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type { CellChangeEvent, ListTableOptions, TableModel } from '../src/types'
 
@@ -132,6 +134,57 @@ describe('renderTextCell 溢出与换行', () => {
     node.paint(ctx)
     expect(ctx.clips).toEqual([{ x: 0, y: 0, width: 100, height: 32 }])
     expect(ctx.texts).toEqual([{ text: LONG_TEXT, x: 8, y: 20 }])
+  })
+
+  it('右对齐左溢：clip 到允许左界（负向），锚点仍在源格', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 2,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: LONG_TEXT,
+      style: { textAlign: 'right' },
+    })
+    node.textMinX = -160
+    node.paint(ctx)
+    // clip [-160, 100)；锚点 x = 8 + 84 - 200 = -108（源格内容盒右缘对齐，整体左伸）
+    expect(ctx.clips).toEqual([{ x: -160, y: 0, width: 260, height: 32 }])
+    expect(ctx.texts).toEqual([{ text: LONG_TEXT, x: -108, y: 20 }])
+  })
+
+  it('center 双向溢出：clip 双界，锚点以源格对称展开', () => {
+    const ctx = new MeasureStubContext()
+    const node = new CellNode({
+      col: 2,
+      row: 0,
+      width: 100,
+      height: 32,
+      text: LONG_TEXT,
+      style: { textAlign: 'center' },
+    })
+    node.textMaxX = 250
+    node.textMinX = -150
+    node.paint(ctx)
+    // clip [-150, 250)；锚点 x = 8 + (84 - 200) / 2 = -50
+    expect(ctx.clips).toEqual([{ x: -150, y: 0, width: 400, height: 32 }])
+    expect(ctx.texts).toEqual([{ text: LONG_TEXT, x: -50, y: 20 }])
+  })
+
+  it('center/right 未传走廊界（直构节点）：退化为格内裁剪', () => {
+    for (const textAlign of ['center', 'right'] as const) {
+      const ctx = new MeasureStubContext()
+      const node = new CellNode({
+        col: 0,
+        row: 0,
+        width: 100,
+        height: 32,
+        text: LONG_TEXT,
+        style: { textAlign },
+      })
+      node.paint(ctx)
+      expect(ctx.clips).toEqual([{ x: 0, y: 0, width: 100, height: 32 }])
+    }
   })
 
   it('textWrap：格内逐字断行，行块垂直居中，clip 在本格', () => {
@@ -417,6 +470,96 @@ describe('ListTable 溢出右界', () => {
     expect(findNode(frozen2.host, 0, 0)?.textMaxX).toBe(200)
   })
 
+  it('center 对齐向两侧溢出：走廊双界延伸到两侧首个非空格', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }, { field: 'd' }, { field: 'e' }],
+      records: [{ c: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 2 ? { textAlign: 'center' } : null),
+    })
+    const node = findNode(host, 2, 0)!
+    // 两侧 1、3 列为空，0、4 列也空：走廊 [0, 500) 的层坐标 → 局部 [-200, +300]
+    expect(node.textMinX).toBe(-200)
+    expect(node.textMaxX).toBe(300)
+  })
+
+  it('right 对齐向左溢出：只看左壁，右界收敛本格', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }, { field: 'd' }],
+      records: [{ c: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 2 ? { textAlign: 'right' } : null),
+    })
+    const node = findNode(host, 2, 0)!
+    expect(node.textMaxX).toBe(100)
+    expect(node.textMinX).toBe(-200)
+  })
+
+  it('center 两壁皆阻断：不溢出；单侧空：向空侧溢', () => {
+    const blocked = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: 'x', b: LONG_TEXT, c: 'y' }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 1 ? { textAlign: 'center' } : null),
+    })
+    expect(findNode(blocked.host, 1, 0)?.textMaxX).toBe(100)
+    expect(findNode(blocked.host, 1, 0)?.textMinX).toBe(0)
+
+    const rightEmpty = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: 'x', b: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 1 ? { textAlign: 'center' } : null),
+    })
+    expect(findNode(rightEmpty.host, 1, 0)?.textMinX).toBe(0)
+    expect(findNode(rightEmpty.host, 1, 0)?.textMaxX).toBe(200)
+  })
+
+  it('right 对齐左壁阻断：不溢出', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }],
+      records: [{ a: 'x', b: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 1 ? { textAlign: 'right' } : null),
+    })
+    expect(findNode(host, 1, 0)?.textMaxX).toBe(100)
+    expect(findNode(host, 1, 0)?.textMinX).toBe(0)
+  })
+
+  it('空白串邻居按非空阻断（Univer/Excel 口径）', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', LONG_TEXT)
+    model.data.set('1:0', '   ')
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }],
+      rowCount: 1,
+      model,
+    })
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(100)
+  })
+
+  it('左溢走廊不越冻结列带边界：带内源与滚动带源各自止于带缘', () => {
+    const frozen1 = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ b: LONG_TEXT }],
+      rowCount: 1,
+      frozenColCount: 1,
+      resolveCellStyle: (col) => (col === 1 ? { textAlign: 'right' } : null),
+    })
+    // 滚动带源（col 1）：左邻是冻结带 → 走廊止于带缘（本格左缘），不左溢
+    expect(findNode(frozen1.host, 1, 0)?.textMinX).toBe(0)
+
+    const frozen2 = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ b: LONG_TEXT }],
+      rowCount: 1,
+      frozenColCount: 2,
+      resolveCellStyle: (col) => (col === 1 ? { textAlign: 'right' } : null),
+    })
+    // 冻结带内源（col 1）：带内左邻 col 0 为空 → 左溢一格（-100），不越带首
+    expect(findNode(frozen2.host, 1, 0)?.textMinX).toBe(-100)
+  })
+
   it('带内按列降序建节点：左格文本后画不被右格背景盖住', () => {
     const { host } = createTable({ records: [{ name: 'a' }], rowCount: 1 })
     const body = host.layers.get('body')
@@ -535,6 +678,62 @@ describe('refreshCell 溢出联动失效', () => {
       { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
   })
+
+  it('左溢来源格联动：本格变非空 → 走廊收回；变空 → 走廊伸出', () => {
+    const model = new EchoModel(1)
+    model.data.set('2:0', LONG_TEXT)
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      rowCount: 1,
+      model,
+      resolveCellStyle: (col) => (col === 2 ? { textAlign: 'right' } : null),
+    })
+    // 初始：col 2 左溢穿 1、0 列（局部 [-200, 100)）
+    expect(findNode(host, 2, 0)?.textMinX).toBe(-200)
+    host.submitted.length = 0
+    model.data.set('1:0', 'x')
+    model.emit({ col: 1, row: 0, oldValue: undefined, newValue: undefined })
+    // col 2 走廊收回本格；失效区并集覆盖旧走廊（x 从 48 = 248-200 起）
+    expect(findNode(host, 2, 0)?.textMinX).toBe(0)
+    expect(findNode(host, 2, 0)?.textMaxX).toBe(100)
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+    ])
+    host.submitted.length = 0
+    model.data.delete('1:0')
+    model.emit({ col: 1, row: 0, oldValue: 'x', newValue: undefined })
+    // col 2 走廊重新伸出；并集同样覆盖整段
+    expect(findNode(host, 2, 0)?.textMinX).toBe(-200)
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+    ])
+  })
+
+  it('refresh 获得溢出：溢出源重挂树尾（后画于走廊格），表头容器仍在其上', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', 'x')
+    model.data.set('1:0', LONG_TEXT)
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      rowCount: 1,
+      model,
+      resolveCellStyle: (col) => (col === 1 ? { textAlign: 'center' } : null),
+    })
+    // 初建：两壁皆阻断，col 1 不溢出
+    expect(findNode(host, 1, 0)?.textMinX).toBe(0)
+    host.submitted.length = 0
+    model.data.delete('0:0')
+    model.emit({ col: 0, row: 0, oldValue: 'x', newValue: undefined })
+    // 左壁放空：col 1 向左溢出，重挂树尾（行内其它数据格与全部走廊格之上）
+    expect(findNode(host, 1, 0)?.textMinX).toBeLessThan(0)
+    const root = host.layers.get('body')!.root
+    const dataCols = root.children
+      .filter((child): child is CellNode => child instanceof CellNode && child.row === 0)
+      .map((child) => child.col)
+    expect(dataCols[dataCols.length - 1]).toBe(1)
+    // 表头容器与外框重挂后仍在溢出源之上
+    expect(root.children.indexOf(findNode(host, 1, 0)!)).toBeLessThan(root.children.length - 2)
+  })
 })
 
 describe('表头容器 z 序（R2-5）', () => {
@@ -568,5 +767,162 @@ describe('表头容器 z 序（R2-5）', () => {
     expect(master.height).toBe(4 * 32) // 主格跨 4 行取完整尺寸
     expect(root.children.indexOf(master)).toBeLessThan(root.children.indexOf(headerGroup))
     expect(headerGroup.children.length).toBeGreaterThan(0)
+  })
+})
+
+describe('溢出 z 序不变量（增量窗口）', () => {
+  /** body root 中指定行的数据格列号（按树序） */
+  function rowOrder(host: StubHost, row: number): number[] {
+    const root = host.layers.get('body')!.root
+    return root.children
+      .filter(
+        (child): child is CellNode =>
+          child instanceof CellNode && child.row === row && child.col >= 0,
+      )
+      .map((child) => child.col)
+  }
+
+  function expectSourceAbove(order: number[], source: number, corridor: number[]): void {
+    for (const col of corridor) {
+      expect(order.indexOf(source)).toBeGreaterThan(order.indexOf(col))
+    }
+  }
+
+  it('向左滚动增量补建保持左溢 z 序：右对齐溢出文本后画于新滚入格背景', () => {
+    const { host, table } = createTable({
+      columns: Array.from({ length: 10 }, (_, i) => ({ field: `f${i}`, title: 'C' })),
+      records: [{ f5: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 5 ? { textAlign: 'right' } : null),
+    })
+    const before = findNode(host, 5, 0)
+    expect(before?.textMinX).toBeLessThan(0)
+
+    table.scrollTo(200, 0) // 窗口 [0,8) → [2,10)
+    table.scrollTo(0, 0) // [2,10) → [0,8)：col 0、1 滚入
+    const order = rowOrder(host, 0)
+    expect(order).toContain(0)
+    expect(order).toContain(1)
+    // 左溢源（col 5）必须后画于走廊格（2..4）与新滚入格（0、1），
+    // 文本不被新格背景/网格线盖住
+    expectSourceAbove(order, 5, [0, 1, 2, 3, 4])
+    // 存活格溢出走廊随滚动平移保持不变
+    const after = findNode(host, 5, 0)
+    expect(after?.textMinX).toBe(before?.textMinX)
+  })
+
+  it('横向滚动后行内规范序与全量重建一致：溢出源按列升序居于行尾', () => {
+    const columns = Array.from({ length: 10 }, (_, i) => ({ field: `f${i}`, title: 'C' }))
+    const style = (col: number): { textAlign: 'right' } | null =>
+      col === 7 ? { textAlign: 'right' } : null
+    const rebuilt = createTable({
+      columns,
+      records: [{ f2: LONG_TEXT, f7: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: style,
+    })
+    const scrolled = createTable({
+      columns,
+      records: [{ f2: LONG_TEXT, f7: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: style,
+    })
+    scrolled.table.scrollTo(300, 0)
+    scrolled.table.scrollTo(0, 0)
+    // 两路径的行内溢出源集合与相对次序（列升序居行尾）一致：
+    // col 2（右溢）在 col 7（左溢）之前，且都在全部走廊格之后
+    for (const { host } of [rebuilt, scrolled]) {
+      const order = rowOrder(host, 0)
+      expectSourceAbove(order, 2, [3, 4, 5, 6])
+      expectSourceAbove(order, 7, [3, 4, 5, 6])
+      expect(order.indexOf(2)).toBeLessThan(order.indexOf(7))
+    }
+  })
+})
+
+describe('三路径渲染一致（全量重建 / 滚动增量 / refreshCell）', () => {
+  // 数据布局（无两源共享空段，三条路径像素可比）：
+  // 行 0：col 1 左对齐长文本（右溢进 2、3）、col 5 右对齐长文本（左溢进 4、3、2）
+  // 行 1：col 3 居中长文本（双向溢出）
+  const COLS = 6
+  const LEFT_TEXT = 'A'.repeat(14) // 140px
+  const RIGHT_TEXT = 'A'.repeat(20) // 200px
+  const CENTER_TEXT = 'A'.repeat(20) // 200px
+  const OPTIONS = {
+    columns: Array.from({ length: COLS }, (_, i) => ({ field: `f${i}`, title: 'C' })),
+    rowCount: 2,
+    resolveCellStyle: (col: number) =>
+      col === 5
+        ? ({ textAlign: 'right' } as const)
+        : col === 3
+          ? ({ textAlign: 'center' } as const)
+          : null,
+  }
+  const RECORDS = [{ f1: LEFT_TEXT, f5: RIGHT_TEXT }, { f3: CENTER_TEXT }]
+
+  function paintOps(host: StubHost): RecordedCall[] {
+    const ctx = new RecordingContext()
+    return paintTreeCanonical(host.layers.get('body')!.root, ctx)
+  }
+
+  function expectSourceAboveCorridors(host: StubHost): void {
+    const root = host.layers.get('body')!.root
+    const orderOf = (row: number): number[] =>
+      root.children
+        .filter(
+          (child): child is CellNode =>
+            child instanceof CellNode && child.row === row && child.col >= 0,
+        )
+        .map((child) => child.col)
+    const row0 = orderOf(0)
+    // 右溢源 col 1 与左溢源 col 5 都后画于本行全部非源格（含各自走廊格）
+    for (const source of [1, 5]) {
+      for (const col of [0, 2, 3, 4]) {
+        expect(row0.indexOf(source)).toBeGreaterThan(row0.indexOf(col))
+      }
+    }
+    // 行 1 的双向溢出源 col 3 后画于本行全部其它格
+    const row1 = orderOf(1)
+    for (const col of [0, 1, 2, 4, 5]) {
+      expect(row1.indexOf(3)).toBeGreaterThan(row1.indexOf(col))
+    }
+    // 溢出源仍在表头容器之下（表头最上）
+    const headerGroup = root.children.at(-2)!
+    for (const source of [findNode(host, 1, 0)!, findNode(host, 5, 0)!, findNode(host, 3, 1)!]) {
+      expect(root.children.indexOf(source)).toBeLessThan(root.children.indexOf(headerGroup))
+    }
+  }
+
+  it('全量重建：溢出源后画于同条带全部走廊节点，规范序绘制流为基准', () => {
+    const { host } = createTable({ ...OPTIONS, records: RECORDS })
+    expectSourceAboveCorridors(host)
+    expect(paintOps(host).length).toBeGreaterThan(0)
+  })
+
+  it('滚动增量窗口：同格同数据规范序绘制流与全量重建逐项一致', () => {
+    const rebuilt = createTable({ ...OPTIONS, records: RECORDS })
+    const scrolled = createTable({ ...OPTIONS, records: RECORDS })
+    scrolled.table.scrollTo(250, 0)
+    scrolled.table.scrollTo(100, 0)
+    scrolled.table.scrollTo(0, 0)
+    expectSourceAboveCorridors(scrolled.host)
+    expect(paintOps(scrolled.host)).toEqual(paintOps(rebuilt.host))
+  })
+
+  it('refreshCell 路径：空表逐格写到同一份数据，规范序绘制流与全量重建逐项一致', () => {
+    const rebuilt = createTable({ ...OPTIONS, records: RECORDS })
+    const model = new EchoModel(2)
+    const refreshed = createTable({ ...OPTIONS, model })
+    const writes: Array<[number, number, unknown]> = [
+      [1, 0, LEFT_TEXT],
+      [5, 0, RIGHT_TEXT],
+      [3, 1, CENTER_TEXT],
+    ]
+    for (const [col, row, value] of writes) {
+      model.data.set(`${col}:${row}`, value)
+      model.emit({ col, row, oldValue: undefined, newValue: value })
+    }
+    expectSourceAboveCorridors(refreshed.host)
+    expect(paintOps(refreshed.host)).toEqual(paintOps(rebuilt.host))
   })
 })
