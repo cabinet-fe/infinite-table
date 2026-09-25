@@ -330,10 +330,22 @@ function extendHeaderDrag(table: ListTable, x: number, y: number): void {
   const target = hit >= 0 ? hit : content < 0 ? 0 : axisCount - 1
   const min = Math.min(drag.anchor, target)
   const max = Math.max(drag.anchor, target)
-  table.selection.updateDragRange(
-    isCol ? { col: min, row: 0 } : { col: 0, row: min },
-    isCol ? { col: max, row: fullCount - 1 } : { col: fullCount - 1, row: max },
-  )
+  const start = isCol ? { col: min, row: 0 } : { col: 0, row: min }
+  const end = isCol ? { col: max, row: fullCount - 1 } : { col: fullCount - 1, row: max }
+  // 区间与当前段一致（按下即抬起或同带抖动）时不重写：updateDragRange 会把焦点
+  // 移到段末，点选整行/整列的活动格将跳到行/列末格（native 与 Excel 语义均为
+  // 交互行/列首格）；真实拖拽扩展时区间变化，照常重写并同步焦点到段末
+  const last = table.selection.snapshot.ranges[table.selection.snapshot.ranges.length - 1]
+  if (
+    last &&
+    last.start.col === start.col &&
+    last.start.row === start.row &&
+    last.end.col === end.col &&
+    last.end.row === end.row
+  ) {
+    return
+  }
+  table.selection.updateDragRange(start, end)
 }
 
 /**
@@ -747,10 +759,18 @@ export function refreshOverlay(table: ListTable): void {
       x: table.frozenColCount > 0 ? table.rowHeaderWidth + table.frozenColsWidth : null,
       y: table.frozenRowCount > 0 ? table.headerHeight + table.frozenRowsHeight : null,
     },
-    // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末
+    // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末；无冻结时起点取滚动窗
+    // 起点——rangeRect 收拢后还须经 cellRect 解析双角格，起点越过可解析范围
+    // （cellRect 对滚动窗外行列返回 null）会让整行/整列选区在滚动后整块浮层丢失
     window: {
-      rows: { start: 0, end: Math.max(table.rows.end, table.frozenRowCount) },
-      cols: { start: 0, end: Math.max(table.cols.end, table.frozenColCount) },
+      rows: {
+        start: table.frozenRowCount > 0 ? 0 : table.rows.start,
+        end: Math.max(table.rows.end, table.frozenRowCount),
+      },
+      cols: {
+        start: table.frozenColCount > 0 ? 0 : table.cols.start,
+        end: Math.max(table.cols.end, table.frozenColCount),
+      },
     },
   })
   if (has || table.overlayHadContent) {
