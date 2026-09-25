@@ -833,6 +833,103 @@ try {
       delete window.__PG_FM__
     })
   }
+  // ---- 20. 表头点击不跳转：滚动到中部点列头/行头 → 视口不动（getScrollTop/getScrollLeft 不变），
+  // 引擎 snapshot.focus 落被点轴 × 可视数据带（ultra-ui 宿主以活动格可见性为闸不再触发滚动跟随） ----
+  {
+    const setup = await evalPage(() => {
+      const t = window.__PG__.grid().getTable()
+      const rect = document.querySelector('.u-sheet__grid-instance').getBoundingClientRect()
+      const draw = t.getDrawRange()
+      // 滚到中部：先探滚动边界再取半程（行列尺寸与视口大小不写死）
+      t.setScrollLeft(1e6)
+      t.setScrollTop(1e6)
+      t.setScrollLeft(Math.floor(t.getScrollLeft() / 2))
+      t.setScrollTop(Math.floor(t.getScrollTop() / 2))
+      const v = t.getBodyVisibleCellRange()
+      // 被点列/行取可视带内第二格（完整可见），表头格视口坐标按当前滚动位置换算
+      const col = v.cols.start + 1
+      const row = v.rows.start + 1
+      let bodyX = draw.x - t.getScrollLeft()
+      for (let c = 0; c < col; c++) bodyX += t.getColWidth(c)
+      let bodyY = draw.y - t.getScrollTop()
+      for (let r = 0; r < row; r++) bodyY += t.getRowHeight(r)
+      return {
+        col,
+        row,
+        left: t.getScrollLeft(),
+        top: t.getScrollTop(),
+        colHeaderX: rect.x + bodyX + t.getColWidth(col) / 2,
+        colHeaderY: rect.y + draw.y / 2,
+        rowHeaderX: rect.x + draw.x / 2,
+        rowHeaderY: rect.y + bodyY + t.getRowHeight(row) / 2,
+      }
+    })
+    await page.waitForTimeout(200)
+    // 点列头：整列选区，视口不动，焦点 = 被点列 × 可视行带首行
+    await page.mouse.click(setup.colHeaderX, setup.colHeaderY)
+    await page.waitForTimeout(300)
+    const colResult = await evalPage(() => {
+      const t = window.__PG__.grid().getTable()
+      return {
+        left: t.getScrollLeft(),
+        top: t.getScrollTop(),
+        focus: t.getSelection().focus,
+        range: t.getSelectedCellRanges()[0],
+        visible: t.getBodyVisibleCellRange(),
+      }
+    })
+    const colOk =
+      colResult.left === setup.left &&
+      colResult.top === setup.top &&
+      colResult.range != null &&
+      colResult.range.start.col === setup.col &&
+      colResult.range.end.col === setup.col &&
+      colResult.range.start.row === 0 &&
+      colResult.focus != null &&
+      colResult.focus.col === setup.col &&
+      colResult.focus.row >= colResult.visible.rows.start &&
+      colResult.focus.row < colResult.visible.rows.end
+    // 点行头：整行选区，视口不动，焦点 = 可视列带首列 × 被点行
+    await page.mouse.click(setup.rowHeaderX, setup.rowHeaderY)
+    await page.waitForTimeout(300)
+    const rowResult = await evalPage(() => {
+      const t = window.__PG__.grid().getTable()
+      return {
+        left: t.getScrollLeft(),
+        top: t.getScrollTop(),
+        focus: t.getSelection().focus,
+        range: t.getSelectedCellRanges()[0],
+        visible: t.getBodyVisibleCellRange(),
+      }
+    })
+    const rowOk =
+      rowResult.left === setup.left &&
+      rowResult.top === setup.top &&
+      rowResult.range != null &&
+      rowResult.range.start.row === setup.row &&
+      rowResult.range.end.row === setup.row &&
+      rowResult.range.start.col === 0 &&
+      rowResult.focus != null &&
+      rowResult.focus.row === setup.row &&
+      rowResult.focus.col >= rowResult.visible.cols.start &&
+      rowResult.focus.col < rowResult.visible.cols.end
+    step('表头点击不跳转（滚动到中部点列头/行头：视口不动；焦点在被点轴 × 可视数据带）', {
+      滚动位: { left: setup.left, top: setup.top },
+      列头: {
+        被点列: setup.col,
+        focus: colResult.focus,
+        range: colResult.range,
+        滚动不变: colResult.left === setup.left && colResult.top === setup.top,
+      },
+      行头: {
+        被点行: setup.row,
+        focus: rowResult.focus,
+        range: rowResult.range,
+        滚动不变: rowResult.left === setup.left && rowResult.top === setup.top,
+      },
+      通过: colOk && rowOk,
+    })
+  }
 } catch (err) {
   step('!!异常中断', { error: String(err) })
 }

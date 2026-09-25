@@ -363,6 +363,120 @@ describe('ListTable 表头拖选连续扩展', () => {
   })
 })
 
+describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
+  const records = Array.from({ length: 200 }, (_, i) => ({ name: `r${i}` }))
+  const manyCols = Array.from({ length: 20 }, (_, i) => ({ field: 'name', title: `C${i}` }))
+  // 滚动后表头格视口坐标：内容坐标反推视口位置（带内居中，避开行列缘 ±4px resize 手柄区）
+  const scrolledColHeaderX = (col: number, scrollLeft: number) => 48 + col * 100 - scrollLeft + 50
+  const scrolledRowHeaderY = (row: number, scrollTop: number) => 36 + row * 32 - scrollTop + 16
+
+  it('滚动到中部点列头：整列选区，焦点落被点列 × 可视行带首行，滚动位置不变', () => {
+    const { host, table } = createTable({ records, columns: manyCols })
+    table.setScrollLeft(250)
+    table.setScrollTop(500)
+    const left = table.getScrollLeft()
+    const top = table.getScrollTop()
+    expect(left).toBe(250)
+    expect(top).toBe(500)
+    // 点被点列 6 的列头（滚动后仍在视口内）
+    fireBody(host, 'pointerdown', { x: scrolledColHeaderX(6, left), y: 10 })
+    const visible = table.getBodyVisibleCellRange()
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 6, row: 0 }, end: { col: 6, row: 199 } },
+    ])
+    // 焦点落交互可视位：col 等于被点列，row 在可视数据行带内（[start, end)）
+    expect(table.getSelection().focus).toEqual({ col: 6, row: visible.rows.start })
+    expect(table.getSelection().focus!.row).toBeGreaterThanOrEqual(visible.rows.start)
+    expect(table.getSelection().focus!.row).toBeLessThan(visible.rows.end)
+    // 引擎表头点击不产生滚动：按下前后 getScrollLeft/getScrollTop 不变
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+    // 按下即抬起（up 落点与按下同带）：区间不变守卫保留可视位焦点，仍不滚动
+    fireBody(host, 'pointerup', { x: scrolledColHeaderX(6, left), y: 10 })
+    expect(table.getSelection().focus).toEqual({ col: 6, row: visible.rows.start })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+  })
+
+  it('滚动到中部点行头：整行选区，焦点落可视列带首列 × 被点行，滚动位置不变', () => {
+    const { host, table } = createTable({ records, columns: manyCols })
+    table.setScrollLeft(250)
+    table.setScrollTop(500)
+    const left = table.getScrollLeft()
+    const top = table.getScrollTop()
+    const visible = table.getBodyVisibleCellRange()
+    // 被点行取可视行带内第二行
+    const row = visible.rows.start + 2
+    const y = scrolledRowHeaderY(row, top)
+    fireBody(host, 'pointerdown', { x: 10, y })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row }, end: { col: 19, row } },
+    ])
+    // focus.row 等于被点行，focus.col 落可视数据列带内
+    expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
+    expect(table.getSelection().focus!.col).toBeGreaterThanOrEqual(visible.cols.start)
+    expect(table.getSelection().focus!.col).toBeLessThan(visible.cols.end)
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+    fireBody(host, 'pointerup', { x: 10, y })
+    expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+  })
+
+  it('滚动到中部点角点：全选焦点落可视带首格，滚动位置不变', () => {
+    const { host, table } = createTable({ records, columns: manyCols })
+    table.setScrollLeft(250)
+    table.setScrollTop(500)
+    const left = table.getScrollLeft()
+    const top = table.getScrollTop()
+    fireBody(host, 'pointerdown', { x: 10, y: 10 })
+    const visible = table.getBodyVisibleCellRange()
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 19, row: 199 } },
+    ])
+    expect(table.getSelection().focus).toEqual({
+      col: visible.cols.start,
+      row: visible.rows.start,
+    })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+    fireBody(host, 'pointerup', { x: 10, y: 10 })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+  })
+
+  it('滚动到边缘点列头/行头：焦点仍落可视带内，滚动位置不变', () => {
+    const { host, table } = createTable({ records, columns: manyCols })
+    // 滚到边界（setScrollTop/Left 自动夹取），取可视带末格点击
+    table.setScrollLeft(9999)
+    table.setScrollTop(9999)
+    const left = table.getScrollLeft()
+    const top = table.getScrollTop()
+    expect(left).toBeGreaterThan(0)
+    expect(top).toBeGreaterThan(0)
+    const visible = table.getBodyVisibleCellRange()
+    const col = visible.cols.end - 1
+    fireBody(host, 'pointerdown', { x: scrolledColHeaderX(col, left), y: 10 })
+    expect(table.getSelection().focus).toEqual({ col, row: visible.rows.start })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+    fireBody(host, 'pointerup', { x: scrolledColHeaderX(col, left), y: 10 })
+
+    const row = visible.rows.end - 1
+    fireBody(host, 'pointerdown', { x: 10, y: scrolledRowHeaderY(row, top) })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row }, end: { col: 19, row } },
+    ])
+    expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+    fireBody(host, 'pointerup', { x: 10, y: scrolledRowHeaderY(row, top) })
+    expect(table.getScrollLeft()).toBe(left)
+    expect(table.getScrollTop()).toBe(top)
+  })
+})
+
 describe('ListTable 键盘导航', () => {
   it('方向键移动活动格并滚动跟随；shift+方向键扩展选区且焦点同步；Tab 右移', () => {
     const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
@@ -1017,14 +1131,19 @@ describe('ListTable 表头高亮', () => {
     )
   }
 
-  it('selectRow 高亮对应行号格并只失效行号列条带；部分格选区不触发表头高亮', () => {
+  it('selectRow 高亮对应行号格并只失效行号列条带；部分格选区点亮焦点格行列头', () => {
     const { host, table } = createTable({ records: records20 })
-    // 部分格选区：不高亮任何表头
+    // 部分格选区：焦点格所在行号格与列头格高亮（S9-P3 单格行列头高亮）
     table.selectCell(1, 1)
+    expect(findNode(host, -1, 1)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+    expect(findNode(host, 1, -1)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+
+    // 清除选区：焦点行列头恢复普通背景
+    table.clearSelection()
     expect(findNode(host, -1, 1)?.style.background).toBe('#f5f6f7')
     expect(findNode(host, 1, -1)?.style.background).toBe('#f5f6f7')
 
-    // 整行选区：对应行号格高亮，列头不受影响
+    // 整行选区：对应行号格高亮，列头不跨轴点亮
     host.submitted.length = 0
     table.selectRow(2)
     expect(findNode(host, -1, 2)?.style.background).toBe('rgba(46, 106, 219, 0.18)')

@@ -144,27 +144,40 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     return
   }
   if (event.x < table.rowHeaderWidth && event.y < table.headerHeight) {
-    // 左上角：全选
-    table.selection.selectAll(table.options.columns.length, table.pipeline.rowCount)
+    // 左上角：全选（焦点落可视带首格——活动格恒在视口内，以活动格可见性为闸的
+    // 宿主滚动跟随不触发，视口不被拽回首格）
+    const visible = table.getBodyVisibleCellRange()
+    table.selection.selectAll(table.options.columns.length, table.pipeline.rowCount, {
+      col: visible.cols.start,
+      row: visible.rows.start,
+    })
     return
   }
   if (event.y < table.headerHeight) {
     const col = findColAt(table.colOffsets, toContentX(table, event.x))
     if (col >= 0 && table.pipeline.rowCount > 0) {
-      // 表头拖选会话：按下即整列（快照等价 selectCol），拖中/抬起重算为连续列区间
+      // 表头拖选会话：按下即整列（快照等价 selectCol），拖中/抬起重算为连续列区间。
+      // 焦点落交互可视位（被点列 × 可视行带首行，对齐 Excel）：活动格已在视口内，
+      // ultra-ui 宿主按活动格可见性判滚动即不会把视口拽回首行
       table.headerDrag = { axis: 'col', anchor: col }
-      table.selection.beginDragRange({ col, row: 0 }, { col, row: table.pipeline.rowCount - 1 })
+      table.selection.beginDragRange(
+        { col, row: 0 },
+        { col, row: table.pipeline.rowCount - 1 },
+        { col, row: table.getBodyVisibleCellRange().rows.start },
+      )
     }
     return
   }
   if (event.x < table.rowHeaderWidth) {
     const row = findRowAt(table.rowOffsets, toContentY(table, event.y))
     if (row >= 0 && table.options.columns.length > 0) {
-      // 表头拖选会话：按下即整行（快照等价 selectRow），拖中/抬起重算为连续行区间
+      // 表头拖选会话：按下即整行（快照等价 selectRow），拖中/抬起重算为连续行区间。
+      // 焦点落交互可视位（可视列带首列 × 被点行），同列头分支不拽视口
       table.headerDrag = { axis: 'row', anchor: row }
       table.selection.beginDragRange(
         { col: 0, row },
         { col: table.options.columns.length - 1, row },
+        { col: table.getBodyVisibleCellRange().cols.start, row },
       )
     }
     return
@@ -780,12 +793,15 @@ export function refreshOverlay(table: ListTable): void {
 }
 
 /**
- * 整行/整列选区联动表头高亮：选区签名（段集合×全表行列数）未变化时零开销跳过
- * （hover 变更同样途经 refreshOverlay，靠签名守卫避免无谓重涂）；
- * 变化时只重涂翻转的表头节点，并按条带登记 body band 失效——不产生跨数据区的 body band/full。
+ * 选区联动表头高亮（整轴覆盖带 + 焦点格所在行列头，合并区按主格）：选区签名
+ * （段集合×焦点格×全表行列数）未变化时零开销跳过（hover 变更同样途经
+ * refreshOverlay，靠签名守卫避免无谓重涂）；焦点格入签名——段集合不变而焦点移动
+ * （宿主回写活动格移动等）同样要重涂。变化时只重涂翻转的表头节点，并按条带登记
+ * body band 失效——不产生跨数据区的 body band/full。
  */
 function refreshHeaderHighlight(table: ListTable): void {
-  const signature = `${JSON.stringify(table.selection.snapshot.ranges)}|${table.options.columns.length}|${table.pipeline.rowCount}`
+  const snapshot = table.selection.snapshot
+  const signature = `${JSON.stringify(snapshot.ranges)}|${JSON.stringify(snapshot.focus)}|${table.options.columns.length}|${table.pipeline.rowCount}`
   if (signature === table.headerHighlightSignature) {
     return
   }

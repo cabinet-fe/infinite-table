@@ -24,6 +24,7 @@ import {
   HEADER_COORD,
   isColHeaderHighlighted,
   isRowHeaderHighlighted,
+  type HeaderHighlightInput,
 } from './list-table-internal'
 import { appendImageCell } from './list-table-media'
 import { resolveSharedEdges, strongerEdge } from './shared-edges'
@@ -744,6 +745,16 @@ function headerBorder(
   )
 }
 
+/** 表头高亮判定输入装配：建格与重涂路径传同一来源（选区快照 + 全表尺寸 + 合并区） */
+function headerHighlightInput(table: ListTable): HeaderHighlightInput {
+  return {
+    snapshot: table.selection.snapshot,
+    colCount: table.options.columns.length,
+    rowCount: table.pipeline.rowCount,
+    merges: table.mergeCells,
+  }
+}
+
 function newColHeaderNode(
   table: ListTable,
   col: number,
@@ -761,8 +772,8 @@ function newColHeaderNode(
     style: styles.col,
     border: headerBorder(table, 'col', styles),
   })
-  // 整列选区覆盖 → 列头高亮（建格路径与选区变化路径共用同一判定）
-  if (isColHeaderHighlighted(table.selection.snapshot, table.pipeline.rowCount, col)) {
+  // 整列选区覆盖，或焦点格（合并区按主格）所在列 → 列头高亮（建格路径与选区变化路径共用同一判定）
+  if (isColHeaderHighlighted(headerHighlightInput(table), col)) {
     node.style = { ...styles.col, background: table.theme.interaction.headerHighlight }
   }
   return node
@@ -791,17 +802,17 @@ function newRowHeaderNode(
     style: styles.row,
     border: headerBorder(table, 'row', styles),
   })
-  // 整行选区覆盖 → 行号格高亮
-  if (isRowHeaderHighlighted(table.selection.snapshot, table.options.columns.length, row)) {
+  // 整行选区覆盖，或焦点格（合并区按主格）所在行 → 行号格高亮
+  if (isRowHeaderHighlighted(headerHighlightInput(table), row)) {
     node.style = { ...styles.row, background: table.theme.interaction.headerHighlight }
   }
   return node
 }
 
 /**
- * 表头高亮同步：按当前选区重涂可见行号/列头节点的高亮背景，
- * 返回两个条带上翻转节点的包围并集（行号列条带/列头条带；无翻转为 null），
- * 供调用方只登记表头条带 band 失效（不产生 body band/full）。
+ * 表头高亮同步：按当前选区（整轴覆盖 + 焦点格所在行列，合并区按主格）重涂可见
+ * 行号/列头节点的高亮背景，返回两个条带上翻转节点的包围并集（行号列条带/列头条带；
+ * 无翻转为 null），供调用方只登记表头条带 band 失效（不产生 body band/full）。
  */
 export function applyHeaderHighlight(table: ListTable): {
   rows: Region | null
@@ -809,12 +820,11 @@ export function applyHeaderHighlight(table: ListTable): {
 } {
   const styles = headerStyles(table)
   const highlight = table.theme.interaction.headerHighlight
-  const colCount = table.options.columns.length
-  const rowCount = table.pipeline.rowCount
+  const input = headerHighlightInput(table)
   let rowsRegion: Region | null = null
   let colsRegion: Region | null = null
   for (const [col, node] of table.colHeaderNodes) {
-    const highlighted = isColHeaderHighlighted(table.selection.snapshot, rowCount, col)
+    const highlighted = isColHeaderHighlighted(input, col)
     const background = highlighted ? highlight : styles.col.background
     if (node.style.background === background) {
       continue
@@ -824,7 +834,7 @@ export function applyHeaderHighlight(table: ListTable): {
     colsRegion = colsRegion ? unionRegions([colsRegion, bounds])! : bounds
   }
   for (const [row, node] of table.rowHeaderNodes) {
-    const highlighted = isRowHeaderHighlighted(table.selection.snapshot, colCount, row)
+    const highlighted = isRowHeaderHighlighted(input, row)
     const background = highlighted ? highlight : styles.row.background
     if (node.style.background === background) {
       continue

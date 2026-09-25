@@ -86,11 +86,15 @@ export class SelectionState {
     this.beginDragRange({ col, row }, { col, row })
   }
 
-  /** 拖选开始（合并区整体）：锚定 start、初值即整段（点按合并区即全选包围盒），焦点同步 start（主格） */
-  beginDragRange(start: CellRef, end: CellRef): void {
+  /**
+   * 拖选开始（合并区整体）：锚定 start、初值即整段（点按合并区即全选包围盒），焦点同步 start（主格）。
+   * 显式传 focus 时焦点取传入值（表头点击的交互可视位：活动格落当前可视带内，宿主以
+   * 活动格可见性为闸的滚动跟随不触发）；缺省仍落 start。
+   */
+  beginDragRange(start: CellRef, end: CellRef, focus?: CellRef): void {
     this.dragging = true
     this.ranges = [{ start: { ...start }, end: { ...end } }]
-    this.focus = { ...start }
+    this.focus = { ...(focus ?? start) }
     this.emit()
   }
 
@@ -138,12 +142,13 @@ export class SelectionState {
     this.emit()
   }
 
-  selectAll(colCount: number, rowCount: number): void {
+  /** 全选：焦点落左上角首格；显式传 focus 时取传入值（角点全选的交互可视位） */
+  selectAll(colCount: number, rowCount: number, focus?: CellRef): void {
     if (colCount <= 0 || rowCount <= 0) {
       return
     }
     this.ranges = [{ start: { col: 0, row: 0 }, end: { col: colCount - 1, row: rowCount - 1 } }]
-    this.focus = { col: 0, row: 0 }
+    this.focus = focus ? { ...focus } : { col: 0, row: 0 }
     this.emit()
   }
 

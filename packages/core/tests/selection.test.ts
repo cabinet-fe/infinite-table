@@ -69,6 +69,36 @@ describe('SelectionState 拖选与整行整列', () => {
     ])
   })
 
+  it('beginDragRange/selectAll 可选焦点：缺省仍落 start/首格，显式传入时取传入值（表头点击可视位）', () => {
+    const selection = new SelectionState()
+    // 缺省：焦点同步 start（普通拖选与合并区「点按即整块、焦点同步主格」不回退）
+    selection.beginDragRange({ col: 1, row: 2 }, { col: 3, row: 5 })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 1, row: 2 }, end: { col: 3, row: 5 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 1, row: 2 })
+
+    // 显式传入：焦点取传入值（表头点击的交互可视位），选区段照常
+    const explicit: SelectionRange = { start: { col: 2, row: 0 }, end: { col: 2, row: 99 } }
+    selection.beginDragRange(explicit.start, explicit.end, { col: 2, row: 40 })
+    expect(selection.snapshot.ranges).toEqual([explicit])
+    expect(selection.snapshot.focus).toEqual({ col: 2, row: 40 })
+    // 入参焦点被复制：外部改动不影响内部状态
+    const passedFocus = { col: 4, row: 50 }
+    selection.beginDragRange({ col: 4, row: 0 }, { col: 4, row: 99 }, passedFocus)
+    passedFocus.row = 0
+    expect(selection.snapshot.focus).toEqual({ col: 4, row: 50 })
+
+    // selectAll 缺省焦点左上角首格；显式传入取可视位
+    selection.selectAll(10, 100)
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 0 })
+    selection.selectAll(10, 100, { col: 3, row: 40 })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 9, row: 99 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 3, row: 40 })
+  })
+
   it('shift 扩展：以锚点扩展到目标格，焦点同步到最新扩展目标（选区修正补丁行为）', () => {
     const selection = new SelectionState()
     selection.selectCell(2, 2)
