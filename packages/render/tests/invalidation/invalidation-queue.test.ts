@@ -31,7 +31,7 @@ describe('InvalidationQueue 合并语义', () => {
     expect(queue.drain()).toBeNull()
   })
 
-  it('band 吸收相交 cell（先 cell 后 band）', () => {
+  it('band 吸收被完全包含的 cell（先 cell 后 band）', () => {
     const queue = new InvalidationQueue('body')
     queue.push({ type: 'cell', region: { x: 5, y: 5, width: 10, height: 10 } })
     queue.push({ type: 'band', region: { x: 0, y: 0, width: 800, height: 40 } })
@@ -41,7 +41,22 @@ describe('InvalidationQueue 合并语义', () => {
     })
   })
 
-  it('已有 band 吸收后到的相交 cell', () => {
+  it('band 仅相交不包含 cell 时不吸收：cell 重绘区保留（编辑提交溢出走廊失效不被行号带吞掉）', () => {
+    const queue = new InvalidationQueue('body')
+    // 行号带 band [0..46] 与溢出 cell [46..2046] 仅重叠边缘，cell 必须保留自身重绘
+    queue.push({ type: 'cell', region: { x: 46, y: 168, width: 2000, height: 28 } })
+    queue.push({ type: 'band', region: { x: 0, y: 168, width: 46, height: 56 } })
+    const plan = queue.drain()
+    expect(plan).toEqual({
+      full: false,
+      regions: [
+        { x: 0, y: 168, width: 46, height: 56 },
+        { x: 36, y: 158, width: 2020, height: 48 },
+      ],
+    })
+  })
+
+  it('已有 band 吸收后到的被包含 cell', () => {
     const queue = new InvalidationQueue('body')
     queue.push({ type: 'band', region: { x: 0, y: 0, width: 800, height: 40 } })
     queue.push({ type: 'cell', region: { x: 5, y: 5, width: 10, height: 10 } })
@@ -52,6 +67,20 @@ describe('InvalidationQueue 合并语义', () => {
       regions: [
         { x: 0, y: 0, width: 800, height: 40 },
         { x: 490, y: 490, width: 30, height: 30 },
+      ],
+    })
+  })
+
+  it('已有 band 后到的 cell 仅相交不被吸收', () => {
+    const queue = new InvalidationQueue('body')
+    queue.push({ type: 'band', region: { x: 0, y: 168, width: 46, height: 56 } })
+    queue.push({ type: 'cell', region: { x: 46, y: 168, width: 2000, height: 28 } })
+    const plan = queue.drain()
+    expect(plan).toEqual({
+      full: false,
+      regions: [
+        { x: 0, y: 168, width: 46, height: 56 },
+        { x: 36, y: 158, width: 2020, height: 48 },
       ],
     })
   })

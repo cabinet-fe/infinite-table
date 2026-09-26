@@ -37,7 +37,10 @@ const cellCenter = async (col, row) =>
       const rect = document.querySelector('.u-sheet__grid-instance').getBoundingClientRect()
       const cell = t.getCellRelativeRect(c, r)
       if (!cell) throw new Error(`getCellRelativeRect(${c},${r}) = null`)
-      return { x: rect.x + cell.x + cell.width / 2, y: rect.y + cell.y + cell.height / 2 }
+      return {
+        x: rect.x + cell.x + cell.width / 2,
+        y: rect.y + cell.y + cell.height / 2,
+      }
     },
     [col, row],
   )
@@ -183,7 +186,10 @@ try {
       const t = window.__PG__.grid().getTable()
       const rect = document.querySelector('.u-sheet__grid-instance').getBoundingClientRect()
       const cell = t.getCellRelativeRect(3, 2)
-      return { x: rect.x + cell.x + cell.width - 4, y: rect.y + cell.y + cell.height - 4 }
+      return {
+        x: rect.x + cell.x + cell.width - 4,
+        y: rect.y + cell.y + cell.height - 4,
+      }
     })
     const target = await cellCenter(3, 4)
     await page.mouse.move(handle.x, handle.y)
@@ -376,7 +382,10 @@ try {
     })
     const ok =
       r.spansAll && r.colAll > 0 && r.colHl === r.colAll && r.rowAll > 0 && r.rowHl === r.rowAll
-    step('Ctrl+A 全选（引擎选区盖满全表；列头/行号带全高亮）', { ...r, 通过: ok })
+    step('Ctrl+A 全选（引擎选区盖满全表；列头/行号带全高亮）', {
+      ...r,
+      通过: ok,
+    })
   }
 
   // ---- 14. 整列选区回推：引擎选区整轴覆盖（表头带在引擎选区内），列头 C 高亮、行号带不高亮 ----
@@ -411,7 +420,10 @@ try {
       r.colHl.length === 1 &&
       r.colHl[0] === 2 &&
       r.rowHlCount === 0
-    step('整列选区回推（引擎选区整轴覆盖；列头 C 高亮、行号带不高亮）', { ...r, 通过: ok })
+    step('整列选区回推（引擎选区整轴覆盖；列头 C 高亮、行号带不高亮）', {
+      ...r,
+      通过: ok,
+    })
   }
 
   // ---- 15. 整行选区回推：行号 8 高亮、视口不被拽到行末、活动格落在可视左缘 ----
@@ -473,7 +485,10 @@ try {
       r.colHlCount === 0 &&
       r.colStartAfter === before.colStart && // 视口未被拽到行末
       r.activeCol === before.colStart // 活动格落在可视左缘
-    step('整行选区回推（行号 8 高亮；视口不拽到行末；活动格在可视左缘）', { ...r, 通过: ok })
+    step('整行选区回推（行号 8 高亮；视口不拽到行末；活动格在可视左缘）', {
+      ...r,
+      通过: ok,
+    })
   }
 
   // ---- 16. 自定义渲染锚点格：renderer 生效（调试面 + 画布像素探测）；清空值回落默认渲染 ----
@@ -581,7 +596,12 @@ try {
         if (!image) throw new Error('拖拽后浮动图片缺失')
         const from = image.anchor.from
         return {
-          after: { row: from.row, col: from.col, offsetX: from.offsetX, offsetY: from.offsetY },
+          after: {
+            row: from.row,
+            col: from.col,
+            offsetX: from.offsetX,
+            offsetY: from.offsetY,
+          },
           selAfter: JSON.stringify(sheet.getSelection().ranges[0] ?? null),
         }
       },
@@ -629,7 +649,13 @@ try {
       host.style.cssText =
         'position:fixed;right:12px;bottom:12px;width:420px;height:260px;z-index:9999;background:#fff;box-shadow:0 0 0 1px #ddd'
       document.body.appendChild(host)
-      const grid = new SheetGrid({ container: host, sheet, rows: 20, cols: 8, readonly: true })
+      const grid = new SheetGrid({
+        container: host,
+        sheet,
+        rows: 20,
+        cols: 8,
+        readonly: true,
+      })
       const t = grid.getTable()
       const rect = host.getBoundingClientRect()
       const cell = t.getCellRelativeRect(2, 2)
@@ -1142,6 +1168,490 @@ try {
       window.__PG__.workbook.removeSheet('SpecOverflow')
       delete window.__PG_OV__
     })
+  }
+
+  // ---- 23. 反向拖选（问题 1）：向上拖 / 先下后上越锚 / 向左拖——引擎 getSelectedCellRanges
+  // 与模型 getSelection() 表示同一段选区（行/列 min/max 覆盖按下格到抬起格）、锚点=按下格、
+  // 连续拖拽不塌缩不跳变（P1 applyExternal 回写保锚 + 交互层 dragAnchor 定格的收口回归） ----
+  {
+    const sel = () =>
+      evalPage(() => ({
+        engine: window.__PG__.grid().getTable().getSelectedCellRanges(),
+        model: window.__PG__.sheet().getSelection().ranges,
+      }))
+    const bounds = (range) => ({
+      minRow: Math.min(range.start.row, range.end.row),
+      maxRow: Math.max(range.start.row, range.end.row),
+      minCol: Math.min(range.start.col, range.end.col),
+      maxCol: Math.max(range.start.col, range.end.col),
+    })
+    const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+    const drag = async (from, to, mids = []) => {
+      const a = await cellCenter(from.col, from.row)
+      await page.mouse.move(a.x, a.y)
+      await page.mouse.down()
+      for (const mid of mids) {
+        const p = await cellCenter(mid.col, mid.row)
+        await page.mouse.move(p.x, p.y, { steps: 6 })
+        mid.sample = await sel() // 按下期间中途采样（连续拖拽不塌缩不跳变）
+      }
+      const b = await cellCenter(to.col, to.row)
+      await page.mouse.move(b.x, b.y, { steps: 6 })
+      await page.mouse.up()
+      await page.waitForTimeout(300)
+      return sel()
+    }
+    // 路径 1：row12 按下向上拖到 row8 抬起
+    const up = await drag({ col: 9, row: 12 }, { col: 9, row: 8 })
+    const upBounds = { minRow: 8, maxRow: 12, minCol: 9, maxCol: 9 }
+    const upOk =
+      up.engine.length === 1 &&
+      up.engine[0].start.col === 9 &&
+      up.engine[0].start.row === 12 && // 锚点 = 按下格
+      eq(bounds(up.engine[0]), upBounds) &&
+      up.model.length === 1 &&
+      eq(bounds(up.model[0]), upBounds) // 模型同段（归一化边界一致）
+
+    // 路径 2：row10 按下 → 向下到 row13 → 越过锚点到 row9（中途采样）→ row7 抬起
+    const mids = [
+      { col: 8, row: 13 },
+      { col: 8, row: 9 },
+    ]
+    const zig = await drag({ col: 8, row: 10 }, { col: 8, row: 7 }, mids)
+    const zigOk =
+      mids[0].sample.engine.length === 1 &&
+      mids[0].sample.engine[0].start.row === 10 && // 锚点保持按下格
+      eq(bounds(mids[0].sample.engine[0]), {
+        minRow: 10,
+        maxRow: 13,
+        minCol: 8,
+        maxCol: 8,
+      }) &&
+      mids[1].sample.engine.length === 1 &&
+      mids[1].sample.engine[0].start.row === 10 && // 越锚后锚点未被改写为 min 角
+      eq(bounds(mids[1].sample.engine[0]), {
+        minRow: 9,
+        maxRow: 10,
+        minCol: 8,
+        maxCol: 8,
+      }) &&
+      zig.engine.length === 1 &&
+      zig.engine[0].start.row === 10 &&
+      eq(bounds(zig.engine[0]), {
+        minRow: 7,
+        maxRow: 10,
+        minCol: 8,
+        maxCol: 8,
+      }) &&
+      zig.model.length === 1 &&
+      eq(bounds(zig.model[0]), { minRow: 7, maxRow: 10, minCol: 8, maxCol: 8 })
+
+    // 路径 3：col10 按下向左拖到 col7 抬起（对称路径，同一锚点重写缺陷）
+    const left = await drag({ col: 10, row: 11 }, { col: 7, row: 11 })
+    const leftBounds = { minRow: 11, maxRow: 11, minCol: 7, maxCol: 10 }
+    const leftOk =
+      left.engine.length === 1 &&
+      left.engine[0].start.col === 10 &&
+      left.engine[0].start.row === 11 &&
+      eq(bounds(left.engine[0]), leftBounds) &&
+      left.model.length === 1 &&
+      eq(bounds(left.model[0]), leftBounds)
+
+    step('反向拖选（向上/先下后上越锚/向左：引擎与模型同段；锚点=按下格；不塌缩）', {
+      向上拖: upOk,
+      越锚中途: {
+        至row13: bounds(mids[0].sample.engine[0]),
+        越锚至row9: bounds(mids[1].sample.engine[0]),
+        终态: bounds(zig.engine[0]),
+      },
+      向左拖: leftOk,
+      通过: upOk && zigOk && leftOk,
+    })
+  }
+
+  // ---- 24. 编辑退出溢出渲染（问题 2）：超宽右溢文本（右邻空格走廊）格经五路径进入并退出
+  // 编辑——不滚动、200ms 内源格与走廊文本像素计数恢复到进入编辑前水平；引擎会话开启时点击
+  // 公式栏按提交语义终止（不允许会话悬挂 + 被编辑格持续空白）；滚动往返后渲染正确 ----
+  {
+    // 预置：B9 超宽文本（C9/D9 空格走廊，E9 起干净）；挂像素探针与恢复轮询
+    const b9 = await cellCenter(1, 8)
+    await page.mouse.click(b9.x, b9.y) // 选中态下取基线（与各路径退出后状态可比）
+    await page.waitForTimeout(300)
+    await evalPage(() => {
+      const probe = () => {
+        const t = window.__PG__.grid().getTable()
+        const dpr = window.devicePixelRatio || 1
+        const canvases = [...document.querySelectorAll('.u-sheet__grid-instance canvas')]
+        const at = (px, py) => {
+          for (const cv of canvases) {
+            const d = cv.getContext('2d').getImageData(px, py, 1, 1).data
+            if (d[3] > 0 && !(d[0] > 240 && d[1] > 240 && d[2] > 240)) return [d[0], d[1], d[2]]
+          }
+          return [255, 255, 255]
+        }
+        const darkCount = (col, row) => {
+          const cell = t.getCellRelativeRect(col, row)
+          const w = t.getColWidth(col)
+          const h = t.getRowHeight(row)
+          let dark = 0
+          for (let py = cell.y + 4; py < cell.y + h - 4; py += 3) {
+            for (let px = cell.x + 4; px < cell.x + w - 4; px += 3) {
+              const [r, g, b] = at(Math.round(px * dpr), Math.round(py * dpr))
+              if (r + g + b < 360) dark++
+            }
+          }
+          return dark
+        }
+        return {
+          source: darkCount(1, 8), // 源格 B9
+          corridor: darkCount(2, 8), // 走廊 C9
+          far: darkCount(3, 8), // 走廊 D9（文本尾段）
+          clean: darkCount(5, 8), // F9 走廊内空格（文本尾溢入 E9，干净格取其右一列）
+        }
+      }
+      window.__PG_ED_PROBE__ = probe
+      window.__PG_ED_POLL__ = (expect) => {
+        const start = performance.now()
+        return new Promise((resolve) => {
+          const tick = () => {
+            const now = probe()
+            const recovered =
+              now.source >= expect.source * 0.8 && now.corridor >= expect.corridor * 0.8
+            if (recovered || performance.now() - start > 200) {
+              resolve({
+                elapsed: Math.round(performance.now() - start),
+                recovered,
+                ...now,
+              })
+              return
+            }
+            setTimeout(tick, 25)
+          }
+          tick()
+        })
+      }
+      window.__PG__.sheet().setCellValue({ row: 8, col: 1 }, 'A'.repeat(30))
+      return true
+    })
+    await page.waitForTimeout(300)
+    const baseline = await evalPage(() => window.__PG_ED_PROBE__())
+    const baselineOk =
+      baseline.source > 10 && baseline.corridor > 5 && baseline.far > 5 && baseline.clean < 3
+
+    const enterEdit = async () => {
+      await page.mouse.dblclick(b9.x, b9.y)
+      await page.waitForTimeout(200)
+    }
+    const probe = () => evalPage(() => window.__PG_ED_PROBE__())
+    const poll = () =>
+      evalPage((expect) => window.__PG_ED_POLL__(expect), {
+        source: baseline.source,
+        corridor: baseline.corridor,
+      })
+    const exitBy = async (action) => {
+      await action()
+      return poll()
+    }
+    const hiddenCheck = async () => {
+      const h = await probe()
+      return h.source < 3 && h.corridor < 3
+    }
+    const clickFx = async () => {
+      await page.click('.u-sheet__fx-input')
+      await page.waitForTimeout(150)
+    }
+
+    // 路径 1：双击进入 → Esc 取消
+    await enterEdit()
+    const hidden1 = await hiddenCheck()
+    const esc = await exitBy(() => page.keyboard.press('Escape'))
+    // 路径 2：双击进入 → Enter 提交
+    await enterEdit()
+    const hidden2 = await hiddenCheck()
+    const enter = await exitBy(() => page.keyboard.press('Enter'))
+    // 路径 3：双击进入 → 点击其它格提交
+    await enterEdit()
+    const hidden3 = await hiddenCheck()
+    const other = await cellCenter(5, 10)
+    const clickOther = await exitBy(() => page.mouse.click(other.x, other.y))
+    // 路径 4（互锁收口）：双击进入（引擎会话）→ 点击公式栏——会话按提交语义终止、内容恢复
+    await enterEdit()
+    const hidden4 = await hiddenCheck()
+    await clickFx()
+    const blurToFx = await poll()
+    const editorClosed = await evalPage(
+      () => !document.querySelector('.u-sheet__grid-instance input'),
+    )
+    await page.keyboard.press('Escape') // 公式栏编辑态取消
+    await page.waitForTimeout(150)
+    // 路径 5：选中 → 点击公式栏 → Enter / ✓ / 失焦提交；Esc / ✗ 取消（无引擎会话，无悬挂）
+    await page.mouse.click(b9.x, b9.y)
+    await page.waitForTimeout(200)
+    await clickFx()
+    const fxEnter = await exitBy(() => page.keyboard.press('Enter'))
+    await page.mouse.click(b9.x, b9.y)
+    await page.waitForTimeout(200)
+    await clickFx()
+    const fxCheck = await exitBy(() => page.click('.u-sheet__fx-btn'))
+    await page.mouse.click(b9.x, b9.y)
+    await page.waitForTimeout(200)
+    await clickFx()
+    const fxFar = await cellCenter(6, 12)
+    const fxBlur = await exitBy(() => page.mouse.click(fxFar.x, fxFar.y)) // 失焦提交
+    await page.mouse.click(b9.x, b9.y)
+    await page.waitForTimeout(200)
+    await clickFx()
+    await page.keyboard.press('Escape') // 取消
+    await page.waitForTimeout(150)
+    await page.mouse.click(b9.x, b9.y)
+    await page.waitForTimeout(200)
+    await clickFx()
+    await page.click('.u-sheet__fx-btn >> nth=1') // ✗ 取消
+    await page.waitForTimeout(150)
+    const afterCancel = await probe()
+
+    // 滚动往返：轻微滚动再滚回，渲染保持正确（无残影/无重复绘制）
+    await evalPage(() => window.__PG__.grid().getTable().scrollTo(0, 400))
+    await page.waitForTimeout(300)
+    await evalPage(() => window.__PG__.grid().getTable().scrollTo(0, 0))
+    await page.waitForTimeout(300)
+    const afterScroll = await probe()
+    // 清理：清空 B9 与页内句柄
+    await evalPage(() => window.__PG__.sheet().setCellValue({ row: 8, col: 1 }, null))
+    await page.waitForTimeout(300)
+    const cleaned = await probe()
+    await evalPage(() => {
+      delete window.__PG_ED_PROBE__
+      delete window.__PG_ED_POLL__
+    })
+
+    const recoveredOk = (r) => r.recovered && r.elapsed <= 200
+    const sameLevel = (p) =>
+      p.source >= baseline.source * 0.8 && p.corridor >= baseline.corridor * 0.8 && p.clean < 3
+    step('编辑退出溢出渲染（五路径 200ms 内恢复；互锁无悬挂；滚动往返无残影）', {
+      基线: baseline,
+      隐藏生效: hidden1 && hidden2 && hidden3 && hidden4,
+      路径退出: {
+        双击Esc: { ...esc, 通过: recoveredOk(esc) },
+        双击Enter: { ...enter, 通过: recoveredOk(enter) },
+        点击其它格: { ...clickOther, 通过: recoveredOk(clickOther) },
+        会话中点fx: {
+          ...blurToFx,
+          编辑器已关: editorClosed,
+          通过: recoveredOk(blurToFx) && editorClosed,
+        },
+        fxEnter: { ...fxEnter, 通过: recoveredOk(fxEnter) },
+        'fx✓': { ...fxCheck, 通过: recoveredOk(fxCheck) },
+        fx失焦: { ...fxBlur, 通过: recoveredOk(fxBlur) },
+      },
+      取消路径像素不丢: sameLevel(afterCancel),
+      滚动往返: sameLevel(afterScroll),
+      清理还原: cleaned.source < 3 && cleaned.corridor < 3,
+      通过:
+        baselineOk &&
+        hidden1 &&
+        hidden2 &&
+        hidden3 &&
+        hidden4 &&
+        recoveredOk(esc) &&
+        recoveredOk(enter) &&
+        recoveredOk(clickOther) &&
+        recoveredOk(blurToFx) &&
+        editorClosed &&
+        recoveredOk(fxEnter) &&
+        recoveredOk(fxCheck) &&
+        recoveredOk(fxBlur) &&
+        sameLevel(afterCancel) &&
+        sameLevel(afterScroll) &&
+        cleaned.source < 3 &&
+        cleaned.corridor < 3,
+    })
+  }
+
+  // ---- 25. 走廊竖线视觉断言（问题 3：左对齐右溢场景源格右缘到走廊末端之间无纵向线条像素、
+  // 走廊末端竖线在、横线与走廊外竖线不受影响）+ 填充柄光标（问题 4：悬停 crosshair /
+  // 移出恢复 / 无选区不出现 / 按下与拖拽期间保持） ----
+  {
+    // 夹具：B2 超宽左对齐文本（尾部止于 D2），C2/D2/E2 空格走廊，F2 非空格终止
+    await evalPage(async () => {
+      const pg = window.__PG__
+      const { SheetGrid } = await import('/src/veltra-grid/sheet-grid.ts')
+      const sheet = pg.workbook.addSheet('SpecCorridor')
+      sheet.setCellValue({ row: 1, col: 1 }, 'A'.repeat(20))
+      sheet.setCellValue({ row: 1, col: 5 }, '终')
+      const host = document.createElement('div')
+      host.id = 'pg-corridor-fixture'
+      host.style.cssText =
+        'position:fixed;right:12px;bottom:12px;width:520px;height:300px;z-index:9999;background:#fff;box-shadow:0 0 0 1px #ddd'
+      document.body.appendChild(host)
+      const grid = new SheetGrid({ container: host, sheet, rows: 8, cols: 8 })
+      window.__PG_CR__ = { grid, sheet }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return true
+    })
+    const scan = await evalPage(() => {
+      const t = window.__PG_CR__.grid.getTable()
+      const dpr = window.devicePixelRatio || 1
+      const canvases = [...document.querySelectorAll('#pg-corridor-fixture canvas')]
+      const at = (px, py) => {
+        for (const cv of canvases) {
+          const d = cv.getContext('2d').getImageData(px, py, 1, 1).data
+          if (d[3] > 0 && !(d[0] > 240 && d[1] > 240 && d[2] > 240)) return [d[0], d[1], d[2]]
+        }
+        return [255, 255, 255]
+      }
+      // 网格线 #E1E4E8（带蓝移 b-r≥7，排除白底与文本灰阶反锯齿）；s 带排除暗色字形与纯白
+      const isLine = (rgb) => {
+        const s = rgb[0] + rgb[1] + rgb[2]
+        return s > 580 && s < 756 && rgb[2] - rgb[0] >= 3
+      }
+      const cellRect = (col) => t.getCellRelativeRect(col, 1)
+      const h = t.getRowHeight(1)
+      const ys = []
+      for (let y = cellRect(1).y + 5; y <= cellRect(1).y + h - 5; y += 2) ys.push(y)
+      const lineHits = (x) => {
+        let n = 0
+        for (const y of ys) {
+          if (isLine(at(Math.round(x * dpr), Math.round(y * dpr)))) n++
+        }
+        return n
+      }
+      const src = cellRect(1)
+      const srcRight = Math.round(src.x + t.getColWidth(1)) // 源格右缘
+      const corrEnd = Math.round(cellRect(5).x) // 走廊末端（首个非空格左缘）
+      let interiorMax = 0 // [源格右缘, 走廊末端) 内逐列最大纵向命中
+      for (let x = srcRight - 1; x < corrEnd - 2; x++) {
+        interiorMax = Math.max(interiorMax, lineHits(x))
+      }
+      let endMax = 0 // 走廊末端竖线（±2px 窗口取最大）
+      for (let x = corrEnd - 2; x <= corrEnd + 2; x++) {
+        endMax = Math.max(endMax, lineHits(x))
+      }
+      let srcLeftMax = 0 // 源格左缘（走廊外）竖线照常
+      for (let x = Math.round(src.x) - 2; x <= Math.round(src.x) + 2; x++) {
+        srcLeftMax = Math.max(srcLeftMax, lineHits(x))
+      }
+      // 走廊格上缘横线照常（x 横扫 col2..col4 中段，行上缘 ±1px 取命中率最大）
+      let hTop = 0
+      const yTop = cellRect(2).y
+      for (const yy of [yTop - 1, yTop]) {
+        let n = 0
+        let total = 0
+        for (let x = cellRect(2).x + 6; x < cellRect(4).x + t.getColWidth(4) - 6; x += 3) {
+          total++
+          if (isLine(at(Math.round(x * dpr), Math.round(yy * dpr)))) n++
+        }
+        hTop = Math.max(hTop, n / total)
+      }
+      const darkCount = (col) => {
+        const cell = cellRect(col)
+        const w = t.getColWidth(col)
+        let dark = 0
+        for (let py = cell.y + 4; py < cell.y + h - 4; py += 3) {
+          for (let px = cell.x + 4; px < cell.x + w - 4; px += 3) {
+            const [r, g, b] = at(Math.round(px * dpr), Math.round(py * dpr))
+            if (r + g + b < 360) dark++
+          }
+        }
+        return dark
+      }
+      return {
+        interiorMax,
+        endMax,
+        srcLeftMax,
+        hTop,
+        corridorGlyphs: darkCount(2), // C2 溢出字形可见
+        corridorFar: darkCount(3), // D2 文本尾段
+        cleanCell: darkCount(4), // E2 走廊内空格（文本尾止于 D2，E2 无字形）
+        srcRight,
+        corrEnd,
+      }
+    })
+    const corridorOk =
+      scan.corridorGlyphs > 10 &&
+      scan.corridorFar > 5 &&
+      scan.cleanCell < 3 &&
+      scan.interiorMax <= 3 &&
+      scan.endMax >= 8 &&
+      scan.srcLeftMax >= 8 &&
+      scan.hTop > 0.8
+
+    // 无选区任意悬停不为 crosshair（夹具表清空选区后悬停数据格）
+    const noSelPoint = await evalPage(() => {
+      window.__PG_CR__.grid.getTable().clearSelection()
+      const rect = document.getElementById('pg-corridor-fixture').getBoundingClientRect()
+      return { x: rect.x + 200, y: rect.y + 150 }
+    })
+    await page.mouse.move(noSelPoint.x, noSelPoint.y)
+    await page.waitForTimeout(150)
+    const noSelCursor = await evalPage(
+      () => getComputedStyle(document.getElementById('pg-corridor-fixture')).cursor,
+    )
+    // 清理夹具（还原主页面 sheet 上下文）
+    await evalPage(() => {
+      window.__PG_CR__.grid.destroy()
+      document.getElementById('pg-corridor-fixture')?.remove()
+      window.__PG__.workbook.removeSheet('SpecCorridor')
+      delete window.__PG_CR__
+    })
+    await page.waitForTimeout(500)
+
+    // 填充柄光标：选区 D..K 区（空白区），柄在焦点段右下角（max 角格右下角点）
+    await evalPage(() =>
+      window.__PG__.sheet().selectRange({ start: { row: 9, col: 9 }, end: { row: 11, col: 10 } }),
+    )
+    await page.waitForTimeout(300)
+    const containerCursor = () =>
+      evalPage(() => getComputedStyle(document.querySelector('.u-sheet__grid-instance')).cursor)
+    const handlePoint = await evalPage(() => {
+      const t = window.__PG__.grid().getTable()
+      const rect = document.querySelector('.u-sheet__grid-instance').getBoundingClientRect()
+      const cell = t.getCellRelativeRect(10, 11) // 焦点段右下角格
+      return {
+        x: rect.x + cell.x + cell.width - 2,
+        y: rect.y + cell.y + cell.height - 2,
+      }
+    })
+    await page.mouse.move(handlePoint.x, handlePoint.y)
+    await page.waitForTimeout(150)
+    const hoverCursor = await containerCursor()
+    // 按下 + 拖拽期间保持 crosshair（fillDrag 会话 pointermove 不闪回）
+    await page.mouse.down()
+    await page.waitForTimeout(100)
+    const downCursor = await containerCursor()
+    const dragTarget = await cellCenter(10, 13)
+    await page.mouse.move(dragTarget.x, dragTarget.y, { steps: 6 })
+    const dragCursor = await containerCursor()
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+    // 移出恢复缺省
+    const away = await cellCenter(3, 3)
+    await page.mouse.move(away.x, away.y)
+    await page.waitForTimeout(150)
+    const awayCursor = await containerCursor()
+    await page.keyboard.press('Meta+z') // 撤销填充写值，不污染页面终态
+    await page.waitForTimeout(300)
+
+    step(
+      '走廊竖线 + 填充柄光标（走廊内无纵向线条、末端竖线在、横线照常；柄悬停/按下/拖拽 crosshair、移出恢复、无选区不出现）',
+      {
+        走廊扫描: scan,
+        无选区悬停光标: noSelCursor,
+        柄光标: {
+          悬停: hoverCursor,
+          按下: downCursor,
+          拖拽: dragCursor,
+          移出: awayCursor,
+        },
+        通过:
+          corridorOk &&
+          noSelCursor !== 'crosshair' &&
+          hoverCursor === 'crosshair' &&
+          downCursor === 'crosshair' &&
+          dragCursor === 'crosshair' &&
+          awayCursor !== 'crosshair',
+      },
+    )
   }
 } catch (err) {
   step('!!异常中断', { error: String(err) })

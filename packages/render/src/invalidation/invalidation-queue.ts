@@ -1,4 +1,4 @@
-import { ceil, equals, intersects, spread, union } from '../region'
+import { ceil, contains, equals, spread, union } from '../region'
 import type { Invalidation, LayerKind, Region } from '../types'
 
 /** cell 失效区域四边外扩像素数（防增量补画边缘残影） */
@@ -25,12 +25,15 @@ const LAYER_CONSUMPTION: Record<LayerKind, Consumption> = {
 
 /**
  * 失效队列：按层收集三档失效并合并，帧末 drain 出该层的重绘计划。
- * 合并语义：cell 归一化（双包围盒 union + 扩边 + 像素对齐）；band 吸收相交 cell；
- * band 数超上限升级 full；full 吸收一切。
+ * 合并语义：cell 归一化（双包围盒 union + 扩边 + 像素对齐）；band 吸收被其
+ * 完全包含的 cell（仅相交不吸收——行号带等窄 band 与大 cell 重叠 10px 时，
+ * cell 的重绘区域远大于 band，按相交吸收会丢掉 band 外的重绘）；band 数超上限
+ * 升级 full；full 吸收一切。
  */
 export class InvalidationQueue {
   private full = false
-  private cells: Region[] = []
+  /** cell 登记项：raw 为像素对齐原始脏区（band 吸收判定用），region 为扩边登记区（重绘计划用） */
+  private cells: { raw: Region; region: Region }[] = []
   private bands: Region[] = []
 
   constructor(private readonly kind: LayerKind) {}
@@ -46,19 +49,20 @@ export class InvalidationQueue {
       return
     }
     if (inv.type === 'cell') {
-      const region = ceil(spread(this.cellUnion(inv), CELL_SPREAD))
-      // band 吸收相交 cell
-      if (this.bands.some((band) => intersects(band, region))) {
+      // 吸收判定按扩边前的原始区（band 覆盖真实脏区即可）；登记区仍扩边防残影
+      const raw = ceil(this.cellUnion(inv))
+      const region = spread(raw, CELL_SPREAD)
+      if (this.bands.some((band) => contains(band, raw))) {
         return
       }
-      if (!this.cells.some((cell) => equals(cell, region))) {
-        this.cells.push(region)
+      if (!this.cells.some((cell) => equals(cell.region, region))) {
+        this.cells.push({ raw, region })
       }
       return
     }
     const band = ceil(inv.region)
-    // 新 band 吸收已登记的相交 cell
-    this.cells = this.cells.filter((cell) => !intersects(band, cell))
+    // 新 band 只吸收被其完全包含（按原始脏区）的 cell；仅相交的 cell 保留自身重绘
+    this.cells = this.cells.filter((cell) => !contains(band, cell.raw))
     if (!this.bands.some((b) => equals(b, band))) {
       this.bands.push(band)
     }
@@ -92,7 +96,7 @@ export class InvalidationQueue {
     if (consumption === 'band-full-only') {
       return this.bands.length > 0 ? { full: false, regions: [...this.bands] } : null
     }
-    return { full: false, regions: [...this.bands, ...this.cells] }
+    return { full: false, regions: [...this.bands, ...this.cells.map((cell) => cell.region)] }
   }
 
   private cellUnion(inv: { region: Region; prevRegion?: Region }): Region {

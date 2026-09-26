@@ -600,7 +600,10 @@ export function textOverflowLimits(
   // 列左缘的层坐标（冻结带内不随滚动位移）
   const colLeft = (c: number): number =>
     table.rowHeaderWidth + (table.colOffsets[c] ?? 0) - (inFrozenBand ? 0 : left)
-  return { minX: colLeft(corridor.leftStart), maxX: colLeft(corridor.rightEnd) }
+  return {
+    minX: colLeft(corridor.leftStart),
+    maxX: colLeft(corridor.rightEnd),
+  }
 }
 
 /** 溢出走廊的列号区间：[leftStart, rightEnd) 含源格与被覆盖空格 */
@@ -698,10 +701,7 @@ export function overflowSourceColRight(table: ListTable, col: number, row: numbe
 
 /** 数据列带（冻结列带 + 滚动列带）：行内走廊内部标记的扫描范围 */
 export function dataColBands(table: ListTable): WindowRange[] {
-  return [
-    { start: 0, end: table.frozenColCount },
-    table.cols,
-  ]
+  return [{ start: 0, end: table.frozenColCount }, table.cols]
 }
 
 /**
@@ -829,7 +829,11 @@ function appendPartiallyVisibleMerges(
 
 /** 表头容器节点：恒为 body root 末子节点（见 rebuildScene 的 z 序说明） */
 function newHeaderGroup(table: ListTable): SceneNode {
-  return new SceneNode({ pickable: false, width: table.width, height: table.height })
+  return new SceneNode({
+    pickable: false,
+    width: table.width,
+    height: table.height,
+  })
 }
 
 /** 列头是否开放渲染（showColHeader 归一化为 headerHeight = 0 时关闭） */
@@ -968,7 +972,10 @@ function newColHeaderNode(
   })
   // 整列选区覆盖，或焦点格（合并区按主格）所在列 → 列头高亮（建格路径与选区变化路径共用同一判定）
   if (isColHeaderHighlighted(headerHighlightInput(table), col)) {
-    node.style = { ...styles.col, background: table.theme.interaction.headerHighlight }
+    node.style = {
+      ...styles.col,
+      background: table.theme.interaction.headerHighlight,
+    }
   }
   return node
 }
@@ -998,7 +1005,10 @@ function newRowHeaderNode(
   })
   // 整行选区覆盖，或焦点格（合并区按主格）所在行 → 行号格高亮
   if (isRowHeaderHighlighted(headerHighlightInput(table), row)) {
-    node.style = { ...styles.row, background: table.theme.interaction.headerHighlight }
+    node.style = {
+      ...styles.row,
+      background: table.theme.interaction.headerHighlight,
+    }
   }
   return node
 }

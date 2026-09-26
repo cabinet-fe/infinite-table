@@ -191,6 +191,9 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
       table.selection.addRange(extent)
     } else {
       table.selection.beginDragRange(extent.start, extent.end)
+      // 锚点定格按下格（合并区为包围盒起点）：拖中扩展恒以它计算并集，
+      // 反向拖越锚点后不因段 start 被改写为 min 角而塌缩
+      table.dragAnchor = { ...extent.start }
     }
     table.selecting = true
   }
@@ -231,11 +234,30 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
   const cell = cellAt(table, event.x, event.y)
   if (table.selecting) {
     if (cell) {
-      // 合并感知拖选：扩展段取锚点与目标格各自合并包围盒的并
+      // 合并感知拖选：扩展段 = 锚点格与目标格各自合并包围盒的并。锚点恒取按下时定格的
+      // dragAnchor（段的 start 在反向拖越锚点后已是 min 角，不能再当锚点）；段保持
+      // 「start=锚点、end=目标侧端点」形态（normalizeRange 仍等于并集边界），反向拖选
+      // 的段方向与锚点不丢。锚点被并集严格包含（跨合并区拖拽）时两全不可得，整段回落
+      // 归一化形态（边界优先，扩展锚点语义由 dragAnchor 保障）。
       const last = table.selection.snapshot.ranges[table.selection.snapshot.ranges.length - 1]
       if (last) {
-        const extent = dragExtentRange(table, last.start, cell)
-        table.selection.updateDragRange(extent.start, extent.end)
+        const anchor = table.dragAnchor ?? last.start
+        const extent = dragExtentRange(table, anchor, cell)
+        const lo = extent.start
+        const hi = extent.end
+        const anchorInsideSpan =
+          (lo.col < anchor.col && anchor.col < hi.col) ||
+          (lo.row < anchor.row && anchor.row < hi.row)
+        const segment = anchorInsideSpan
+          ? { start: { ...lo }, end: { ...hi } }
+          : {
+              start: { ...anchor },
+              end: {
+                col: anchor.col === lo.col ? hi.col : lo.col,
+                row: anchor.row === lo.row ? hi.row : lo.row,
+              },
+            }
+        table.selection.updateDragRange(segment.start, segment.end)
       } else {
         table.selection.updateDrag(cell.col, cell.row)
       }
@@ -323,6 +345,7 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     return
   }
   table.selecting = false
+  table.dragAnchor = null
   table.selection.endDrag()
   // 拾取会话中抬起不做双击进编辑（画布点选都是引用拾取，落双击会顶掉编辑会话）
   if (!(table.editPickMode && table.editManager.isEditing())) {
@@ -491,7 +514,13 @@ function detectDoubleTap(table: ListTable, event: SceneEvent): void {
     return
   }
   const prev = table.lastTap
-  table.lastTap = { col: cell.col, row: cell.row, x: event.x, y: event.y, time }
+  table.lastTap = {
+    col: cell.col,
+    row: cell.row,
+    x: event.x,
+    y: event.y,
+    time,
+  }
   if (prev && prev.col === cell.col && prev.row === cell.row && time - prev.time <= DOUBLE_TAP_MS) {
     table.lastTap = null
     table.startEdit(cell.col, cell.row)
@@ -540,13 +569,19 @@ function updateResizeLine(table: ListTable, event: SceneEvent): void {
 /** 按拖拽目标抛列/行结束事件（订阅者集合为空时零开销） */
 function emitResizeEnd(table: ListTable, target: ResizeTarget): void {
   if (target.kind === 'col') {
-    const event: ColResizeEndEvent = { col: target.index, width: table.getColWidth(target.index) }
+    const event: ColResizeEndEvent = {
+      col: target.index,
+      width: table.getColWidth(target.index),
+    }
     for (const listener of table.colResizeEndListeners) {
       listener(event)
     }
     return
   }
-  const event: RowResizeEndEvent = { row: target.index, height: table.rowHeightAt(target.index) }
+  const event: RowResizeEndEvent = {
+    row: target.index,
+    height: table.rowHeightAt(target.index),
+  }
   for (const listener of table.rowResizeEndListeners) {
     listener(event)
   }
@@ -816,9 +851,15 @@ function refreshHeaderHighlight(table: ListTable): void {
   table.headerHighlightSignature = signature
   const flipped = applyHeaderHighlight(table)
   if (flipped.cols) {
-    table.host.submitInvalidation('body', { type: 'band', region: flipped.cols })
+    table.host.submitInvalidation('body', {
+      type: 'band',
+      region: flipped.cols,
+    })
   }
   if (flipped.rows) {
-    table.host.submitInvalidation('body', { type: 'band', region: flipped.rows })
+    table.host.submitInvalidation('body', {
+      type: 'band',
+      region: flipped.rows,
+    })
   }
 }

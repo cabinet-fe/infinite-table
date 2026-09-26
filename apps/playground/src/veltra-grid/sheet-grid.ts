@@ -229,6 +229,12 @@ export class SheetGrid {
     return cell ? { row: cell.row, col: cell.col } : null
   }
 
+  /** 选区锚点（公式栏 fx 引用拾取等编辑会话）：锚定格以选区样式持续绘制；null 清除。纯视图态，不写模型 */
+  setSelectionAnchor(addr: CellAddress | null): void {
+    if (this.released || !this.table) return
+    this.table.setSelectionAnchor(addr)
+  }
+
   undo(): boolean {
     return this.sheet.undo()
   }

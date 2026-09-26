@@ -50,3 +50,13 @@ export function clip(r: Region, bounds: Region): Region | null {
 export function equals(a: Region, b: Region): boolean {
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
+
+/** outer 是否完全包含 inner（含边重合） */
+export function contains(outer: Region, inner: Region): boolean {
+  return (
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    outer.x + outer.width >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height
+  )
+}

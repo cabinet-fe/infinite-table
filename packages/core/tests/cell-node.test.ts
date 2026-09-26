@@ -122,7 +122,12 @@ describe('CellNode 绘制', () => {
       width: 100,
       height: 32,
       text: 'hello',
-      style: { fontStyle: 'italic', fontWeight: 600, fontSize: 14, fontFamily: 'Arial' },
+      style: {
+        fontStyle: 'italic',
+        fontWeight: 600,
+        fontSize: 14,
+        fontFamily: 'Arial',
+      },
     })
     node.paint(ctx)
     // 测量与绘制的生效 font 同源一致，均为 cellStyleFont(style) 的唯一推导结果
@@ -139,7 +144,13 @@ describe('CellNode 绘制', () => {
 
   it('checkbox 类型：未勾选只画框，勾选加实心块', () => {
     const unchecked = new StubContext()
-    new CellNode({ col: 0, row: 0, width: 100, height: 32, cellType: 'checkbox' }).paint(unchecked)
+    new CellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      cellType: 'checkbox',
+    }).paint(unchecked)
     // 框体四条边
     expect(unchecked.rects).toHaveLength(4)
 
@@ -190,7 +201,13 @@ describe('CellNode 绘制', () => {
     node.paint(ctx)
     expect(ctx.texts).toEqual([])
     expect(ctx.rects).toEqual([{ x: 1, y: 2, width: 3, height: 4, fill: '#000' }])
-    expect(seen[0]).toMatchObject({ col: 2, row: 3, width: 100, height: 32, text: 'ignored' })
+    expect(seen[0]).toMatchObject({
+      col: 2,
+      row: 3,
+      width: 100,
+      height: 32,
+      text: 'ignored',
+    })
   })
 })
 
@@ -246,7 +263,9 @@ describe('CellNode 溢出与编辑隐藏', () => {
       node.paint(ctx)
       const rights = ctx.calls.filter((call) => call.name === 'fillRect' && call.args[0] === 99)
       expect(rights).toHaveLength(1)
-      const rightIdx = ctx.calls.findIndex((call) => call.name === 'fillRect' && call.args[0] === 99)
+      const rightIdx = ctx.calls.findIndex(
+        (call) => call.name === 'fillRect' && call.args[0] === 99,
+      )
       const textIdx = ctx.calls.findIndex((call) => call.name === 'fillText')
       expect(rightIdx).toBeGreaterThan(textIdx)
     }

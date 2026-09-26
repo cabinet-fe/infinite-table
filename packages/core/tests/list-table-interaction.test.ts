@@ -61,7 +61,10 @@ const BASE_OPTIONS = {
   headerHeight: 36,
   rowHeaderWidth: 48,
   defaultColWidth: 100,
-  columns: Array.from({ length: 10 }, (_, i) => ({ field: 'name', title: `C${i}` })),
+  columns: Array.from({ length: 10 }, (_, i) => ({
+    field: 'name',
+    title: `C${i}`,
+  })),
 } satisfies Partial<ListTableOptions>
 
 function createTable(extra: Partial<ListTableOptions> = {}) {
@@ -110,7 +113,10 @@ describe('ListTable 选区', () => {
 
     table.selectCell(1, 0)
     expect(table.getSelection().focus).toEqual({ col: 1, row: 0 })
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
 
     host.submitted.length = 0
     table.selectRow(0)
@@ -125,7 +131,10 @@ describe('ListTable 选区', () => {
     table.clearSelection()
     expect(table.getSelection().ranges).toEqual([])
     // 清空后再发一次 sky 失效把旧选区擦掉
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
   })
 
   it('指针拖选：数据格 pointerdown/move/up 产出选区，行列头与左上角分别整列/整行/全选', () => {
@@ -154,6 +163,51 @@ describe('ListTable 选区', () => {
     ])
   })
 
+  it('反向拖选：拖中扩展恒以按下格为锚，越过锚点不塌缩（向上/先下后上/向左）', () => {
+    const { host, table } = createTable({
+      records: [
+        { name: 'a' },
+        { name: 'b' },
+        { name: 'c' },
+        { name: 'd' },
+        { name: 'e' },
+        { name: 'f' },
+      ],
+    })
+
+    // 向上拖：按下 (2,3) 拖到 (2,1) 抬起——段 start 保持按下格，边界覆盖 1..3
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(3) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(2) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(1) })
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(1) })
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 2, row: 3 }, end: { col: 2, row: 1 } },
+    ])
+
+    // 先下后上越锚：按下 (2,2) → (2,4) → 越过锚点到 (2,0)——中途段连续收缩再向上扩展，锚点不重写
+    fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(2) })
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(4) })
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 2, row: 2 }, end: { col: 2, row: 4 } },
+    ])
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 2, row: 2 }, end: { col: 2, row: 0 } },
+    ])
+    fireBody(host, 'pointerup', { x: cellX(2), y: cellY(0) })
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 2, row: 2 }, end: { col: 2, row: 0 } },
+    ])
+
+    // 向左拖：按下 (4,1) 拖到 (1,1)——锚点保持按下列，边界覆盖 1..4
+    fireBody(host, 'pointerdown', { x: cellX(4), y: cellY(1) })
+    fireBody(host, 'pointermove', { x: cellX(1), y: cellY(1) })
+    fireBody(host, 'pointerup', { x: cellX(1), y: cellY(1) })
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 4, row: 1 }, end: { col: 1, row: 1 } },
+    ])
+  })
+
   it('selectCells 多段选中：快照含多个选区段、sky 浮层同帧失效；getSelectedCellRanges 返回全部段', () => {
     const { host, table } = createTable({ records: [{ name: 'a' }] })
     table.selectCells([
@@ -167,7 +221,10 @@ describe('ListTable 选区', () => {
       { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
       { start: { col: 3, row: 0 }, end: { col: 4, row: 0 } },
     ])
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
   })
 
   it('ctrlMultiSelect 开关两态：开启后 Ctrl/Cmd 点选在既有选区上追加选区段；关闭时点选替换选区', () => {
@@ -189,7 +246,11 @@ describe('ListTable 选区', () => {
     // 关闭（缺省 false）：Ctrl 点选仍替换选区（现状行为）
     const fallback = createTable({ records })
     fallback.table.selectCell(0, 0)
-    fireBody(fallback.host, 'pointerdown', { x: cellX(2), y: cellY(1), ctrlKey: true })
+    fireBody(fallback.host, 'pointerdown', {
+      x: cellX(2),
+      y: cellY(1),
+      ctrlKey: true,
+    })
     fireBody(fallback.host, 'pointerup', { x: cellX(2), y: cellY(1) })
     expect(fallback.table.getSelection().ranges).toEqual([
       { start: { col: 2, row: 1 }, end: { col: 2, row: 1 } },
@@ -199,14 +260,20 @@ describe('ListTable 选区', () => {
   it('hover：指针移动经 sky 浮层提交失效，移出数据区清除', () => {
     const { host, table } = createTable({ records: [{ name: 'a' }] })
     fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
 
     // 原地不动不重复提交；移到列头（非数据区）清除 hover 再提交一次擦掉
     host.submitted.length = 0
     fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
     expect(host.submitted).toEqual([])
     fireBody(host, 'pointermove', { x: cellX(1), y: 10 })
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
     expect(table.getSelection().ranges).toEqual([])
   })
 
@@ -250,13 +317,19 @@ describe('ListTable hover 显式开关', () => {
     const { host, table } = createTable({ records: [{ name: 'a' }] })
     fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
     expect(table.hoverState.cell).toEqual({ col: 1, row: 0 })
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
 
     // 移到列头（非数据区）：hover 清除并提交一次失效擦掉高亮
     host.submitted.length = 0
     fireBody(host, 'pointermove', { x: cellX(1), y: 10 })
     expect(table.hoverState.cell).toBeNull()
-    expect(host.submitted).toContainEqual({ kind: 'sky', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'sky',
+      inv: { type: 'full' },
+    })
   })
 
   it('theme.hover.disableHover 开启：指针移动 hover 完全不产生（不跟踪、不提交浮层失效）', () => {
@@ -365,7 +438,10 @@ describe('ListTable 表头拖选连续扩展', () => {
 
 describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
   const records = Array.from({ length: 200 }, (_, i) => ({ name: `r${i}` }))
-  const manyCols = Array.from({ length: 20 }, (_, i) => ({ field: 'name', title: `C${i}` }))
+  const manyCols = Array.from({ length: 20 }, (_, i) => ({
+    field: 'name',
+    title: `C${i}`,
+  }))
   // 滚动后表头格视口坐标：内容坐标反推视口位置（带内居中，避开行列缘 ±4px resize 手柄区）
   const scrolledColHeaderX = (col: number, scrollLeft: number) => 48 + col * 100 - scrollLeft + 50
   const scrolledRowHeaderY = (row: number, scrollTop: number) => 36 + row * 32 - scrollTop + 16
@@ -385,7 +461,10 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
       { start: { col: 6, row: 0 }, end: { col: 6, row: 199 } },
     ])
     // 焦点落交互可视位：col 等于被点列，row 在可视数据行带内（[start, end)）
-    expect(table.getSelection().focus).toEqual({ col: 6, row: visible.rows.start })
+    expect(table.getSelection().focus).toEqual({
+      col: 6,
+      row: visible.rows.start,
+    })
     expect(table.getSelection().focus!.row).toBeGreaterThanOrEqual(visible.rows.start)
     expect(table.getSelection().focus!.row).toBeLessThan(visible.rows.end)
     // 引擎表头点击不产生滚动：按下前后 getScrollLeft/getScrollTop 不变
@@ -393,7 +472,10 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
     expect(table.getScrollTop()).toBe(top)
     // 按下即抬起（up 落点与按下同带）：区间不变守卫保留可视位焦点，仍不滚动
     fireBody(host, 'pointerup', { x: scrolledColHeaderX(6, left), y: 10 })
-    expect(table.getSelection().focus).toEqual({ col: 6, row: visible.rows.start })
+    expect(table.getSelection().focus).toEqual({
+      col: 6,
+      row: visible.rows.start,
+    })
     expect(table.getScrollLeft()).toBe(left)
     expect(table.getScrollTop()).toBe(top)
   })
@@ -411,13 +493,19 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
     fireBody(host, 'pointerdown', { x: 10, y })
     expect(table.getSelection().ranges).toEqual([{ start: { col: 0, row }, end: { col: 19, row } }])
     // focus.row 等于被点行，focus.col 落可视数据列带内
-    expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
+    expect(table.getSelection().focus).toEqual({
+      col: visible.cols.start,
+      row,
+    })
     expect(table.getSelection().focus!.col).toBeGreaterThanOrEqual(visible.cols.start)
     expect(table.getSelection().focus!.col).toBeLessThan(visible.cols.end)
     expect(table.getScrollLeft()).toBe(left)
     expect(table.getScrollTop()).toBe(top)
     fireBody(host, 'pointerup', { x: 10, y })
-    expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
+    expect(table.getSelection().focus).toEqual({
+      col: visible.cols.start,
+      row,
+    })
     expect(table.getScrollLeft()).toBe(left)
     expect(table.getScrollTop()).toBe(top)
   })
@@ -456,7 +544,10 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
     const visible = table.getBodyVisibleCellRange()
     const col = visible.cols.end - 1
     fireBody(host, 'pointerdown', { x: scrolledColHeaderX(col, left), y: 10 })
-    expect(table.getSelection().focus).toEqual({ col, row: visible.rows.start })
+    expect(table.getSelection().focus).toEqual({
+      col,
+      row: visible.rows.start,
+    })
     expect(table.getScrollLeft()).toBe(left)
     expect(table.getScrollTop()).toBe(top)
     fireBody(host, 'pointerup', { x: scrolledColHeaderX(col, left), y: 10 })
@@ -464,7 +555,10 @@ describe('ListTable 表头点击不跳转（焦点落可视位）', () => {
     const row = visible.rows.end - 1
     fireBody(host, 'pointerdown', { x: 10, y: scrolledRowHeaderY(row, top) })
     expect(table.getSelection().ranges).toEqual([{ start: { col: 0, row }, end: { col: 19, row } }])
-    expect(table.getSelection().focus).toEqual({ col: visible.cols.start, row })
+    expect(table.getSelection().focus).toEqual({
+      col: visible.cols.start,
+      row,
+    })
     expect(table.getScrollLeft()).toBe(left)
     expect(table.getScrollTop()).toBe(top)
     fireBody(host, 'pointerup', { x: 10, y: scrolledRowHeaderY(row, top) })
@@ -512,13 +606,19 @@ describe('ListTable 行列 resize', () => {
 
     table.setColWidth(0, 150)
     expect(table.getColWidth(0)).toBe(150)
-    expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'body',
+      inv: { type: 'full' },
+    })
 
     host.submitted.length = 0
     table.setRowHeight(0, 60)
     expect(table.getRowHeight(0)).toBe(60)
     expect(table.getRowHeight(1)).toBe(32)
-    expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'body',
+      inv: { type: 'full' },
+    })
   })
 
   it('指针拖拽列缘：拖拽期只画指示线（sky），pointerup 一次提交生效', () => {
@@ -534,7 +634,10 @@ describe('ListTable 行列 resize', () => {
 
     fireBody(host, 'pointerup', { x: 178, y: 10 })
     expect(table.getColWidth(0)).toBe(130)
-    expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
+    expect(host.submitted).toContainEqual({
+      kind: 'body',
+      inv: { type: 'full' },
+    })
   })
 
   it('拖拽会话成功结束抛 onColResizeEnd/onRowResizeEnd：载荷带索引与最终尺寸，退订后不再触发', () => {
@@ -604,14 +707,23 @@ describe('ListTable 批量更新', () => {
     expect(table.getCellText(0, 0)).toBe('a')
     // 各格失效区并入各自溢出走廊（批内写入时右邻尚空，走廊到表缘），并集到表缘
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'band', region: { x: 48, y: 36, width: 1000, height: 64 } } },
+      {
+        kind: 'body',
+        inv: {
+          type: 'band',
+          region: { x: 48, y: 36, width: 1000, height: 64 },
+        },
+      },
     ])
 
     // 批外恢复单格 cell 失效；右邻已有内容，无溢出走廊
     host.submitted.length = 0
     model.emit({ col: 0, row: 0, oldValue: undefined, newValue: undefined })
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
+      {
+        kind: 'body',
+        inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
+      },
     ])
   })
 
@@ -627,7 +739,13 @@ describe('ListTable 批量更新', () => {
     })
     // 各格失效区（含溢出走廊与来源格重算区）的并集到表缘
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'band', region: { x: 48, y: 36, width: 1000, height: 32 } } },
+      {
+        kind: 'body',
+        inv: {
+          type: 'band',
+          region: { x: 48, y: 36, width: 1000, height: 32 },
+        },
+      },
     ])
   })
 })
@@ -648,7 +766,10 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
 
   it('contextmenu 落点区域三分支 + 角点归属：表体 body / 列头 col-header / 行号列 row-header / 角点归 body', () => {
     const { host, table } = createTable({ records: [{ name: 'a' }] })
-    const seen: Array<{ region: TableContextMenuEvent['region']; cell: CellRef | null }> = []
+    const seen: Array<{
+      region: TableContextMenuEvent['region']
+      cell: CellRef | null
+    }> = []
     table.onContextMenu((event) => seen.push({ region: event.region, cell: event.cell }))
 
     fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0) })
@@ -667,15 +788,27 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
   it('有 onContextMenu 监听时阻止默认（原生菜单），无监听时不阻止', () => {
     const preventDefault = vi.fn<() => void>()
     const { host, table } = createTable({ records: [{ name: 'a' }] })
-    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: {} })
+    fireBody(host, 'contextmenu', {
+      x: cellX(1),
+      y: cellY(0),
+      originalEvent: {},
+    })
     expect(preventDefault).not.toHaveBeenCalled()
 
     const off = table.onContextMenu(() => {})
-    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: { preventDefault } })
+    fireBody(host, 'contextmenu', {
+      x: cellX(1),
+      y: cellY(0),
+      originalEvent: { preventDefault },
+    })
     expect(preventDefault).toHaveBeenCalledTimes(1)
 
     off()
-    fireBody(host, 'contextmenu', { x: cellX(1), y: cellY(0), originalEvent: { preventDefault } })
+    fireBody(host, 'contextmenu', {
+      x: cellX(1),
+      y: cellY(0),
+      originalEvent: { preventDefault },
+    })
     expect(preventDefault).toHaveBeenCalledTimes(1)
   })
 
@@ -751,7 +884,9 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     vi.useFakeTimers()
     try {
       const host = new QueuedFrameHost()
-      const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
+      const records = Array.from({ length: 1000 }, (_, i) => ({
+        name: `r${i}`,
+      }))
       const table = new ListTable({ ...BASE_OPTIONS, host, records })
 
       vi.setSystemTime(1_000)
@@ -793,7 +928,9 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     vi.useFakeTimers()
     try {
       const host = new QueuedFrameHost()
-      const records = Array.from({ length: 1000 }, (_, i) => ({ name: `r${i}` }))
+      const records = Array.from({ length: 1000 }, (_, i) => ({
+        name: `r${i}`,
+      }))
       const table = new ListTable({ ...BASE_OPTIONS, host, records })
 
       vi.setSystemTime(2_000)
@@ -914,7 +1051,9 @@ describe('ListTable 编辑', () => {
   })
 
   it('editCellOnEnter 开启：非编辑态按 Enter 进入焦点格编辑，编辑器内 Enter 提交并下移', () => {
-    const { host, table, created, records } = createEditingTable({ editCellOnEnter: true })
+    const { host, table, created, records } = createEditingTable({
+      editCellOnEnter: true,
+    })
     table.selectCell(0, 0)
     fireSky(host, 'keydown', { key: 'Enter' })
     expect(table.isEditing()).toBe(true)
@@ -1006,7 +1145,10 @@ describe('ListTable 编辑', () => {
   it('model 形态经 ModelBinding 回写（编辑格恰好一次刷新，无回环）', () => {
     const model = new EchoModel(10)
     model.data.set('0:0', 'Ada')
-    const { host, container, created } = createEditingTable({ model, records: undefined })
+    const { host, container, created } = createEditingTable({
+      model,
+      records: undefined,
+    })
 
     fireDoubleTap(host, 0, 0)
     created[0]!.value = 'Zed'
@@ -1047,7 +1189,10 @@ describe('ListTable 编辑', () => {
   it('model 形态 onCellChange 事件带 oldValue/newValue', () => {
     const model = new EchoModel(10)
     model.data.set('0:0', 'Ada')
-    const { host, created, table } = createEditingTable({ model, records: undefined })
+    const { host, created, table } = createEditingTable({
+      model,
+      records: undefined,
+    })
     const changes: CellChangeEvent[] = []
     table.onCellChange((change) => changes.push(change))
 
@@ -1131,7 +1276,12 @@ describe('ListTable 填充柄双击', () => {
 
     expect(doubleClicks).toHaveLength(0)
     expect(dragEnds).toHaveLength(2)
-    expect(dragEnds[1]!.target).toEqual({ minCol: 0, minRow: 0, maxCol: 0, maxRow: 3 })
+    expect(dragEnds[1]!.target).toEqual({
+      minCol: 0,
+      minRow: 0,
+      maxCol: 0,
+      maxRow: 3,
+    })
   })
 })
 
@@ -1256,7 +1406,9 @@ describe('ListTable 表头高亮', () => {
 })
 
 describe('ListTable 合并格命中', () => {
-  const mergeRecords = Array.from({ length: 20 }, (_, i) => ({ name: `r${i}` }))
+  const mergeRecords = Array.from({ length: 20 }, (_, i) => ({
+    name: `r${i}`,
+  }))
 
   it('点击合并区覆盖格：选区即整块合并区、焦点为主格；命中查询路由主格', () => {
     const { host, table } = createTable({
@@ -1270,7 +1422,10 @@ describe('ListTable 合并格命中', () => {
       { start: { col: 1, row: 1 }, end: { col: 2, row: 2 } },
     ])
     expect(table.getSelection().focus).toEqual({ col: 1, row: 1 })
-    expect(table.getCellAtRelativePosition(cellX(2), cellY(2))).toEqual({ col: 1, row: 1 })
+    expect(table.getCellAtRelativePosition(cellX(2), cellY(2))).toEqual({
+      col: 1,
+      row: 1,
+    })
   })
 
   it('从合并区拖出到普通格：扩展段为合并包围盒与目标格的并（不丢合并列/行）', () => {
@@ -1333,7 +1488,9 @@ describe('ListTable 合并格编辑', () => {
 
 describe('右键不改选区', () => {
   it('多段选区上右键按下不塌缩选区、不开启拖选会话（contextmenu 落点补偿可正常生效）', () => {
-    const { host, table } = createTable({ records: [{ name: 'a' }, { name: 'b' }] })
+    const { host, table } = createTable({
+      records: [{ name: 'a' }, { name: 'b' }],
+    })
     table.selectCells([
       { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
       { start: { col: 3, row: 3 }, end: { col: 4, row: 4 } },
@@ -1355,7 +1512,9 @@ describe('右键不改选区', () => {
   })
 
   it('左键仍替换选区（button 缺省视为主键，既有行为回归）', () => {
-    const { host, table } = createTable({ records: [{ name: 'a' }, { name: 'b' }] })
+    const { host, table } = createTable({
+      records: [{ name: 'a' }, { name: 'b' }],
+    })
     table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 1, row: 1 } }])
     fireBody(host, 'pointerdown', { x: cellX(6), y: cellY(1) })
     expect(table.selecting).toBe(true)
@@ -1474,7 +1633,12 @@ describe('ListTable 浮动图片命中拦截', () => {
     floats.add({
       id: 'img',
       kind: 'image',
-      anchor: { from: { col: 1, row: 2 }, to: { col: 2, row: 3 }, offsetX: 4, offsetY: 8 },
+      anchor: {
+        from: { col: 1, row: 2 },
+        to: { col: 2, row: 3 },
+        offsetX: 4,
+        offsetY: 8,
+      },
       src: 'img.png',
     })
     return { ...ctx, floats }
@@ -1497,7 +1661,12 @@ describe('ListTable 浮动图片命中拦截', () => {
     expect(drops).toEqual([
       {
         id: 'img',
-        anchor: { from: { col: 2, row: 5 }, to: { col: 3, row: 6 }, offsetX: 4, offsetY: 12 },
+        anchor: {
+          from: { col: 2, row: 5 },
+          to: { col: 3, row: 6 },
+          offsetX: 4,
+          offsetY: 12,
+        },
       },
     ])
     expect(floats.isDragging()).toBe(false)

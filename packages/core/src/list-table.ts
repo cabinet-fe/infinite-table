@@ -244,6 +244,12 @@ export class ListTable {
   resizeLine: ResizeLine | null = null
   /** @internal 拖选进行中 */
   selecting = false
+  /**
+   * @internal 拖选锚点格（按下格，合并区为包围盒起点）：拖选会话期间恒定。
+   * 扩展段若以「上一帧段的 start」为锚，反向拖越锚点后 start 已被改写为 min 角，
+   * 继续扩展按错误锚点计算导致选区塌缩；按下时定格，抬起清空。
+   */
+  dragAnchor: CellRef | null = null
   /** @internal 表头拖选会话：pointerdown 命中列头/行头后开启（锚定列/行），抬起重算后结束 */
   headerDrag: HeaderDragState | null = null
   /** @internal 表头高亮选区签名（refreshHeaderHighlight 的变化守卫） */
