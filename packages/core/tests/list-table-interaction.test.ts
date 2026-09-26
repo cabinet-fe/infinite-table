@@ -705,13 +705,13 @@ describe('ListTable 批量更新', () => {
       table.updateCell(0, 1, 'c')
     })
     expect(table.getCellText(0, 0)).toBe('a')
-    // 各格失效区并入各自溢出走廊（批内写入时右邻尚空，走廊到表缘），并集到表缘
+    // 单字符不溢出（走廊按文本宽收敛）：并集即三格边界包围盒（列 0..1 × 行 0..1）
     expect(host.submitted).toEqual([
       {
         kind: 'body',
         inv: {
           type: 'band',
-          region: { x: 48, y: 36, width: 1000, height: 64 },
+          region: { x: 48, y: 36, width: 200, height: 64 },
         },
       },
     ])
@@ -737,13 +737,13 @@ describe('ListTable 批量更新', () => {
       })
       table.updateCell(2, 0, 'c')
     })
-    // 各格失效区（含溢出走廊与来源格重算区）的并集到表缘
+    // 单字符不溢出：并集即三格边界（列 0..2 同行）；只提交一次 band 失效
     expect(host.submitted).toEqual([
       {
         kind: 'body',
         inv: {
           type: 'band',
-          region: { x: 48, y: 36, width: 1000, height: 32 },
+          region: { x: 48, y: 36, width: 300, height: 32 },
         },
       },
     ])

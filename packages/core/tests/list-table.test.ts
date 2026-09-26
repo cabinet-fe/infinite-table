@@ -97,9 +97,9 @@ describe('ListTable 数据供给三形态', () => {
     model.emit({ col: 0, row: 0, oldValue: undefined, newValue: undefined })
     expect(table.getCellText(0, 0)).toBe('ext')
     expect(findNode(host, 0, 0)?.text).toBe('ext')
-    // 右邻全空：失效区并入溢出走廊（右扩到表缘）
+    // 短文本（30px < 内容盒 84px）不溢出：走廊按文本宽收敛，失效区即本格边界
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 1000, height: 32 } } },
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
     ])
   })
 
@@ -153,9 +153,9 @@ describe('ListTable 回驱窗口收集刷新', () => {
     expect(model.setCalls).toBe(1)
     expect(model.getCellValue(0, 0)).toBe('x')
     expect(findNode(host, 0, 0)?.text).toBe('x')
-    // 编辑格恰一次 cell 失效；失效区并入溢出走廊（右邻全空）
+    // 编辑格恰一次 cell 失效；单字符不溢出（走廊按文本宽收敛），失效区即本格边界
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 1000, height: 32 } } },
+      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
     ])
   })
 
@@ -168,10 +168,10 @@ describe('ListTable 回驱窗口收集刷新', () => {
     expect(findNode(host, 0, 0)?.text).toBe('x')
     // 派生格当帧更新，无需滚动或重建
     expect(findNode(host, 1, 0)?.text).toBe('derived')
-    // 编辑格一次（显式刷新，echo 去重，右邻已有派生内容无走廊）+ 派生格一次（走廊到表缘）；
-    // 派生格先刷：编辑格走廊计算读到已更新的邻居节点
+    // 编辑格一次（显式刷新，echo 去重，右邻已有派生内容阻断走廊）+ 派生格一次（'derived'
+    // 70px 放得下、不溢出）；两格失效区都收敛为本格边界
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 148, y: 36, width: 900, height: 32 } } },
+      { kind: 'body', inv: { type: 'cell', region: { x: 148, y: 36, width: 100, height: 32 } } },
       { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } } },
     ])
   })

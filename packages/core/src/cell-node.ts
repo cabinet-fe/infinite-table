@@ -184,16 +184,24 @@ export class CellNode extends SceneNode {
     if (this.renderer || this.cellType !== 'text' || !this.text) {
       return undefined
     }
-    // font 或 text 任一变化即失效重测：style 引用变化只重算 font 串并与缓存值
-    // 比较，font 串变了才使宽度失效（仅换 style 引用而 font 结果不变不重测）；
-    // style 引用未变时 font 串复用免重组装——重绘热路径（style/text 均未变）
-    // 零字符串分配。推导唯一入口 resolveFont，绘制侧复用同一结果，保证测量宽
-    // 与实际绘制一致。
+    // 测量函数注入：绘制侧用本层 ctx，场景侧溢出走廊用宿主测量画布；两条路径共用
+    // 同一缓存（font 或 text 任一变化即失效重测）。
+    return this.measureTextWidthWith((text, font) => {
+      ctx.font = font
+      return ctx.measureText(text).width
+    })
+  }
+
+  /**
+   * 文本测量宽（测量函数注入）：缓存口径与绘制侧一致——style 引用变化只重算 font 串
+   * 并与缓存比较，font 串或 text 变了才重测，两者均未变直接返回缓存。溢出走廊（场景侧）
+   * 与内容绘制因此得到同一宽度，且滚动帧重标走廊时零重测。
+   */
+  measureTextWidthWith(measure: (text: string, font: string) => number): number {
     this.resolveFont()
     if (this.measureText !== this.text) {
       this.measureText = this.text
-      ctx.font = this.measureFont
-      this.textWidthPx = ctx.measureText(this.text).width
+      this.textWidthPx = measure(this.text, this.measureFont)
     }
     return this.textWidthPx
   }

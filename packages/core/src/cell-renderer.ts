@@ -63,16 +63,20 @@ const CHECKBOX_SIZE = 14
 const CHECKBOX_BORDER_COLOR = '#8f959e'
 const CHECKBOX_CHECK_COLOR = '#3370ff'
 
-/** 绘制内容盒：格内边距内缩后的局部矩形（文本与 checkbox 的定位/截断基准） */
-interface ContentBox {
+/** 格内容盒：格内边距内缩后的局部矩形（文本与 checkbox 的定位/截断基准） */
+export interface CellContentBox {
   x: number
   y: number
   width: number
   height: number
 }
 
-/** 格内边距内缩出内容盒：宽高夹到非负，防负 padding 把内容推出格外 */
-function contentBox(style: CellStyle, width: number, height: number): ContentBox {
+/**
+ * 格内边距内缩出内容盒：宽高夹到非负，防负 padding 把内容推出格外。
+ * 文本的定位 / 截断基准，溢出走廊的文本缘同样按本盒推导（场景侧共用，保证
+ * 「走廊端点」与「实际绘制位置」同源，见 list-table-scene 的 corridorCols）。
+ */
+export function cellContentBox(style: CellStyle, width: number, height: number): CellContentBox {
   const [paddingTop, paddingRight, paddingBottom, paddingLeft] = style.padding ?? DEFAULT_PADDING
   return {
     x: paddingLeft,
@@ -86,7 +90,11 @@ function contentBox(style: CellStyle, width: number, height: number): ContentBox
  * 水平对齐锚点：left（缺省）贴内容盒左缘，center/right 在盒内按内容宽定位。
  * 文本与 checkbox 等非文本内置内容共用。
  */
-function alignedX(align: CellTextAlign | undefined, box: ContentBox, contentWidth: number): number {
+function alignedX(
+  align: CellTextAlign | undefined,
+  box: CellContentBox,
+  contentWidth: number,
+): number {
   if (align === 'center') {
     return box.x + (box.width - contentWidth) / 2
   }
@@ -96,10 +104,20 @@ function alignedX(align: CellTextAlign | undefined, box: ContentBox, contentWidt
   return box.x
 }
 
+/**
+ * 文本绘制起点 x（格内局部坐标）：文本宽 + 样式 + 格宽 → 锚点。
+ * renderTextCell 的绘制与场景侧溢出走廊的文本缘判定共用本实现（只用内容盒的水平分量，
+ * 高度不参与），保证「走廊端点」与「实际画在哪」永远同源。
+ */
+export function cellTextAnchorX(style: CellStyle, width: number, textWidth: number): number {
+  const box = cellContentBox(style, width, 0)
+  return alignedX(style.textAlign, box, textWidth)
+}
+
 /** 垂直基线：以行盒为基准，在内容盒竖带内定位；top 贴顶、bottom 贴底、middle（缺省）居中 */
 function textBaselineY(
   align: CellVerticalAlign | undefined,
-  box: ContentBox,
+  box: CellContentBox,
   fontSize: number | undefined,
 ): number {
   const lineHeight = lineHeightFor(fontSize)
@@ -137,7 +155,7 @@ export const renderTextCell: CellRenderer = ({
   // 入参 font 优先（与节点测量同源，免同帧重复组装，R3-2）；缺省回退自组装，
   // 自定义渲染器不感知该字段，向后兼容
   ctx.font = font ?? cellStyleFont(style)
-  const box = contentBox(style, width, height)
+  const box = cellContentBox(style, width, height)
   const measured = textWidth ?? ctx.measureText(text).width
   const baselineY = textBaselineY(style.verticalAlign, box, style.fontSize)
   if (style.textWrap === true) {
@@ -194,7 +212,7 @@ function drawTextDecorations(
 function drawEllipsizedText(
   ctx: RenderContext,
   text: string,
-  box: ContentBox,
+  box: CellContentBox,
   baselineY: number,
   style: CellStyle,
 ): void {
@@ -227,7 +245,7 @@ function ellipsizedText(ctx: RenderContext, text: string, maxWidth: number): str
 function drawClippedText(
   ctx: RenderContext,
   text: string,
-  box: ContentBox,
+  box: CellContentBox,
   baselineY: number,
   measured: number,
   style: CellStyle,
@@ -246,7 +264,7 @@ function drawClippedText(
 function drawWrappedText(
   ctx: RenderContext,
   text: string,
-  box: ContentBox,
+  box: CellContentBox,
   width: number,
   height: number,
   style: CellStyle,
@@ -302,7 +320,7 @@ function wrapTextLines(
 /** 内置 checkbox 渲染：方框（fillRect 细线保证像素对齐）+ 勾选态实心块；value 即状态，不绘制取值文本；水平/垂直位置跟随 textAlign 与 padding 内缩（缺省左、垂直居中） */
 export const renderCheckboxCell: CellRenderer = ({ ctx, width, height, value, style }) => {
   const size = Math.min(CHECKBOX_SIZE, height - 8)
-  const box = contentBox(style, width, height)
+  const box = cellContentBox(style, width, height)
   const x = alignedX(style.textAlign, box, size)
   const y = box.y + (box.height - size) / 2
   ctx.fillStyle = CHECKBOX_BORDER_COLOR

@@ -45,8 +45,12 @@ export class StubHost implements RenderHost {
     task()
   }
 
-  measure(): Size {
-    return { width: 0, height: 0 }
+  /**
+   * 文本测量：测试约定「每字符 10px」（与 MeasureStubContext 同口径，20 字符 = 200px），
+   * 供溢出走廊等依赖测量宽的场景侧路径使用；真实宿主经测量画布测量。
+   */
+  measure(text: string): Size {
+    return { width: text.length * 10, height: 0 }
   }
 
   resize(): void {}

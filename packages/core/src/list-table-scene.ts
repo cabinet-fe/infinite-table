@@ -6,8 +6,9 @@
 import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
 
 import { CellNode } from './cell-node'
+import { cellTextAnchorX } from './cell-renderer'
 import { rangeCrossesBoundary } from './cell-range'
-import type { CellBorder, CellBorderEdge, CellStyle } from './cell-style'
+import { cellStyleFont, type CellBorder, type CellBorderEdge, type CellStyle } from './cell-style'
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
@@ -545,8 +546,10 @@ function appendCell(
     border: effectiveBorder(table, col, row, style),
     renderer: table.options.resolveCellRenderer?.(col, row) ?? null,
   })
-  // 文本溢出走廊（Excel 式按对齐方向溢出；换行/表头/合并/图片/图表/自定义渲染格不溢出）
-  const limits = imageUrl || chartMedia ? null : textOverflowLimits(table, col, row, style, left)
+  // 文本溢出走廊（Excel 式按对齐方向溢出；换行/表头/合并/图片/图表/自定义渲染格不溢出）；
+  // 传节点复用其测量缓存，建格当帧测得一次即与后续绘制同源
+  const limits =
+    imageUrl || chartMedia ? null : textOverflowLimits(table, col, row, style, left, node)
   node.textMaxX = limits === null ? node.width : limits.maxX - node.x
   node.textMinX = limits === null ? 0 : limits.minX - node.x
   // 编辑会话锚定格内容隐藏：滚动/几何重建会新建节点，装配时按当前会话重放该状态
@@ -591,8 +594,9 @@ export function textOverflowLimits(
   row: number,
   style: CellStyle,
   left: number,
+  node?: CellNode,
 ): TextOverflowLimits | null {
-  const corridor = corridorCols(table, col, row, style)
+  const corridor = corridorCols(table, col, row, style, node)
   if (corridor === null) {
     return null
   }
@@ -614,20 +618,37 @@ export interface CorridorCols {
   rightEnd: number
 }
 
+/** 单格文本测量宽（溢出走廊用）：传入节点时复用其测量缓存（text/font 未变零重测，
+ *  建格当帧与绘制共用同一次测量）；无节点（直构场景）时经宿主测量画布测一次 */
+function cellTextWidth(table: ListTable, style: CellStyle, text: string, node?: CellNode): number {
+  const measure = (t: string, font: string): number => table.host.measure(t, font).width
+  return node
+    ? node.measureTextWidthWith(measure)
+    : table.host.measure(text, cellStyleFont(style)).width
+}
+
 /**
  * 文本溢出走廊的列号扫描（textOverflowLimits 的扫描主体，走廊内部标记共用同一实现）；
- * null 表示该格不溢出（裁剪在本格内）。Excel 规则（P4 研究笔记 §1/§7 终判口径）：
- * 溢出方向按对齐——left（缺省）向右溢、right 向左溢、center 向两侧溢（阻断判定按
- * Univer 语义：left 只看右壁、right 只看左壁、center 两壁皆阻断才算阻断，单侧空即
- * 向空侧溢）；走廊遇首个非空格停（含合并、图片、图表、自定义渲染、checkbox 格，空白串按
- * 非空阻断）；换行、ellipsis/clip、合并、图片、图表、自定义渲染格自身不溢出；不越冻结列带
- * 边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
+ * null 表示该格不溢出（裁剪在本格内）。
+ *
+ * 走廊 = 文本实际跨越的列边界（Excel / WPS 桌面口径，与 Luckysheet `cellOverflow_trace`
+ * 的「剩余需宽」递归、Univer `_getOverflowBound` 的「累计列宽至覆盖文本宽」一致）：先按
+ * 内容盒与对齐方向求文本左右缘（锚点取自 renderTextCell 的同源实现 cellTextAnchorX），
+ * 再向溢出方向逐格推进——只覆盖「列边界落在文本缘内」的区域，文本缘未越过的列不产生走廊。走廊端点因此同时受文本宽与阻断格约束：文本未越出本格时无走廊（竖线照
+ * 常画），文本跨过若干列边界时只跳画被跨过的那些竖线，文本尾所在格的右缘线照常画。
+ *
+ * 其余口径：溢出方向按对齐——left（缺省）向右溢、right 向左溢、center 向两侧溢
+ * （阻断判定按 Univer 语义：left 只看右壁、right 只看左壁、center 两壁皆阻断才算阻断，
+ * 单侧空即向空侧溢）；走廊遇首个非空格停（含合并、图片、图表、自定义渲染、checkbox 格，
+ * 空白串按非空阻断）；换行、ellipsis/clip、合并、图片、图表、自定义渲染格自身不溢出；
+ * 不越冻结列带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
  */
 export function corridorCols(
   table: ListTable,
   col: number,
   row: number,
   style: CellStyle,
+  node?: CellNode,
 ): CorridorCols | null {
   if (
     style.textOverflow !== undefined ||
@@ -636,36 +657,49 @@ export function corridorCols(
     table.options.resolveCellRenderer?.(col, row) ||
     table.options.resolveCellImage?.(col, row) ||
     table.chartMediaResolver?.(col, row) ||
-    table.mergeCells.rangeAt(col, row) ||
-    !table.pipeline.resolveText(col, row)
+    table.mergeCells.rangeAt(col, row)
   ) {
     return null
   }
+  const text = table.pipeline.resolveText(col, row)
+  if (!text) {
+    return null
+  }
+  const width = table.colWidths[col] ?? 0
+  const textWidth = cellTextWidth(table, style, text, node)
+  // 文本左右缘（格内局部坐标）：锚点与 renderTextCell 同源（cellTextAnchorX）
+  const textLeft = cellTextAnchorX(style, width, textWidth)
+  const textRight = textLeft + textWidth
   const inFrozenBand = col < table.frozenColCount
   const bandStart = inFrozenBand ? 0 : table.frozenColCount
   const bandEnd = inFrozenBand ? table.frozenColCount : table.options.columns.length
   const align = style.textAlign ?? 'left'
-  // 右走廊：left/center 向右扫到首个非空格或带边界；right 不向右溢
+  /** 列左缘的格内局部坐标（相对源格左缘；同带内滚动位移在差中相消） */
+  const colLeft = (c: number): number => (table.colOffsets[c] ?? 0) - (table.colOffsets[col] ?? 0)
+  // 右走廊：left/center 向右扫；仅当文本右缘越出本格右缘时存在——覆盖「列边界仍在文本
+  // 右缘之内」的空格，文本缘到达（或遇首个非空格 / 带边界）即止
   let rightEnd = col + 1
-  if (align !== 'right') {
-    while (rightEnd < bandEnd && isEmptyTextCell(table, rightEnd, row)) {
+  if (align !== 'right' && textRight > width) {
+    while (
+      rightEnd < bandEnd &&
+      colLeft(rightEnd) < textRight &&
+      isEmptyTextCell(table, rightEnd, row)
+    ) {
       rightEnd++
     }
   }
-  // 左走廊：right/center 向左扫到首个非空格或带边界；left 不向左溢
+  // 左走廊：right/center 向左扫；仅当文本左缘越出本格左缘时存在，对称口径
   let leftStart = col
-  if (align !== 'left') {
-    while (leftStart > bandStart && isEmptyTextCell(table, leftStart - 1, row)) {
+  if (align !== 'left' && textLeft < 0) {
+    while (
+      leftStart > bandStart &&
+      colLeft(leftStart) > textLeft &&
+      isEmptyTextCell(table, leftStart - 1, row)
+    ) {
       leftStart--
     }
   }
-  if (align === 'left' && rightEnd === col + 1) {
-    return null
-  }
-  if (align === 'right' && leftStart === col) {
-    return null
-  }
-  if (align === 'center' && rightEnd === col + 1 && leftStart === col) {
+  if (rightEnd === col + 1 && leftStart === col) {
     return null
   }
   return { leftStart, rightEnd }
@@ -732,7 +766,7 @@ export function markRowCorridorInterior(
       if (!node) {
         continue
       }
-      const corridor = corridorCols(table, col, row, node.style)
+      const corridor = corridorCols(table, col, row, node.style, node)
       if (corridor === null) {
         continue
       }

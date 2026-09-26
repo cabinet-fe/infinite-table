@@ -619,6 +619,7 @@ export class ListTable {
       masterRow,
       node.style,
       this.scroll.state.left,
+      node,
     )
     node.textMaxX = limits === null ? node.width : limits.maxX - node.x
     node.textMinX = limits === null ? 0 : limits.minX - node.x
@@ -659,6 +660,7 @@ export class ListTable {
           masterRow,
           sourceNode.style,
           this.scroll.state.left,
+          sourceNode,
         )
         sourceNode.textMaxX =
           sourceLimits === null ? sourceNode.width : sourceLimits.maxX - sourceNode.x

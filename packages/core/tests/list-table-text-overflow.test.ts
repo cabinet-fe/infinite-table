@@ -470,7 +470,7 @@ describe('ListTable 溢出右界', () => {
     expect(findNode(frozen2.host, 0, 0)?.textMaxX).toBe(200)
   })
 
-  it('center 对齐向两侧溢出：走廊双界延伸到两侧首个非空格', () => {
+  it('center 对齐向两侧溢出：走廊双界按文本缘收边（短于空段止于文本缘）', () => {
     const { host } = createTable({
       columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }, { field: 'd' }, { field: 'e' }],
       records: [{ c: LONG_TEXT }],
@@ -478,9 +478,11 @@ describe('ListTable 溢出右界', () => {
       resolveCellStyle: (col) => (col === 2 ? { textAlign: 'center' } : null),
     })
     const node = findNode(host, 2, 0)!
-    // 两侧 1、3 列为空，0、4 列也空：走廊 [0, 500) 的层坐标 → 局部 [-200, +300]
-    expect(node.textMinX).toBe(-200)
-    expect(node.textMaxX).toBe(300)
+    // 文本 200px 居中锚定源格（内容盒 [8, 92]，锚点 8 + (84 - 200) / 2 = -50）：
+    // 文本缘 [-50, 150) 只跨到左右各一列（列 1 与列 3）→ 走廊 [1, 4)，局部界即外侧列边界
+    // [-100, +200]；列 0/4 虽空但文本未及，不纳入走廊（其竖线照常画）
+    expect(node.textMinX).toBe(-100)
+    expect(node.textMaxX).toBe(200)
   })
 
   it('right 对齐向左溢出：只看左壁，右界收敛本格', () => {
@@ -1020,6 +1022,43 @@ describe('溢出走廊竖线跳画（WPS 口径）', () => {
     expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 347, 447, 547])
   })
 
+  it('短文本右溢不吞右侧空白区竖线（文本缘收边，sheet-ux-fixes-3 回归）', () => {
+    // 回归：曾经走廊按「空段扫满」判定，短文本（135 / 84 / 67.5 这类）一旦右邻为空
+    // 就把走廊一路扫到表缘，右侧大片空白的竖线被全部跳画（观感为「网格线凭空消失」）。
+    // 现口径走廊按文本缘收边：文本尾未越过的列边界照常画线。
+    const { host } = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: '135' }],
+      rowCount: 1,
+    })
+    // '135' 30px 未越出内容盒（84px）→ 无走廊、无跳画：双界收敛本格（textMinX 0、
+    // textMaxX = 格宽 100）、整行竖线全在
+    expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(100)
+    expect(findNode(host, 0, 0)?.textMinX).toBe(0)
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 247, 347, 447, 547])
+
+    // 越出本格但只跨过一列边界（100px 文本缘止于 108）：走廊 [0, 2) 只跳画源格右缘线
+    // （147），被覆盖空格（col 1）右缘线（247）即走廊末端照画，第二列起竖线全在
+    const shorter = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: 'A'.repeat(10) }],
+      rowCount: 1,
+    })
+    expect(findNode(shorter.host, 0, 0)?.corridorInterior).toBe(2)
+    expect(findNode(shorter.host, 1, 0)?.corridorInterior).toBe(2)
+    expect(rowVerticalLineXs(shorter.host, 0)).toEqual([47, 247, 347, 447, 547])
+
+    // 跨过一列边界（200px 文本缘止于 208，落在 col 2 内）→ 走廊 [0, 3)：源格右缘（147）
+    // 与 col 1 右缘（247）都在文本缘之内跳画，col 2 右缘（347）为走廊末端照画
+    const crossing = createTable({
+      columns: FIVE_COLUMNS,
+      records: [{ f0: LONG_TEXT }],
+      rowCount: 1,
+    })
+    expect(rowVerticalLineXs(crossing.host, 0)).toEqual([47, 347, 447, 547])
+  })
+
   it('走廊格上下横边保留：走廊内格 bottom 与表头带 bottom 横线照画', () => {
     const { host } = createTable({
       columns: FIVE_COLUMNS,
@@ -1033,9 +1072,9 @@ describe('溢出走廊竖线跳画（WPS 口径）', () => {
   })
 
   it('右对齐左溢：走廊内竖线隐藏，方向与右溢对称', () => {
-    // 行 0：col 3 长文本左溢（走廊 [2,4)，覆盖 col 2 空格）；col 1 非空阻断走廊但
-    // 其右邻 col 2 为空 → col 1 自身右溢走廊 [1,3) 存在（结构化走廊口径），其右缘
-    // 线（247）随自身走廊跳画；col 0 右缘线（147）在全部走廊之外照画
+    // 行 0：col 3 长文本（200px）右对齐左溢，锚点 8 + 84 - 200 = -108 → 文本缘 [-108, 92)
+    // 只跨过 col 2 左缘（局部 -100）→ 走廊 [2, 4) 覆盖 col 2 空格；col 1 有短文本 'y'
+    // （10px，不溢出）→ 无走廊，其右缘线照画；col 0 短文本同理
     const { host } = createTable({
       columns: [
         { field: 'f0' },
@@ -1051,16 +1090,17 @@ describe('溢出走廊竖线跳画（WPS 口径）', () => {
     })
     expect(findNode(host, 2, 0)?.corridorInterior).toBe(4)
     expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
-    expect(findNode(host, 1, 0)?.corridorInterior).toBe(3)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBeNull()
     expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
-    // 347 走廊内跳画（被覆盖空格 col 2 的右缘 = 源格左缘，WPS 口径随源格左溢跳画）；
-    // 447 源格右缘（非走廊侧）、147/547/647 走廊外照画
-    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 447, 547, 647])
+    // 347（col 2 右缘 = 源格左缘）在文本缘内跳画；447 源格右缘为走廊末端（源格即文本尾所在格）
+    // 照画；147/247 两侧短文本不溢出、547/647 走廊外，全数照画
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 247, 447, 547, 647])
   })
 
   it('居中双向溢：两侧走廊内竖线对称隐藏，走廊右末端竖线保留', () => {
-    // 行 0：col 3 居中长文本双向溢（走廊 [2,5)，覆盖 col 2/4 空格）；col 1/5 非空阻断；
-    // col 1 自身右溢走廊 [1,3) 使其右缘线（247）跳画（结构化走廊口径，与左溢同源）
+    // 行 0：col 3 居中长文本（200px）双向溢，锚点 -50 → 文本缘 [-50, 150) 跨过 col 2 左缘
+    // （-100）与 col 4 左缘（+100）→ 走廊 [2, 4) 只覆盖两侧各一列；col 1/5 的短文本
+    // 自身不溢出，其右缘线照画
     const { host } = createTable({
       columns: [
         { field: 'f0' },
@@ -1077,16 +1117,17 @@ describe('溢出走廊竖线跳画（WPS 口径）', () => {
     expect(findNode(host, 2, 0)?.corridorInterior).toBe(5)
     expect(findNode(host, 3, 0)?.corridorInterior).toBe(5)
     expect(findNode(host, 4, 0)?.corridorInterior).toBe(5)
-    expect(findNode(host, 1, 0)?.corridorInterior).toBe(3)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBeNull()
     expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
-    // 347/447 双向走廊内部跳画；547 走廊右末端（col 4 right = col 5 左缘）保留；
-    // 147/647 走廊外照画
-    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 547, 647])
+    // 347/447 双向走廊内部跳画；547 走廊内末格右缘（源格文本尾所在格）照画；
+    // 147/247 为两侧短文本（不溢出）所在格、647 走廊外，全数照画
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 247, 547, 647])
   })
 
   it('两源对溢共享空段：共享段竖线按更远走廊跳画（标记取最大右端）', () => {
-    // col 1 右溢走廊 [1,5)、col 5 左溢走廊 [2,6)：共享空段 col 2..4 被两走廊覆盖，
-    // 标记取最大右端 6；col 0 右缘线（147）在两走廊之外照画
+    // col 1 右溢（200px，文本缘 [8, 208)）走廊 [1,4)；col 5 右对齐左溢（锚点 -108，
+    // 文本缘 [-108, 92)）走廊 [3,6)：共享空段 col 3 被两走廊覆盖，标记取最大右端 6；
+    // col 0 短文本自身不溢出，其右缘线（147）照画
     const { host } = createTable({
       columns: [
         { field: 'f0' },
@@ -1100,9 +1141,10 @@ describe('溢出走廊竖线跳画（WPS 口径）', () => {
       rowCount: 1,
       resolveCellStyle: (col) => (col === 5 ? { textAlign: 'right' } : null),
     })
-    expect(findNode(host, 2, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(4)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(6)
     expect(findNode(host, 4, 0)?.corridorInterior).toBe(6)
-    expect(findNode(host, 1, 0)?.corridorInterior).toBe(5)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(4)
     expect(findNode(host, 0, 0)?.corridorInterior).toBeNull()
     // 247/347/447/547 共享段全跳画；647 左溢源右缘（非走廊侧）保留
     expect(rowVerticalLineXs(host, 0)).toEqual([47, 147, 647])
@@ -1140,16 +1182,20 @@ describe('走廊竖线三路径一致（全量重建 / refreshCell / 滚动增�
     model.data.set('2:0', 'x')
     model.data.set('4:0', 'y')
     const { host } = createTable({ columns: FIVE_COLUMNS, rowCount: 1, model })
-    // 初始：col 0 走廊 [0,2)、col 2 自身走廊 [2,4) → 147/347 跳画
+    // 初始：col 0 长文本（200px，文本缘止于 208）走廊被 col 2 的 'x' 阻断 → [0, 2)：
+    // 源格右缘（147）跳画、被覆盖的 col 1 右缘（247）为走廊内末格照画；'x' 自身
+    // 不溢出，其右缘线（347）照画
     expect(findNode(host, 1, 0)?.corridorInterior).toBe(2)
-    expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
-    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 447, 547])
-    // 邻居变空：col 0 走廊伸到 [0,4)，col 1/2/3 竖线全跳画
+    expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
+    expect(findNode(host, 3, 0)?.corridorInterior).toBeNull()
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 347, 447, 547])
+    // 邻居变空：col 0 走廊按文本缘续伸到 [0, 3)（文本尾仍落在 col 2 内），col 1 竖线跳画、
+    // col 2 右缘线（347，走廊末端）保留
     model.data.delete('2:0')
     model.emit({ col: 2, row: 0, oldValue: 'x', newValue: undefined })
-    expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
-    expect(findNode(host, 2, 0)?.corridorInterior).toBe(4)
-    expect(rowVerticalLineXs(host, 0)).toEqual([47, 447, 547])
+    expect(findNode(host, 3, 0)?.corridorInterior).toBeNull()
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(3)
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 347, 447, 547])
     // 与同数据全量重建逐像素一致
     const rebuilt = createTable({
       columns: FIVE_COLUMNS,
@@ -1157,10 +1203,10 @@ describe('走廊竖线三路径一致（全量重建 / refreshCell / 滚动增�
       rowCount: 1,
     })
     expect(rowVerticalLineXs(host, 0)).toEqual(rowVerticalLineXs(rebuilt.host, 0))
-    // 邻居变非空：走廊收回，竖线状态回到初始全量重建水平
+    // 邻居变非空：走廊被阻断收回，竖线状态回到初始全量重建水平
     model.data.set('2:0', 'x')
     model.emit({ col: 2, row: 0, oldValue: undefined, newValue: 'x' })
-    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 447, 547])
+    expect(rowVerticalLineXs(host, 0)).toEqual([47, 247, 347, 447, 547])
   })
 
   it('溢出源 contentHidden 隐藏/恢复：走廊竖线状态不变（与全量重建一致）', () => {
