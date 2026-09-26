@@ -120,7 +120,9 @@ Univer 把「溢出区间计算」放在骨架层（skeleton），「绘制」�
 
 共识结论：三项目中两个实现了溢出的项目，走廊判定都是「内容阻断」而非「样式阻断」；溢出方向语义完全一致；都把「溢出文本不被走廊内线 / 背景覆盖」作为绘制次序问题解决（跳线 / 擦线 + 文本后画），而非文本排版问题。
 
-## 6. 本引擎现状（infinite-table）
+## 6. 本引擎现状（infinite-table，调研当日快照）
+
+以下为调研当日（2026-09-25，S9-P4）的引擎快照，行号与符号名同首段「调研当日」口径，不再代表现行实现。sheet-ux-fixes-2/3 后：走廊为按对齐双向走查且按文本缘收边（`textOverflowLimits` / `corridorCols`），clip 按对齐取走廊界 `[textMinX, textMaxX]`，走廊覆盖范围内竖线跳画（`CellNode.corridorInterior`，`paintBorders` 判定 `corridorInterior > col + 1`），z 序重挂双向化（含左溢 `textMinX < 0`）并按行重标走廊内部标记，测量缓存为 `measureTextWidthWith`（测量函数注入，绘制侧与场景侧共用）。现行实现与逐项取舍见 §7 各条正文与修订记录。
 
 - 走廊：`textOverflowLimitX`（`packages/core/src/list-table-scene.ts:563-594`）——仅左对齐溢出到右侧连续空格，遇非空格停，不越冻结列带（`bandEnd`）与末列；`isEmptyTextCell`（`548-556`）定义非空（text 类型、无自定义渲染、无图片、非合并覆盖、取值文本非空）。显式 `textOverflow`（ellipsis/clip）、`textWrap`、checkbox、合并、图片格不溢出。
 - 绘制：`renderTextCell`（`packages/core/src/cell-renderer.ts:119-167`）——未设溢出样式时左对齐溢出画进右侧空格（clip 右界 `textMaxX`），中 / 右对齐裁剪在本格；溢出锚点在源格（`alignedX`），仅 clip 扩界。
@@ -133,7 +135,7 @@ Univer 把「溢出区间计算」放在骨架层（skeleton），「绘制」�
 ## 7. 本引擎采纳的设计与逐项取舍（P5 实施依据）
 
 1. **走廊算法选型：按需逐格走查，走廊端点由文本缘收边（sheet-ux-fixes-3 修正）。**
-   现状 `textOverflowLimitX` 已是建格 / refresh 时的按需计算，P5 扩展为按对齐方向双向走查（`textOverflowLimits`）：left/center 向右、right/center 向左。**修订记录（sheet-ux-fixes-3）**：本条「不按文本宽提前止步、走廊按空段扫满至阻断点」已被推翻。原口径（走廊端点只由邻居内容与带边界决定）让**每条文本都按整段空区跳画竖线**：demo 中 `135` / `84` / `67.5` 这类短文本右邻为空时，走廊一路扫到带尾，第 G 列往右的竖线在数据行被整片跳画，观感即「网格线凭空消失」——三个参照实现都不这么做。现口径与 Luckysheet `cellOverflow_trace`（按「剩余需宽」递归至文本放得下）与 Univer `_getOverflowBound`（迭代累计列宽至覆盖文本宽）一致：先按内容盒与对齐锚点求文本左右缘（`cellContentBox` / `cellTextAnchorX` 与 `renderTextCell` 同源），再向溢出方向逐列收边——只有列边界落在文本缘内的空格才纳入走廊，遇首个非空格提前停；文本未越出本格则无走廊（竖线全画），越出 N 列则只跳画这 N 列的竖线。代价与收益：文本宽参与走廊端点后，本格文本增减会牵动自身走廊（refreshCell 现有 `textMaxX/textMinX` 比对即覆盖，无需新增联动）；测量经 `CellNode.measureTextWidthWith` 复用绘制同一缓存（font/text 未变零重测，滚动帧重标走廊不新增测量），性能取舍不变。原「扫满」理由中的「端点与文本宽解耦」不再成立，但三重建路径逐像素一致（全量重建 / 滚动增量 / refreshCell 共用 `corridorCols`）仍成立。拒绝 Luckysheet 的整行溢出图 + 100ms 空闲粗失效（§2.5）：失效粒度与引擎三档失效模型冲突，且「滚动帧复用旧图」有过期风险；拒绝引入 Univer 的视口外扩 20 列缓存带（§3.1）：引擎窗口模型是精确装配，等价能力可由「窗缘列反查溢出来源」以更小成本达成（见取舍 8）。
+   现状 `textOverflowLimits` 已是建格 / refresh 时的按需计算，按对齐方向双向走查：left/center 向右、right/center 向左。**修订记录（sheet-ux-fixes-3）**：本条「不按文本宽提前止步、走廊按空段扫满至阻断点」已被推翻。原口径（走廊端点只由邻居内容与带边界决定）让**每条文本都按整段空区跳画竖线**：两处 playground 演示页（`apps/playground` 与 `../ultra-ui/playground`）里真正造成整片竖线消失（第 G 列起）的是 `示例图→`（F1）、`a`（E2）、`b`（E3）、`84`（B4）这类右邻整段为空的短文本——旧口径下它们的走廊一路扫到 26 列带尾，第 G 列往右的竖线在数据行被整片跳画，观感即「网格线凭空消失」（用户截图红框圈的是 B 列数值，但大片缺失实际发生在 G 列起）；而 `135`（B1）/ `84`（B2）/ `67.5`（B3）右侧隔列即被内容阻断，旧口径下只吞掉 B/C 一条边界线，并非成片消失的成因。三个参照实现都不这么做。现口径与 Luckysheet `cellOverflow_trace`（按「剩余需宽」递归至文本放得下）与 Univer `_getOverflowBound`（迭代累计列宽至覆盖文本宽）一致：先按内容盒与对齐锚点求文本左右缘（`cellContentBox` / `cellTextAnchorX` 与 `renderTextCell` 同源），再向溢出方向逐列收边——只有列边界落在文本缘内的空格才纳入走廊，遇首个非空格提前停；文本未越出本格则无走廊（竖线全画），越出 N 列则只跳画这 N 列的竖线。代价与收益：文本宽参与走廊端点后，本格文本增减会牵动自身走廊（refreshCell 现有 `textMaxX/textMinX` 比对即覆盖，无需新增联动）；测量经 `CellNode.measureTextWidthWith` 复用绘制同一缓存（font/text 未变零重测，滚动帧重标走廊不新增测量），性能取舍不变。原「扫满」理由中的「端点与文本宽解耦」不再成立，但三重建路径逐像素一致（全量重建 / 滚动增量 / refreshCell 共用 `corridorCols`）仍成立。拒绝 Luckysheet 的整行溢出图 + 100ms 空闲粗失效（§2.5）：失效粒度与引擎三档失效模型冲突，且「滚动帧复用旧图」有过期风险；拒绝引入 Univer 的视口外扩 20 列缓存带（§3.1）：引擎窗口模型是精确装配，等价能力可由「窗缘列反查溢出来源」以更小成本达成（见取舍 8）。
 2. **与网格线 / 边框 / 背景的绘制次序：走廊内竖线跳画（WPS / Luckysheet 口径），不做整幅擦线。**
    **推翻记录（sheet-ux-fixes-2 P3）**：本条原为 S9-P5 的「覆盖式」取舍——溢出文本直接盖走廊内共享网格线与空格背景，不引入跳线 / 擦线，理由是跳线要求绘制侧感知跨格走廊状态、与「节点自治绘制 + 共享边逐格裁决」（`effectiveBorder`）冲突。实际观感是溢出文本虽靠 z 序后画，但字形间隙与文字上下区域的走廊竖线仍可见（「表格线压字」类伪影），与 WPS / Luckysheet（§2.2）不符，故 P3 起改为走廊竖线跳画：场景装配逐行维护「走廊内部」标记（`CellNode.corridorInterior`——覆盖本格各走廊的最大右端列号，null = 不在任何走廊内；`markRowCorridorInterior` 先清后标，扫描复用 `corridorCols` 与 `textOverflowLimits` 同一实现，全量重建 / 滚动增量 / `refreshCell` 三路径同口径），right 共享边仅当本格与右邻同处同一走廊内部才绘制（跳画判定 `corridorInterior > col + 1`，`cell-node.ts` `paintBorders`）：溢出源格朝走廊侧竖边与走廊内部空格间共享竖线跳画，走廊末端竖线（文本缘与首个非空格左缘中的先至者，见取舍 1 修订记录）与走廊外竖线照常绘制，上下横边、背景、内容绘制不受影响，用户显式纵向边框与默认网格线同规则（不破坏 shared-edges 归属与 stronger 合并语义）；Univer 的整幅擦线（§3.3）仍不采纳。空格背景不阻断溢出（§1#3），溢出文本仍靠 z 序不变量（取舍 3）后画于走廊格背景之上，对齐 Excel。
 3. **z 序不变量：溢出源节点后画于同条带全部走廊节点（spec 验收口径），经既有「溢出格重挂树尾」机制推广到双向。**
@@ -145,7 +147,7 @@ Univer 把「溢出区间计算」放在骨架层（skeleton），「绘制」�
 6. **冻结带：走廊不越冻结列带边界（维持 `bandEnd` 口径）。**
    Luckysheet / Univer 经窗格裁剪达成同效果（§1#6）；引擎按带截断走廊是等价的更廉价实现，且规避 §1#6 待复核项。
 7. **性能：走廊计算挂建格 / refresh 一次性，滚动帧零重算。**
-   存活节点滚动平移不改变局部 `textMaxX/textMinX`（走廊端点随节点同步平移），滚动帧渐进复杂度不增（spec 验收项）；阻断扫描复用 `resolveText` / `resolveStyle` 既有管线，不新增测量（`measureTextWidth` 缓存已有）；溢出区失效区域合并维持 `refreshCellNode` 既有并区逻辑（`list-table.ts:569-616`，P5 双向化后行号）的双向化。`apps/bench` 阈值回归为 P5 验收项。
+   存活节点滚动平移不改变局部 `textMaxX/textMinX`（走廊端点随节点同步平移），滚动帧渐进复杂度不增（spec 验收项）；阻断扫描复用 `resolveText` / `resolveStyle` 既有管线，不新增测量（`measureTextWidthWith` 缓存已有）；溢出区失效区域合并维持 `refreshCellNode` 既有并区逻辑（`list-table.ts:569-616`，P5 双向化后行号）的双向化。`apps/bench` 阈值回归为 P5 验收项。
 8. **窗外源可见性：P5 以「窗缘反查」补齐，不做外扩缓存带。**
    §6 已知边界（源在窗外、走廊伸入窗内不可见）与全量重建行为一致，不破坏逐像素一致性；P5 若收敛该语义，在窗口装配时对紧贴窗缘的列做一次 `overflowSourceCol` / 右侧对应反查并补建或挂接源绘制，成本 O(窗缘行数)，避免 Univer 每帧 20 列全量字体缓存的外扩成本。
 9. **显式样式优先级不变：ellipsis / clip 显式样式仍截断、header 分区保留 ellipsis、wrap 格不参与溢出（现状 + spec 非目标）。**
