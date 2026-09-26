@@ -1472,7 +1472,9 @@ try {
   // 走廊末端竖线在、横线与走廊外竖线不受影响）+ 填充柄光标（问题 4：悬停 crosshair /
   // 移出恢复 / 无选区不出现 / 按下与拖拽期间保持） ----
   {
-    // 夹具：B2 超宽左对齐文本（尾部止于 D2），C2/D2/E2 空格走廊，F2 非空格终止
+    // 夹具：B2 超宽左对齐文本（20 个 A，字形止于 D2 内、未达 E2），C2/D2 被文本覆盖、
+    // E2 在文本缘外；F2 非空格（阻断格，本夹具中文本未达）。断言口径：文本缘内无竖线、
+    // 文本缘之后的首个列边界（走廊末端）竖线照画（走廊按文本缘收边，非扫到阻断格）
     await evalPage(async () => {
       const pg = window.__PG__
       const { SheetGrid } = await import('/src/veltra-grid/sheet-grid.ts')
@@ -1518,12 +1520,18 @@ try {
       }
       const src = cellRect(1)
       const srcRight = Math.round(src.x + t.getColWidth(1)) // 源格右缘
-      const corrEnd = Math.round(cellRect(5).x) // 走廊末端（首个非空格左缘）
+      // 走廊末端 = 文本缘与首个非空格左缘中的先至者（见 overflow-rendering-research §7
+      // 取舍 1 的文本缘收边口径）。文本缘 = 文本右缘（含 padding）所达的最右列边界——右缘恰
+      // 落在边界上取该边界，否则取其右侧首个边界。本夹具 20 个 A 的字形止于 D2 内（未达
+      // E2），故走廊末端即 D2/E2 边界；节点 textMaxX 即该边界相对源格左缘的局部坐标，加源格
+      // 层坐标得层坐标（与 cellRect 同一 resolveCellX 口径）
+      const srcNode = t.cellNodes.get(1 + 1 * 2 ** 21)
+      const corrEnd = Math.round(src.x + srcNode.textMaxX)
       let interiorMax = 0 // [源格右缘, 走廊末端) 内逐列最大纵向命中
-      for (let x = srcRight - 1; x < corrEnd - 2; x++) {
+      for (let x = srcRight - 1; x < corrEnd - 3; x++) {
         interiorMax = Math.max(interiorMax, lineHits(x))
       }
-      let endMax = 0 // 走廊末端竖线（±2px 窗口取最大）
+      let endMax = 0 // 走廊末端竖线（文本缘之后的首个列边界，±2px 窗口取最大）
       for (let x = corrEnd - 2; x <= corrEnd + 2; x++) {
         endMax = Math.max(endMax, lineHits(x))
       }
@@ -1562,9 +1570,10 @@ try {
         hTop,
         corridorGlyphs: darkCount(2), // C2 溢出字形可见
         corridorFar: darkCount(3), // D2 文本尾段
-        cleanCell: darkCount(4), // E2 走廊内空格（文本尾止于 D2，E2 无字形）
+        cleanCell: darkCount(4), // E2 文本缘外（无字形，竖线照画）
         srcRight,
         corrEnd,
+        srcMaxX: srcNode.textMaxX,
       }
     })
     const corridorOk =

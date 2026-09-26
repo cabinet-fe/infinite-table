@@ -99,9 +99,15 @@ describe('bindFillGeneration 接线', () => {
 
     expect(store.getValue(0, 1)).toBe(2)
     expect(store.getValue(0, 3)).toBe(4)
-    // body 侧只有 batchUpdate 收敛出的一次 band
-    const bodyInvs = host.submitted.filter((entry) => entry.kind === 'body').map((e) => e.inv.type)
-    expect(bodyInvs).toEqual(['band'])
+    // body 侧恰两条 band，各司其职：
+    // ① 数据区——batchUpdate 把 col 0 的 1..3 行三次写入收敛成一条 band，即写入格包围盒
+    //    （x=列左缘 48、宽=列宽 100、y=行 1 上缘 68、高=3×行高 96）
+    // ② 行号带——填充后选区扩展触发整行高亮，条带重涂只覆盖行号列宽（0..48）与 0..3 行
+    const bodyInvs = host.submitted.filter((entry) => entry.kind === 'body')
+    expect(bodyInvs.map((e) => e.inv.type)).toEqual(['band', 'band'])
+    const regions = bodyInvs.map((e) => (e.inv.type === 'band' ? e.inv.region : null))
+    expect(regions[0]).toEqual({ x: 48, y: 68, width: 100, height: 96 })
+    expect(regions[1]).toEqual({ x: 0, y: 36, width: 48, height: 128 })
   })
 
   it('双击填充柄 + autoComplete：按左邻列数据块末行自动向下填充，选区跟随扩展', () => {
