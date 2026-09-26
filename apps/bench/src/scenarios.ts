@@ -5,6 +5,7 @@ import { BENCH_COLS, BENCH_ROWS, VIEWPORT_AREA, VIEWPORT_HEIGHT, VIEWPORT_WIDTH 
 import type { BenchEnv, BenchTable } from './env'
 import type { LayerInvalidationStats } from './invalidation-meter'
 import type { BenchCheck, BenchMetric, BenchReport, ScenarioResult } from './report'
+import { runChartScenarios } from './chart-scenarios'
 import { runSheetScenarios } from './sheet-scenarios'
 import {
   BODY_AREA_RATIO_MAX,
@@ -229,6 +230,8 @@ export async function runAllScenarios(env: BenchEnv): Promise<BenchReport> {
     await runScrollFps(env),
     await runInvalidation(env),
     ...(await runSheetScenarios(env)),
+    // 图表格场景（chart-support P5）：headless 与浏览器共用同一份 chart-scenarios 逻辑
+    ...(await runChartScenarios(env)),
   ]
   return {
     tool: 'infinite-table-bench',

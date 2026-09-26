@@ -24,6 +24,8 @@ export interface BenchEnv {
   createTable(): BenchTable
   /** sheet 口径建表：store.asModel() 挂模型形态（sheet 场景用；S5） */
   createSheetTable(store: SheetStoreLike): BenchTable
+  /** chart 口径建表：图表格场景用（chart-support P5；表口径与声明解析在 chart-scenarios.ts） */
+  createChartTable(): BenchTable
 }
 
 /** SheetStore 结构子集（避免 bench 对 plugins 的类型级硬绑定；运行时传插件实例） */

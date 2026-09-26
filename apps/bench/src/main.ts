@@ -2,7 +2,8 @@
 // 报告渲染到页面、打到 console，并挂 window.__BENCH_REPORT__ 供脚本化冒烟提取。
 
 import { ListTable, type DataRecord } from '@infinite-table/core'
-import { createRenderHost } from '@infinite-table/render'
+import { createChartPlugin } from '@infinite-table/plugins'
+import { createRenderHost, type RenderHost } from '@infinite-table/render'
 
 import {
   createBenchColumns,
@@ -12,7 +13,8 @@ import {
   VIEWPORT_HEIGHT,
   VIEWPORT_WIDTH,
 } from './dataset'
-import type { BenchEnv } from './env'
+import { chartTableOptions, resolveChartCellDeclaration } from './chart-scenarios'
+import type { BenchEnv, BenchTable } from './env'
 import { InvalidationMeter } from './invalidation-meter'
 import { formatTextReport, type BenchReport } from './report'
 import { runAllScenarios } from './scenarios'
@@ -20,6 +22,40 @@ import { runAllScenarios } from './scenarios'
 declare global {
   interface Window {
     __BENCH_REPORT__?: BenchReport
+  }
+}
+
+/** 浏览器帧泵桥：BenchTable 交互面（rAF 真实帧率 + PointerEvent 派发），各建表工厂共用 */
+function browserBenchTable(
+  table: ListTable,
+  meter: InvalidationMeter,
+  constructorMs: number,
+  host: RenderHost,
+  container: HTMLElement,
+): BenchTable {
+  return {
+    table,
+    meter,
+    constructorMs,
+    beginFrame: () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve())
+      }),
+    endFrame: () => {},
+    hoverAt: (x, y) => {
+      const rect = container.getBoundingClientRect()
+      container.dispatchEvent(
+        new PointerEvent('pointermove', {
+          clientX: rect.left + x,
+          clientY: rect.top + y,
+          bubbles: true,
+        }),
+      )
+    },
+    destroy: () => {
+      table.destroy()
+      host.destroy()
+    },
   }
 }
 
@@ -44,30 +80,7 @@ function createBrowserEnv(container: HTMLElement): BenchEnv {
         host: meter.wrap(host),
       })
       const constructorMs = performance.now() - t0
-      return {
-        table,
-        meter,
-        constructorMs,
-        beginFrame: () =>
-          new Promise<void>((resolve) => {
-            requestAnimationFrame(() => resolve())
-          }),
-        endFrame: () => {},
-        hoverAt: (x, y) => {
-          const rect = container.getBoundingClientRect()
-          container.dispatchEvent(
-            new PointerEvent('pointermove', {
-              clientX: rect.left + x,
-              clientY: rect.top + y,
-              bubbles: true,
-            }),
-          )
-        },
-        destroy: () => {
-          table.destroy()
-          host.destroy()
-        },
-      }
+      return browserBenchTable(table, meter, constructorMs, host, container)
     },
     createSheetTable(store) {
       const meter = new InvalidationMeter(VIEWPORT_AREA)
@@ -85,29 +98,21 @@ function createBrowserEnv(container: HTMLElement): BenchEnv {
         host: meter.wrap(host),
       })
       const constructorMs = performance.now() - t0
-      return {
-        table,
-        meter,
-        constructorMs,
-        beginFrame: () =>
-          new Promise<void>((resolve) => {
-            requestAnimationFrame(() => resolve())
-          }),
-        endFrame: () => {},
-        hoverAt: (x, y) => {
-          const rect = container.getBoundingClientRect()
-          container.dispatchEvent(
-            new PointerEvent('pointermove', {
-              clientX: rect.left + x,
-              clientY: rect.top + y,
-            }),
-          )
-        },
-        destroy: () => {
-          table.destroy()
-          host.destroy()
-        },
-      }
+      return browserBenchTable(table, meter, constructorMs, host, container)
+    },
+    createChartTable() {
+      const meter = new InvalidationMeter(VIEWPORT_AREA)
+      const host = createRenderHost({
+        width: VIEWPORT_WIDTH,
+        height: VIEWPORT_HEIGHT,
+        container,
+      })
+      // 图表插件用真实 canvas 离屏出图（Chart.js 经动态 import 按需加载）
+      const chartPlugin = createChartPlugin({ resolveCellChart: resolveChartCellDeclaration })
+      const t0 = performance.now()
+      const table = new ListTable(chartTableOptions(meter.wrap(host), [chartPlugin]))
+      const constructorMs = performance.now() - t0
+      return browserBenchTable(table, meter, constructorMs, host, container)
     },
   }
 }
