@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, defineComponent, h } from 'vue'
 import { isSmokeMode } from './mount'
 import { mountDataForms } from './sections/data-forms'
+import { mountChart, type ChartDemo } from './sections/chart'
 import { mountDisplay } from './sections/display'
 import { mountInteraction } from './sections/interaction'
 import { mountMedia } from './sections/media'
@@ -58,6 +59,46 @@ const ReportView = defineComponent({
   },
 })
 
+// 单元格图表视图：sections/chart.ts 与其它演示区同一挂载形态，
+// 内联定义避免只为一个薄壳多建一个 view 文件（同 ReportView）
+const ChartView = defineComponent({
+  name: 'ChartView',
+  setup() {
+    const containerRef = ref<HTMLDivElement | null>(null)
+    let demo: ChartDemo | null = null
+    onMounted(() => {
+      if (containerRef.value) {
+        demo = mountChart(containerRef.value)
+      }
+    })
+    onUnmounted(() => {
+      demo = null
+    })
+    return () =>
+      h('div', { class: 'view-container' }, [
+        h('div', { class: 'view-header' }, [
+          h('div', { class: 'title-row' }, [
+            h('h2', null, '单元格图表'),
+            h('div', { class: 'tags' }, [
+              h('span', { class: 'tag' }, 'Chart.js 按需加载'),
+              h('span', { class: 'tag' }, '离屏出图'),
+              h('span', { class: 'tag' }, 'L2 位图缓存'),
+              h('span', { class: 'tag' }, '滚动无闪'),
+            ]),
+          ]),
+          h(
+            'p',
+            { class: 'desc' },
+            '单元格声明图表（类型 + 数据），chart 插件经既有注册路径启用：Chart.js 离屏同步出图，' +
+              '位图经 cell 级 MediaCache blit 到 media 层；滚动滚回命中缓存直接回贴，' +
+              '数据变更按内容换 key 失效重绘。',
+          ),
+        ]),
+        h('div', { ref: containerRef, class: 'demo-mount-area chart-mount-area' }),
+      ])
+  },
+})
+
 interface MenuItem {
   key: string
   label: string
@@ -96,6 +137,14 @@ const menuItems: MenuItem[] = [
     icon: '🖼️',
     desc: 'L2 离屏位图 LRU 缓存、窗口化加载、浮动对象跟随',
     component: MediaView,
+  },
+  {
+    key: 'chart',
+    label: '单元格图表',
+    icon: '📈',
+    badge: 'Chart.js',
+    desc: '格内声明图表、离屏出图、位图缓存无闪回滚',
+    component: ChartView,
   },
   {
     key: 'editing',
@@ -170,6 +219,7 @@ onMounted(() => {
       display: mountDisplay(mountPoint),
       interaction: mountInteraction(mountPoint),
       media: mountMedia(mountPoint),
+      chart: mountChart(mountPoint),
       editing: mountEditing(mountPoint),
     }
     window.__DEMO__ = demos
@@ -510,8 +560,9 @@ onMounted(() => {
   height: 100vh;
 }
 
-/* 报表视图（App.vue 内联定义）：视图卡片样式经 :deep 穿透（其它视图各自 scoped 私有） */
-.main-content :deep(.report-mount-area section) {
+/* 报表/图表视图（App.vue 内联定义）：视图卡片样式经 :deep 穿透（其它视图各自 scoped 私有） */
+.main-content :deep(.report-mount-area section),
+.main-content :deep(.chart-mount-area section) {
   background: #ffffff;
   border: 1px solid #e5e8eb;
   border-radius: 8px;
@@ -519,7 +570,9 @@ onMounted(() => {
 }
 
 .main-content :deep(.report-mount-area section h2),
-.main-content :deep(.report-mount-area section .desc) {
+.main-content :deep(.report-mount-area section .desc),
+.main-content :deep(.chart-mount-area section h2),
+.main-content :deep(.chart-mount-area section .desc) {
   display: none;
 }
 

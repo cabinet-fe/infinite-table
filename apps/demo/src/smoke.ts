@@ -1,7 +1,8 @@
-// 页内冒烟自检（?smoke=1 由 main.ts 触发）：对五个演示区逐项断言——
+// 页内冒烟自检（?smoke=1 由 main.ts 触发）：对各演示区逐项断言——
 // 层结构、取值管线、像素级显示能力（冻结/合并/逐边边框/自定义渲染/checkbox/主题）、
 // 合成事件驱动的交互（拖选/整行整列/hover/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
-// 图片加载与无闪回滚、浮动对象跟随、编辑闭环（双击/键盘/API/滚动跟随与滚出提交）。
+// 图片加载与无闪回滚、浮动对象跟随、图表格（四类声明解析/离屏出图上屏/缓存命中/滚回无闪）、
+// 编辑闭环（双击/键盘/API/滚动跟随与滚出提交）。
 // 结果写 window.__SMOKE__ 与 document.title。
 
 import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinite-table/core'
@@ -18,6 +19,12 @@ import {
   RATING_BAR_COLOR,
 } from './sections/display'
 import { DISABLED_CELL, DISPLAY_COL } from './sections/editing'
+import {
+  CHART_SCROLL_CHART_COLS,
+  CHART_SCROLL_VARIANTS,
+  CHART_STATIC_COL_TYPES,
+  CHART_STATIC_ROW_COUNT,
+} from './sections/chart'
 import { createSheetDisplay } from './sections/sheet/format'
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media'
 import {
@@ -521,6 +528,114 @@ async function checkMedia(checker: Checker, demos: DemoHandles): Promise<void> {
   })
 }
 
+/** 声明类型 → 规范化 spec 类型（area 归一为 line，插件解析语义的页面级抽查） */
+const CHART_SPEC_TYPES: Record<(typeof CHART_STATIC_COL_TYPES)[number], string> = {
+  bar: 'bar',
+  line: 'line',
+  area: 'line',
+  pie: 'pie',
+}
+
+/** 等到表内图表格全部出图就绪（首次含 Chart.js 动态库加载，留足超时） */
+async function waitChartBitmaps(table: ListTable, label: string): Promise<void> {
+  const deadline = Date.now() + 8000
+  for (;;) {
+    const nodes = [...table.chartCellNodes.values()]
+    if (nodes.length > 0 && nodes.every((node) => node.hasBitmap)) {
+      return
+    }
+    assert(Date.now() < deadline, `${label}图表格出图超时`)
+    await sleep(50)
+  }
+}
+
+/** 图表格格区域在 media 层的像素存在断言（内缩 4px 避开格线） */
+function expectChartPainted(
+  canvas: HTMLCanvasElement,
+  table: ListTable,
+  col: number,
+  row: number,
+  label: string,
+): void {
+  const x0 = colLeftX(table, col)
+  const y0 = rowTopY(table, row)
+  assert(
+    hasOpaquePixel(
+      canvas,
+      x0 + 4,
+      y0 + 4,
+      x0 + table.getColWidth(col) - 4,
+      y0 + table.getRowHeight(row) - 4,
+    ),
+    `${label} (${col},${row}) media 层未上屏`,
+  )
+}
+
+async function checkChart(checker: Checker, demos: DemoHandles): Promise<void> {
+  const { staticMount, scrollMount, staticPlugin } = demos.chart
+  const staticTable = staticMount.table
+  const scrollTable = scrollMount.table
+
+  await checker.step('图表：四类声明经插件解析成 spec（渲染成功）', () => {
+    for (let row = 0; row < CHART_STATIC_ROW_COUNT; row++) {
+      CHART_STATIC_COL_TYPES.forEach((type, index) => {
+        const spec = staticPlugin.getChartSpec(index + 1, row)
+        assert(spec, `(${index + 1},${row}) ${type} 声明未解析出 spec`)
+        assert(
+          spec.type === CHART_SPEC_TYPES[type],
+          `${type} spec 类型 ${spec.type}，期望 ${CHART_SPEC_TYPES[type]}`,
+        )
+      })
+    }
+    assert(staticTable.chartMediaResolver !== null, '图表插件未挂到静态表')
+    assert(
+      staticTable.chartCellNodes.size === CHART_STATIC_ROW_COUNT * CHART_STATIC_COL_TYPES.length,
+      `静态表图表格数 ${staticTable.chartCellNodes.size}`,
+    )
+  })
+
+  await checker.step('图表：离屏出图位图上屏（media 层像素）', async () => {
+    const media = layerCanvas(staticMount.container, 'media')
+    await waitChartBitmaps(staticTable, '静态表')
+    await frames(2)
+    for (let row = 0; row < CHART_STATIC_ROW_COUNT; row++) {
+      CHART_STATIC_COL_TYPES.forEach((_, index) => {
+        expectChartPainted(media, staticTable, index + 1, row, '静态表图表格')
+      })
+    }
+  })
+
+  await checker.step('图表：位图落 cell 级 LRU（缓存直读命中）', async () => {
+    await waitChartBitmaps(scrollTable, '滚动表')
+    for (const node of staticTable.chartCellNodes.values()) {
+      assert(staticTable.mediaCache.get(node.cacheKey), `静态表缓存缺失 ${node.cacheKey}`)
+    }
+    for (const node of scrollTable.chartCellNodes.values()) {
+      assert(scrollTable.mediaCache.get(node.cacheKey), `滚动表缓存缺失 ${node.cacheKey}`)
+    }
+    assert(
+      scrollTable.mediaCache.size <= CHART_SCROLL_VARIANTS * CHART_SCROLL_CHART_COLS.length,
+      `滚动表缓存条目 ${scrollTable.mediaCache.size}，超出共享变体上限（未收敛单飞）`,
+    )
+  })
+
+  await checker.step('图表滚动：滚出再滚回，首帧即位图（无闪 + 缓存命中）', async () => {
+    const media = layerCanvas(scrollMount.container, 'media')
+    scrollTable.scrollTo(0, 1600)
+    await frames(3)
+    scrollTable.scrollTo(0, 0)
+    await frames(1) // 只等一帧：缓存命中的图表格必须首帧直贴
+    for (const col of CHART_SCROLL_CHART_COLS) {
+      const node = [...scrollTable.chartCellNodes.values()].find(
+        (n) => n.col === col && n.row === 0,
+      )
+      assert(node, `滚动表 (${col},0) 图表格节点缺失`)
+      assert(node.hasBitmap, `滚动表 (${col},0) 回滚首帧位图缺失（有闪）`)
+      expectChartPainted(media, scrollTable, col, 0, '滚动表图表格')
+    }
+  })
+}
+
 async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void> {
   const { table, container } = demos.editing.mount
   const { model, status } = demos.editing
@@ -654,6 +769,7 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkDisplay(checker, demos)
   await checkInteraction(checker, demos)
   await checkMedia(checker, demos)
+  await checkChart(checker, demos)
   await checkEditing(checker, demos)
   await checkSheet(checker)
   await checkReport(checker)

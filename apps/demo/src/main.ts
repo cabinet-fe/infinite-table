@@ -7,6 +7,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 
 import type { DataFormsDemo } from './sections/data-forms'
+import type { ChartDemo } from './sections/chart'
 import type { DisplayDemo } from './sections/display'
 import type { EditingDemo } from './sections/editing'
 import type { InteractionDemo } from './sections/interaction'
@@ -17,6 +18,7 @@ export interface DemoHandles {
   display: DisplayDemo
   interaction: InteractionDemo
   media: MediaDemo
+  chart: ChartDemo
   editing: EditingDemo
 }
 
