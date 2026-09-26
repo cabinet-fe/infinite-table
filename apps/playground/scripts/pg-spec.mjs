@@ -1662,6 +1662,327 @@ try {
       },
     )
   }
+
+  // ---- 27. 溢出源滚出窗（P1 窗缘反查端到端）：长文本溢出格随横向滚动完全滚出可视列窗
+  // （右溢源从左缘滚出 + 左溢源从右缘滚出双向），视口内走廊段仍采到溢出字形（像素断言，
+  // 口径同用例 22）；走廊竖线跳画口径与源格在窗内时一致（走廊内部无纵线、文本缘末端竖线在、
+  // 横线照常），滚回后源格在窗内、走廊像素恢复 ----
+  {
+    // 夹具：row1 col0 超宽左对齐文本（右溢走廊 col1..3），row3 col7 超宽右对齐文本
+    // （左溢走廊 col4..6）；520px 视口 8 列（内容 686px）提供双向滚出余量
+    await evalPage(async () => {
+      // 页内像素探针（27/28 两块共用）：夹具画布自底向上 over 合成（body 在前 sky 在后，
+      // DOM 序即层序，半透明选区填充叠加语义正确），CSS 像素入参
+      window.__PG_PX__ = (rootSel) => {
+        const dpr = window.devicePixelRatio || 1
+        const canvases = [...document.querySelectorAll(rootSel + ' canvas')]
+        const at = (px, py) => {
+          const x = Math.round(px * dpr)
+          const y = Math.round(py * dpr)
+          let cr = 255
+          let cg = 255
+          let cb = 255
+          for (const cv of canvases) {
+            const d = cv.getContext('2d').getImageData(x, y, 1, 1).data
+            if (d[3] === 0) continue
+            const a = d[3] / 255
+            cr = d[0] * a + cr * (1 - a)
+            cg = d[1] * a + cg * (1 - a)
+            cb = d[2] * a + cb * (1 - a)
+          }
+          return [Math.round(cr), Math.round(cg), Math.round(cb)]
+        }
+        // 暗色字形采样数（格内内缩 4px 避网格线；r+g+b<360 口径同既有溢出用例）
+        const darkCount = (t, col, row) => {
+          const cell = t.getCellRelativeRect(col, row)
+          const w = t.getColWidth(col)
+          const h = t.getRowHeight(row)
+          let dark = 0
+          for (let py = cell.y + 4; py < cell.y + h - 4; py += 3) {
+            for (let px = cell.x + 4; px < cell.x + w - 4; px += 3) {
+              if (at(px, py).reduce((s, v) => s + v, 0) < 360) dark++
+            }
+          }
+          return dark
+        }
+        // 网格线判定（#E1E4E8 蓝移，排除白底与灰阶字形；同走廊竖线用例口径）
+        const isLine = (rgb) => {
+          const s = rgb[0] + rgb[1] + rgb[2]
+          return s > 580 && s < 756 && rgb[2] - rgb[0] >= 3
+        }
+        const rowYs = (t, row) => {
+          const top = t.headerHeight + row * t.getRowHeight(row)
+          const h = t.getRowHeight(row)
+          const ys = []
+          for (let y = top + 5; y <= top + h - 5; y += 2) ys.push(y)
+          return ys
+        }
+        // [x0,x1) 内逐列最大纵向线命中数（空区间返回 0）
+        const vLineMax = (t, row, x0, x1) => {
+          if (x1 <= x0) return 0
+          const ys = rowYs(t, row)
+          let max = 0
+          for (let x = Math.round(x0); x < Math.round(x1); x++) {
+            let n = 0
+            for (const y of ys) {
+              if (isLine(at(x, y))) n++
+            }
+            max = Math.max(max, n)
+          }
+          return max
+        }
+        // x±win 窗口内纵向线峰值（走廊末端竖线判定）
+        const vLinePeak = (t, row, x, win = 2) => vLineMax(t, row, x - win, x + win + 1)
+        const isHLine = (x, y) => isLine(at(x, y - 1)) || isLine(at(x, y))
+        // 区域扫描：暗色字形数 / 饱和蓝数（选区框 #2170E7 系；12% 选区填充混合后 b-r≈23
+        // 不计入，行头高亮 #dce5f3 b-r=23、网格线 b-r=7 同样不计入）
+        const regionScan = (t, x0, x1, y0, y1) => {
+          let dark = 0
+          let stroke = 0
+          for (let py = Math.round(y0); py < Math.round(y1); py += 2) {
+            for (let px = Math.round(x0); px < Math.round(x1); px += 2) {
+              const rgb = at(px, py)
+              const s = rgb[0] + rgb[1] + rgb[2]
+              if (s < 360) dark++
+              if (rgb[2] - rgb[0] >= 60 && s < 500) stroke++
+            }
+          }
+          return { dark, stroke }
+        }
+        return { at, darkCount, vLineMax, vLinePeak, isHLine, regionScan }
+      }
+      const pg = window.__PG__
+      const { SheetGrid } = await import('/src/veltra-grid/sheet-grid.ts')
+      const sheet = pg.workbook.addSheet('SpecOverflowScroll')
+      const LONG = 'A'.repeat(30) // 超宽（约 280px，走廊跨 3 列）
+      sheet.setCellValue({ row: 1, col: 0 }, LONG) // 左对齐（缺省）→ 右溢源
+      sheet.setCellValue({ row: 3, col: 7 }, LONG) // 右对齐 → 左溢源
+      sheet.setCellStyle(
+        { start: { row: 3, col: 7 }, end: { row: 3, col: 7 } },
+        { align: { horizontal: 'right' } },
+      )
+      const host = document.createElement('div')
+      host.id = 'pg-overflow-scroll-fixture'
+      host.style.cssText =
+        'position:fixed;right:12px;bottom:12px;width:520px;height:300px;z-index:9999;background:#fff;box-shadow:0 0 0 1px #ddd'
+      document.body.appendChild(host)
+      const grid = new SheetGrid({ container: host, sheet, rows: 8, cols: 8 })
+      window.__PG_OS__ = { grid, sheet }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return true
+    })
+    // 走廊扫描：源节点坐标（node.x 含行号列偏移、随滚动平移；textMinX/textMaxX 为
+    // 已按列边界收口的走廊局部界）→ 字形采样 + 竖线跳画 + 行上缘横线
+    const scanRow = (row, srcCol, dir) =>
+      evalPage(
+        ([row, srcCol, dir]) => {
+          const t = window.__PG_OS__.grid.getTable()
+          const px = window.__PG_PX__('#pg-overflow-scroll-fixture')
+          const node = t.cellNodes.get(srcCol + row * 2 ** 21)
+          if (!node) return { hasSource: false }
+          const colW = t.getColWidth(srcCol)
+          const rw = t.rowHeaderWidth
+          const width = document.getElementById('pg-overflow-scroll-fixture').clientWidth
+          const nodeX = Math.round(node.x)
+          const rightSource = dir === 'right' // 右溢源：向右溢、随滚动从左缘滚出
+          const corrEnd = Math.round(node.x + node.textMaxX) // 右溢走廊右端（文本缘边界）
+          const corrStart = Math.round(node.x + node.textMinX) // 左溢走廊左端（文本缘边界）
+          const glyphCols = rightSource
+            ? [srcCol + 1, srcCol + 2, srcCol + 3]
+            : [srcCol - 1, srcCol - 2, srcCol - 3]
+          const cleanCol = rightSource ? srcCol + 4 : srcCol - 4
+          const interiorX0 = rightSource ? Math.max(rw + 2, nodeX + colW + 2) : corrStart + 3
+          const interiorX1 = rightSource ? corrEnd - 3 : Math.min(width - 3, nodeX - 3)
+          const glyphs = {}
+          for (const c of glyphCols) glyphs[`c${c}`] = px.darkCount(t, c, row)
+          glyphs.clean = px.darkCount(t, cleanCol, row)
+          if (nodeX >= rw - colW && nodeX + 8 < width) {
+            glyphs.src = px.darkCount(t, srcCol, row) // 源格在窗内时的自身字形
+          }
+          const top = t.headerHeight + row * t.getRowHeight(row)
+          let hHit = 0
+          let hTotal = 0
+          for (let x = rw + 6; x < width - 6; x += 3) {
+            hTotal++
+            if (px.isHLine(x, top)) hHit++
+          }
+          return {
+            hasSource: true,
+            window: t.getVisibleRange().cols,
+            srcX: nodeX,
+            corrStart,
+            corrEnd,
+            glyphs,
+            interiorMax: px.vLineMax(t, row, interiorX0, interiorX1),
+            endMax: px.vLinePeak(t, row, rightSource ? corrEnd : corrStart),
+            hRatio: hHit / hTotal,
+          }
+        },
+        [row, srcCol, dir],
+      )
+    const okRight = (s) =>
+      s.hasSource &&
+      s.glyphs.c1 > 10 &&
+      s.glyphs.c2 > 10 &&
+      s.glyphs.c3 > 5 &&
+      s.glyphs.clean < 3 &&
+      s.interiorMax <= 3 &&
+      s.endMax >= 8 &&
+      s.hRatio > 0.8
+    const okLeft = (s) =>
+      s.hasSource &&
+      s.glyphs.c6 > 5 && // 滚出后 col6 仅剩视口内 34px 条带，采样少（滚出前 >10）
+      s.glyphs.c5 > 10 &&
+      s.glyphs.c4 > 5 &&
+      s.glyphs.clean < 3 &&
+      s.interiorMax <= 3 &&
+      s.endMax >= 8 &&
+      s.hRatio > 0.8
+
+    // 右溢源（row1 col0）：窗内基线 → 滚出左缘 → 滚回恢复
+    const baseR = await scanRow(1, 0, 'right')
+    await evalPage(() => window.__PG_OS__.grid.getTable().scrollTo(100, 0))
+    await page.waitForTimeout(300)
+    const outR = await scanRow(1, 0, 'right')
+    await evalPage(() => window.__PG_OS__.grid.getTable().scrollTo(0, 0))
+    await page.waitForTimeout(300)
+    const backR = await scanRow(1, 0, 'right')
+
+    // 左溢源（row3 col7）：右缘窗内基线（滚到最右）→ 滚出右缘
+    const geom = await evalPage(() => {
+      const t = window.__PG_OS__.grid.getTable()
+      const width = document.getElementById('pg-overflow-scroll-fixture').clientWidth
+      let content = t.rowHeaderWidth
+      for (let c = 0; c < 8; c++) content += t.getColWidth(c)
+      return { maxLeft: Math.max(0, content - width) }
+    })
+    await evalPage(([left]) => window.__PG_OS__.grid.getTable().scrollTo(left, 0), [geom.maxLeft])
+    await page.waitForTimeout(300)
+    const baseL = await scanRow(3, 7, 'left')
+    await evalPage(() => window.__PG_OS__.grid.getTable().scrollTo(40, 0))
+    await page.waitForTimeout(300)
+    const outL = await scanRow(3, 7, 'left')
+
+    const ok =
+      okRight(baseR) &&
+      okRight(outR) &&
+      okRight(backR) &&
+      okLeft(baseL) &&
+      okLeft(outL) &&
+      baseR.window.start === 0 && // 基线：源格在窗内
+      outR.window.start >= 1 && // 滚出：col 0 离开可视列窗
+      baseL.window.end > 7 && // 基线：col 7 完整在窗内
+      outL.window.end <= 7 && // 滚出：col 7 离开可视列窗
+      baseL.glyphs.src > 5 // 基线：左溢源格自身字形可见
+    step(
+      '溢出源滚出窗（右溢源滚出左缘/左溢源滚出右缘：滚出后走廊字形仍见、走廊竖线跳画口径不变、滚回恢复）',
+      {
+        右溢源: { 基线: baseR, 滚出: outR, 滚回: backR },
+        左溢源: { 基线: baseL, 滚出: outL },
+        通过: ok,
+      },
+    )
+    // 清理：销毁实例、移除夹具与临时 sheet（探针留给用例 28 复用）
+    await evalPage(() => {
+      window.__PG_OS__.grid.destroy()
+      document.getElementById('pg-overflow-scroll-fixture')?.remove()
+      window.__PG__.workbook.removeSheet('SpecOverflowScroll')
+      delete window.__PG_OS__
+    })
+    await page.waitForTimeout(300)
+  }
+
+  // ---- 28. 整行选区行头高亮 + 滚动滑入（P2/P3 端到端）：整行段选区（spansAll）高亮
+  // 行头后横向滚动，使带长文本的格完全滑出左缘、其溢出文本滑入行头带下方——行头带内
+  // 采不到正文字形像素（不透明高亮 + 表头带最上层绘制不变量），选区框绘制不越数据区
+  // 边界（行头带内无饱和选区框蓝、数据区内框线仍在），窗外源走廊字形与选区共存 ----
+  {
+    await evalPage(async () => {
+      const pg = window.__PG__
+      const { SheetGrid } = await import('/src/veltra-grid/sheet-grid.ts')
+      const sheet = pg.workbook.addSheet('SpecRowSelScroll')
+      sheet.setCellValue({ row: 2, col: 4 }, 'A'.repeat(30)) // 带长文本的格（右溢走廊 col5..7）
+      const host = document.createElement('div')
+      host.id = 'pg-rowsel-scroll-fixture'
+      host.style.cssText =
+        'position:fixed;right:12px;bottom:12px;width:520px;height:300px;z-index:9999;background:#fff;box-shadow:0 0 0 1px #ddd'
+      document.body.appendChild(host)
+      const grid = new SheetGrid({ container: host, sheet, rows: 8, cols: 16 })
+      window.__PG_RS__ = { grid, sheet }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      return true
+    })
+    await evalPage(() => window.__PG_RS__.grid.getTable().selectRow(2)) // 整行段选区（spansAll）
+    await page.waitForTimeout(300)
+    const sel = await evalPage(() => {
+      const t = window.__PG_RS__.grid.getTable()
+      const hl = t.theme.interaction.headerHighlight
+      const bounds = t.getSelectedCellRanges().map((range) => ({
+        minCol: Math.min(range.start.col, range.end.col),
+        maxCol: Math.max(range.start.col, range.end.col),
+        minRow: Math.min(range.start.row, range.end.row),
+        maxRow: Math.max(range.start.row, range.end.row),
+      }))
+      return {
+        rowHl: [...t.rowHeaderNodes].filter(([, n]) => n.style.background === hl).map(([r]) => r),
+        bounds,
+      }
+    })
+    // 横向滚动：col 4（长文本源）完全滑出左缘（窗起点 ≥ col 5），溢出文本滑到行头带下方
+    await evalPage(() => window.__PG_RS__.grid.getTable().scrollTo(420, 0))
+    await page.waitForTimeout(300)
+    const scan = await evalPage(() => {
+      const t = window.__PG_RS__.grid.getTable()
+      const px = window.__PG_PX__('#pg-rowsel-scroll-fixture')
+      const row = 2
+      const rw = t.rowHeaderWidth
+      const top = t.headerHeight + row * t.getRowHeight(row)
+      const bottom = top + t.getRowHeight(row)
+      return {
+        windowStart: t.getVisibleRange().cols.start,
+        // 行头带左右侧条（避开居中行号字形）：正文字形与选区框蓝均应为 0
+        bandLeft: px.regionScan(t, 2, 13, top + 3, bottom - 3),
+        bandRight: px.regionScan(t, 33, rw - 1, top + 3, bottom - 3),
+        // 数据区内行上缘选区框线（非空断言：框在数据区内仍可见）
+        frame: px.regionScan(t, rw + 8, 512, top, top + 3),
+        // 被选行的溢出走廊字形仍可见（窗外源可见性与选区共存）
+        corridor: { c6: px.darkCount(t, 6, row), c7: px.darkCount(t, 7, row) },
+      }
+    })
+    const ok =
+      sel.bounds.length === 1 &&
+      sel.bounds[0].minCol === 0 &&
+      sel.bounds[0].maxCol === 15 &&
+      sel.bounds[0].minRow === 2 &&
+      sel.bounds[0].maxRow === 2 &&
+      sel.rowHl.length === 1 &&
+      sel.rowHl[0] === 2 &&
+      scan.windowStart >= 5 &&
+      scan.bandLeft.dark === 0 &&
+      scan.bandRight.dark === 0 &&
+      scan.bandLeft.stroke === 0 &&
+      scan.bandRight.stroke === 0 &&
+      scan.frame.stroke > 0 &&
+      scan.corridor.c6 > 10 &&
+      scan.corridor.c7 > 3
+    step(
+      '整行选区行头高亮 + 滚动滑入（行头带内无正文字形、选区框不越数据区、窗外源走廊与选区共存）',
+      {
+        选区: { rowHl: sel.rowHl, bounds: sel.bounds },
+        扫描: scan,
+        通过: ok,
+      },
+    )
+    // 清理：销毁实例、移除夹具与临时 sheet、页内探针（还原页面终态）
+    await evalPage(() => {
+      window.__PG_RS__.grid.destroy()
+      document.getElementById('pg-rowsel-scroll-fixture')?.remove()
+      window.__PG__.workbook.removeSheet('SpecRowSelScroll')
+      delete window.__PG_RS__
+      delete window.__PG_PX__
+    })
+    await page.waitForTimeout(300)
+  }
 } catch (err) {
   step('!!异常中断', { error: String(err) })
 }
