@@ -29,7 +29,7 @@ import {
 } from './list-table-internal'
 import { appendChartCell, appendImageCell } from './list-table-media'
 import { resolveSharedEdges, strongerEdge } from './shared-edges'
-import { themeCellBase } from './theme'
+import { opaqueHeaderHighlight, themeCellBase } from './theme'
 import type { FrameStyle } from './theme'
 
 /** 外框阴影模糊半径（CSS 像素；frameStyle.shadow 开启时的固定观感） */
@@ -130,6 +130,9 @@ export function rebuildScene(table: ListTable): void {
   appendCellBand(table, scrollableRows, frozenCols, left, top)
   appendCellBand(table, frozenRows, scrollableCols, left, top)
   appendCellBand(table, frozenRows, frozenCols, left, top)
+  // 窗外溢出源补建（P1 窗缘反查，取舍 8）：先于 z 序收口，让窗外源与窗内溢出源
+  // 进入同一「行内列升序重挂树尾」规范，走廊标记亦纳入同一扫描口径
+  appendOffWindowOverflowSources(table, [frozenRows, scrollableRows], left, top)
   // 溢出 z 序不变量收口（行内列升序重挂树尾）：列降序建格只保证右溢源（走廊左端）
   // 后画；左溢/双向源在走廊右端，会被走廊格反盖出「表格线画在溢出文本之上」伪影
   remountOverflowSources(table)
@@ -183,6 +186,9 @@ export function rebuildScene(table: ListTable): void {
  *    步骤 ③ 扫描口径的边界：对「新行已在步骤 ② 整行补建」的行不跳过——新建行含
  *    左溢源同样需要行内规范；对冻结带行不跳过——冻结「行」上的滚动区列格仍可溢出
  *    进滚入列（冻结只按「列」带截断溢出，见 textOverflowLimits）。
+ *    窗外溢出源（P1 窗缘反查，步骤 ③ 之二）：滚入列/滚入行出现时对窗缘反查补建窗外
+ *    源节点，纳入同一行内列升序规范；sweep 保留条件含「走廊仍与可视列窗相交」的窗外
+ *    源分支（走廊完全滚出后正常摘除）。纯平移帧（无滚入行列）零新增扫描。
  * 3. 表头最上（合并主格上缘可伸进列头带）：表头收进单一容器节点且恒为 root
  *    末子节点（R2-5，见 rebuildScene）；bodyChanged 时仅把容器重挂树尾一次。
  * 4. 跨冻结边界合并主格钉固在上：主格按其冻结带归属定位（滚动不平移），整块
@@ -218,8 +224,39 @@ export function updateSceneWindow(table: ListTable): void {
     index >= range.start && index < range.end
   const partiallyVisible = (start: number, end: number, bands: readonly WindowRange[]): boolean =>
     bands.some((band) => start < band.end && end >= band.start)
-  // 节点保留条件：格在窗口内，或为「主格在窗外但区间仍部分可见」的合并主格
-  const keepCell = (col: number, row: number): boolean => {
+  // 节点保留条件：格在窗口内，或为「主格在窗外但区间仍部分可见」的合并主格，
+  // 或为「走廊仍与可视列窗相交」的窗外溢出源（数据格专属，见 keepDataCell）
+  const keepDataCell = (col: number, row: number, node: CellNode): boolean => {
+    const rowVisible = inRange(row, frozenRows) || inRange(row, scrollableRows)
+    if (rowVisible && (inRange(col, frozenCols) || inRange(col, scrollableCols))) {
+      return true
+    }
+    const range = table.mergeCells.rangeAt(col, row)
+    if (
+      range !== null &&
+      partiallyVisible(range.startRow, range.endRow, rowBands) &&
+      partiallyVisible(range.startCol, range.endCol, colBands)
+    ) {
+      return true
+    }
+    // 窗外溢出源（P1 窗缘反查）：其走廊（corridorCols，列号口径与滚动无关）仍与
+    // 可视列窗相交期间保留，被保留节点由 sweep 原地平移；走廊完全滚出（窗口滑动
+    // 越过走廊末端）或行滚出后正常摘除。走廊连续且止于首个非空格——窗外侧延伸段
+    // 只可能伸向窗缘，相交判定即走廊区间与滚动列带求交
+    if (rowVisible && (node.textMaxX > node.width || node.textMinX < 0)) {
+      const corridor = corridorCols(table, col, row, node.style, node)
+      if (
+        corridor !== null &&
+        corridor.leftStart < scrollableCols.end &&
+        corridor.rightEnd > scrollableCols.start
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+  // 图片/图表格不溢出文本：保留条件不含窗外溢出源分支
+  const keepMediaCell = (col: number, row: number): boolean => {
     if (inRange(row, frozenRows) || inRange(row, scrollableRows)) {
       if (inRange(col, frozenCols) || inRange(col, scrollableCols)) {
         return true
@@ -233,12 +270,12 @@ export function updateSceneWindow(table: ListTable): void {
     )
   }
   // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移（数据格与图片/图表格同条件）
-  sweepWindowNodes(table, table.cellNodes, table.body.root, keepCell, left, top)
+  sweepWindowNodes(table, table.cellNodes, table.body.root, keepDataCell, left, top)
   sweepWindowNodes(
     table,
     table.imageCellNodes,
     table.media?.root ?? null,
-    keepCell,
+    keepMediaCell,
     left,
     top,
     (node) => {
@@ -248,7 +285,7 @@ export function updateSceneWindow(table: ListTable): void {
     },
   )
   // 图表格位图不依赖窗口调度（cell 级缓存自持），滚出清扫即摘、滚回重建走缓存命中
-  sweepWindowNodes(table, table.chartCellNodes, table.media?.root ?? null, keepCell, left, top)
+  sweepWindowNodes(table, table.chartCellNodes, table.media?.root ?? null, keepMediaCell, left, top)
   let bodyChanged = false
   // 2) 新滚入行整行补建：先滚动区列降序、再冻结列降序（同行左格后画）
   const newRows = new Set<number>()
@@ -280,6 +317,18 @@ export function updateSceneWindow(table: ListTable): void {
         for (let i = enteringCols.length - 1; i >= 0; i--) {
           bodyChanged = appendCell(table, enteringCols[i]!, row, left, top) || bodyChanged
         }
+      }
+    }
+  }
+  // 3.2) 窗缘反查补建窗外溢出源（P1，取舍 8）：横向滚动有滚入列、纵向滚动有滚入行
+  // 时，对滚入行的窗缘做溢出源反查（成本 O(滚入行列数)，纯平移帧零新增扫描）；
+  // 先于步骤 3.5，让补建源随行内规范统一重挂
+  if (enteringCols.length > 0 || newRows.size > 0) {
+    for (const band of rowBands) {
+      for (let row = band.start; row < band.end; row++) {
+        bodyChanged =
+          appendOffWindowOverflowSources(table, [{ start: row, end: row + 1 }], left, top) ||
+          bodyChanged
       }
     }
   }
@@ -409,14 +458,14 @@ function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly
   table: ListTable,
   nodes: Map<number, T>,
   parent: SceneNode | null,
-  keep: (col: number, row: number) => boolean,
+  keep: (col: number, row: number, node: T) => boolean,
   left: number,
   top: number,
   onSweep?: (node: T) => void,
 ): void {
   const swept: T[] = []
   for (const [key, node] of nodes) {
-    if (keep(node.col, node.row)) {
+    if (keep(node.col, node.row, node)) {
       node.x = resolveCellX(
         node.col,
         left,
@@ -502,8 +551,9 @@ export function effectiveBorder(
 /**
  * 建单格节点：被合并覆盖的格不建节点（由主格统一取值/绘制/命中），主格跨域取完整尺寸；
  * 节点已存在（增量窗口保留的存活格/既有合并主格）时跳过。返回是否新建了节点。
+ * 导出给 refreshCell 的窗外溢出源联动复用（P1 窗缘反查：窗外源补建走同一装配路径）。
  */
-function appendCell(
+export function appendCell(
   table: ListTable,
   col: number,
   row: number,
@@ -733,6 +783,85 @@ export function overflowSourceColRight(table: ListTable, col: number, row: numbe
   return null
 }
 
+/** 窗外溢出源反查命中：源格列号、溢出走廊（伸入窗内）与已建节点（未补建为 null） */
+export interface OffWindowOverflowSource {
+  col: number
+  corridor: CorridorCols
+  node: CellNode | null
+}
+
+/**
+ * 窗外溢出源反查（P1 窗缘反查，取舍 8）：对指定行的滚动列带窗缘按 overflowSourceCol /
+ * overflowSourceColRight 反查最近非空格，其溢出走廊伸入窗内时返回该源。走廊连续且
+ * 止于首个非空格——窗外侧的走廊延伸段必经窗缘列，单行单侧至多一个命中候选（更深处
+ * 的源被近处非空格阻断，走廊够不到窗内）；未命中返回 null。
+ *
+ * 命中但 node 为 null 表示该源尚未补建节点（appendOffWindowOverflowSources /
+ * refreshCell 的窗外联动负责补建）；走廊与测经 CellNode 缓存，节点已建时零重测。
+ */
+export function resolveOffWindowOverflowSource(
+  table: ListTable,
+  row: number,
+  side: 'left' | 'right',
+): OffWindowOverflowSource | null {
+  const scrollable = table.cols
+  if (scrollable.end <= scrollable.start) {
+    return null
+  }
+  const edgeCol = side === 'left' ? scrollable.start : scrollable.end - 1
+  const sourceCol =
+    side === 'left'
+      ? overflowSourceCol(table, edgeCol, row)
+      : overflowSourceColRight(table, edgeCol, row)
+  if (sourceCol === null) {
+    return null
+  }
+  const node = table.cellNodes.get(cellKey(sourceCol, row)) ?? null
+  const corridor = corridorCols(
+    table,
+    sourceCol,
+    row,
+    node?.style ?? table.resolveStyle(sourceCol, row),
+    node ?? undefined,
+  )
+  if (corridor === null) {
+    return null
+  }
+  const reaches =
+    side === 'left' ? corridor.rightEnd > scrollable.start : corridor.leftStart < scrollable.end
+  if (!reaches) {
+    return null
+  }
+  return { col: sourceCol, corridor, node }
+}
+
+/**
+ * 窗外溢出源补建（全量重建与滚动增量装配的窗缘反查落地）：对给定行集合逐行做双侧
+ * 反查，命中窗外溢出源且尚未建节点时按普通建格路径补建（节点位置在窗外，绘制经
+ * CellNode.paintedBounds 纳入文本缘不被脏区剔除；z 序由调用方的行内规范收口）。
+ * 返回是否有新建节点。
+ */
+function appendOffWindowOverflowSources(
+  table: ListTable,
+  rows: readonly WindowRange[],
+  left: number,
+  top: number,
+): boolean {
+  let created = false
+  for (const rowsBand of rows) {
+    for (let row = rowsBand.start; row < rowsBand.end; row++) {
+      for (const side of ['left', 'right'] as const) {
+        const resolved = resolveOffWindowOverflowSource(table, row, side)
+        if (resolved === null || resolved.node !== null) {
+          continue
+        }
+        created = appendCell(table, resolved.col, row, left, top) || created
+      }
+    }
+  }
+  return created
+}
+
 /** 数据列带（冻结列带 + 滚动列带）：行内走廊内部标记的扫描范围 */
 export function dataColBands(table: ListTable): WindowRange[] {
   return [{ start: 0, end: table.frozenColCount }, table.cols]
@@ -744,8 +873,9 @@ export function dataColBands(table: ListTable): WindowRange[] {
  * 窗口各格的溢出走廊（corridorCols，与 textOverflowLimits 同一扫描与阻断口径），把
  * 溢出源格与被覆盖空格标为走廊内部（CellNode.corridorInterior）；标记值取覆盖本格
  * 各走廊的最大右端列号——两源对溢共享空段时同格被多走廊覆盖，取最大者让更远走廊
- * 主导共享段竖边跳画判定（右端更远的走廊必然也覆盖右侧邻居格）。只扫窗口内格：
- * 窗外源格无节点不渲染文本，其走廊段照常画线（与全量重建一致）。
+ * 主导共享段竖边跳画判定（右端更远的走廊必然也覆盖右侧邻居格）。P1 起扫描口径纳入
+ * 窗外源：窗缘反查命中窗外溢出源时其走廊覆盖的窗内格同样标记，走廊内部竖线跳画
+ * 与源格在窗内一致。
  */
 export function markRowCorridorInterior(
   table: ListTable,
@@ -760,6 +890,17 @@ export function markRowCorridorInterior(
       }
     }
   }
+  const markCorridor = (corridor: CorridorCols): void => {
+    for (let c = corridor.leftStart; c < corridor.rightEnd; c++) {
+      const covered = table.cellNodes.get(cellKey(c, row))
+      if (
+        covered &&
+        (covered.corridorInterior === null || covered.corridorInterior < corridor.rightEnd)
+      ) {
+        covered.corridorInterior = corridor.rightEnd
+      }
+    }
+  }
   for (const band of colBands) {
     for (let col = band.start; col < band.end; col++) {
       const node = table.cellNodes.get(cellKey(col, row))
@@ -770,15 +911,14 @@ export function markRowCorridorInterior(
       if (corridor === null) {
         continue
       }
-      for (let c = corridor.leftStart; c < corridor.rightEnd; c++) {
-        const covered = table.cellNodes.get(cellKey(c, row))
-        if (
-          covered &&
-          (covered.corridorInterior === null || covered.corridorInterior < corridor.rightEnd)
-        ) {
-          covered.corridorInterior = corridor.rightEnd
-        }
-      }
+      markCorridor(corridor)
+    }
+  }
+  // 窗外溢出源（窗缘反查候选，单行单侧至多一）：走廊伸入窗内时窗内被覆盖格纳入标记
+  for (const side of ['left', 'right'] as const) {
+    const resolved = resolveOffWindowOverflowSource(table, row, side)
+    if (resolved !== null) {
+      markCorridor(resolved.corridor)
     }
   }
 }
@@ -812,8 +952,9 @@ function remountOverflowSources(table: ListTable): void {
 /**
  * 增量路径的行内溢出 z 序规范（全量重建 remountOverflowSources 的行内同序）：
  * 把该行窗口内的全部溢出源按列升序重挂树尾，后画于本帧新建格与全部走廊节点；
- * 随后整行重标走廊内部标记（P3）：新建格（滚动补建的走廊格/溢出源格）的标记与
- * 全量重建同口径，被走廊覆盖状态随本行当前扫描结果先清后标。
+ * P1 起重挂集合纳入窗外源（窗缘反查候选，与窗内源同一列升序次序——两源对溢共享
+ * 空段时次序仍确定）。随后整行重标走廊内部标记（P3）：新建格（滚动补建的走廊格/
+ * 溢出源格）的标记与全量重建同口径，被走廊覆盖状态随本行当前扫描结果先清后标。
  * 返回是否有重挂发生。
  */
 function canonicalizeRowOverflowOrder(
@@ -821,16 +962,27 @@ function canonicalizeRowOverflowOrder(
   row: number,
   colBands: readonly WindowRange[],
 ): boolean {
-  let moved = false
+  const sources: CellNode[] = []
   for (const band of colBands) {
     for (let col = band.start; col < band.end; col++) {
       const node = table.cellNodes.get(cellKey(col, row))
       if (node && (node.textMaxX > node.width || node.textMinX < 0)) {
-        table.body.root.removeChild(node)
-        table.body.root.appendChild(node)
-        moved = true
+        sources.push(node)
       }
     }
+  }
+  for (const side of ['left', 'right'] as const) {
+    const resolved = resolveOffWindowOverflowSource(table, row, side)
+    if (resolved?.node) {
+      sources.push(resolved.node)
+    }
+  }
+  sources.sort((a, b) => a.col - b.col)
+  let moved = false
+  for (const node of sources) {
+    table.body.root.removeChild(node)
+    table.body.root.appendChild(node)
+    moved = true
   }
   markRowCorridorInterior(table, row, colBands)
   return moved
@@ -1004,11 +1156,15 @@ function newColHeaderNode(
     style: styles.col,
     border: headerBorder(table, 'col', styles),
   })
-  // 整列选区覆盖，或焦点格（合并区按主格）所在列 → 列头高亮（建格路径与选区变化路径共用同一判定）
+  // 整列选区覆盖，或焦点格（合并区按主格）所在列 → 列头高亮（建格路径与选区变化路径共用同一判定）；
+  // 高亮背景与列头铬底预混为不透明色，半透明 token 下其下滑入内容不再透出
   if (isColHeaderHighlighted(headerHighlightInput(table), col)) {
     node.style = {
       ...styles.col,
-      background: table.theme.interaction.headerHighlight,
+      background: opaqueHeaderHighlight(
+        table.theme.interaction.headerHighlight,
+        styles.col.background,
+      ),
     }
   }
   return node
@@ -1037,11 +1193,14 @@ function newRowHeaderNode(
     style: styles.row,
     border: headerBorder(table, 'row', styles),
   })
-  // 整行选区覆盖，或焦点格（合并区按主格）所在行 → 行号格高亮
+  // 整行选区覆盖，或焦点格（合并区按主格）所在行 → 行号格高亮（铬底预混同列头）
   if (isRowHeaderHighlighted(headerHighlightInput(table), row)) {
     node.style = {
       ...styles.row,
-      background: table.theme.interaction.headerHighlight,
+      background: opaqueHeaderHighlight(
+        table.theme.interaction.headerHighlight,
+        styles.row.background,
+      ),
     }
   }
   return node
@@ -1058,12 +1217,15 @@ export function applyHeaderHighlight(table: ListTable): {
 } {
   const styles = headerStyles(table)
   const highlight = table.theme.interaction.headerHighlight
+  // 两分区铬底各自预混（建格路径同口径）：合成结果不透明，半透明 token 不再透出其下内容
+  const colHighlight = opaqueHeaderHighlight(highlight, styles.col.background)
+  const rowHighlight = opaqueHeaderHighlight(highlight, styles.row.background)
   const input = headerHighlightInput(table)
   let rowsRegion: Region | null = null
   let colsRegion: Region | null = null
   for (const [col, node] of table.colHeaderNodes) {
     const highlighted = isColHeaderHighlighted(input, col)
-    const background = highlighted ? highlight : styles.col.background
+    const background = highlighted ? colHighlight : styles.col.background
     if (node.style.background === background) {
       continue
     }
@@ -1073,7 +1235,7 @@ export function applyHeaderHighlight(table: ListTable): {
   }
   for (const [row, node] of table.rowHeaderNodes) {
     const highlighted = isRowHeaderHighlighted(input, row)
-    const background = highlighted ? highlight : styles.row.background
+    const background = highlighted ? rowHighlight : styles.row.background
     if (node.style.background === background) {
       continue
     }

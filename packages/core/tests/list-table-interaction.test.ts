@@ -1358,10 +1358,11 @@ describe('ListTable 表头高亮', () => {
 
   it('selectRow 高亮对应行号格并只失效行号列条带；部分格选区点亮焦点格行列头', () => {
     const { host, table } = createTable({ records: records20 })
-    // 部分格选区：焦点格所在行号格与列头格高亮（S9-P3 单格行列头高亮）
+    // 部分格选区：焦点格所在行号格与列头格高亮（S9-P3 单格行列头高亮；
+    // S8-P3 起高亮为 token×铬底预混的不透明色 rgb(209, 221, 242)，下同）
     table.selectCell(1, 1)
-    expect(findNode(host, -1, 1)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
-    expect(findNode(host, 1, -1)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+    expect(findNode(host, -1, 1)?.style.background).toBe('rgb(209, 221, 242)')
+    expect(findNode(host, 1, -1)?.style.background).toBe('rgb(209, 221, 242)')
 
     // 清除选区：焦点行列头恢复普通背景
     table.clearSelection()
@@ -1371,7 +1372,7 @@ describe('ListTable 表头高亮', () => {
     // 整行选区：对应行号格高亮，列头不跨轴点亮
     host.submitted.length = 0
     table.selectRow(2)
-    expect(findNode(host, -1, 2)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+    expect(findNode(host, -1, 2)?.style.background).toBe('rgb(209, 221, 242)')
     expect(findNode(host, -1, 3)?.style.background).toBe('#f5f6f7')
     expect(findNode(host, 2, -1)?.style.background).toBe('#f5f6f7')
     // 失效只登记行号列条带 band（x+width ≤ 行号列宽 48），无 body full
@@ -1382,7 +1383,7 @@ describe('ListTable 表头高亮', () => {
   it('selectCol 高亮对应列头并只失效列头条带；清除选区恢复普通表头样式', () => {
     const { host, table } = createTable({ records: records20 })
     table.selectCol(3)
-    expect(findNode(host, 3, -1)?.style.background).toBe('rgba(46, 106, 219, 0.18)')
+    expect(findNode(host, 3, -1)?.style.background).toBe('rgb(209, 221, 242)')
     expect(findNode(host, 4, -1)?.style.background).toBe('#f5f6f7')
     expect(findNode(host, -1, 0)?.style.background).toBe('#f5f6f7')
     expect(host.submitted.some((e) => e.kind === 'body' && e.inv.type === 'full')).toBe(false)

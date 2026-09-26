@@ -1,7 +1,12 @@
 // 单元格场景节点：背景 → 内容（内置 cellType 或自定义渲染 hook）→ 逐边边框。
 // 列头/行号列复用同一节点（无 cellType/renderer，样式参数不同）。
 
-import { SceneNode, type RenderContext, type SceneNodeInit } from '@infinite-table/render'
+import {
+  SceneNode,
+  type Region,
+  type RenderContext,
+  type SceneNodeInit,
+} from '@infinite-table/render'
 
 import { BUILTIN_CELL_RENDERERS, type CellRenderer, type CellType } from './cell-renderer'
 import { cellStyleFont, type CellBorder, type CellBorderEdge, type CellStyle } from './cell-style'
@@ -160,6 +165,19 @@ export class CellNode extends SceneNode {
       })
     }
     this.paintBorders(ctx)
+  }
+
+  /**
+   * 绘制内容覆盖的局部包围盒：自身包围盒并入溢出文本缘（textMinX/textMaxX）。
+   * 溢出源格滚出可视窗后自身包围盒在窗外，脏区剔除按此包围盒判定才不丢其伸入
+   * 窗内的走廊段文本（P1 窗缘反查的绘制可见性配套）；无溢出时即自身包围盒。
+   */
+  override paintedBounds(): Region {
+    if (this.textMinX >= 0 && this.textMaxX <= this.width) {
+      return { x: 0, y: 0, width: this.width, height: this.height }
+    }
+    const minX = Math.min(0, this.textMinX)
+    return { x: minX, y: 0, width: Math.max(this.width, this.textMaxX) - minX, height: this.height }
   }
 
   /**

@@ -1244,3 +1244,268 @@ describe('走廊竖线三路径一致（全量重建 / refreshCell / 滚动增�
     expect(rowVerticalLineXs(scrolled.host, 0)).toEqual(rowVerticalLineXs(rebuiltAtScroll.host, 0))
   })
 })
+
+describe('窗外溢出源可见性（P1 窗缘反查）', () => {
+  const TWENTY_COLUMNS = Array.from({ length: 20 }, (_, i) => ({ field: `f${i}` }))
+
+  /** body root 中指定行的数据格列号（按树序） */
+  function rowOrder(host: StubHost, row: number): number[] {
+    const root = host.layers.get('body')!.root
+    return root.children
+      .filter(
+        (child): child is CellNode =>
+          child instanceof CellNode && child.row === row && child.col >= 0,
+      )
+      .map((child) => child.col)
+  }
+
+  /** paintTree 绘制流的 fillText（层坐标）：回放 save/restore/translate 折算绝对位置 */
+  function paintedTexts(host: StubHost): Array<{ text: string; x: number; y: number }> {
+    const ctx = new RecordingContext()
+    paintTreeForTest(host.layers.get('body')!.root, ctx)
+    const stack: Array<{ x: number; y: number }> = [{ x: 0, y: 0 }]
+    const texts: Array<{ text: string; x: number; y: number }> = []
+    for (const call of ctx.calls) {
+      if (call.name === 'save') {
+        stack.push({ ...stack[stack.length - 1]! })
+      } else if (call.name === 'restore') {
+        stack.pop()
+      } else if (call.name === 'translate') {
+        const top = stack[stack.length - 1]!
+        top.x += call.args[0] as number
+        top.y += call.args[1] as number
+      } else if (call.name === 'fillText') {
+        const top = stack[stack.length - 1]!
+        texts.push({
+          text: call.args[0] as string,
+          x: top.x + (call.args[1] as number),
+          y: top.y + (call.args[2] as number),
+        })
+      }
+    }
+    return texts
+  }
+
+  it('右溢源从左缘滚出：保留并原地平移，绘制指令仍覆盖窗内走廊段', () => {
+    const { host, table } = createTable({
+      columns: TWENTY_COLUMNS,
+      records: [{ f0: LONG_TEXT }],
+      rowCount: 1,
+    })
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(300) // 走廊 [0,3)
+    table.scrollTo(150, 0) // 窗口 [0,8) → [1,10)：col 0 完全滚出左缘
+    expect(table.cols).toEqual({ start: 1, end: 10 })
+    const source = findNode(host, 0, 0)
+    expect(source).toBeDefined()
+    // 走廊仍与可视列窗相交 → 保留，x/y 随滚动帧原地平移
+    expect(source!.x).toBe(-102)
+    expect(source!.y).toBe(36)
+    // 同一段文本、同一锚点：局部走廊界不随滚动变化
+    expect(source!.textMaxX).toBe(300)
+    expect(source!.textMinX).toBe(0)
+    const localCtx = new MeasureStubContext()
+    source!.paint(localCtx)
+    expect(localCtx.clips).toEqual([{ x: 0, y: 0, width: 300, height: 32 }])
+    // 绘制指令覆盖窗内走廊段（层坐标文本 [-94, 106)，锚点仍在源格内容盒左缘）
+    expect(paintedTexts(host)).toContainEqual({ text: LONG_TEXT, x: -94, y: 56 })
+    // z 序不变量：窗外源后画于窗内走廊格、表头容器之下
+    const order = rowOrder(host, 0)
+    expect(order.indexOf(0)).toBeGreaterThan(order.indexOf(1))
+    expect(order.indexOf(0)).toBeGreaterThan(order.indexOf(2))
+    const root = host.layers.get('body')!.root
+    expect(root.children.indexOf(source!)).toBeLessThan(root.children.length - 2)
+    // 走廊内部标记覆盖窗外源走廊
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(3)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(3)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBeNull()
+    // 绘制边界纳入文本缘（cull 判定输入）：自身包围盒在窗外时走廊段不被脏区剔除
+    expect(source!.paintedBounds()).toEqual({ x: 0, y: 0, width: 300, height: 32 })
+  })
+
+  it('走廊完全滚出后窗外源节点被摘除；滚回时窗缘反查补建（增量）', () => {
+    const { host, table } = createTable({
+      columns: TWENTY_COLUMNS,
+      records: [{ f0: LONG_TEXT }],
+      rowCount: 1,
+    })
+    table.scrollTo(300, 0) // 窗口 [3,11)：走廊 [0,3) 完全滚出左缘
+    expect(findNode(host, 0, 0)).toBeUndefined()
+    table.scrollTo(150, 0) // [1,10)：col 1、2 滚入，左缘反查命中窗外源 col 0
+    const source = findNode(host, 0, 0)
+    expect(source).toBeDefined()
+    expect(source!.textMaxX).toBe(300)
+    expect(source!.x).toBe(-102)
+    // 补建源随行内规范重挂：后画于窗内走廊格
+    const order = rowOrder(host, 0)
+    expect(order.indexOf(0)).toBeGreaterThan(order.indexOf(1))
+    expect(order.indexOf(0)).toBeGreaterThan(order.indexOf(2))
+  })
+
+  it('全量重建同样反查补建窗外源；走廊完全滚出时不补建', () => {
+    const { host, table } = createTable({
+      columns: TWENTY_COLUMNS,
+      records: [{ f0: LONG_TEXT }],
+      rowCount: 1,
+    })
+    table.scrollTo(150, 0)
+    table.setColWidth(5, 100) // 几何变更 → 当前滚动位置全量重建
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(300)
+    table.scrollTo(300, 0) // 走廊 [0,3) 完全滚出（窗口 [3,11)）
+    table.setColWidth(5, 100)
+    expect(findNode(host, 0, 0)).toBeUndefined()
+  })
+
+  it('左溢源在右缘窗外：装配反查补建，走廊滚出后摘除、滚回重建', () => {
+    const { host, table } = createTable({
+      width: 548, // 48 行号列 + 5 数据列：窗口 [0,5)，col 5 在右缘窗外
+      columns: TWENTY_COLUMNS,
+      records: [{ f5: LONG_TEXT }],
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 5 ? { textAlign: 'right' } : null),
+    })
+    const source = findNode(host, 5, 0)
+    expect(source).toBeDefined()
+    expect(source!.x).toBe(548)
+    // 左溢走廊 [3,6)：局部界 [-200, 100)，锚点仍在源格
+    expect(source!.textMinX).toBe(-200)
+    expect(source!.textMaxX).toBe(100)
+    expect(source!.paintedBounds()).toEqual({ x: -200, y: 0, width: 300, height: 32 })
+    // 走廊内部标记覆盖窗外源走廊伸入窗内的 col 3、4
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 4, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
+    // 绘制指令伸入窗内走廊段（局部 clip [-200, 100)，层坐标锚点 440）
+    const localCtx = new MeasureStubContext()
+    source!.paint(localCtx)
+    expect(localCtx.clips).toEqual([{ x: -200, y: 0, width: 300, height: 32 }])
+    expect(paintedTexts(host)).toContainEqual({ text: LONG_TEXT, x: 440, y: 56 })
+    // 走廊 [3,6) 完全滚出（窗口 [6,11)）→ 摘除且不反查重建
+    table.scrollTo(600, 0)
+    expect(findNode(host, 5, 0)).toBeUndefined()
+    // 滚回窗口 [0,5)：右缘反查命中窗外左溢源 → 重建
+    table.scrollTo(0, 0)
+    expect(findNode(host, 5, 0)?.textMinX).toBe(-200)
+  })
+
+  it('窗外源走廊竖线跳画与同滚动位置的全量重建一致', () => {
+    const records = [{ f0: LONG_TEXT }]
+    const scrolled = createTable({ columns: TWENTY_COLUMNS, records, rowCount: 1 })
+    scrolled.table.scrollTo(150, 0)
+    const rebuilt = createTable({ columns: TWENTY_COLUMNS, records, rowCount: 1 })
+    rebuilt.table.scrollTo(150, 0)
+    rebuilt.table.setColWidth(5, 100) // 同滚动位置全量重建
+    expect(findNode(scrolled.host, 1, 0)?.corridorInterior).toBe(3)
+    expect(rowVerticalLineXs(scrolled.host, 0)).toEqual(rowVerticalLineXs(rebuilt.host, 0))
+  })
+
+  it('refreshCell 修改窗外源文本：窗内走廊段按新走廊收敛（文本与失效区）', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', LONG_TEXT)
+    const { host, table } = createTable({ columns: TWENTY_COLUMNS, rowCount: 1, model })
+    table.scrollTo(150, 0) // col 0 滚出左缘（走廊 [0,3) 仍相交 → 保留）
+    expect(findNode(host, 0, 0)).toBeDefined()
+    host.submitted.length = 0
+    model.data.set('0:0', 'B'.repeat(30)) // 300px：走廊伸至 [0,4)
+    model.emit({ col: 0, row: 0, oldValue: LONG_TEXT, newValue: 'B'.repeat(30) })
+    const source = findNode(host, 0, 0)
+    expect(source?.text).toBe('B'.repeat(30))
+    expect(source?.textMaxX).toBe(400)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(4)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(4)
+    expect(findNode(host, 4, 0)?.corridorInterior).toBeNull()
+    // 失效区覆盖窗内走廊段（新走廊末端层坐标 298 = 48 + 400 - 150）
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: -102, y: 36, width: 400, height: 32 } } },
+    ])
+  })
+
+  it('refreshCell 阻断窗外源走廊：窗内段与标记收敛回新走廊', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', LONG_TEXT)
+    const { host, table } = createTable({ columns: TWENTY_COLUMNS, rowCount: 1, model })
+    table.scrollTo(150, 0)
+    host.submitted.length = 0
+    model.data.set('2:0', 'x')
+    model.emit({ col: 2, row: 0, oldValue: undefined, newValue: 'x' })
+    // 走廊收回 [0,2)；失效区并集覆盖旧走廊（至层坐标 198，宽度 300）
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(200)
+    expect(findNode(host, 1, 0)?.corridorInterior).toBe(2)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: -102, y: 36, width: 300, height: 32 } } },
+    ])
+  })
+
+  it('refreshCell 清空窗内阻断格：窗外源反查补建并即时上屏；非候选窗外格不建节点', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', LONG_TEXT)
+    model.data.set('2:0', 'x')
+    const { host, table } = createTable({ columns: TWENTY_COLUMNS, rowCount: 1, model })
+    table.scrollTo(250, 0) // 窗口 [2,11)：col 0 走廊 [0,2) 完全滚出 → 未建
+    expect(findNode(host, 0, 0)).toBeUndefined()
+    host.submitted.length = 0
+    model.data.delete('2:0')
+    model.emit({ col: 2, row: 0, oldValue: 'x', newValue: undefined })
+    // 左缘反查命中窗外源 col 0（走廊伸至 [0,3)）→ 补建，窗内走廊段即时上屏
+    const source = findNode(host, 0, 0)
+    expect(source).toBeDefined()
+    expect(source?.textMaxX).toBe(300)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(3)
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: -202, y: 36, width: 300, height: 32 } } },
+    ])
+    // 非候选窗外格（走廊够不到窗内）刷新维持「无节点可刷」、零失效提交
+    host.submitted.length = 0
+    model.data.set('15:0', 'x')
+    model.emit({ col: 15, row: 0, oldValue: undefined, newValue: 'x' })
+    expect(findNode(host, 15, 0)).toBeUndefined()
+    expect(host.submitted).toEqual([])
+  })
+
+  it('refreshCell 写入窗外走廊格：已保留窗外源走廊收敛（返工 B3）', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', LONG_TEXT)
+    const { host, table } = createTable({ columns: TWENTY_COLUMNS, rowCount: 1, model })
+    table.scrollTo(250, 0) // 窗口 [2,11)：col 0 走廊 [0,3) 仍相交 → 保留
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(300)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBe(3)
+    host.submitted.length = 0
+    // 写入源与窗缘之间的窗外空格 col 1（无节点）：右溢源走廊被截断，窗内段同帧收敛
+    model.data.set('1:0', 'x')
+    model.emit({ col: 1, row: 0, oldValue: undefined, newValue: 'x' })
+    expect(findNode(host, 1, 0)).toBeUndefined() // 写入格非溢出源，不补建
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(100) // 走廊收回 [0,1)
+    expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
+    // 失效区并集覆盖旧走廊窗内段（至层坐标 98 = col 2 右缘）
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: -202, y: 36, width: 300, height: 32 } } },
+    ])
+  })
+
+  it('refreshCell 写入右缘窗外走廊格：已保留左溢源对称收敛（返工 B3）', () => {
+    const model = new EchoModel(1)
+    model.data.set('7:0', 'B'.repeat(39)) // 390px：左溢走廊 [4,8) 伸入窗口 [0,5)
+    const { host } = createTable({
+      width: 548, // 48 行号列 + 5 数据列：窗口 [0,5)，col 5、6 在右缘窗外
+      columns: TWENTY_COLUMNS,
+      rowCount: 1,
+      model,
+      resolveCellStyle: (col) => (col === 7 ? { textAlign: 'right' } : null),
+    })
+    const source = findNode(host, 7, 0)
+    expect(source?.textMinX).toBe(-300)
+    expect(findNode(host, 4, 0)?.corridorInterior).toBe(8)
+    host.submitted.length = 0
+    // 写入源与窗缘之间的窗外空格 col 6（无节点）：左溢源走廊被截断
+    model.data.set('6:0', 'x')
+    model.emit({ col: 6, row: 0, oldValue: undefined, newValue: 'x' })
+    expect(findNode(host, 6, 0)).toBeUndefined()
+    expect(source?.textMinX).toBe(0) // 走廊收回 [7,8)，源格不再溢出
+    expect(source?.textMaxX).toBe(100)
+    expect(findNode(host, 4, 0)?.corridorInterior).toBeNull()
+    // 失效区并集覆盖旧走廊（层坐标 [448, 848)）
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'cell', region: { x: 448, y: 36, width: 400, height: 32 } } },
+    ])
+  })
+})

@@ -4,7 +4,7 @@ import { hitTest } from '../../src/scene/hit-test'
 import { paintTree } from '../../src/scene/paint'
 import { SceneNode } from '../../src/scene/scene-node'
 import { FakeContext } from '../testing/fake-canvas'
-import type { RenderContext } from '../../src/types'
+import type { Region, RenderContext } from '../../src/types'
 
 class RectNode extends SceneNode {
   constructor(
@@ -17,6 +17,13 @@ class RectNode extends SceneNode {
 
   override paint(_ctx: RenderContext): void {
     this.sink?.push(this.label)
+  }
+}
+
+/** 绘制内容超出自身几何的节点（溢出文本格形态：自身包围盒在脏区外、溢出段伸入） */
+class OverhangingNode extends RectNode {
+  override paintedBounds(): Region {
+    return { x: 0, y: 0, width: 300, height: this.height }
   }
 }
 
@@ -133,5 +140,17 @@ describe('绘制遍历', () => {
     root.appendChild(new RectNode('far', { x: 500, y: 500, width: 100, height: 100 }, order))
     paintTree(root, new FakeContext(), { x: 0, y: 0, width: 50, height: 50 })
     expect(order).toEqual(['root', 'near'])
+  })
+
+  it('cull 按 paintedBounds 判定：绘制内容伸入脏区的节点不被自身包围盒误伤', () => {
+    const order: string[] = []
+    const root = new RectNode('root', { width: 800, height: 600 }, order)
+    // 自身包围盒 [-150, -50) 在脏区 [0, 50) 左侧，但溢出绘制段 [ -150, 150) 伸入脏区
+    root.appendChild(
+      new OverhangingNode('overhanging', { x: -150, y: 0, width: 100, height: 32 }, order),
+    )
+    root.appendChild(new RectNode('far', { x: 500, y: 500, width: 100, height: 100 }, order))
+    paintTree(root, new FakeContext(), { x: 0, y: 0, width: 50, height: 50 })
+    expect(order).toEqual(['root', 'overhanging'])
   })
 })

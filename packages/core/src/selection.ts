@@ -24,6 +24,12 @@ export interface SelectionSnapshot {
   readonly focus: CellRef | null
 }
 
+/** 外部回写坐标的钳制边界：表格数据区尺寸（列数/行数） */
+export interface SelectionBounds {
+  colCount: number
+  rowCount: number
+}
+
 export type SelectionListener = (snapshot: SelectionSnapshot) => void
 
 /** 求选区段的 min/max 边界 */
@@ -41,6 +47,29 @@ function boundsEqual(a: RangeBounds, b: RangeBounds): boolean {
   return (
     a.minCol === b.minCol && a.minRow === b.minRow && a.maxCol === b.maxCol && a.maxRow === b.maxRow
   )
+}
+
+/** 单元格坐标钳制到数据区 [0, 列数-1] × [0, 行数-1]（空表钳到 0，不产生负坐标） */
+function clampCellRef(ref: CellRef, colCount: number, rowCount: number): CellRef {
+  return {
+    col: Math.min(Math.max(ref.col, 0), Math.max(colCount - 1, 0)),
+    row: Math.min(Math.max(ref.row, 0), Math.max(rowCount - 1, 0)),
+  }
+}
+
+/** 回写快照整包钳制：段边界与焦点统一收进数据区（选区不落入行头/列头带） */
+function clampSnapshot(
+  snapshot: SelectionSnapshot,
+  colCount: number,
+  rowCount: number,
+): SelectionSnapshot {
+  return {
+    ranges: snapshot.ranges.map((range) => ({
+      start: clampCellRef(range.start, colCount, rowCount),
+      end: clampCellRef(range.end, colCount, rowCount),
+    })),
+    focus: snapshot.focus ? clampCellRef(snapshot.focus, colCount, rowCount) : null,
+  }
 }
 
 export class SelectionState {
@@ -170,28 +199,32 @@ export class SelectionState {
 
   /**
    * 外部模型回写选区：应用但不广播，防回环。
+   * 传入 bounds 时先钳制再入库：段边界与焦点统一钳到数据区 [0, 列数-1] × [0, 行数-1]
+   * （行头/列头带坐标与越表界坐标不入库），钳制后再比对归一化边界——越界段钳后与拖拽段
+   * 等值时仍走保锚点分支，不破坏拖拽锚点。
    * 拖拽进行中且传入快照恰为一段、其归一化边界与当前拖拽段等值时，不替换段（start 锚点与
    * end 原样保留），仅同步焦点：外部模型把段归一化为 min 角序（start 被重写为 min 角），
    * 照单替换会丢拖拽锚点，继续反向拖拽时按错误锚点扩展导致选区塌缩。
-   * 非拖拽态或边界不等值（如越界钳制后的段）维持既有整段替换行为。
+   * 非拖拽态或边界不等值（钳制后仍不等值）维持既有整段替换行为。
    */
-  applyExternal(snapshot: SelectionSnapshot): void {
+  applyExternal(snapshot: SelectionSnapshot, bounds?: SelectionBounds): void {
+    const incoming = bounds ? clampSnapshot(snapshot, bounds.colCount, bounds.rowCount) : snapshot
     const dragSegment = this.ranges[this.ranges.length - 1]
-    const externalSegment = snapshot.ranges.length === 1 ? snapshot.ranges[0] : undefined
+    const externalSegment = incoming.ranges.length === 1 ? incoming.ranges[0] : undefined
     if (
       this.dragging &&
       dragSegment &&
       externalSegment &&
       boundsEqual(normalizeRange(externalSegment), normalizeRange(dragSegment))
     ) {
-      this.focus = snapshot.focus ? { ...snapshot.focus } : null
+      this.focus = incoming.focus ? { ...incoming.focus } : null
       return
     }
-    this.ranges = snapshot.ranges.map((range) => ({
+    this.ranges = incoming.ranges.map((range) => ({
       start: { ...range.start },
       end: { ...range.end },
     }))
-    this.focus = snapshot.focus ? { ...snapshot.focus } : null
+    this.focus = incoming.focus ? { ...incoming.focus } : null
   }
 
   private emit(): void {

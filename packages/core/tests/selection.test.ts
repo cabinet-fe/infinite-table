@@ -292,6 +292,113 @@ describe('SelectionState 拖拽中外部回写保持锚点', () => {
   })
 })
 
+describe('SelectionState 外部回写钳制', () => {
+  it('负坐标段与焦点（col=-1 模拟行头带回写）：钳制到数据区左/上界', () => {
+    const selection = new SelectionState()
+    selection.applyExternal(
+      {
+        ranges: [{ start: { col: -1, row: 3 }, end: { col: 2, row: 5 } }],
+        focus: { col: -1, row: 3 },
+      },
+      { colCount: 10, rowCount: 20 },
+    )
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 0, row: 3 }, end: { col: 2, row: 5 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 3 })
+  })
+
+  it('越上界段与焦点：钳制到数据区右/下界', () => {
+    const selection = new SelectionState()
+    selection.applyExternal(
+      {
+        ranges: [{ start: { col: 8, row: 18 }, end: { col: 15, row: 25 } }],
+        focus: { col: 15, row: 25 },
+      },
+      { colCount: 10, rowCount: 20 },
+    )
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 8, row: 18 }, end: { col: 9, row: 19 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 9, row: 19 })
+  })
+
+  it('整行段与全选段回写不误改：边界恰在数据区内时钳制等值', () => {
+    const selection = new SelectionState()
+    const fullRow: SelectionRange = { start: { col: 0, row: 4 }, end: { col: 9, row: 4 } }
+    selection.applyExternal(
+      { ranges: [fullRow], focus: { col: 0, row: 4 } },
+      { colCount: 10, rowCount: 20 },
+    )
+    expect(selection.snapshot.ranges).toEqual([fullRow])
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 4 })
+
+    const all: SelectionRange = { start: { col: 0, row: 0 }, end: { col: 9, row: 19 } }
+    selection.applyExternal(
+      { ranges: [all], focus: { col: 0, row: 0 } },
+      { colCount: 10, rowCount: 20 },
+    )
+    expect(selection.snapshot.ranges).toEqual([all])
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 0 })
+  })
+
+  it('拖拽中越界段等值回写（先钳制再比对）：保锚点分支照常生效，焦点取钳制值', () => {
+    const selection = new SelectionState()
+    // 拖到数据区左缘：锚点在 col2，焦点侧在 col0
+    selection.beginDrag(2, 5)
+    selection.updateDrag(0, 5)
+    // 外部模型把行头列归一化进段（col=-1）：钳制后边界与拖拽段等值，锚点不丢
+    selection.applyExternal(
+      {
+        ranges: [{ start: { col: -1, row: 5 }, end: { col: 2, row: 5 } }],
+        focus: { col: -1, row: 5 },
+      },
+      { colCount: 10, rowCount: 20 },
+    )
+    // 段原样保留：start 锚点仍为按下格，end 仍为反向焦点侧；焦点同步为钳制值
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 5 }, end: { col: 0, row: 5 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 5 })
+
+    // 锚点未丢：继续拖拽按原锚点扩展，不塌缩
+    selection.updateDrag(0, 2)
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 2, row: 5 }, end: { col: 0, row: 2 } },
+    ])
+  })
+
+  it('钳制后仍不等值的拖拽中回写：整段替换为钳制后的段', () => {
+    const selection = new SelectionState()
+    selection.beginDrag(2, 5)
+    selection.updateDrag(2, 2)
+    // 模型段越界，钳制后边界与拖拽段不等值：维持既有整段替换行为
+    selection.applyExternal(
+      {
+        ranges: [{ start: { col: -1, row: 2 }, end: { col: 2, row: 5 } }],
+        focus: { col: -1, row: 2 },
+      },
+      { colCount: 10, rowCount: 20 },
+    )
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: 0, row: 2 }, end: { col: 2, row: 5 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: 0, row: 2 })
+  })
+
+  it('未传边界（引擎内回驱路径）：行为不变，不钳制', () => {
+    const selection = new SelectionState()
+    selection.applyExternal({
+      ranges: [{ start: { col: -1, row: 0 }, end: { col: 1, row: 1 } }],
+      focus: { col: -1, row: 0 },
+    })
+    expect(selection.snapshot.ranges).toEqual([
+      { start: { col: -1, row: 0 }, end: { col: 1, row: 1 } },
+    ])
+    expect(selection.snapshot.focus).toEqual({ col: -1, row: 0 })
+  })
+})
+
 describe('SelectionState 回驱防递归', () => {
   it('外部回写 applyExternal：应用但不广播，订阅方回写不回环', () => {
     const selection = new SelectionState()

@@ -221,3 +221,88 @@ export function themeCellBase(tokens: CellStyleTokens): CellStyle {
     border: { ...border, right: border?.right ?? grid, bottom: border?.bottom ?? grid },
   }
 }
+
+/** CSS 颜色的 rgba 分量（r/g/b 0~255，a 0~1） */
+interface RgbaColor {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+/**
+ * 解析主题 token 实际使用的 CSS 颜色形态：hex（#rgb/#rgba/#rrggbb/#rrggbbaa）、
+ * rgb()/rgba()（逗号或空格斜杠分隔）、transparent 关键字；命名色等其余形态
+ * 与含百分比的写法不解析（返回 null），调用方原样回退保旧观感。
+ */
+function parseColorToken(color: string): RgbaColor | null {
+  const value = color.trim().toLowerCase()
+  if (value === 'transparent') {
+    return { r: 0, g: 0, b: 0, a: 0 }
+  }
+  if (value.startsWith('#')) {
+    const hex = value.slice(1)
+    if (hex.length === 3 || hex.length === 4) {
+      const channels = [...hex].map((c) => parseInt(c + c, 16))
+      if (channels.some(Number.isNaN)) {
+        return null
+      }
+      return { r: channels[0]!, g: channels[1]!, b: channels[2]!, a: (channels[3] ?? 255) / 255 }
+    }
+    if (hex.length === 6 || hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16)
+      const g = parseInt(hex.slice(2, 4), 16)
+      const b = parseInt(hex.slice(4, 6), 16)
+      if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+        return null
+      }
+      const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) : 255
+      return Number.isNaN(a) ? null : { r, g, b, a: a / 255 }
+    }
+    return null
+  }
+  const match = value.match(/^rgba?\(([^)]+)\)$/)
+  if (!match || match[1]!.includes('%')) {
+    return null
+  }
+  const parts = match[1]!.split(/[\s,/]+/).filter(Boolean)
+  if (parts.length !== 3 && parts.length !== 4) {
+    return null
+  }
+  const nums = parts.map((part) => Number.parseFloat(part))
+  if (nums.some((n) => !Number.isFinite(n))) {
+    return null
+  }
+  const [r, g, b] = nums
+  const a = nums.length === 4 ? nums[3]! : 1
+  return {
+    r: Math.min(255, Math.max(0, r!)),
+    g: Math.min(255, Math.max(0, g!)),
+    b: Math.min(255, Math.max(0, b!)),
+    a: Math.min(1, Math.max(0, a)),
+  }
+}
+
+/**
+ * 表头高亮合成辅助：interaction.headerHighlight 与表头分区铬底（header/rowHeader/
+ * corner 各自 background）做 alpha 预混，产出不透明色——表头格以结果色替换背景后，
+ * 其下滑入的正文内容不再透出（半透明 token 的透出缺陷）。token 本身不透明时结果
+ * 等于原值；token 或铬底为不可解析形态、或铬底缺省时原样返回 highlight
+ * （保持既有行为）。
+ */
+export function opaqueHeaderHighlight(
+  highlight: string,
+  chromeBackground: string | undefined,
+): string {
+  const overlay = parseColorToken(highlight)
+  if (!overlay || overlay.a >= 1) {
+    return highlight
+  }
+  const base = chromeBackground === undefined ? null : parseColorToken(chromeBackground)
+  if (!base) {
+    return highlight
+  }
+  const mix = (overlay_: number, chrome: number) =>
+    Math.round(overlay_ * overlay.a + chrome * (1 - overlay.a))
+  return `rgb(${mix(overlay.r, base.r)}, ${mix(overlay.g, base.g)}, ${mix(overlay.b, base.b)})`
+}

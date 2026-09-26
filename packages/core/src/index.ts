@@ -69,7 +69,13 @@ export type {
 } from './editing/text-editor'
 export type { TablePlugin } from './plugin'
 export { SelectionState, normalizeRange } from './selection'
-export type { RangeBounds, SelectionListener, SelectionRange, SelectionSnapshot } from './selection'
+export type {
+  RangeBounds,
+  SelectionBounds,
+  SelectionListener,
+  SelectionRange,
+  SelectionSnapshot,
+} from './selection'
 export { HoverState } from './hover-state'
 export type { HoverListener } from './hover-state'
 export { InteractionOverlay } from './interaction-overlay'

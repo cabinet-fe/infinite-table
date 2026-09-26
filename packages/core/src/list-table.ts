@@ -74,6 +74,7 @@ import {
   updateImageWindow,
 } from './list-table-media'
 import {
+  appendCell,
   dataColBands,
   effectiveBorder,
   headerStyles,
@@ -81,6 +82,7 @@ import {
   overflowSourceCol,
   overflowSourceColRight,
   rebuildScene,
+  resolveOffWindowOverflowSource,
   textOverflowLimits,
   updateSceneWindow,
 } from './list-table-scene'
@@ -548,7 +550,8 @@ export class ListTable {
 
   /**
    * 局部刷新单格：被合并覆盖的坐标路由到主格节点；窗口内则更新节点内容、
-   * 重投影样式并登记 cell 失效（合并区失效为主格包围盒），窗口外忽略；
+   * 重投影样式并登记 cell 失效（合并区失效为主格包围盒），窗外走窗缘反查联动
+   * （补建/收敛窗外溢出源，见 refreshOffWindowOverflowSource）；
    * 失效区并入溢出走廊：旧走廊防文字变短残影、新走廊补画；本格变空时向两侧扩到
    * 最近溢出来源格（左邻右溢/居中源、右邻左溢/居中源），让它们的走廊收敛或延伸；
    * 节点获得溢出能力时重挂树尾（z 序不变量：溢出源后画于同条带走廊节点）；
@@ -560,8 +563,10 @@ export class ListTable {
     const masterRow = master?.row ?? row
     const node = this.cellNodes.get(cellKey(masterCol, masterRow))
     if (!node) {
-      // 快速退出：主格不在可视窗口（无场景节点可刷；图片节点只随数据格建，同样不存在）。
-      // 批量写的绝大多数落在窗口外，模型事件→局部刷新的热路径就此一次查找收束。
+      // 窗外溢出源联动（P1 窗缘反查）：修改的格是窗外活跃溢出源（走廊伸入窗内）时
+      // 补建节点，新文本的窗内走廊段即时上屏；其余窗外格无场景节点可刷
+      // （批量写的绝大多数落在窗口外，反查一次即收束）。
+      this.refreshOffWindowOverflowSource(masterCol, masterRow)
       return
     }
     const prevBorder = node.style.border
@@ -627,6 +632,7 @@ export class ListTable {
     // 整行重标走廊内部标记（先清后标，与全量重建同口径）；标记不随 contentHidden
     // 变化（走廊扫描只看取值与样式，隐藏/恢复前后标记与全量重建一致）
     let corridorChanged = node.textMaxX !== prevMaxX || node.textMinX !== prevMinX
+    let builtOffWindowSource = false
     const regions: Region[] = [node.getGlobalBounds()]
     if (prevMaxX > node.width || prevMinX < 0) {
       regions.push(overflowExtentRegion(node, prevMinX, prevMaxX))
@@ -648,7 +654,25 @@ export class ListTable {
         if (sourceCol === null) {
           continue
         }
-        const sourceNode = this.cellNodes.get(cellKey(sourceCol, masterRow))
+        let sourceNode = this.cellNodes.get(cellKey(sourceCol, masterRow))
+        if (!sourceNode) {
+          // 窗外溢出源联动（P1 窗缘反查）：来源格在窗外且其走廊伸入窗内（本格正是
+          // 其窗内走廊格/阻断格）时补建源节点，窗内走廊段文本与本格变化同帧收敛；
+          // 反查未命中（走廊够不到窗内）维持既有跳过
+          const side = sourceCol < this.cols.start ? 'left' : 'right'
+          const resolved = resolveOffWindowOverflowSource(this, masterRow, side)
+          if (resolved !== null && resolved.col === sourceCol && resolved.node === null) {
+            appendCell(this, sourceCol, masterRow, this.scroll.state.left, this.scroll.state.top)
+            sourceNode = this.cellNodes.get(cellKey(sourceCol, masterRow))
+            if (sourceNode) {
+              builtOffWindowSource = true
+              // 补建即上屏：失效区覆盖其窗内走廊段（节点自身包围盒在窗外不产生可见变化）
+              regions.push(
+                overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX),
+              )
+            }
+          }
+        }
         if (!sourceNode) {
           continue
         }
@@ -676,7 +700,7 @@ export class ListTable {
         }
       }
     }
-    if (corridorChanged) {
+    if (corridorChanged || builtOffWindowSource) {
       markRowCorridorInterior(this, masterRow, dataColBands(this))
     }
     const region = unionRegions(regions) ?? regions[0]!
@@ -697,6 +721,91 @@ export class ListTable {
     if (this.frameNode) {
       this.body.root.appendChild(this.frameNode)
     }
+  }
+
+  /**
+   * 窗外溢出源的补建刷新（refreshCell 的窗外分支，P1 窗缘反查）：目标格命中窗缘
+   * 反查候选且尚未建节点时按装配路径补建，随新文本提交其窗内走廊段失效并重标走廊
+   * 内部标记；此外写入/清空的窗外格截断或放开已保留窗外源的走廊时（返工 B3），重算
+   * 其走廊并提交新旧溢出区失效。反查未命中（走廊够不到窗内或格本身不溢出）则维持
+   * 「窗外无节点可刷」。
+   */
+  private refreshOffWindowOverflowSource(col: number, row: number): void {
+    for (const side of ['left', 'right'] as const) {
+      const resolved = resolveOffWindowOverflowSource(this, row, side)
+      if (resolved === null || resolved.col !== col || resolved.node !== null) {
+        continue
+      }
+      appendCell(this, col, row, this.scroll.state.left, this.scroll.state.top)
+      const built = this.cellNodes.get(cellKey(col, row))
+      if (!built) {
+        continue
+      }
+      // z 序不变量：源后画于走廊格（表头容器与外框随之重挂树尾）
+      this.remountOverflowSourceNode(built)
+      markRowCorridorInterior(this, row, dataColBands(this))
+      this.submitOffWindowRegion(overflowExtentRegion(built, built.textMinX, built.textMaxX))
+      break
+    }
+    this.convergeRetainedOffWindowSource(col, row)
+  }
+
+  /**
+   * 已保留窗外源的走廊收敛（refreshCell 窗外分支，返工 B3）：写入/清空的窗外格自身
+   * 无节点，但它是两侧最近非空格溢出走廊的覆盖段或阻断格——候选来源格在窗外且带
+   * 保留节点（keep-alive 的窗外源）时重算其走廊，新旧溢出区一并失效，窗内走廊段
+   * 文本与竖线跳画同帧收敛。候选在窗内（有自己的节点刷新路径，伸向窗外的走廊段
+   * 滚入前不可见）或窗外无节点（走廊够不到窗、不可见）时维持既有跳过。
+   */
+  private convergeRetainedOffWindowSource(col: number, row: number): void {
+    const regions: Region[] = []
+    for (const sourceCol of [
+      overflowSourceCol(this, col, row),
+      overflowSourceColRight(this, col, row),
+    ]) {
+      if (sourceCol === null || (sourceCol >= this.cols.start && sourceCol < this.cols.end)) {
+        continue
+      }
+      const sourceNode = this.cellNodes.get(cellKey(sourceCol, row))
+      if (!sourceNode) {
+        continue
+      }
+      const oldMinX = sourceNode.textMinX
+      const oldMaxX = sourceNode.textMaxX
+      const limits = textOverflowLimits(
+        this,
+        sourceCol,
+        row,
+        sourceNode.style,
+        this.scroll.state.left,
+        sourceNode,
+      )
+      sourceNode.textMaxX = limits === null ? sourceNode.width : limits.maxX - sourceNode.x
+      sourceNode.textMinX = limits === null ? 0 : limits.minX - sourceNode.x
+      if (sourceNode.textMaxX === oldMaxX && sourceNode.textMinX === oldMinX) {
+        continue
+      }
+      regions.push(overflowExtentRegion(sourceNode, oldMinX, oldMaxX))
+      regions.push(overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX))
+      if (sourceNode.textMaxX > sourceNode.width || sourceNode.textMinX < 0) {
+        // 来源格保持溢出：重挂树尾维持「源后画于走廊格」不变量
+        this.remountOverflowSourceNode(sourceNode)
+      }
+      markRowCorridorInterior(this, row, dataColBands(this))
+    }
+    if (regions.length === 0) {
+      return
+    }
+    this.submitOffWindowRegion(unionRegions(regions) ?? regions[0]!)
+  }
+
+  /** 窗外源补建/收敛的失效提交：批量更新期间改为收集（与 refreshCellNodeContents 同口径） */
+  private submitOffWindowRegion(region: Region): void {
+    if (this.batchDepth > 0) {
+      this.batchRegions.push(region)
+      return
+    }
+    this.host.submitInvalidation('body', { type: 'cell', region })
   }
 
   /** 批量更新：fn 内的多次变更合并，结束时只提交一次 band 失效（一帧收敛一次渲染提交） */
@@ -761,9 +870,12 @@ export class ListTable {
     this.selection.clear()
   }
 
-  /** 外部模型回写选区：应用并刷新浮层但不广播，防回环 */
+  /** 外部模型回写选区：段边界与焦点钳制到数据区内（行头/列头带坐标不入库）并刷新浮层但不广播，防回环 */
   applyExternalSelection(snapshot: SelectionSnapshot): void {
-    this.selection.applyExternal(snapshot)
+    this.selection.applyExternal(snapshot, {
+      colCount: this.options.columns.length,
+      rowCount: this.pipeline.rowCount,
+    })
     refreshOverlay(this)
   }
 

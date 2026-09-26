@@ -4,7 +4,8 @@ import type { SceneNode } from './scene-node'
 
 /**
  * 绘制遍历：先绘自身再按 children 顺序绘子节点（后者在上）。
- * cull 提供时（层坐标下的脏区），整棵子树包围盒与其不相交则跳过。
+ * cull 提供时（层坐标下的脏区），整棵子树「绘制内容包围盒」（paintedBounds，缺省
+ * 即节点自身包围盒）与其不相交则跳过。
  */
 export function paintTree(
   node: SceneNode,
@@ -18,8 +19,16 @@ export function paintTree(
   }
   const gx = offsetX + node.x
   const gy = offsetY + node.y
-  if (cull && !intersects({ x: gx, y: gy, width: node.width, height: node.height }, cull)) {
-    return
+  if (cull) {
+    const bounds = node.paintedBounds()
+    if (
+      !intersects(
+        { x: gx + bounds.x, y: gy + bounds.y, width: bounds.width, height: bounds.height },
+        cull,
+      )
+    ) {
+      return
+    }
   }
   ctx.save()
   ctx.translate(node.x, node.y)

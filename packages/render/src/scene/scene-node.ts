@@ -91,6 +91,15 @@ export class SceneNode {
     return { x, y, width: this.width, height: this.height }
   }
 
+  /**
+   * 绘制内容覆盖的局部坐标包围盒（脏区剔除判定用；缺省即节点自身包围盒）。
+   * 绘制超出自身几何的节点（如向邻格溢出的文本格）覆盖此方法把溢出段并入，
+   * 避免节点自身包围盒在脏区外时其伸入脏区的内容被剔除漏画。
+   */
+  paintedBounds(): Region {
+    return { x: 0, y: 0, width: this.width, height: this.height }
+  }
+
   /** 绘制自身内容（不含子节点），ctx 已平移到本节点局部原点；子类覆盖 */
   paint(_ctx: RenderContext): void {}
 
