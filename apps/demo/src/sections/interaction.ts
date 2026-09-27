@@ -19,8 +19,8 @@ export function mountInteraction(root: HTMLElement): InteractionDemo {
     root,
     '交互能力',
     '拖选 / 点行号整行 / 点列头整列 / 点左上角全选；shift+方向键扩展选区；hover 高亮；' +
-      '拖行列头边缘 resize（第 0 行/列被 canResize 禁用）；方向键导航；触控惯性滚动；' +
-      '右键触发 contextmenu 事件；onScrollFrame 实时回显滚动位置。',
+      '拖行列头边缘 resize（边缘悬停光标变 col-resize/row-resize；第 0 行/列被 canResize 禁用）；' +
+      '方向键导航；触控惯性滚动；右键触发 contextmenu 事件；onScrollFrame 实时回显滚动位置。',
   )
 
   const records: Array<Record<string, string>> = Array.from(

@@ -1663,6 +1663,81 @@ try {
     )
   }
 
+  // ---- 26. 行列 resize 光标：悬停列缘 col-resize / 行缘 row-resize（数据格恢复缺省），
+  // 拖拽会话期光标不闪回，抬起按落点重判 ----
+  {
+    const geom = await evalPage(() => {
+      const t = window.__PG__.grid().getTable()
+      const rect = document.querySelector('.u-sheet__grid-instance').getBoundingClientRect()
+      const visible = t.getVisibleRange()
+      // 取可视带内第 2 个列/行（避开滚动夹边与左上角），页面预置数据在 3..5 列无合并
+      const col = visible.cols.start + 1
+      const row = visible.rows.start + 1
+      const colCell = t.getCellRelativeRect(col, 0)
+      const rowCell = t.getCellRelativeRect(0, row)
+      return {
+        col,
+        row,
+        colEdge: { x: rect.x + colCell.x + colCell.width, y: rect.y + t.headerHeight / 2 },
+        rowEdge: { x: rect.x + t.rowHeaderWidth / 2, y: rect.y + rowCell.y + rowCell.height },
+        body: {
+          x: rect.x + colCell.x + colCell.width / 2,
+          y: rect.y + rowCell.y + rowCell.height / 2,
+        },
+        colWidth: t.getColWidth(col),
+      }
+    })
+    const cursor = () =>
+      evalPage(() => getComputedStyle(document.querySelector('.u-sheet__grid-instance')).cursor)
+
+    await page.mouse.move(geom.colEdge.x, geom.colEdge.y)
+    await page.waitForTimeout(150)
+    const hoverCol = await cursor()
+    await page.mouse.move(geom.rowEdge.x, geom.rowEdge.y)
+    await page.waitForTimeout(150)
+    const hoverRow = await cursor()
+    await page.mouse.move(geom.body.x, geom.body.y)
+    await page.waitForTimeout(150)
+    const hoverBody = await cursor()
+
+    // 会话期：按下列缘后指针滑进行体（离开命中区）光标保持 col-resize；x 不位移 → 列宽不变
+    await page.mouse.move(geom.colEdge.x, geom.colEdge.y)
+    await page.mouse.down()
+    await page.waitForTimeout(80)
+    const downCur = await cursor()
+    await page.mouse.move(geom.colEdge.x, geom.body.y, { steps: 4 })
+    await page.waitForTimeout(80)
+    const dragCur = await cursor()
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+    const afterUp = await cursor()
+    const widthAfter = await evalPage(
+      ([col]) => window.__PG__.grid().getTable().getColWidth(col),
+      [geom.col],
+    )
+
+    step(
+      '行列 resize 光标（列缘 col-resize / 行缘 row-resize、数据格恢复缺省；拖拽会话不闪回，抬起重判，列宽不变）',
+      {
+        悬停列缘: hoverCol,
+        悬停行缘: hoverRow,
+        悬停数据格: hoverBody,
+        会话按下: downCur,
+        会话拖离: dragCur,
+        抬起后: afterUp,
+        列宽: { 前: geom.colWidth, 后: widthAfter },
+        通过:
+          hoverCol === 'col-resize' &&
+          hoverRow === 'row-resize' &&
+          hoverBody === 'auto' &&
+          downCur === 'col-resize' &&
+          dragCur === 'col-resize' &&
+          afterUp === 'auto' &&
+          widthAfter === geom.colWidth,
+      },
+    )
+  }
+
   // ---- 27. 溢出源滚出窗（P1 窗缘反查端到端）：长文本溢出格随横向滚动完全滚出可视列窗
   // （右溢源从左缘滚出 + 左溢源从右缘滚出双向），视口内走廊段仍采到溢出字形（像素断言，
   // 口径同用例 22）；走廊竖线跳画口径与源格在窗内时一致（走廊内部无纵线、文本缘末端竖线在、

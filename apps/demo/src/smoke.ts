@@ -484,6 +484,36 @@ async function checkInteraction(checker: Checker, demos: DemoHandles): Promise<v
     await frames(2)
     table.clearSelection()
   })
+
+  await checker.step(
+    'resize 手柄光标：列缘 col-resize / 行缘 row-resize，数据格恢复缺省',
+    async () => {
+      const cursor = () => container.style.cursor
+      // 列缘（列 1 右缘 = 列 2 左缘，列头带内）→ col-resize；列头带内非边缘 → 缺省
+      dispatchPointer(container, 'pointermove', colLeftX(table, 2), HEADER_HEIGHT / 2)
+      assert(cursor() === 'col-resize', `列缘光标为 ${cursor()}`)
+      dispatchPointer(container, 'pointermove', colCenterX(table, 1), HEADER_HEIGHT / 2)
+      assert(cursor() === 'auto', `列头带内非边缘光标为 ${cursor()}`)
+      // 行缘（行 2 下缘 = 行 3 上缘，行号列带内）→ row-resize；数据格 → 缺省
+      dispatchPointer(container, 'pointermove', ROW_HEADER_WIDTH / 2, rowTopY(table, 3))
+      assert(cursor() === 'row-resize', `行缘光标为 ${cursor()}`)
+      dispatchPointer(container, 'pointermove', colCenterX(table, 1), rowCenterY(table, 1))
+      assert(cursor() === 'auto', `数据格光标为 ${cursor()}`)
+    },
+  )
+
+  await checker.step('resize 会话期光标：拖离命中区不闪回，抬起按落点重判', async () => {
+    const cursor = () => container.style.cursor
+    const edge = colLeftX(table, 2)
+    // 按下列缘后指针滑进行体深处（远离命中区）：会话期恒为 col-resize
+    dispatchPointer(container, 'pointerdown', edge, HEADER_HEIGHT / 2)
+    assert(cursor() === 'col-resize', `按下后光标为 ${cursor()}`)
+    dispatchPointer(container, 'pointermove', edge, rowCenterY(table, 4))
+    assert(cursor() === 'col-resize', `会话拖离后光标为 ${cursor()}`)
+    // 原位抬起（x 不变 → 列宽不变）：落点已在表体 → 重判为缺省
+    dispatchPointer(container, 'pointerup', edge, rowCenterY(table, 4))
+    assert(cursor() === 'auto', `抬起后光标为 ${cursor()}`)
+  })
 }
 
 async function checkMedia(checker: Checker, demos: DemoHandles): Promise<void> {

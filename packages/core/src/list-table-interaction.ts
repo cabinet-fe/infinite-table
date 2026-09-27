@@ -50,6 +50,9 @@ export interface HeaderDragState {
 const FILL_EDGE_ZONE = 32
 const FILL_EDGE_STEP = 24
 
+/** resize 手柄光标：列缘横向 col-resize、行缘纵向 row-resize（与 Excel / 浏览器列宽拖拽同口径） */
+const RESIZE_CURSOR = { col: 'col-resize', row: 'row-resize' } as const
+
 /** 场景事件统一接线：指针/触摸在 body 根（sky 浮层不可拾取，事件穿透），键盘在最顶层根 */
 export function bindInteractionEvents(table: ListTable): void {
   const bodyRoot = table.body.root
@@ -100,10 +103,7 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     }
   }
   const picking = editing !== null && table.editPickMode
-  const handle = hitResizeHandle(event.x, event.y, resizeGeometry(table), {
-    canResizeCol: table.options.canResizeCol,
-    canResizeRow: table.options.canResizeRow,
-  })
+  const handle = resizeHandleAt(table, event.x, event.y)
   if (handle) {
     const startSize =
       handle.kind === 'col' ? table.getColWidth(handle.index) : table.rowHeightAt(handle.index)
@@ -112,6 +112,8 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
       startSize,
       handle.kind === 'col' ? event.x : event.y,
     )
+    // 按下即钉住对应轴向光标（触控无悬停阶段，会话期不依赖上一次 move）
+    table.setContainerCursor(RESIZE_CURSOR[handle.kind])
     return
   }
   // 填充柄按下：开启拖拽会话并抛按下事件（不改选区，填充生成不在内核）；
@@ -206,6 +208,8 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     return
   }
   if (table.resizeSession) {
+    // 会话期光标恒为对应轴向（列缘会话滑进表体/另一列上也不闪回缺省）
+    table.setContainerCursor(RESIZE_CURSOR[table.resizeSession.target.kind])
     updateResizeLine(table, event)
     return
   }
@@ -265,10 +269,10 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     }
     return
   }
-  // 填充柄十字光标（Excel 式）：走到此处即无任何会话（浮动图拖拽/resize/填充/表头拖选/
-  // 拖选均已提前返回）——指针悬停焦点段右下角柄命中区置 crosshair，未命中恢复缺省；
+  // 悬停光标：走到此处即无任何会话（浮动图拖拽/resize/填充/表头拖选/拖选均已提前返回）——
+  // resize 手柄 col-resize/row-resize、填充柄命中区 crosshair、其余恢复缺省；
   // 先于 hover 开关短路（光标管理与悬停绘制互相独立）
-  table.setContainerCursor(fillHandleHit(table, event.x, event.y) ? 'crosshair' : 'auto')
+  updatePointerCursor(table, event.x, event.y)
   // hover 显式开关：开启后不喂跟踪也不清浮层（hoverState 同时短路，绘制链路无输入）
   if (table.theme.hover.disableHover) {
     return
@@ -303,6 +307,8 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     }
     // 拖拽会话成功结束：尺寸落地后按目标抛列/行结束事件（尺寸为夹取后的生效值）
     emitResizeEnd(table, session.target)
+    // 尺寸落地后光标按落点重判：夹取到最小尺寸等场景指针可能已不贴缘
+    updatePointerCursor(table, event.x, event.y)
     return
   }
   if (table.fillDrag) {
@@ -784,6 +790,27 @@ function resizeGeometry(table: ListTable): ResizeGeometry {
     toContentX: (x) => toContentX(table, x),
     toContentY: (y) => toContentY(table, y),
   }
+}
+
+/** resize 手柄命中（canResizeCol/Row 能力随表选项）：按下与会话前光标判定共用同一口径 */
+function resizeHandleAt(table: ListTable, x: number, y: number): ResizeTarget | null {
+  return hitResizeHandle(x, y, resizeGeometry(table), {
+    canResizeCol: table.options.canResizeCol,
+    canResizeRow: table.options.canResizeRow,
+  })
+}
+
+/**
+ * 无会话时的指针光标：resize 手柄 → col-resize/row-resize，填充柄命中区 → crosshair，
+ * 其余恢复缺省；拖拽会话的会话期光标由各会话分支自行维持（见 onPointerMove）。
+ */
+function updatePointerCursor(table: ListTable, x: number, y: number): void {
+  const handle = resizeHandleAt(table, x, y)
+  if (handle) {
+    table.setContainerCursor(RESIZE_CURSOR[handle.kind])
+    return
+  }
+  table.setContainerCursor(fillHandleHit(table, x, y) ? 'crosshair' : 'auto')
 }
 
 /** 刷新 sky 浮层；仅在（或曾在）有内容时提交 sky 失效，避免空浮层空转整层重绘 */

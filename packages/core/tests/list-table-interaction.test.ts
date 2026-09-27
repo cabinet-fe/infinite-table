@@ -74,6 +74,21 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
   return { host, table }
 }
 
+/** 带假容器（记录 style.cursor 写入）的表：容器经 hostOptions 注入，供指针光标用例共用 */
+function createCursorTable(extra: Partial<ListTableOptions> = {}) {
+  const host = new StubHost()
+  const container = { style: { cursor: '' } } as unknown as HTMLElement
+  const table = new ListTable({
+    ...BASE_OPTIONS,
+    records: Array.from({ length: 10 }, (_, i) => ({ name: `r${i}` })),
+    host,
+    hostOptions: { container },
+    ...extra,
+  })
+  host.submitted.length = 0
+  return { host, container, table }
+}
+
 /** 绕过 EventSystem 直接在场景根上派发事件（hit-test 已由坐标换算替代） */
 function fire(root: SceneNode, type: SceneEventType, init: Partial<SceneEvent>): void {
   root.handleEvent({
@@ -691,6 +706,74 @@ describe('ListTable 行列 resize', () => {
     expect(table.getSelection().ranges).toEqual([
       { start: { col: 0, row: 0 }, end: { col: 9, row: 1 } },
     ])
+  })
+
+  // 手柄光标（Excel 口径）：列缘 col-resize、行缘 row-resize；数据格/表头带内非边缘恢复缺省
+  it('悬停列缘/行缘容器 cursor 为 col-resize/row-resize，离开边缘恢复缺省', () => {
+    const { host, container, table } = createCursorTable()
+    const cursor = () => container.style.cursor
+
+    // 第 0 列右缘视口 x = 148（列头带内），阈值 ±4px 内的 148 与 152 同为列手柄
+    fireBody(host, 'pointermove', { x: 148, y: 10 })
+    expect(cursor()).toBe('col-resize')
+    fireBody(host, 'pointermove', { x: 152, y: 10 })
+    expect(cursor()).toBe('col-resize')
+    // 列头带内非边缘（列中段）→ 恢复缺省
+    fireBody(host, 'pointermove', { x: 100, y: 10 })
+    expect(cursor()).toBe('auto')
+
+    // 第 1 行下缘视口 y = 36 + 64 = 100（行号列带内 x = 20）
+    fireBody(host, 'pointermove', { x: 20, y: 100 })
+    expect(cursor()).toBe('row-resize')
+    // 行号列带内非边缘 → 恢复缺省
+    fireBody(host, 'pointermove', { x: 20, y: 50 })
+    expect(cursor()).toBe('auto')
+
+    // 数据区（带内非表头）不命中任何手柄
+    fireBody(host, 'pointermove', { x: cellX(0), y: cellY(0) })
+    expect(cursor()).toBe('auto')
+    expect(table.getColWidth(0)).toBe(100)
+  })
+
+  it('拖拽会话期光标保持对应轴向（滑进表体/异轴边缘不闪回），抬起后按落点重判', () => {
+    const { host, container } = createCursorTable()
+    const cursor = () => container.style.cursor
+
+    // 列会话：按下 148 后拖到表体内（y 100，落在行缘上）仍是 col-resize
+    fireBody(host, 'pointerdown', { x: 148, y: 10 })
+    expect(cursor()).toBe('col-resize')
+    fireBody(host, 'pointermove', { x: 178, y: 100 })
+    expect(cursor()).toBe('col-resize')
+    // 抬起落点 (178, 100) 不在任何手柄区内（列 0 新右缘 178 但 y 在表体）→ 恢复缺省
+    fireBody(host, 'pointerup', { x: 178, y: 100 })
+    expect(cursor()).toBe('auto')
+
+    // 行会话：按下行缘后拖到列头带内的列缘上仍是 row-resize
+    fireBody(host, 'pointerdown', { x: 20, y: 100 })
+    expect(cursor()).toBe('row-resize')
+    fireBody(host, 'pointermove', { x: 178, y: 10 })
+    expect(cursor()).toBe('row-resize')
+    // 抬起落点 (178, 10) 正落在列 0 右缘（上一步已拖宽到 130）→ 按落点重判为 col-resize
+    fireBody(host, 'pointerup', { x: 178, y: 10 })
+    expect(cursor()).toBe('col-resize')
+  })
+
+  it('canResizeCol/canResizeRow 禁用侧不出现 resize 光标（与手柄命中同一闸）', () => {
+    const { host, container } = createCursorTable({
+      canResizeCol: (col) => col !== 0,
+      canResizeRow: () => false,
+    })
+    const cursor = () => container.style.cursor
+
+    // 列 0 被禁：列头带内其右缘不出 col-resize；列 1 右缘（48 + 200 = 248）照出
+    fireBody(host, 'pointermove', { x: 148, y: 10 })
+    expect(cursor()).toBe('auto')
+    fireBody(host, 'pointermove', { x: 248, y: 10 })
+    expect(cursor()).toBe('col-resize')
+
+    // 行手柄整体禁用：行下缘不出 row-resize
+    fireBody(host, 'pointermove', { x: 20, y: 100 })
+    expect(cursor()).toBe('auto')
   })
 })
 

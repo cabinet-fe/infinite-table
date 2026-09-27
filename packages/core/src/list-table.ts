@@ -911,8 +911,9 @@ export class ListTable {
   }
 
   /**
-   * @internal 容器光标写入（填充柄十字光标等指针光标管理）：直写 hostOptions.container
-   * 的 style.cursor；未传容器（无 DOM 环境/离屏构造）静默容错不抛错。
+   * @internal 容器光标写入（行列 resize 手柄 col-resize/row-resize、填充柄十字光标等
+   * 指针光标管理）：直写 hostOptions.container 的 style.cursor；
+   * 未传容器（无 DOM 环境/离屏构造）静默容错不抛错。
    */
   setContainerCursor(cursor: string): void {
     if (this.container) {
