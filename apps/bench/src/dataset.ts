@@ -17,8 +17,8 @@ export function createBenchColumns(): ColumnDefine[] {
   }))
 }
 
-export function createBenchRecords(): DataRecord[] {
-  return Array.from({ length: BENCH_ROWS }, (_, row) => {
+export function createBenchRecords(rows: number = BENCH_ROWS): DataRecord[] {
+  return Array.from({ length: rows }, (_, row) => {
     const record: DataRecord = {}
     for (let col = 0; col < BENCH_COLS; col++) {
       record[`f${col}`] = row * BENCH_COLS + col

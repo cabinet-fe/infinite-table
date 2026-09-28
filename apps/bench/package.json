@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "vp dev",
     "build": "vp build",
-    "bench": "bun --conditions dev src/headless.ts"
+    "bench": "bun --conditions dev src/headless.ts",
+    "vs": "node scripts/vs.mjs"
   },
   "dependencies": {
     "@infinite-table/core": "workspace:*",
     "@infinite-table/plugins": "workspace:*",
-    "@infinite-table/render": "workspace:*"
+    "@infinite-table/render": "workspace:*",
+    "@visactor/vtable": "^1.26.8"
   }
 }
