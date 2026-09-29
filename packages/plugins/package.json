@@ -1,5 +1,5 @@
 {
-  "name": "@infinite-table/plugins",
+  "name": "@infinitable/plugins",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,11 +14,11 @@
     "build": "vp build && node scripts/assert-chart-chunk.mjs"
   },
   "dependencies": {
-    "@infinite-table/core": "workspace:*",
+    "@infinitable/core": "workspace:*",
     "chart.js": "^4.5.1",
     "hucre": "^1.1.0"
   },
   "devDependencies": {
-    "@infinite-table/render": "workspace:*"
+    "@infinitable/render": "workspace:*"
   }
 }

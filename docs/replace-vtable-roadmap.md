@@ -1,4 +1,4 @@
-# 替换路线图：ultra-ui `sheet-core/src/grid/` 重写为 infinite-table 底座
+# 替换路线图：ultra-ui `sheet-core/src/grid/` 重写为 infinitable 底座
 
 > 定位：本文是 ultra-ui 侧执行「重写 `packages/sheet-core/src/grid/`（VTable 适配层，10 文件 2919 行）」的**操作手册**。
 > 接口面的权威清单是 [`docs/plugin-interface-map.md`](./plugin-interface-map.md)（下称「清单」）；本文按替换执行视角组织，与之冲突处以清单为准。
@@ -17,15 +17,15 @@
 | 7 | bench sheet 口径基线与防回归阈值 | ✅ S5 | `apps/bench/results/`、`src/thresholds.ts`（切换/逐格写/粘贴/冻结切换四场景） |
 | 8 | happy-dom 挂载安全（下游测试环境前提） | ✅ S5 | `packages/core/tests/happy-dom/`、`packages/plugins/tests/sheet/happy-dom-mount.test.ts` |
 
-替换红线：**grid/ 重写只允许 import `@infinite-table/core` 与 `@infinite-table/plugins` 两个公共入口的导出**（`hucre` 仅限 xlsx 导入导出的映射与装配用途，同清单红线修订）；清单与本文的映射表即允许面全集。发现缺口时先在本仓立项补公开面，不得绕行内部 API。
+替换红线：**grid/ 重写只允许 import `@infinitable/core` 与 `@infinitable/plugins` 两个公共入口的导出**（`hucre` 仅限 xlsx 导入导出的映射与装配用途，同清单红线修订）；清单与本文的映射表即允许面全集。发现缺口时先在本仓立项补公开面，不得绕行内部 API。
 
-## 一、接口面逐条映射表（VTable → infinite-table）
+## 一、接口面逐条映射表（VTable → infinitable）
 
 六分区对应 grid/ 的六类消费点（`sheet-grid.ts` buildOptions/实例方法、`grid-sync-manager.ts` 事件、`vtable-theme.ts` 主题、`grid-editor-router.ts` 编辑器、`grid-style-resolver.ts` 样式回调）。
 
 ### 1. 构造 options（`buildOptions()`）
 
-| VTable option | infinite-table 对应 | 语义差异 / 注意点 |
+| VTable option | infinitable 对应 | 语义差异 / 注意点 |
 | --- | --- | --- |
 | `records + columns[]`（field/title/width/style/editor/customLayout 回调） | `ListTableOptions.records/columns`（`ColumnDefine`） | **建议直接用 `model` 形态挂 SheetStore（见下行）**，records 展开可整体省略 |
 | —（VTable 无直挂模型，靠 `setRecords` 全量重放） | `model: store.asModel()`（SheetStore → TableModel） | 架构优势：按格 O(1) 读，免「批量 >64 格就 setRecords 全量刷」绕法（grid-sync-manager BATCH_FULL_REBUILD_THRESHOLD 整段消失） |
@@ -37,7 +37,7 @@
 | `showHeader` / `rowSeriesNumber{width,style}` | `showRowHeader/showColHeader` options + 行号列宽 `rowHeaderWidth` + 主题 `rowHeader` 分区 | 行列头开关引擎已公开（S7 P4：缺省 true；false 归一化为 `rowHeaderWidth=0`/`headerHeight=0`，与显式零宽/零高等价）；行号列样式走 `rowHeader` token |
 | `excelOptions: {fillHandle}` | 内置填充柄原语 + `bindFillGeneration`（生成写值） | 内核画柄+抛事件；生成算法在插件 `generateFill`（数字/日期/文本尾数字/复制） |
 | `editor: EDITOR_NAME` + `editCellTrigger: 'doubleclick'` | `EditorRegistry.registerEditor` + 双击内置 + `excelKeymapPreset`（editCellOnEnter） | 双击触发内置；Enter 键位用预设展开 options |
-| `frozenRowCount/frozenColCount`（**计数含表头**） | 构造 options + `setFrozenRowCount/setFrozenColCount` | **±1 换算**：ultra-ui 传「数据冻结数+1」，infinite-table 只收数据冻结数 |
+| `frozenRowCount/frozenColCount`（**计数含表头**） | 构造 options + `setFrozenRowCount/setFrozenColCount` | **±1 换算**：ultra-ui 传「数据冻结数+1」，infinitable 只收数据冻结数 |
 | `keyboardOptions` | `editCellOnEnter`、`ctrlMultiSelect` | 组合语义用 `excelKeymapPreset`；Ctrl+A 全选内置（角落点击）；编辑态方向键语义锁定：编辑会话中方向键不提交（`onEditEnd` 不触发）不移格（活动格不变），光标移动留在编辑器内——已由 `packages/core/tests/editing/editing-semantics.test.ts` 回归单测锁定 |
 | `customMergeCell(col,row,table)` | 构造 `mergeCells` + `setMergeCells/addMergeCell/removeMergeCell` | 动态回调改为显式集合替换（Store 为源，见 demo 冻结/合并面板）；合并区模型越界校验内置（抛错保持原状），跨冻结边界合并区合法（主格按冻结带钉固，见 `list-table-frozen-merge.test.ts`） |
 | `hover: {disableHover:true}` | 主题 `interaction.hoverCell/hoverBand` 置全透明 | 等价关闭 |
@@ -45,7 +45,7 @@
 
 ### 2. 实例方法 / 属性面
 
-| VTable / SheetGrid 调用 | infinite-table 公开 API | 语义差异 / 注意点 |
+| VTable / SheetGrid 调用 | infinitable 公开 API | 语义差异 / 注意点 |
 | --- | --- | --- |
 | `setRecords`（全量重建） | 多 sheet 用 `SheetBook` 实例池（切换重挂）；值写入走模型直挂 | 不需要等价物——这是要**删掉**的调用面 |
 | `changeCellValue(col,row,value)` | `updateCell(col,row,value)`（回驱模型）+ SheetStore 写路径 | 大块写入包 `batchUpdate`（收敛单次 band） |
@@ -70,7 +70,7 @@
 
 ### 3. 事件面（`ListTable.EVENT_TYPE` → `on*`）
 
-| VTable 事件 | infinite-table 订阅 | 注意点 |
+| VTable 事件 | infinitable 订阅 | 注意点 |
 | --- | --- | --- |
 | `CHANGE_CELL_VALUE` | `onCellChange`（col/row/oldValue/newValue） | 「程序化绕行回滚视图」语义由模型 echo 防回环（ModelBinding）承担 |
 | `RESIZE_ROW_END` / `RESIZE_COLUMN_END` | `onRowResizeEnd` / `onColResizeEnd` | 携带夹取后终值；持久化写 Store（demo persist.ts 先例） |
@@ -82,7 +82,7 @@
 
 ### 4. 主题面（`vtable-theme.ts` extends → `extendsTheme`）
 
-| VTable 主题项 | infinite-table token | 语义差异 / 注意点 |
+| VTable 主题项 | infinitable token | 语义差异 / 注意点 |
 | --- | --- | --- |
 | `underlayBackgroundColor` | `underlayBackgroundColor` | — |
 | `frameStyle`（线宽/色/阴影） | `frameStyle: { lineWidth, color, shadow }` | 阴影为布尔开关（固定观感），非 VTable 的自由阴影参数 |
@@ -94,7 +94,7 @@
 
 ### 5. 编辑器契约（`grid-editor-router.ts` → `EditorRegistry` + 插件）
 
-| ultra-ui 现状 | infinite-table 对应 | 注意点 |
+| ultra-ui 现状 | infinitable 对应 | 注意点 |
 | --- | --- | --- |
 | `register.editor(name, editor)` 全局注册表 + 单例 WeakMap 路由（绕 VTable 注册表泄露坑 #1） | `EditorRegistry.registerEditor`（实例级） | 泄露坑随 VTable 消失，路由层整段可删 |
 | `InputEditor/EditContext.onStart`（可替换初值：公式格显示 `=原文`） | 编辑初值=基础值口径（Store 存原文即天然成立）+ `createFormulaDisplay({ evaluate })` 显示层求值 | mini 求值器为 demo 参考实现；正式替换接 ultra-ui core/ 公式引擎 |
@@ -115,7 +115,7 @@
 
 ### 7. 触控滚动与惯性（sheet-core `bindTouchScroll` → 引擎内置）
 
-| 项 | ultra-ui 现状 | infinite-table 对应 |
+| 项 | ultra-ui 现状 | infinitable 对应 |
 | --- | --- | --- |
 | 触控滚动 | sheet-core `bindTouchScroll` 手写触控滚动（约 156 行：touch + pointer(touch/pen) 双通路增量驱动，无惯性段） | 引擎内置触控滚动 + 惯性（`packages/core/src/touch-scroll.ts`：TouchScrollTracker 最近 4 采样、end 按首末差求初速度；InertiaScroller 摩擦 0.95 按 16ms 基准帧幂次衰减、停止阈值 0.05 px/ms、双轴独立、位移取帧内平均速度），可直接替换手写实现 |
 
@@ -131,7 +131,7 @@
 
 ultra-ui 侧测试对 VTable 实例的依赖集中在三类手法，逐类给等价替换：
 
-| 重灾区 | 现状手法 | infinite-table 侧等价做法 | 先例 |
+| 重灾区 | 现状手法 | infinitable 侧等价做法 | 先例 |
 | --- | --- | --- | --- |
 | grid 层 11 个 vitest 的 `getTable()` 直调 | 测试拿 VTable 实例直调内部方法断言 | 改持 `ListTable` 公开面（本表第二节的同名/等价方法）；维度/合并等状态断言改走 SheetStore | `packages/plugins/tests/sheet/`（注入 StubHost 构造实例、公开 API 断言） |
 | `fireListeners(EVENT_TYPE.X, payload)` 事件模拟 | 手工向 VTable 派发内部事件 | ① 状态类：直接调公开 API（`selectCells/setFrozenColCount/...`）后断言订阅回调；② 指针类：合成 DOM 事件驱动（`dispatchPointer` 模式）；③ 编辑类：`startEdit/commitEdit` API + 假文档 | `apps/demo/src/smoke.ts`（合成事件全先例）、`packages/core/tests/list-table-interaction.test.ts`、`tests/editing/edit-manager.test.ts`（FakeDoc） |
@@ -147,23 +147,23 @@ ultra-ui `packages/sheet` 的 4 个 Playwright e2e 的迁移原则：**驱动层
 
 1. **保留**：e2e 的页面驱动（打开 playground、键盘/鼠标操作、断言 DOM/截图）全部不变——它们走 `SheetGrid` facade 之上的 Vue 层，而 Vue 层（`@veltra/sheet`）基本不替换。
 2. **需要核对的点**（每条 e2e 过一遍）：
-   - 选择器若命中 VTable 特有 DOM（内部容器类名、canvas 生成结构），改为 infinite-table 的稳定选择器：容器 `[data-layer-kind]` 分层 canvas、编辑浮层 `textarea/input`；
-   - 等待策略若依赖 VTable 渲染完成信号，改等 `?smoke=1` 同款的帧收敛（infinite-table 失效单帧收敛，无异步 scenegraph 重建等待）；
+   - 选择器若命中 VTable 特有 DOM（内部容器类名、canvas 生成结构），改为 infinitable 的稳定选择器：容器 `[data-layer-kind]` 分层 canvas、编辑浮层 `textarea/input`；
+   - 等待策略若依赖 VTable 渲染完成信号，改等 `?smoke=1` 同款的帧收敛（infinitable 失效单帧收敛，无异步 scenegraph 重建等待）；
    - 断言画布像素的用例：宿主容器 dpr 锁 1（demo `resolveDpr` 先例）。
 3. **跑法**：替换分支上 `pnpm test:e2e`（ultra-ui 既有命令）逐条跑绿；任何一条连绿三轮再进下一灰度级。
 
 ## 四、灰度顺序与回退点
 
 ```
-第 0 级（准备）：infinite-table 侧全量验证（bun run test / demo smoke / bench headless）全绿
+第 0 级（准备）：infinitable 侧全量验证（bun run test / demo smoke / bench headless）全绿
      ↓
-第 1 级：playground `sheet-big-data` 页面切 infinite-table 底座
+第 1 级：playground `sheet-big-data` 页面切 infinitable 底座
   - 改动点：playground 该页的 grid 装配换 SheetBook + SheetStore 装配（参照 apps/demo/src/sections/sheet.ts）
   - 验证点：该页手工回归（滚动/冻结/合并/编辑/填充/右键）+ 4 个 e2e 中涉及 sheet 的用例
   - 回退点：装配开关切回 VTable 实现（facade 不变，页面其余部分无感）
      ↓
 第 2 级：`packages/sheet`（正式组件）整体切换
-  - 改动点：`sheet-core/src/grid/` 10 文件重写为 infinite-table 适配（按本文第一节映射表逐条落），
+  - 改动点：`sheet-core/src/grid/` 10 文件重写为 infinitable 适配（按本文第一节映射表逐条落），
     GridSyncManager/编辑器路由/样式解析器的 VTable 绕坑代码全部删除（模型直挂、公开能力、实例级注册表）
   - 验证点：sheet 单测迁移完成（第二节清单）→ 4 个 e2e 连绿三轮 → playground 全站回归
   - 回退点：git revert 重写提交（grid/ 旧实现保留到第 2 级稳定一个迭代后删除）
@@ -176,6 +176,6 @@ ultra-ui `packages/sheet` 的 4 个 Playwright e2e 的迁移原则：**驱动层
 - `grid-sync-manager.ts` 的 BATCH_FULL_REBUILD_THRESHOLD 与 records 全量重放路径（模型直挂免重放）；
 - `grid-editor-router.ts` 的单例 WeakMap 路由与泄露坑绕行注释（#1 修复）；
 - `sheet-grid.ts` 的 `_canResizeRow` 猴补丁、`customLayout` 关 fast-update 绕行注释、`patchColumnHeaderDragExpand` 表头拖选连续扩展私有补丁（引擎已内置）；
-- 逐列 `setColWidth` 触发 scenegraph 全重建的绕行计数逻辑（infinite-table 列宽更新走增量失效）；
+- 逐列 `setColWidth` 触发 scenegraph 全重建的绕行计数逻辑（infinitable 列宽更新走增量失效）；
 - sheet-core `bindTouchScroll` 手写触控滚动（约 156 行，引擎内置触控 + 惯性直接替换，参数差异见第一节第 7 节）；
 - `image-layer.ts` 的 wheel 转发 + shift+deltaY→deltaX 换轴 capture 补丁（引擎侧滚轮归宿主接线 `scrollBy(deltaX, deltaY)`；换轴 3 行保留在宿主滚轮接线内）。

@@ -43,7 +43,7 @@ export {
 } from './grid-layout'
 export type { WindowRange } from './grid-layout'
 // 查询 API（getCellRelativeRect/getDrawRange）返回的矩形类型（渲染窄接口复用）
-export type { Region } from '@infinite-table/render'
+export type { Region } from '@infinitable/render'
 export { defaultTheme, extendsTheme } from './theme'
 export type {
   CellStyleTokens,

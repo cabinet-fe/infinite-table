@@ -2,7 +2,7 @@
 // 渲染器拿到的 ctx 已平移到格内局部原点；text/value 是取值管线的产物，
 // 自定义渲染器可以完全不用它们（与取值管线解耦，凭 col/row 自渲染任意内容）。
 
-import type { RenderContext } from '@infinite-table/render'
+import type { RenderContext } from '@infinitable/render'
 
 import {
   cellStyleFont,

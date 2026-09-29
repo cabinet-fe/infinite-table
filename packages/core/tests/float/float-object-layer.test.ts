@@ -3,7 +3,7 @@ import {
   type Invalidation,
   type LayerHandle,
   type RenderImageSource,
-} from '@infinite-table/render'
+} from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { ImageService, type LoadedImage } from '../../src/media/image-service'

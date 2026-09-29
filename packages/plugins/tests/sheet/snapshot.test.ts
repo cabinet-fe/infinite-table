@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { FloatObject, SelectionSnapshot } from '@infinite-table/core'
+import type { FloatObject, SelectionSnapshot } from '@infinitable/core'
 
 import { restore, snapshot } from '../../src/sheet/snapshot'
 import { SheetStore } from '../../src/sheet/sheet-store'

@@ -3,7 +3,7 @@
 // 分带建格与行列头装配、Excel 式文本溢出走廊支撑（refreshCell 的溢出联动依赖）。
 // 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
-import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
+import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 
 import { CellNode } from './cell-node'
 import { cellTextAnchorX } from './cell-renderer'

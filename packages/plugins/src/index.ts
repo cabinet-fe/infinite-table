@@ -1,6 +1,6 @@
 // 插件包公共入口：官方插件（首批为 sheet 插件，见 docs/plugin-interface-map.md）。
 // 只做具名导出：插件契约类型自 core 转出，后续插件能力经此入口对外提供（禁止 export *）。
-export type { TablePlugin } from '@infinite-table/core'
+export type { TablePlugin } from '@infinitable/core'
 
 // ---- sheet 插件（参考实现；ultra-ui 替换时由其无头模型层顶替） ----
 export { SheetStore } from './sheet/sheet-store'

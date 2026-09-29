@@ -1,6 +1,6 @@
 // P7 集成：ListTable 图片管线（L2 media 层 + ImageService 窗口化加载 + 无闪协议）与浮动对象层
 
-import type { RenderImageSource } from '@infinite-table/render'
+import type { RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '../src/list-table'

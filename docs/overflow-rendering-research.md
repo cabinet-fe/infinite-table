@@ -120,7 +120,7 @@ Univer 把「溢出区间计算」放在骨架层（skeleton），「绘制」�
 
 共识结论：三项目中两个实现了溢出的项目，走廊判定都是「内容阻断」而非「样式阻断」；溢出方向语义完全一致；都把「溢出文本不被走廊内线 / 背景覆盖」作为绘制次序问题解决（跳线 / 擦线 + 文本后画），而非文本排版问题。
 
-## 6. 本引擎现状（infinite-table，调研当日快照）
+## 6. 本引擎现状（infinitable，调研当日快照）
 
 以下为调研当日（2026-09-25，S9-P4）的引擎快照，行号与符号名同首段「调研当日」口径，不再代表现行实现。sheet-ux-fixes-2/3 后：走廊为按对齐双向走查且按文本缘收边（`textOverflowLimits` / `corridorCols`），clip 按对齐取走廊界 `[textMinX, textMaxX]`，走廊覆盖范围内竖线跳画（`CellNode.corridorInterior`，`paintBorders` 判定 `corridorInterior > col + 1`），z 序重挂双向化（含左溢 `textMinX < 0`）并按行重标走廊内部标记，测量缓存为 `measureTextWidthWith`（测量函数注入，绘制侧与场景侧共用）。现行实现与逐项取舍见 §7 各条正文与修订记录。
 

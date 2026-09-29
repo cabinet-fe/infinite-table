@@ -7,7 +7,7 @@
 // destroy——chart.js 的 destroy 会 clearCanvas 并复原画布属性（releaseContext），scratch
 // 像素不保证存活，产物必须先拷出。
 
-import type { LoadedImage } from '@infinite-table/core'
+import type { LoadedImage } from '@infinitable/core'
 
 import type { ChartJsModule } from './chart-loader'
 import { loadChartJs } from './chart-loader'

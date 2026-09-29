@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { type FloatDragEndEvent, ListTable } from '../src/index'
-import { createRenderHost } from '@infinite-table/render'
+import { createRenderHost } from '@infinitable/render'
 
 describe('monorepo 骨架冒烟', () => {
   it('core 与 render 公共入口可解析', () => {

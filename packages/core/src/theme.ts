@@ -243,8 +243,9 @@ function parseColorToken(color: string): RgbaColor | null {
   if (value.startsWith('#')) {
     const hex = value.slice(1)
     if (hex.length === 3 || hex.length === 4) {
-      const channels = [...hex].map((c) => parseInt(c + c, 16))
-      if (channels.some(Number.isNaN)) {
+      // 3/4 位 hex 只含 ASCII 码位，按码元拆分与码点等价
+      const channels = hex.split('').map((c) => parseInt(c + c, 16))
+      if (channels.some((c) => Number.isNaN(c))) {
         return null
       }
       return { r: channels[0]!, g: channels[1]!, b: channels[2]!, a: (channels[3] ?? 255) / 255 }

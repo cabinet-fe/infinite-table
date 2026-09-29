@@ -2,7 +2,7 @@
 // （矩形由调用方换算，含表头/行号偏移与冻结区）。DOM 依赖收敛在最小结构接口上，
 // 真实 Document/HTMLElement 天然满足，无 DOM 环境可注入假实现。
 
-import type { Region } from '@infinite-table/render'
+import type { Region } from '@infinitable/render'
 
 /** 编辑器键盘事件最小结构（真实 KeyboardEvent 天然满足） */
 export interface EditorKeyEvent {

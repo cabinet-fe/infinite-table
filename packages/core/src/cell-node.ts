@@ -1,12 +1,7 @@
 // 单元格场景节点：背景 → 内容（内置 cellType 或自定义渲染 hook）→ 逐边边框。
 // 列头/行号列复用同一节点（无 cellType/renderer，样式参数不同）。
 
-import {
-  SceneNode,
-  type Region,
-  type RenderContext,
-  type SceneNodeInit,
-} from '@infinite-table/render'
+import { SceneNode, type Region, type RenderContext, type SceneNodeInit } from '@infinitable/render'
 
 import { BUILTIN_CELL_RENDERERS, type CellRenderer, type CellType } from './cell-renderer'
 import { cellStyleFont, type CellBorder, type CellBorderEdge, type CellStyle } from './cell-style'

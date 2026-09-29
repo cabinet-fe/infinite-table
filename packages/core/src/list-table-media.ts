@@ -4,7 +4,7 @@
 // 离屏出图，经 cell 级 MediaCache LRU 缓存与 blit，无闪协议同图片）。
 // 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
-import type { LayerHandle } from '@infinite-table/render'
+import type { LayerHandle } from '@infinitable/render'
 
 import { computeScrollableColWindow, computeScrollableRowWindowFromOffsets } from './grid-layout'
 import { ChartCellNode } from './media/chart-cell-node'
@@ -236,7 +236,7 @@ function requestChartBitmap(
       .then(() => media.produce(size))
       .catch((): LoadedImage | null => null)
     table.chartRenderTasks.set(cacheKey, task)
-    task.then((image) => {
+    void task.then((image) => {
       table.chartRenderTasks.delete(cacheKey)
       if (image && !table.destroyed) {
         table.mediaCache.put(cacheKey, image, Math.round(image.width * image.height * 4))
@@ -244,7 +244,7 @@ function requestChartBitmap(
     })
   }
   // 每个请求方各自等待落定回填（同 key 多格共享一次出图、各贴各格）
-  task.then((image) => {
+  void task.then((image) => {
     if (!image || table.destroyed) {
       return
     }

@@ -1,7 +1,7 @@
 // 测试辅助：在层场景树中按格坐标深度优先查找 CellNode。
 // R2-5 后表头节点收进 body root 的表头容器（非直接子节点），查找需递归下钻。
 
-import type { SceneNode } from '@infinite-table/render'
+import type { SceneNode } from '@infinitable/render'
 
 import { CellNode } from '../../src/cell-node'
 

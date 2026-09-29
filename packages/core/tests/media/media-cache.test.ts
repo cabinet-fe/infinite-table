@@ -1,4 +1,4 @@
-import type { RenderImageSource } from '@infinite-table/render'
+import type { RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { MediaCache } from '../../src/media/media-cache'

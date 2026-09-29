@@ -1,18 +1,18 @@
 {
-  "name": "infinite-table",
+  "name": "infinitable",
   "private": true,
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "playground"
   ],
   "type": "module",
   "scripts": {
     "build": "tsc -b && bun run --filter './packages/*' build",
     "test": "vp test run",
+    "check": "vp check",
     "lint": "vp lint && bun run check:deps",
     "fmt": "vp fmt --write .",
     "fmt:check": "vp fmt --check .",
-    "typecheck": "tsc -b",
     "check:deps": "bun scripts/check-core-deps.ts",
     "check:exports": "node scripts/check-package-exports.mjs"
   },

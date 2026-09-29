@@ -14,7 +14,7 @@ export const FORMULA_ERROR_CODES = [
 
 export type FormulaErrorCode = (typeof FORMULA_ERROR_CODES)[number]
 
-const ERROR_BRAND: unique symbol = Symbol('infinite-table.formula-error')
+const ERROR_BRAND: unique symbol = Symbol('infinitable.formula-error')
 
 /** 求值过程中的错误标记（不参与普通值运算，遇运算即传播） */
 export interface FormulaError {

@@ -7,7 +7,7 @@ import type {
   TextEditorElement,
   TextEditorElementStyle,
   TextEditorHost,
-} from '@infinite-table/core'
+} from '@infinitable/core'
 
 export class FakeEditorElement implements TextEditorElement {
   value = ''

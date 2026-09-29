@@ -3,7 +3,7 @@
 // 构造即应用 Store 的冻结/合并状态、创建后应用行列尺寸覆盖）；同 id 复用实例（池化）。
 // switchTo 返回活跃实例并抛 change 事件，DOM 呈现（容器重挂/显隐）归宿主——即「切换全量重挂」。
 
-import { ListTable, type CellRange, type ListTableOptions } from '@infinite-table/core'
+import { ListTable, type CellRange, type ListTableOptions } from '@infinitable/core'
 
 import type { SheetStore } from './sheet-store'
 

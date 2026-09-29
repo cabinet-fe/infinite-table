@@ -3,8 +3,8 @@
 // Date 日期序列（按天）、文本尾数字序列（保留前导零）、复制兜底（非序列值循环复制）。
 // 只依赖 core 公开入口；写路径由宿主提供（配合 batchUpdate 收敛），内核不产生写值行为。
 
-import { normalizeRange } from '@infinite-table/core'
-import type { FillDragEndEvent, ListTable, RangeBounds } from '@infinite-table/core'
+import { normalizeRange } from '@infinitable/core'
+import type { FillDragEndEvent, ListTable, RangeBounds } from '@infinitable/core'
 
 /** 填充生成的单个目标格 */
 export interface FillCell {

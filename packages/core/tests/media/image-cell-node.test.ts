@@ -1,6 +1,6 @@
 // ImageCellNode 单测：无闪协议占位延迟 + body 视口裁剪（边缘半格不画进表头/行号列）
 
-import type { RenderImageSource } from '@infinite-table/render'
+import type { RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { ImageCellNode } from '../../src/media/image-cell-node'

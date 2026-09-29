@@ -1,4 +1,4 @@
-import type { RenderContext } from '@infinite-table/render'
+import type { RenderContext } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'

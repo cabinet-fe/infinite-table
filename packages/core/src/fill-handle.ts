@@ -1,7 +1,7 @@
 // 填充柄交互原语（P0-6）：焦点段右下角方点的几何、命中判定与按下/拖拽结束事件载荷。
 // 填充生成算法不在内核——宿主（适配层）据锚定段与拖拽目标范围自行实现 generateFill。
 
-import type { Region } from '@infinite-table/render'
+import type { Region } from '@infinitable/render'
 
 import type { CellRef } from './types'
 

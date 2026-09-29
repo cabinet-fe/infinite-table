@@ -3,7 +3,7 @@
 // 2) 编辑器字符上限经公开配置（options 级 / 列级覆盖 / 未配置）生效。
 // editorMultiline 之外的编辑缺省行为见 edit-manager.test.ts / text-editor.test.ts。
 
-import type { SceneEvent } from '@infinite-table/render'
+import type { SceneEvent } from '@infinitable/render'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../../src/editor-registry'

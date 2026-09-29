@@ -2,7 +2,7 @@
 // 表格 → 外部：onSelectionChange 驱动 apply；外部 → 表格：syncFromExternal 经
 // applyExternalSelection 回流（引擎侧不广播，天然断开一路回环）；选区签名判重兜住宿主侧回环。
 
-import type { ListTable, SelectionSnapshot } from '@infinite-table/core'
+import type { ListTable, SelectionSnapshot } from '@infinitable/core'
 
 export interface SelectionSyncOptions {
   table: ListTable

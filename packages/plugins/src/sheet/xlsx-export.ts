@@ -1,10 +1,10 @@
 // xlsx 导出引擎化：SheetStore（+ 合并区 / 行列尺寸 / 浮动图列表）→ hucre WriteSheet 的纯映射。
-// 自 demo 装配层提升（apps/demo/src/sections/sheet/xlsx.ts 导出段）；取数走 Store 公开读取面：
+// 自 demo 装配层提升（playground/src/sections/sheet/xlsx.ts 导出段）；取数走 Store 公开读取面：
 // 值经 getDisplayValue、样式经 getEffectiveStyle（P5 模型侧读取 API，含基础/列级/格级合成）。
 // 浮动图输入对齐 P6 快照 images 字段（FloatObject[]），锚定几何按当前行列尺寸换算（P7 口径，
 // 见 floatObjectsToSheetImages）。产物为纯数据（可结构化克隆发 worker），hucre 为纯 ESM 零依赖。
 
-import type { CellBorderEdge, CellStyle, FloatObject } from '@infinite-table/core'
+import type { CellBorderEdge, CellStyle, FloatObject } from '@infinitable/core'
 import type {
   AlignmentStyle as HucreAlignment,
   BorderSide as HucreBorderSide,

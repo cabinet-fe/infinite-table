@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ListTableOptions } from '@infinite-table/core'
+import type { ListTableOptions } from '@infinitable/core'
 
 import { excelKeymapPreset } from '../../src/sheet/keymap'
 

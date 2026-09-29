@@ -1,6 +1,6 @@
 // 测试用注入式假宿主：core 只依赖 RenderHost 窄接口，stub 记录失效提交
 
-import { SceneNode } from '@infinite-table/render'
+import { SceneNode } from '@infinitable/render'
 import type {
   FrameTask,
   Invalidation,
@@ -10,7 +10,7 @@ import type {
   RenderCanvas,
   RenderHost,
   Size,
-} from '@infinite-table/render'
+} from '@infinitable/render'
 
 export class StubLayer implements LayerHandle {
   readonly root = new SceneNode({ pickable: false })

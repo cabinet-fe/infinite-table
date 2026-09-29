@@ -1,4 +1,4 @@
-import type { RenderContext } from '@infinite-table/render'
+import type { RenderContext } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { projectCellStyle, type CellStyle } from '../src/cell-style'

@@ -9,7 +9,7 @@ import {
   type CellRange,
   type CellStyle,
   type TableModel,
-} from '@infinite-table/core'
+} from '@infinitable/core'
 
 /** Store 变更事件类型：value 值 / style 样式（格级或列级） / geometry 行列尺寸 / freeze 冻结 / merge 合并区 / rebuild 批量重建汇总 */
 export type SheetStoreChangeType = 'value' | 'style' | 'geometry' | 'freeze' | 'merge' | 'rebuild'

@@ -1,5 +1,5 @@
-import { SceneNode } from '@infinite-table/render'
-import type { FrameTask, SceneEvent, SceneEventType } from '@infinite-table/render'
+import { SceneNode } from '@infinitable/render'
+import type { FrameTask, SceneEvent, SceneEventType } from '@infinitable/render'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'

@@ -2,7 +2,7 @@
 // 编辑体验对齐 ultra-ui resolveEditText：编辑初值取基础值（= 原文）由引擎保证，
 // 下游公式栏镜像订阅 onEditStart/onEditEnd（core S1 事件）。
 
-import type { ListTableOptions } from '@infinite-table/core'
+import type { ListTableOptions } from '@infinitable/core'
 
 /** 求值器：入参为公式体（不含前导 =，如 'A1+1'）与目标格坐标；无法求值返回 null/undefined 或抛错 */
 export type FormulaEvaluator = (

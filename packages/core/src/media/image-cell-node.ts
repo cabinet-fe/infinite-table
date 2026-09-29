@@ -2,12 +2,7 @@
 // 无闪协议——位图就绪前只在 placeholderDelay 之后画确定性占位（快速滚过不闪占位），
 // 位图就绪后由 ListTable 定向失效本格，单帧切换，无"先按错误尺寸渲一帧再调整"。
 
-import {
-  SceneNode,
-  type Region,
-  type RenderContext,
-  type SceneNodeInit,
-} from '@infinite-table/render'
+import { SceneNode, type Region, type RenderContext, type SceneNodeInit } from '@infinitable/render'
 
 import {
   MEDIA_CELL_BACKGROUND,

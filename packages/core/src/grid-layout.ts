@@ -1,6 +1,6 @@
 // 网格几何：行列偏移与虚拟滚动窗口计算（纯函数，便于单测）
 
-import type { Region } from '@infinite-table/render'
+import type { Region } from '@infinitable/render'
 
 /** 窗口区间 [start, end) */
 export interface WindowRange {

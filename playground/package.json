@@ -1,0 +1,23 @@
+{
+  "name": "@infinitable/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "preview": "vp preview"
+  },
+  "dependencies": {
+    "@infinitable/core": "workspace:*",
+    "@infinitable/formulas": "workspace:*",
+    "@infinitable/plugins": "workspace:*",
+    "@infinitable/render": "workspace:*",
+    "@visactor/vtable": "^1.26.8",
+    "hucre": "^1.1.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0"
+  }
+}

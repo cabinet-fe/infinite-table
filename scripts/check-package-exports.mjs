@@ -6,11 +6,10 @@
 import { existsSync } from 'node:fs'
 
 const PACKAGES = [
-  { name: '@infinite-table/render', dir: 'packages/render', bundle: 'dist/render.js' },
-  { name: '@infinite-table/core', dir: 'packages/core', bundle: 'dist/core.js' },
-  { name: '@infinite-table/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
-  { name: '@infinite-table/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
-  { name: '@infinite-table/utils', dir: 'packages/utils', bundle: 'dist/utils.js' },
+  { name: '@infinitable/render', dir: 'packages/render', bundle: 'dist/render.js' },
+  { name: '@infinitable/core', dir: 'packages/core', bundle: 'dist/core.js' },
+  { name: '@infinitable/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
+  { name: '@infinitable/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
 ]
 
 let failed = false

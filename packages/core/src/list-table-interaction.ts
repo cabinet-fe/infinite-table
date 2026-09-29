@@ -3,7 +3,7 @@
 // 视口命中与坐标换算、滚动跟随、sky 浮层刷新。以 ListTable 实例为参数的协作函数，
 // 只触碰表实例上标注 @internal 的内部成员。
 
-import type { Region, SceneEvent } from '@infinite-table/render'
+import type { Region, SceneEvent } from '@infinitable/render'
 
 import type {
   FillDragEndEvent,

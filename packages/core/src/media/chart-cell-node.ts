@@ -3,12 +3,7 @@
 // 无闪协议同图片格：cell 级缓存命中即首帧直贴真实位图；未命中在 placeholderDelay 之前
 // 连占位都不画，出图完成由 ListTable 定向失效本格、单帧切换。
 
-import {
-  SceneNode,
-  type Region,
-  type RenderContext,
-  type SceneNodeInit,
-} from '@infinite-table/render'
+import { SceneNode, type Region, type RenderContext, type SceneNodeInit } from '@infinitable/render'
 
 import {
   MEDIA_CELL_BACKGROUND,

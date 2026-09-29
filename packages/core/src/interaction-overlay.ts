@@ -2,7 +2,7 @@
 // 浮层节点不可拾取（pickable: false），指针事件穿透到 body 层。
 // 绘制颜色/宽度唯一来源为主题 interaction 分区 token（构造时传入生效主题的解析值）。
 
-import { SceneNode, type Region, type RenderContext } from '@infinite-table/render'
+import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 
 import { fillHandleRect } from './fill-handle'
 import type { WindowRange } from './grid-layout'

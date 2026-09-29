@@ -15,12 +15,12 @@ describe('plugins 公共入口', () => {
       },
     }
     expect(plugin.name).toBe('entry-smoke')
-    expect(plugin.mount).toBeTypeOf('function')
+    expect(typeof plugin.mount).toBe('function')
     plugin.mount?.({} as Parameters<TablePlugin['mount']>[0])
     expect(mounted).toEqual(['mounted'])
 
     // 可选卸载钩子可省略
     const minimal: TablePlugin = { name: 'minimal', mount: () => {} }
-    expect(minimal.unmount).toBeUndefined()
+    expect('unmount' in minimal).toBe(false)
   })
 })

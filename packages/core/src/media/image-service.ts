@@ -3,7 +3,7 @@
 // 解码位图 LRU（bytes 计量、超预算逐出最久未用且不在窗口内的条目）、
 // hasResource 同步查询支撑首帧无闪、error 态必触发 onImageError（消灭"永远 loading"）。
 
-import type { RenderImageSource } from '@infinite-table/render'
+import type { RenderImageSource } from '@infinitable/render'
 
 import type { CellRef } from '../types'
 

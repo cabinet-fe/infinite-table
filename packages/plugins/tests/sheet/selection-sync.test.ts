@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SelectionSnapshot } from '@infinite-table/core'
+import type { SelectionSnapshot } from '@infinitable/core'
 
-import { ListTable } from '@infinite-table/core'
+import { ListTable } from '@infinitable/core'
 
 import { bindSelectionSync } from '../../src/sheet/selection-sync'
 import { StubHost } from '../testing/stub-host'
@@ -40,9 +40,10 @@ describe('bindSelectionSync 选区双向同步', () => {
     expect(applied).toHaveLength(1)
     expect(applied[0]?.ranges).toEqual([{ start: { col: 0, row: 0 }, end: { col: 0, row: 0 } }])
 
-    // 外部变化 → 回流表格（applyExternalSelection 不广播，不再触发 apply）
+    // 外部变化 → 回流表格（applyExternalSelection 不广播，不再触发 apply）；
+    // focus col:2 越出 2 列数据区，回写按钳制语义收敛到末列 col:1
     controller.syncFromExternal()
-    expect(table.getSelection().focus).toEqual({ col: 2, row: 2 })
+    expect(table.getSelection().focus).toEqual({ col: 1, row: 2 })
     expect(applied).toHaveLength(1)
 
     // 回流后表格选区与外部一致：再次 syncFromExternal 同签名零开销

@@ -12,9 +12,6 @@
   "references": [
     {
       "path": "../render"
-    },
-    {
-      "path": "../utils"
     }
   ]
 }

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { FloatObject } from '@infinite-table/core'
+import type { FloatObject } from '@infinitable/core'
 
 import { decodeDataUrlImage, sheetToWriteSheet } from '../../src/sheet/xlsx-export'
 import { SheetStore } from '../../src/sheet/sheet-store'

@@ -32,7 +32,7 @@ import {
   type Region,
   type RenderHost,
   type SceneNode,
-} from '@infinite-table/render'
+} from '@infinitable/render'
 
 import type { CellNode } from './cell-node'
 import { MergeCellMap, normalizeCellRange } from './cell-range'

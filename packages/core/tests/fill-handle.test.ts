@@ -1,5 +1,5 @@
-import { SceneNode } from '@infinite-table/render'
-import type { Region, SceneEvent, SceneEventType } from '@infinite-table/render'
+import { SceneNode } from '@infinitable/render'
+import type { Region, SceneEvent, SceneEventType } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import {

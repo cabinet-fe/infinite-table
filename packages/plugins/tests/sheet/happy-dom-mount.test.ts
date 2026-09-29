@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable } from '@infinite-table/core'
+import { ListTable } from '@infinitable/core'
 import { SheetStore } from '../../src/sheet/sheet-store'
 
 describe('SheetStore + ListTable happy-dom 挂载', () => {

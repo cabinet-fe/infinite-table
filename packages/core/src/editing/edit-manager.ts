@@ -4,7 +4,7 @@
 // 随后局部刷新该格并抛 onCellChange（col/row/oldValue/newValue）。
 // 编辑中订阅滚动帧：浮层逐帧对齐锚定格最新视口矩形，锚定格滚出视口按 Enter 语义自动提交。
 
-import type { Region } from '@infinite-table/render'
+import type { Region } from '@infinitable/render'
 
 import type { EditorRegistry } from '../editor-registry'
 import type { ScrollState } from '../scroll-manager'

@@ -3,7 +3,7 @@
 // （undo setValue(oldValue) / redo setValue(newValue)，经模型事件触发表格局部刷新）；
 // 结构命令（冻结/合并/尺寸）由宿主包装命令对象入栈。
 
-import type { CellChangeEvent, ListTable } from '@infinite-table/core'
+import type { CellChangeEvent, ListTable } from '@infinitable/core'
 
 import type { SheetStore } from './sheet-store'
 

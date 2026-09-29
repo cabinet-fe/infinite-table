@@ -1,4 +1,4 @@
-# infinite-table
+# infinitable
 
 高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **27KB**。
 
@@ -11,22 +11,22 @@
 - **图表格位图路由**：Chart.js 离屏出图经 cell 级 MediaCache LRU blit 上屏，滚动滚回命中直贴无闪。
 - **插件体系**：sheet（SheetBook 多表实例池）、图表、填充、undo 等以插件挂载。
 
-## 性能对比：infinite-table vs @visactor/vtable
+## 性能对比：infinitable vs @visactor/vtable
 
 同一页面、同一数据（10 万 / 100 万行 × 20 列）、同视口（1280×720、行高 32、列宽 100、无冻结、双方默认主题、公开 API 直调）。每个规模按 `[本仓, VTable, VTable, 本仓]` 对称跑序各 2 轮取均值。「快 N×」= VTable 耗时 / 本仓耗时（吞吐类反之），±5% 内记持平。
 
 ### 最小构建体积
 
-| 口径     | infinite-table | VTable 1.26.8 | 对比         |
-| -------- | -------------- | ------------- | ------------ |
-| minified | **93.8KB**     | 2076.3KB      | **快 22.1×** |
-| gzip     | **27.3KB**     | 514.8KB       | **快 18.9×** |
+| 口径     | infinitable | VTable 1.26.8 | 对比         |
+| -------- | ----------- | ------------- | ------------ |
+| minified | **93.8KB**  | 2076.3KB      | **快 22.1×** |
+| gzip     | **27.3KB**  | 514.8KB       | **快 18.9×** |
 
 最小渲染面入口（`ListTable` + `createRenderHost`），bun build `--minify --target=browser` 产物实测；gzip 按产物文件分别压缩求和。
 
 ### 10 万行 × 20 列（领先 8 / 10 项）
 
-| 指标                     | infinite-table | VTable     | 对比     |
+| 指标                     | infinitable    | VTable     | 对比     |
 | ------------------------ | -------------- | ---------- | -------- |
 | 构造耗时 P50             | **1.70ms**     | 26.85ms    | 快 15.8× |
 | 单次大幅跳转 JS 耗时 P95 | **1.45ms**     | 11.10ms    | 快 7.7×  |
@@ -41,7 +41,7 @@
 
 ### 100 万行 × 20 列（领先 7 / 10 项）
 
-| 指标                     | infinite-table | VTable     | 对比    |
+| 指标                     | infinitable    | VTable     | 对比    |
 | ------------------------ | -------------- | ---------- | ------- |
 | 单次大幅跳转 JS 耗时 P95 | **1.25ms**     | 10.25ms    | 快 8.2× |
 | 构造耗时 P50             | **12.00ms**    | 42.30ms    | 快 3.5× |
@@ -61,26 +61,27 @@
 - **体积差一个数量级**：gzip 27KB vs 515KB（1/19）。
 - FPS 持平项为测试机（Apple Silicon Chrome）上两库均满帧的真实反映；帧预算敏感场景（低端机、大步长滚动）的差距体现在「滚动调用 JS 耗时」与「跳转 JS 耗时」上。
 
-> 采样环境：macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25` · 2026-09-28。完整可分发报告与 JSON 基线见 `apps/bench/results/`。
+> 采样环境：macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25` · 2026-09-28。完整可分发报告与 JSON 基线见 `playground/results/`。
 
 ## 复现基准
 
 ```bash
-cd apps/bench
-bun run vs       # vs-vtable 全量对比：体积 + 10 万/100 万行双规模，产出静态 HTML/JSON 报告
-bun run bench    # 本仓自基准（headless）：TTFF / 滚动 FPS / 失效面积 / sheet / 图表格 10 场景防回归
-bun run dev      # 浏览器实时基准页（index.html）与对比页（/vs.html）
+bun run test             # 全仓测试 + 量化基准回归（headless）：TTFF / 滚动 FPS / 失效面积 / sheet / 图表格 10 场景防回归
+node scripts/smoke.mjs   # 浏览器冒烟自检（playground 下：构建 + preview + 页内断言；依赖全局 playwright-cli）
+node scripts/vs.mjs      # vs-vtable 全量对比（playground 下：headless 驱动）：体积 + 10 万/100 万行双规模，产出静态 HTML/JSON 报告
 ```
+
+playground 本地开发：`cd playground && bun run dev`（示例 + 页内「vs VTable 对比」按钮即跑 + 总览）。页内对比：左侧菜单「性能 → vs VTable 对比」，点击「运行对比」即在当前页面交替渲染两库并输出逐指标报告（与 `node scripts/vs.mjs` 同口径同跑序）。
 
 ## 快速开始
 
 ```bash
-bun add @infinite-table/core @infinite-table/render
+bun add @infinitable/core @infinitable/render
 ```
 
 ```ts
-import { ListTable } from '@infinite-table/core'
-import { createRenderHost } from '@infinite-table/render'
+import { ListTable } from '@infinitable/core'
+import { createRenderHost } from '@infinitable/render'
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const host = createRenderHost({ width: 1280, height: 720, container })
@@ -97,23 +98,23 @@ const table = new ListTable({
 })
 ```
 
-数据三形态任选：`records` 数组 / `model`（如 `SheetStore.asModel()` 模型直挂）/ `rowCount` + `resolveDisplayValue` 钩子。交互接线（滚轮 `scrollBy`、编辑器、主题派生）与万行级完整示例见 `apps/demo`。
+数据三形态任选：`records` 数组 / `model`（如 `SheetStore.asModel()` 模型直挂）/ `rowCount` + `resolveDisplayValue` 钩子。交互接线（滚轮 `scrollBy`、编辑器、主题派生）与万行级完整示例见 `playground`。
 
 ## 仓库结构
 
 ```
-packages/   core（表格主体）· render（canvas 渲染引擎）· plugins（sheet/图表/填充/undo）· formulas（公式引擎）· utils
-apps/       demo（演示与冒烟）· bench（量化基准 + vs-vtable 对比）· playground（ultra-ui 引擎替换演练场）
+packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（sheet/图表/填充/undo）· formulas（公式引擎）
+playground/  唯一应用：示例总览（显示/交互/编辑/sheet/报表/图表/图片）+ 页内 vs VTable 对比 + 量化基准（bench.html）+ 冒烟自检
 ```
 
 ## 开发
 
 ```bash
 bun install
-bun run build       # tsc -b + 各包 vite 库构建
-bun run test        # vitest
+bun run build       # tsc -b（d.ts 产物）+ 各包 vite 库构建
+bun run test        # vitest（含 headless 量化基准回归，一律吃 workspace 源码）
+bun run check       # vp check：oxfmt + oxlint + tsgolint 类型检查三合一
 bun run lint        # vp lint + core 依赖检查
-bun run typecheck
 ```
 
 MIT License。

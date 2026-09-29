@@ -1,5 +1,5 @@
-import { SceneNode } from '@infinite-table/render'
-import type { Region, RenderContext } from '@infinite-table/render'
+import { SceneNode } from '@infinitable/render'
+import type { Region, RenderContext } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { FILL_HANDLE_SIZE } from '../src/fill-handle'
@@ -241,7 +241,8 @@ describe('交互浮层主题 token', () => {
       (rect) => rect.fill === 'rgba(46, 106, 219, 0.08)' && rect.x === 248,
     )
     const anchorBorderIndex = ctx.rects.findIndex(
-      (rect) => rect.fill === '#2e6adb' && rect.x === 248 && rect.width === 100 && rect.height === 2,
+      (rect) =>
+        rect.fill === '#2e6adb' && rect.x === 248 && rect.width === 100 && rect.height === 2,
     )
     const highlightIndex = ctx.rects.findIndex((rect) => rect.fill === '#ff0000')
     expect(anchorFillIndex).toBeGreaterThanOrEqual(0)

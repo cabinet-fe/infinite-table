@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SceneNode } from '@infinite-table/render'
+import type { SceneNode } from '@infinitable/render'
 
 import { CellNode } from '../src/cell-node'
 import { FrameNode, UnderlayNode } from '../src/list-table-scene'

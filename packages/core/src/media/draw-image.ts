@@ -1,7 +1,7 @@
 // media 内容共享的绘制助手：确定性占位、fit 语义位图绘制、body 视口裁剪
 // （图片格、图表格与浮动对象共用）
 
-import type { Region, RenderContext } from '@infinite-table/render'
+import type { Region, RenderContext } from '@infinitable/render'
 
 import type { LoadedImage } from './image-service'
 

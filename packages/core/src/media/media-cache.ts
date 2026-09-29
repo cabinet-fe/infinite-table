@@ -2,7 +2,7 @@
 // 按格 key 缓存解码位图，LRU 淘汰，容量受 bytes 与条数双重预算约束。
 // media 层滚动帧只 blit 命中位图，不重算格内容。
 
-import type { RenderImageSource } from '@infinite-table/render'
+import type { RenderImageSource } from '@infinitable/render'
 
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 const DEFAULT_MAX_COUNT = 1000

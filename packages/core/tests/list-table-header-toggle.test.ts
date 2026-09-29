@@ -2,8 +2,8 @@
 // 渲染（关闭侧不建表头节点）、命中、选区（角点全选/表头拖选不触发、表体拖选不回归）、
 // resize（关闭侧手柄不可命中、开放侧不回归）、右键落点区域、编辑浮层定位全链路三态覆盖。
 
-import type { SceneEvent, SceneEventType } from '@infinite-table/render'
-import { SceneNode } from '@infinite-table/render'
+import type { SceneEvent, SceneEventType } from '@infinitable/render'
+import { SceneNode } from '@infinitable/render'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'

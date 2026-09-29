@@ -10,7 +10,7 @@ export default defineConfig({
       formats: ['es'],
     },
     rollupOptions: {
-      external: /^@infinite-table\//,
+      external: /^@infinitable\//,
     },
   },
 })

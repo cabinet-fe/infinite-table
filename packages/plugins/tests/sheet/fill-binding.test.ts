@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { SceneNode } from '@infinite-table/render'
-import type { SceneEvent, SceneEventType } from '@infinite-table/render'
+import { SceneNode } from '@infinitable/render'
+import type { SceneEvent, SceneEventType } from '@infinitable/render'
 
-import { ListTable } from '@infinite-table/core'
+import { ListTable } from '@infinitable/core'
 
 import { bindFillGeneration, type FillCell } from '../../src/sheet/fill'
 import { SheetStore } from '../../src/sheet/sheet-store'

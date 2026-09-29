@@ -1,6 +1,6 @@
 // core 公共类型：数据供给三形态（records/columns、按格 hook、模型事件订阅）与 ListTable 配置
 
-import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinite-table/render'
+import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
 
 import type { CellRange } from './cell-range'
 import type { CellType, ResolveCellRenderer } from './cell-renderer'

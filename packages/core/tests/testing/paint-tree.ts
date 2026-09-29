@@ -4,7 +4,7 @@
 // （translate 边界）切分、段按「x,y」坐标键稳定排序。
 // 依据：非重叠节点的段间次序对像素无影响（重叠 z 序不变量由树序断言单独覆盖），
 // 因此规范序绘制流全等 ⇔ 逐像素等价。
-import type { SceneNode } from '@infinite-table/render'
+import type { SceneNode } from '@infinitable/render'
 
 import { RecordingContext, type RecordedCall } from './recording-context'
 

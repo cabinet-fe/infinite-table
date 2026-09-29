@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { EditorRegistry, ListTable } from '@infinite-table/core'
+import { EditorRegistry, ListTable } from '@infinitable/core'
 
 import { SheetStore } from '../../src/sheet/sheet-store'
 import { UndoStack, bindCellChangeUndo } from '../../src/sheet/undo'

@@ -2,15 +2,15 @@
 
 ## 命名
 
-- 包名：`@infinite-table/<name>`；目录 `packages/<name>`（render、core、formulas、plugins、utils）
+- 包名：`@infinitable/<name>`；目录 `packages/<name>`（render、core、formulas、plugins）
 - 文件 kebab-case；类型/类 PascalCase；变量/函数 camelCase
 - 测试文件 `*.test.ts`，统一放包内 `tests/` 目录（与 `src/` 平级、子目录结构镜像），禁止与源码混放
 
 ## 目录与代码结构
 
 - 每个包 `src/index.ts` 为唯一公共入口，公共 API 从此处显式导出（禁止 `export *` 全量转售依赖——旧代码 `src/vrender.ts` 的教训）
-- `packages/core` 禁止 import 任何 `@visactor/*`；渲染一律走 `@infinite-table/render` 的窄接口
-- 通用工具优先取 `@cat-kit/core`，仅表格域专用工具进 `packages/utils`
+- `packages/core` 禁止 import 任何 `@visactor/*`；渲染一律走 `@infinitable/render` 的窄接口
+- 通用工具优先取 `@cat-kit/core`（原 `packages/utils` 空壳包已删，表格域专用工具出现时再议落地处）
 
 ## 代码风格
 
@@ -19,8 +19,10 @@
 
 ## 测试
 
-- vitest；单测放包内 `tests/` 目录，测试专用辅助（fake/stub）放 `tests/testing/`
-- 渲染相关行为用浏览器冒烟（apps/demo）验证；性能基准场景在 apps/bench，性能回归不许进 main
+- vitest（`bun run test` = `vp test run`，一律吃 workspace 源码不吃 dist）；单测放包内 `tests/` 目录，测试专用辅助（fake/stub）放 `tests/testing/`
+- 性能基准回归并入统一测试入口：`playground/src/bench/headless.test.ts`（浏览器入口仍是 `bench.html`），未达标即测试失败，性能回归不许进 main
+- 渲染相关行为用浏览器冒烟验证：`node playground/scripts/smoke.mjs`（构建 + preview + 页内断言，依赖全局 playwright-cli）
+- 类型检查走 `bun run check`（vp check：oxfmt + oxlint + tsgolint 三合一）；`tsc -b` 仅在 build 链产出 d.ts
 
 ## 内部库检索
 

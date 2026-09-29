@@ -1,7 +1,7 @@
 // 测试专用注入式假渲染宿主（对齐 core 包内 StubHost 形态）：插件包单测构造 ListTable 用。
-// 仅测试基础设施 import @infinite-table/render（devDependency）；src/sheet 源码面仍只依赖 core 公开入口。
+// 仅测试基础设施 import @infinitable/render（devDependency）；src/sheet 源码面仍只依赖 core 公开入口。
 
-import { SceneNode } from '@infinite-table/render'
+import { SceneNode } from '@infinitable/render'
 import type {
   Invalidation,
   LayerHandle,
@@ -10,7 +10,7 @@ import type {
   RenderCanvas,
   RenderHost,
   Size,
-} from '@infinite-table/render'
+} from '@infinitable/render'
 
 class StubLayer implements LayerHandle {
   readonly root = new SceneNode({ pickable: false })

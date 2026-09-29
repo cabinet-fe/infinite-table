@@ -1,19 +1,19 @@
-# 插件化接口面清单（ultra-ui SheetGrid → infinite-table）
+# 插件化接口面清单（ultra-ui SheetGrid → infinitable）
 
-> 定位：本清单是「以插件化形态把 infinite-table 做到可替换 ultra-ui 底层引擎」的**验收红线文档**。
+> 定位：本清单是「以插件化形态把 infinitable 做到可替换 ultra-ui 底层引擎」的**验收红线文档**。
 > S3（sheet 插件）、S4（demo sheet）、S5（工程化收口）以此为准逐条对照；S6（替换路线图）以它为输入。
 > 映射来源：`.agents/analysis/ultra-ui-sheet-gap.md` 第二节（ultra-ui `sheet-core/src/grid/` 逐文件提取的 VTable 依赖面）。
 
 ## 红线：零引擎内部 API
 
-**sheet 能力（packages/plugins 的 sheet 插件与 apps/demo 的 sheet 区）只允许依赖 `@infinite-table/core` 与 `@infinite-table/plugins` 两个公共入口（`src/index.ts`）显式导出的 API，外加 `hucre`（xlsx 读写引擎，仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）；禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。**（红线 = core 公开入口 + hucre（xlsx 导出），S7 P8 修订）
+**sheet 能力（packages/plugins 的 sheet 插件与 playground 的 sheet 区）只允许依赖 `@infinitable/core` 与 `@infinitable/plugins` 两个公共入口（`src/index.ts`）显式导出的 API，外加 `hucre`（xlsx 读写引擎，仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）；禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。**（红线 = core 公开入口 + hucre（xlsx 导出），S7 P8 修订）
 
 - review 把关：S3/S4 每阶段对照本清单与两包 `src/index.ts` 导出面核查 import 语句。
 - 引擎若确需新增公开面，必须在对应阶段的 spec「影响文件」中显式列出 `packages/core/src/index.ts` 并说明新增符号（S1 的 `onEditStart/onEditEnd` 即按此先例）。
 
 ## 一、构造 options 回调面（`buildOptions()`）
 
-| ultra-ui（VTable option） | infinite-table 对应 | 状态 |
+| ultra-ui（VTable option） | infinitable 对应 | 状态 |
 | --- | --- | --- |
 | `records` + `columns[]`（field/title/width/style 回调/editor 回调/customLayout 回调） | `ListTableOptions.records/columns`（`ColumnDefine.style` 列级样式、`editor`、`editorMultiline`） | 已有 |
 | `customLayout` 按格自定义渲染分发 | `resolveCellRenderer` 按格 hook | 已有 |
@@ -35,7 +35,7 @@
 
 ## 二、实例方法/属性面
 
-| ultra-ui SheetGrid 调用 | infinite-table 公开 API | 状态 |
+| ultra-ui SheetGrid 调用 | infinitable 公开 API | 状态 |
 | --- | --- | --- |
 | `setRecords`（全量重建） | 多 sheet 切换全量重挂由插件负责；值写入走模型直挂免全量重放（`model: TableModel` 形态） | 已有（S3 SheetBook 实例池已落地） |
 | `changeCellValue(col,row,value)` | `updateCell(col,row,value)` 回驱模型 + `batchUpdate` 收敛；SheetStore 写路径 | 已有（S3 SheetStore 已落地） |
@@ -59,12 +59,12 @@
 | `release()` | `destroy()` | 已有 |
 | `table._canResizeRow` 私有猴补丁 | `canResizeCol/canResizeRow` 公开能力 | 已有（架构优势项） |
 | `patchColumnHeaderDragExpand` 私有补丁（表头拖选连续扩展） | 表头拖选连续扩展内置（列头横向拖选→列区间×全部行，行头纵向拖选→行区间×全部列，抬起重算一致） | 已有（S7 P2 引擎内置，删下游补丁） |
-| meta 报表地址工具 `parseAddress/formatAddress/cellKey/createRange` | `@infinite-table/formulas` 公开 A1 地址等价实现：`parseCellRef`（解析）/ `formatCellRef` / `formatRangeRef`（格式化）/ `colLetters` / `createRangeRef`（区域构造）；cellKey 串由 `formatCellRef` 坐标组合承接 | 已有（S7 spec 验收「文档化等价方案」） |
+| meta 报表地址工具 `parseAddress/formatAddress/cellKey/createRange` | `@infinitable/formulas` 公开 A1 地址等价实现：`parseCellRef`（解析）/ `formatCellRef` / `formatRangeRef`（格式化）/ `colLetters` / `createRangeRef`（区域构造）；cellKey 串由 `formatCellRef` 坐标组合承接 | 已有（S7 spec 验收「文档化等价方案」） |
 | 撤销/重做（Sheet 命令栈的视图侧配合） | `onCellChange` oldValue/newValue + 结构命令记录 | 已有（S3 UndoStack/bindCellChangeUndo 已落地） |
 
 ## 三、事件面（`ListTable.EVENT_TYPE`）
 
-| ultra-ui 事件 | infinite-table 对应 | 状态 |
+| ultra-ui 事件 | infinitable 对应 | 状态 |
 | --- | --- | --- |
 | `CHANGE_CELL_VALUE` | `onCellChange`（col/row/oldValue/newValue） | 已有 |
 | 编辑会话开始/结束（公式栏镜像，`EditContext` onStart/onEnd 语义） | `onEditStart` / `onEditEnd`（S1：col/row/初值/终值/是否提交） | 已有 |
@@ -76,7 +76,7 @@
 
 ## 四、主题面（`vtable-theme.ts` extends）
 
-| ultra-ui 主题项 | infinite-table 对应（S1 落地） | 状态 |
+| ultra-ui 主题项 | infinitable 对应（S1 落地） | 状态 |
 | --- | --- | --- |
 | `underlayBackgroundColor` | `TableTheme.underlayBackgroundColor` | 已有 |
 | `frameStyle`（外框线宽/色/阴影） | `TableTheme.frameStyle`（lineWidth/color/shadow） | 已有 |
@@ -88,7 +88,7 @@
 
 ## 五、编辑器契约
 
-| ultra-ui（vtable-editors） | infinite-table 对应 | 状态 |
+| ultra-ui（vtable-editors） | infinitable 对应 | 状态 |
 | --- | --- | --- |
 | `register.editor(name, editor)` 全局注册表 | `EditorRegistry.registerEditor`（实例级，无全局闭包泄露坑） | 已有 |
 | `InputEditor/EditContext` onStart（可替换初值：公式格显示 `=原文`） | 编辑初值取基础值口径（`resolveValue`），插件把 `=formula` 原文作为基础值喂入即等价；进编辑会话 `onEditStart` 携带初值 | 已有（S3 createFormulaDisplay 已落地） |
@@ -101,6 +101,6 @@
 - **S3 sheet 插件**（`packages/plugins/src/sheet`）：已全部落地——SheetStore（值/样式/合并/行列尺寸/冻结 + asModel 模型适配 + cell meta 命名空间 setCellMeta/getCellMeta/entriesCellMeta/clearCellMeta（ns×格坐标稀疏存储、越界守卫）与独立 `onMetaChange` 事件面、模型侧读取 `getEffectiveStyle`（基础→列级→格级逐字段合成）/ `getDisplayValue`（可注入 SheetDisplayResolver））、generateFill 填充生成与 bindFillGeneration 接线、bindSelectionSync 选区双向同步、createFormulaDisplay 公式显示、excelKeymapPreset 键位预设、SheetBook 多 sheet 实例池、UndoStack/bindCellChangeUndo 最小撤销栈、border-presets 边框预设展开（8 预设 × 5 线型 → 逐格 border 片段，纯函数；不做邻居共享边回写，core 共享边裁决保证单侧设置即正确显示。既有取舍：共享边所有者滚出可视窗口时邻居对侧边暂不显示——`packages/core/src/shared-edges.ts` 既有取舍，非缺陷）、xlsx 导出引擎化（`sheetToWriteSheet`：SheetExportSource（name/store/numFmt 查询/images FloatObject[]/imageData 字节解析）→ hucre WriteSheet 纯映射，值/样式经 Store 读取面 getDisplayValue/getEffectiveStyle 取数；附 `decodeDataUrlImage`、`numFmtToXlsxCode` 公开）。依赖面：core 公开入口 + hucre（仅 xlsx 导出映射，纯类型与格式码映射；测试基础设施除外，见包内说明）。
 - **S4 demo sheet**：在插件 API 之上复现 ultra-ui playground sheet 功能，产出功能对照表；UI 归下游，不碰引擎内部。
 - **S5 工程化收口**：已落地——包 `exports` 三条件（types/dev/import→dist，仓内 apps 走 dev 条件）、`scripts/check-package-exports.mjs` 消费冒烟、bench sheet 四场景口径与阈值、happy-dom 挂载安全单测。消费面以本清单允许面为准。
-- **S6 替换路线图**：`docs/replace-vtable-roadmap.md` 直接引用本清单作为 VTable 接口面 → infinite-table 接口面的映射基准，并补测试改写与灰度顺序。
+- **S6 替换路线图**：`docs/replace-vtable-roadmap.md` 直接引用本清单作为 VTable 接口面 → infinitable 接口面的映射基准，并补测试改写与灰度顺序。
 
 **红线重申**：S3/S4 每阶段 review 核对 import 面——sheet 能力零引擎内部 API；违反即评审不通过。

@@ -7,12 +7,7 @@
 // 命中由宿主表格的指针路由优先接管（事件不落入单元格选区）。
 // 变更以事件抛出（onChange/onDragEnd），undo/历史由宿主入库，本层不内置历史栈。
 
-import {
-  SceneNode,
-  type LayerHandle,
-  type Region,
-  type RenderContext,
-} from '@infinite-table/render'
+import { SceneNode, type LayerHandle, type Region, type RenderContext } from '@infinitable/render'
 
 import { drawFittedImage, paintImagePlaceholder, type ImageFit } from '../media/draw-image'
 import type { ImageService, LoadedImage } from '../media/image-service'

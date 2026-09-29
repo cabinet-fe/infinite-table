@@ -1,5 +1,5 @@
 // 测试共享的记录型 2D 上下文：按序记录绘制调用，供 node 环境下的单测断言
-import type { RenderContext } from '@infinite-table/render'
+import type { RenderContext } from '@infinitable/render'
 
 export interface RecordedCall {
   name: string

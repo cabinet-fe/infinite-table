@@ -4,7 +4,7 @@
 // core 共享边裁决（shared-edges.ts，写入侧无需感知）已保证单侧设置即正确显示——
 // 共享边由左/上格（所有者）统一绘制并并入邻居对侧强边，双侧双写不再必要也不会叠画。
 
-import type { CellBorder, CellBorderEdge, RangeBounds } from '@infinite-table/core'
+import type { CellBorder, CellBorderEdge, RangeBounds } from '@infinitable/core'
 
 /** 边框预设 */
 export type BorderPreset = 'outer' | 'inner' | 'all' | 'top' | 'bottom' | 'left' | 'right' | 'none'

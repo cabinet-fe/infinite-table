@@ -11,7 +11,7 @@ import type {
   CellStyle,
   FloatObject,
   SelectionSnapshot,
-} from '@infinite-table/core'
+} from '@infinitable/core'
 
 import type { SheetCellMetaEntry, SheetFrozen, SheetStore } from './sheet-store'
 

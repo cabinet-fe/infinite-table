@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Region } from '@infinite-table/render'
+import type { Region } from '@infinitable/render'
 
 import { EditorRegistry } from '../../src/editor-registry'
 import { createFakeDoc, FakeEditorElement, FakeEditorHost } from '../testing/fake-editor-dom'
