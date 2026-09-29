@@ -106,7 +106,7 @@ import {
   type SelectionRange,
   type SelectionSnapshot,
 } from './selection'
-import { extendsTheme, themeCellBase, type TableTheme } from './theme'
+import { extendsTheme, themeCellBase, type TableTheme, type ThemeOverride } from './theme'
 import { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 import type {
   CellChangeEvent,
@@ -172,8 +172,8 @@ export class ListTable {
   get height(): number {
     return this.tableHeight
   }
-  /** @internal 生效主题 */
-  readonly theme: TableTheme
+  /** @internal 生效主题（构造时 extends 派生；updateTheme 运行时深覆盖写回） */
+  theme: TableTheme
   readonly rowHeight: number
   /** @internal 列头带高 */
   readonly headerHeight: number
@@ -317,7 +317,7 @@ export class ListTable {
       listener(state)
     }
   }
-  /** 列级样式投影缓存：主题 token + 列级样式的合成按列缓存 */
+  /** 列级样式投影缓存：主题 token + 列级样式的合成按列缓存（updateTheme 换主题时整体清空） */
   private readonly columnStyles = new Map<number, CellStyle>()
 
   constructor(public readonly options: ListTableOptions) {
@@ -462,6 +462,24 @@ export class ListTable {
   /** 当前生效主题（基于默认主题 extends 派生） */
   getTheme(): TableTheme {
     return this.theme
+  }
+
+  /**
+   * 运行时更新主题：以当前生效主题为 base 按 extendsTheme 深覆盖合并（未给的键
+   * 继承现值，可多次调用累积覆盖），随后重建场景、提交 body 层 full 失效并刷新
+   * 交互浮层——宿主无需再调任何刷新 API。不触碰滚动位置、选区、冻结等运行时状态；
+   * rowHeight/headerHeight/rowHeaderWidth/defaultColWidth 等几何 token 的已生效值
+   * 不重算（运行时改行列尺寸走 setRowHeight/setColWidth 专用路径）。
+   */
+  updateTheme(override: ThemeOverride): void {
+    this.theme = extendsTheme(override, this.theme)
+    // 主题 token 变化使列级样式投影缓存全部失效（缓存按旧主题 token 合成），整体清空重建
+    this.columnStyles.clear()
+    // 浮层换读新 interaction token（不残留构造期旧对象引用），sky 重绘随 refreshOverlay 提交
+    this.overlay.updateTheme(this.theme.interaction)
+    rebuildScene(this)
+    this.host.submitInvalidation('body', { type: 'full' })
+    refreshOverlay(this)
   }
 
   /** 插件统一注册路径：注册即挂载生效，销毁时逆序卸载 */
@@ -1280,8 +1298,8 @@ export class ListTable {
    * @internal 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 按格 hook」逐字段覆盖——
    * 上层给了的字段被下层覆盖、未给的沿用上层，边框逐边独立合并。
    * 列级 textWrap 旗标并入主题层（先于列级样式片段）。
-   * 性能：token+列级的合成结果按列缓存（主题构造期固定、列定义为构造期快照，
-   * 缓存与表实例同生命周期；CellStyle 全仓按不可变约定使用，无就地写入点），
+   * 性能：token+列级的合成结果按列缓存（列定义为构造期快照，缓存与表实例同生命周期，
+   * updateTheme 换主题时整体清空；CellStyle 全仓按不可变约定使用，无就地写入点），
    * 仅按格 hook 返回非空时才做第二级投影。
    */
   resolveStyle(col: number, row: number): CellStyle {

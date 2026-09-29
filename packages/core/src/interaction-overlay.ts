@@ -1,6 +1,7 @@
 // 交互浮层：选区、hover、resize 拖拽线绘制在 sky 层，不触发 body 重绘。
 // 浮层节点不可拾取（pickable: false），指针事件穿透到 body 层。
-// 绘制颜色/宽度唯一来源为主题 interaction 分区 token（构造时传入生效主题的解析值）。
+// 绘制颜色/宽度唯一来源为主题 interaction 分区 token（构造时传入生效主题的解析值；
+// 运行时 updateTheme 换主题时经 updateTheme 方法更换，不残留构造期旧对象引用）。
 
 import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 
@@ -63,9 +64,17 @@ export class OverlayNode extends SceneNode {
 
   constructor(
     private readonly geometry: OverlayGeometry,
-    private readonly interaction: InteractionTokens,
+    private interaction: InteractionTokens,
   ) {
     super({ pickable: false })
+  }
+
+  /**
+   * 运行时更换交互 token（表格 updateTheme 路径）：后续绘制读新 token，
+   * 不残留构造期旧对象引用；重绘提交由调用方（refreshOverlay）完成。
+   */
+  updateTheme(interaction: InteractionTokens): void {
+    this.interaction = interaction
   }
 
   override paint(ctx: RenderContext): void {
@@ -280,6 +289,11 @@ export class InteractionOverlay {
     const viewport = this.geometry.bodyViewport()
     this.node.width = viewport.x + viewport.width
     this.node.height = viewport.y + viewport.height
+  }
+
+  /** 运行时更换交互 token（表格 updateTheme 路径）：浮层绘制改读新主题解析值 */
+  updateTheme(interaction: InteractionTokens): void {
+    this.node.updateTheme(interaction)
   }
 
   /** 更新浮层内容；返回是否有可见内容（无内容时节点隐藏，供调用方跳过 sky 失效） */

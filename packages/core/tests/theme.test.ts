@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { RenderContext } from '@infinitable/render'
 
 import { CellNode } from '../src/cell-node'
+import { OverlayNode } from '../src/interaction-overlay'
 import { FrameNode, UnderlayNode } from '../src/list-table-scene'
 import { ListTable } from '../src/list-table'
 import { findCellNode } from './testing/find-cell-node'
@@ -388,5 +389,123 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
       { x: 0, y: 0, width: 3, height: 600, fill: '#123456' },
       { x: 797, y: 0, width: 3, height: 600, fill: '#123456' },
     ])
+  })
+})
+
+describe('构造时背景通道固化与 updateTheme 运行时更新', () => {
+  it('构造时背景通道固化：body.background 投影数据格样式、underlayBackgroundColor 铺满表区', () => {
+    const body = createTable({ body: { background: '#112233' } })
+    expect(findCell(body.host, 0, 0)?.style.background).toBe('#112233')
+
+    const underlay = createTable({ underlayBackgroundColor: '#f0f0f0' })
+    const node = underlay.host.layers.get('body')!.root.children[0]
+    expect(node).toBeInstanceOf(UnderlayNode)
+    const ctx = new PaintRecordingContext()
+    node!.paint(ctx)
+    expect(ctx.rects).toEqual([{ x: 0, y: 0, width: 800, height: 600, fill: '#f0f0f0' }])
+  })
+
+  it('updateTheme 生效：新 token 写回 getTheme，重渲染后数据格/底色/表头族背景同步生效', () => {
+    const { host, table } = createTable()
+    // 首帧（构造）已渲染，调用前为默认白底
+    expect(findCell(host, 0, 0)?.style.background).toBe('#ffffff')
+    table.updateTheme({
+      body: { background: '#aabbcc' },
+      underlayBackgroundColor: '#ddeeff',
+      header: { background: '#111111' },
+      rowHeader: { background: '#222222' },
+      corner: { background: '#333333' },
+    })
+    expect(table.getTheme().body.background).toBe('#aabbcc')
+    expect(table.getTheme().underlayBackgroundColor).toBe('#ddeeff')
+    expect(findCell(host, 0, 0)?.style.background).toBe('#aabbcc')
+    const underlay = host.layers.get('body')!.root.children[0]
+    const ctx = new PaintRecordingContext()
+    underlay!.paint(ctx)
+    expect(ctx.rects).toEqual([{ x: 0, y: 0, width: 800, height: 600, fill: '#ddeeff' }])
+    // 表头族分区（列头/行号列/角格）背景同步生效
+    expect(findCell(host, 0, -1)?.style.background).toBe('#111111')
+    expect(findCell(host, -1, 0)?.style.background).toBe('#222222')
+    expect(findCell(host, -1, -1)?.style.background).toBe('#333333')
+  })
+
+  it('updateTheme 深覆盖继承：仅传 body.background 时其余 token 与调用前逐键一致', () => {
+    const { table } = createTable({
+      header: { background: '#123456' },
+      interaction: { selectionBorder: '#abcdef' },
+    })
+    const before = table.getTheme()
+    table.updateTheme({ body: { background: '#0f1e2d' } })
+    const after = table.getTheme()
+    expect(after.body.background).toBe('#0f1e2d')
+    expect(after.body.color).toBe(before.body.color)
+    expect(after.body.font).toBe(before.body.font)
+    expect(after.header).toEqual(before.header)
+    expect(after.rowHeader).toEqual(before.rowHeader)
+    expect(after.corner).toEqual(before.corner)
+    expect(after.interaction).toEqual(before.interaction)
+    expect(after.underlayBackgroundColor).toBe(before.underlayBackgroundColor)
+    expect(after.hover).toEqual(before.hover)
+    expect(after.frameStyle).toEqual(before.frameStyle)
+    // 全量归一化对照：除被覆盖键外整主题逐键一致
+    expect({ ...after, body: { ...after.body, background: before.body.background } }).toEqual(
+      before,
+    )
+  })
+
+  it('updateTheme 任意时刻安全：滚动非零 + 存在选区 + 冻结行列时调用不抛异常，滚动与选区不变', () => {
+    const host = new StubHost()
+    const table = new ListTable({
+      width: 800,
+      height: 600,
+      columns: [
+        { field: 'name', title: 'Name', width: 500 },
+        { field: 'note', title: 'Note', width: 500 },
+      ],
+      records: Array.from({ length: 100 }, (_, i) => ({ name: `r${i}`, note: `n${i}` })),
+      frozenColCount: 1,
+      frozenRowCount: 2,
+      host,
+    })
+    table.setScrollLeft(300)
+    table.setScrollTop(500)
+    table.selectCells([{ start: { col: 0, row: 3 }, end: { col: 1, row: 6 } }])
+    // 前提成立：两轴滚动非零、存在选区、含冻结行列
+    expect(table.getScrollState().left).toBeGreaterThan(0)
+    expect(table.getScrollState().top).toBeGreaterThan(0)
+    expect(table.getFrozenColCount()).toBe(1)
+    expect(table.getFrozenRowCount()).toBe(2)
+    const scroll = table.getScrollState()
+    const selection = table.getSelection()
+    expect(() => table.updateTheme({ body: { background: '#99aabb' } })).not.toThrow()
+    expect(table.getScrollState()).toEqual(scroll)
+    expect(table.getSelection()).toEqual(selection)
+  })
+
+  it('updateTheme 自动失效：提交 body 层 full 失效，宿主无需其它刷新调用', () => {
+    const { host, table } = createTable()
+    host.submitted.length = 0
+    table.updateTheme({ body: { background: '#aabbcc' } })
+    expect(host.submitted).toEqual([{ kind: 'body', inv: { type: 'full' } }])
+  })
+
+  it('updateTheme 浮层跟随：interaction 分区更新后浮层按新 token 绘制', () => {
+    const { host, table } = createTable()
+    table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 0, row: 0 } }])
+    table.updateTheme({ interaction: { selectionBorder: '#ff0000' } })
+    const overlayNode = host.layers
+      .get('sky')!
+      .root.children.find((node): node is OverlayNode => node instanceof OverlayNode)
+    const ctx = new PaintRecordingContext()
+    overlayNode!.paint(ctx)
+    // 格 (0,0)：视口 (48,36) 100×32；选区四边细条按新色绘制
+    expect(ctx.rects).toContainEqual({ x: 48, y: 36, width: 100, height: 2, fill: '#ff0000' })
+    expect(ctx.rects).toContainEqual({ x: 146, y: 36, width: 2, height: 32, fill: '#ff0000' })
+    // 不残留构造期旧边框色（填充柄方点 8×8 不属 2px 边框细条）
+    expect(
+      ctx.rects.filter(
+        (rect) => rect.fill === '#2e6adb' && (rect.width === 2 || rect.height === 2),
+      ),
+    ).toEqual([])
   })
 })
