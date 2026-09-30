@@ -57,7 +57,7 @@ export {
 /**
  * 网格主题（对标 ultra-ui vtable-theme 实际生效值）：表头/行号 #F5F5F5 非粗体 12px 居中、
  * 正文 14px/#000（VTable DEFAULT bodyStyle 继承值）、格内边距 [2,6,2,6]、网格线 #E1E4E8
- * （右/下 1px 收入式）、选区 #2170E7 2px + 12% 填充、行号列 46px、行高 28、默认列宽 80、hover 关闭。
+ * （右/下 1px 收入式）、选区 #2170E7 2px + 12% 填充、行号列 46px、行高 28、默认列宽 80。
  */
 const SHEET_THEME: ThemeOverride = {
   rowHeight: 28,
@@ -84,8 +84,6 @@ const SHEET_THEME: ThemeOverride = {
     selectionBorder: '#2170E7',
     selectionBorderWidth: 2,
     fillHandle: '#2170E7',
-    hoverCell: 'transparent',
-    hoverBand: 'transparent',
     resizeLine: '#2170E7',
     headerHighlight: 'rgba(33, 112, 231, 0.1)',
     // 冻结分隔线对齐 Excel 观感（比网格线 #E1E4E8 深一档）

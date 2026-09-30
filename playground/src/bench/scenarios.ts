@@ -1,4 +1,4 @@
-// 基准场景：TTFF、稳态滚动 FPS、失效面积收敛（滚动 + 快速跳转 + hover 并发）。
+// 基准场景：TTFF、稳态滚动 FPS、失效面积收敛（滚动 + 快速跳转 + 指针并发）。
 // 场景只依赖 BenchEnv 抽象，headless 与浏览器跑同一份逻辑。
 
 import { BENCH_COLS, BENCH_ROWS, VIEWPORT_AREA, VIEWPORT_HEIGHT, VIEWPORT_WIDTH } from './dataset'
@@ -147,7 +147,7 @@ function areaOf(stats: Map<string, LayerInvalidationStats>, kind: string): Frame
  * 失效面积收敛（07 §1.1：每帧失效像素面积 / 视口面积）：
  * - 稳态滚动：body 层每帧收敛于单条滚动 band（面积 ≤ 1× 视口），无 full 全量重绘；
  * - 快速拖滚动条（大幅跳转）：不出现全量重绘路径（README：拖滚动条不再退化为全量重绘）；
- * - hover + 滚动并发：hover 高亮走 sky 层独立重绘（03 §4.2），body 面积不超过纯滚动水平。
+ * - 指针 + 滚动并发：指针移动处理（光标命中检测等）不放大 body 失效面积。
  */
 async function runInvalidation(env: BenchEnv): Promise<ScenarioResult> {
   const bt = env.createTable()
@@ -169,13 +169,13 @@ async function runInvalidation(env: BenchEnv): Promise<ScenarioResult> {
     fast.push(areaOf(bt.meter.drain(), 'body'))
   }
 
-  const hover: FrameAreaSample[] = []
+  const pointer: FrameAreaSample[] = []
   for (let i = 0; i < 60; i++) {
     await bt.beginFrame()
     bt.table.scrollBy(0, SCROLL_STEP_Y)
-    bt.hoverAt(60 + (i % 8) * 100, 50 + (i % 6) * 32)
+    bt.pointerMoveAt(60 + (i % 8) * 100, 50 + (i % 6) * 32)
     bt.endFrame()
-    hover.push(areaOf(bt.meter.drain(), 'body'))
+    pointer.push(areaOf(bt.meter.drain(), 'body'))
   }
   bt.destroy()
 
@@ -183,16 +183,16 @@ async function runInvalidation(env: BenchEnv): Promise<ScenarioResult> {
   const maxOf = (samples: readonly FrameAreaSample[], pick: (s: FrameAreaSample) => number) =>
     Math.max(0, ...samples.map(pick))
   const steadyMaxRatio = ratio(maxOf(steady, (s) => s.bodyArea))
-  const hoverMaxRatio = ratio(maxOf(hover, (s) => s.bodyArea))
+  const pointerMaxRatio = ratio(maxOf(pointer, (s) => s.bodyArea))
   const fullTotal = (samples: readonly FrameAreaSample[]) =>
     samples.reduce((sum, s) => sum + s.bodyFull, 0)
 
   const metrics: BenchMetric[] = [
     { label: '稳态滚动单帧 body 失效面积 / 视口（最大）', value: fixed(steadyMaxRatio, 3) },
-    { label: 'hover 并发单帧 body 失效面积 / 视口（最大）', value: fixed(hoverMaxRatio, 3) },
+    { label: '指针并发单帧 body 失效面积 / 视口（最大）', value: fixed(pointerMaxRatio, 3) },
     {
-      label: 'body full 次数（稳态 / 快跳 / hover）',
-      value: `${fullTotal(steady)} / ${fullTotal(fast)} / ${fullTotal(hover)}`,
+      label: 'body full 次数（稳态 / 快跳 / 指针）',
+      value: `${fullTotal(steady)} / ${fullTotal(fast)} / ${fullTotal(pointer)}`,
     },
   ]
   const checks: BenchCheck[] = [
@@ -209,13 +209,14 @@ async function runInvalidation(env: BenchEnv): Promise<ScenarioResult> {
       passed: steadyMaxRatio <= BODY_AREA_RATIO_MAX,
     },
     {
-      label: `hover 并发不放大 body 失效面积（03 §4.2：hover 走 sky 独立重绘）`,
-      passed: hoverMaxRatio <= steadyMaxRatio + 0.001 && fullTotal(hover) <= BODY_FULL_REPAINT_MAX,
+      label: `指针并发不放大 body 失效面积（指针移动不走 body 重绘路径）`,
+      passed:
+        pointerMaxRatio <= steadyMaxRatio + 0.001 && fullTotal(pointer) <= BODY_FULL_REPAINT_MAX,
     },
   ]
   return {
     id: 'invalidation-area',
-    title: `失效面积收敛（视口 ${VIEWPORT_WIDTH}×${VIEWPORT_HEIGHT}，滚动/快跳/hover 并发）`,
+    title: `失效面积收敛（视口 ${VIEWPORT_WIDTH}×${VIEWPORT_HEIGHT}，滚动/快跳/指针并发）`,
     passed: checks.every((check) => check.passed),
     metrics,
     checks,

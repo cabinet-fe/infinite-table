@@ -30,7 +30,7 @@
 | `frozenRowCount/frozenColCount`（含表头计数） | 构造 options + `setFrozenRowCount/setFrozenColCount` 运行时；注意 ultra-ui 计数含表头，适配时 ±1 | 已有 |
 | `keyboardOptions`（Tab/Enter/Ctrl+A/ctrlMultiSelect） | `editCellOnEnter`、`ctrlMultiSelect`、键盘导航；Excel 键位组合预设 | 已有（S3 excelKeymapPreset 已落地） |
 | `customMergeCell(col,row,table)` | 构造 `mergeCells` + `setMergeCells/addMergeCell/removeMergeCell` 运行时替换 | 已有 |
-| `hover:{disableHover:true}` | 主题 `interaction.hoverCell/hoverBand` 置全透明即可等价关闭 | 已有（token 化） |
+| `hover:{disableHover:true}` | 无对应（hover 行列高亮已移除：表头选区高亮足够，body 悬停无视觉反馈） | 不提供 |
 | `eventOptions:{preventDefaultContextMenu:true}` | 引擎无默认菜单，`onContextMenu` 纯事件 | 已有 |
 
 ## 二、实例方法/属性面
@@ -81,7 +81,7 @@
 | `underlayBackgroundColor` | `TableTheme.underlayBackgroundColor` | 已有 |
 | `frameStyle`（外框线宽/色/阴影） | `TableTheme.frameStyle`（lineWidth/color/shadow） | 已有 |
 | `selectionStyle`（选区填充/边框/线宽） | `TableTheme.interaction`（selectionFill/selectionBorder/selectionBorderWidth） | 已有 |
-| hover 关闭/变色 | `interaction.hoverCell/hoverBand` | 已有 |
+| hover 关闭/变色 | 无对应（hover 行列高亮已移除，悬浮无视觉反馈） | 不提供 |
 | `defaultStyle`（数据格） | `TableTheme.body` 分区 | 已有 |
 | `headerStyle` / `cornerHeaderStyle` / `rowHeaderStyle` | `TableTheme.header/corner/rowHeader` 三分区（缺省随 header 派生） | 已有 |
 | 填充柄颜色 | `interaction.fillHandle`；resize 线 `interaction.resizeLine/resizeLineWidth`；整行/整列表头高亮 `interaction.headerHighlight` | 已有 |

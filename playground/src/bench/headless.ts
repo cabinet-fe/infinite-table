@@ -115,7 +115,7 @@ function benchTableBridge(
         scheduled.shift()!()
       }
     },
-    hoverAt: (x, y) => eventsTarget.dispatch('pointermove', { clientX: x, clientY: y }),
+    pointerMoveAt: (x, y) => eventsTarget.dispatch('pointermove', { clientX: x, clientY: y }),
     destroy: () => {
       table.destroy()
       host.destroy()

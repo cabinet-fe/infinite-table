@@ -14,8 +14,8 @@ export interface BenchTable {
   beginFrame(): Promise<void>
   /** 帧结束：headless 同步跑掉排期的帧任务（含失效 flush）；浏览器 no-op（flush 由宿主 rAF 驱动） */
   endFrame(): void
-  /** 在视口坐标 (x, y) 派发一次 pointermove（hover 并发场景） */
-  hoverAt(x: number, y: number): void
+  /** 在视口坐标 (x, y) 派发一次 pointermove（指针并发滚动场景） */
+  pointerMoveAt(x: number, y: number): void
   destroy(): void
 }
 

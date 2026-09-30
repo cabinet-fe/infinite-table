@@ -32,7 +32,7 @@ infinitable/
 
 - 主体与装配：`list-table*.ts`
 - 滚动：`scroll-manager.ts`、`touch-scroll.ts`
-- 交互：`list-table-interaction.ts`、`selection.ts`、`hover-state.ts`、`keyboard-navigation.ts`、`resize.ts`、`fill-handle.ts`；sky 浮层 `interaction-overlay.ts`
+- 交互：`list-table-interaction.ts`、`selection.ts`、`keyboard-navigation.ts`、`resize.ts`、`fill-handle.ts`；sky 浮层 `interaction-overlay.ts`
 - 编辑：`editing/`、`editor-registry.ts`、`sheet-model.ts`、`model-binding.ts`
 - 溢出与绘制：`grid-layout.ts`、`cell-node.ts`、`cell-renderer.ts`、`shared-edges.ts`（设计依据 `docs/overflow-rendering-research.md`）
 - 图片/图表/浮动对象：`list-table-media.ts`、`media/`、`float/float-object-layer.ts`

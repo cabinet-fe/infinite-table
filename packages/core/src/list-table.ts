@@ -3,7 +3,7 @@
 // 场景内容只建在可视窗口内（窗口外行列不进入场景树，合并区主格按可见性补建）；
 // 滚动由 ScrollManager 唯一状态源驱动，滚动 → 窗口增量更新 → 按滚动方向分层 band 失效
 // （冻结区不随滚动重绘）。
-// 交互（P5）：选区/hover/resize 指示线绘制在 sky 浮层（不触发 body 重绘），
+// 交互（P5）：选区/resize 指示线绘制在 sky 浮层（不触发 body 重绘），
 // 键盘导航、触控惯性滚动、contextmenu 事件、onScrollFrame 帧级同步、批量更新合并失效。
 // 多选区与填充柄（P0-5/P0-6）：selectCells 多段选中、ctrlMultiSelect 开关（Ctrl/Cmd 加选），
 // 填充柄挂焦点段右下角（按下/拖拽结束两个公开事件，填充生成不在内核）。
@@ -52,7 +52,6 @@ import {
   unionRegions,
   type WindowRange,
 } from './grid-layout'
-import { HoverState } from './hover-state'
 import type { FillDragState } from './fill-handle'
 import { FloatObjectLayer } from './float/float-object-layer'
 import { InteractionOverlay, type HighlightRange, type ResizeLine } from './interaction-overlay'
@@ -233,8 +232,6 @@ export class ListTable {
   rowOffsets: number[]
   /** @internal 选区状态机 */
   readonly selection = new SelectionState()
-  /** @internal 悬停格跟踪（主题 hover 开关关闭时整体短路） */
-  readonly hoverState: HoverState
   /** @internal sky 交互浮层 */
   readonly overlay: InteractionOverlay
   /** @internal 触控滚动采样 */
@@ -384,8 +381,6 @@ export class ListTable {
       (dx, dy) => this.scroll.scrollBy(dx, dy),
       (task) => this.host.requestFrame(task),
     )
-    // 悬停跟踪受主题 hover 开关控制：disableHover 时 set/clear 全程无操作
-    this.hoverState = new HoverState(this.theme.hover.disableHover)
     this.overlay = new InteractionOverlay(
       this.sky.root,
       {
@@ -497,7 +492,7 @@ export class ListTable {
   }
 
   /**
-   * 浮动对象层（格上图片/图表）：承载容器挂在 sky 层最顶（在选区/hover 浮层之上）。
+   * 浮动对象层（格上图片/图表）：承载容器挂在 sky 层最顶（在选区浮层之上）。
    * 锚点经 resolveCellX/resolveCellYFromOffsets 换算层坐标（含冻结与滚动偏移），
    * 滚动时 syncPositions 帧级跟随；行高/列宽 resize 提交后 recalcGeometry 随新行列尺寸重算。
    * 绘制裁剪在 body 视口内（视口随容器 resize 经 setBodyViewport 更新）：滚动跟随平移进

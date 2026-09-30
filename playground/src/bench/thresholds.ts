@@ -11,7 +11,7 @@ export const BODY_FULL_REPAINT_MAX = 0
 
 /**
  * 每帧 body 失效面积 / 视口面积上限：收敛于单条滚动 band，不随滚动放大或叠加；
- * hover 并发时 hover 高亮走 sky 层独立重绘，body 面积不得因此超过该上限
+ * 指针并发滚动时指针移动处理不得放大 body 失效面积
  */
 export const BODY_AREA_RATIO_MAX = 1
 

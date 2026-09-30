@@ -67,7 +67,6 @@ export function bindInteractionEvents(table: ListTable): void {
     bodyRoot.on('touchcancel', () => onTouchCancel(table)),
     table.sky.root.on('keydown', (event) => onKeyDown(table, event)),
     table.selection.onChange(() => refreshOverlay(table)),
-    table.hoverState.onChange(() => refreshOverlay(table)),
   )
 }
 
@@ -270,18 +269,8 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     return
   }
   // 悬停光标：走到此处即无任何会话（浮动图拖拽/resize/填充/表头拖选/拖选均已提前返回）——
-  // resize 手柄 col-resize/row-resize、填充柄命中区 crosshair、其余恢复缺省；
-  // 先于 hover 开关短路（光标管理与悬停绘制互相独立）
+  // resize 手柄 col-resize/row-resize、填充柄命中区 crosshair、其余恢复缺省
   updatePointerCursor(table, event.x, event.y)
-  // hover 显式开关：开启后不喂跟踪也不清浮层（hoverState 同时短路，绘制链路无输入）
-  if (table.theme.hover.disableHover) {
-    return
-  }
-  if (cell) {
-    table.hoverState.set(cell.col, cell.row)
-  } else {
-    table.hoverState.clear()
-  }
 }
 
 function onPointerUp(table: ListTable, event: SceneEvent): void {
@@ -827,7 +816,6 @@ export function refreshOverlay(table: ListTable): void {
   }
   const has = table.overlay.update({
     selection: table.selection.snapshot,
-    hover: table.hoverState.cell,
     resizeLine: table.resizeLine,
     // 填充柄挂在焦点段右下角（无选区为 null）
     fillHandleRange: resolveFocusRange(table.selection.snapshot),
@@ -864,8 +852,7 @@ export function refreshOverlay(table: ListTable): void {
 
 /**
  * 选区联动表头高亮（整轴覆盖带 + 焦点格所在行列头，合并区按主格）：选区签名
- * （段集合×焦点格×全表行列数）未变化时零开销跳过（hover 变更同样途经
- * refreshOverlay，靠签名守卫避免无谓重涂）；焦点格入签名——段集合不变而焦点移动
+ * （段集合×焦点格×全表行列数）未变化时零开销跳过；焦点格入签名——段集合不变而焦点移动
  * （宿主回写活动格移动等）同样要重涂。变化时只重涂翻转的表头节点，并按条带登记
  * body band 失效——不产生跨数据区的 body band/full。
  */

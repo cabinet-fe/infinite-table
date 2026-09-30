@@ -81,7 +81,6 @@ describe('InteractionOverlay 绘制填充柄', () => {
     const rangesSnapshot: SelectionSnapshot = { ranges, focus }
     const content: OverlayContent = {
       selection: rangesSnapshot,
-      hover: null,
       resizeLine: null,
       fillHandleRange: resolveFocusRange(rangesSnapshot),
       fillPreview: null,

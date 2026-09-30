@@ -279,8 +279,6 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
       selectionBorder: '#2e6adb',
       selectionBorderWidth: 2,
       fillHandle: '#2e6adb',
-      hoverCell: 'rgba(31, 35, 41, 0.08)',
-      hoverBand: 'rgba(31, 35, 41, 0.04)',
       resizeLine: '#2e6adb',
       resizeLineWidth: 2,
       headerHighlight: 'rgba(46, 106, 219, 0.18)',
@@ -292,16 +290,6 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
   it('underlayBackgroundColor 默认白色；frameStyle 默认不绘制', () => {
     expect(defaultTheme.underlayBackgroundColor).toBe('#ffffff')
     expect(defaultTheme.frameStyle).toEqual({ lineWidth: 0, color: '#e5e6eb', shadow: false })
-  })
-
-  it('hover 显式开关：缺省不关闭且不影响既有 token；disableHover 覆盖生效', () => {
-    expect(defaultTheme.hover).toEqual({ disableHover: false })
-    expect(extendsTheme().hover).toEqual({ disableHover: false })
-    expect(extendsTheme({ hover: { disableHover: true } }).hover).toEqual({ disableHover: true })
-    // 开关覆盖不外溢：其余 token 继承默认主题
-    const disabled = extendsTheme({ hover: { disableHover: true } })
-    expect(disabled.interaction).toEqual(defaultTheme.interaction)
-    expect(disabled.body).toEqual(defaultTheme.body)
   })
 
   it('冻结分隔线 token 派生：缺省继承默认主题（比网格线深一档），显式覆盖生效', () => {
@@ -445,7 +433,6 @@ describe('构造时背景通道固化与 updateTheme 运行时更新', () => {
     expect(after.corner).toEqual(before.corner)
     expect(after.interaction).toEqual(before.interaction)
     expect(after.underlayBackgroundColor).toBe(before.underlayBackgroundColor)
-    expect(after.hover).toEqual(before.hover)
     expect(after.frameStyle).toEqual(before.frameStyle)
     // 全量归一化对照：除被覆盖键外整主题逐键一致
     expect({ ...after, body: { ...after.body, background: before.body.background } }).toEqual(

@@ -40,7 +40,7 @@
 | `frozenRowCount/frozenColCount`（**计数含表头**） | 构造 options + `setFrozenRowCount/setFrozenColCount` | **±1 换算**：ultra-ui 传「数据冻结数+1」，infinitable 只收数据冻结数 |
 | `keyboardOptions` | `editCellOnEnter`、`ctrlMultiSelect` | 组合语义用 `excelKeymapPreset`；Ctrl+A 全选内置（角落点击）；编辑态方向键语义锁定：编辑会话中方向键不提交（`onEditEnd` 不触发）不移格（活动格不变），光标移动留在编辑器内——已由 `packages/core/tests/editing/editing-semantics.test.ts` 回归单测锁定 |
 | `customMergeCell(col,row,table)` | 构造 `mergeCells` + `setMergeCells/addMergeCell/removeMergeCell` | 动态回调改为显式集合替换（Store 为源，见 demo 冻结/合并面板）；合并区模型越界校验内置（抛错保持原状），跨冻结边界合并区合法（主格按冻结带钉固，见 `list-table-frozen-merge.test.ts`） |
-| `hover: {disableHover:true}` | 主题 `interaction.hoverCell/hoverBand` 置全透明 | 等价关闭 |
+| `hover: {disableHover:true}` | 无对应（hover 行列高亮已移除：表头选区高亮足够，body 悬停无视觉反馈） | 不提供 |
 | `eventOptions: {preventDefaultContextMenu:true}` | 无需配置 | 引擎无默认菜单，`onContextMenu` 纯事件 |
 
 ### 2. 实例方法 / 属性面
@@ -89,7 +89,7 @@
 | `selectionStyle`（填充/边框/线宽） | `interaction.selectionFill/selectionBorder/selectionBorderWidth` | — |
 | `defaultStyle` | `body` 分区 | — |
 | `headerStyle` / `cornerHeaderStyle` / `rowHeaderStyle` | `header` / `corner` / `rowHeader` 分区 | corner/rowHeader 缺省随生效 header 派生；显式覆盖键优先生效 |
-| hover 关闭/变色 | `interaction.hoverCell/hoverBand` | 全透明=等价关闭（无 disableHover 开关） |
+| hover 关闭/变色 | 无对应 | hover 行列高亮已移除（表头选区高亮足够，body 悬停无视觉反馈） |
 | `cellBorderClipDirection: 'bottom-right'` | 无对应 token（逐边边框语义已可表达） | 替换时按 ultra-ui 视觉核对邻格覆盖表现（`.agents/analysis/ultra-ui-sheet-gap.md` P1 清单第 12 项注记） |
 
 ### 5. 编辑器契约（`grid-editor-router.ts` → `EditorRegistry` + 插件）

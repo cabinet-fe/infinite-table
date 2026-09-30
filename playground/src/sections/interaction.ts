@@ -1,4 +1,4 @@
-// 交互能力演示：拖选/整行整列、hover、行列 resize（canResizeRow/Col 第 0 行列禁用）、
+// 交互能力演示：拖选/整行整列、行列 resize（canResizeRow/Col 第 0 行列禁用）、
 // 键盘导航、触控滚动（容器 touch-action:none）、批量更新、contextmenu、onScrollFrame。
 // 订阅事件经状态行可见化；按钮触发批量更新/全选/清空。
 
@@ -18,7 +18,7 @@ export function mountInteraction(root: HTMLElement): InteractionDemo {
   const section = createSection(
     root,
     '交互能力',
-    '拖选 / 点行号整行 / 点列头整列 / 点左上角全选；shift+方向键扩展选区；hover 高亮；' +
+    '拖选 / 点行号整行 / 点列头整列 / 点左上角全选；shift+方向键扩展选区；' +
       '拖行列头边缘 resize（边缘悬停光标变 col-resize/row-resize；第 0 行/列被 canResize 禁用）；' +
       '方向键导航；触控惯性滚动；右键触发 contextmenu 事件；onScrollFrame 实时回显滚动位置。',
   )

@@ -59,7 +59,6 @@ function makeGeometry() {
 function makeContent(partial: Partial<OverlayContent> = {}): OverlayContent {
   return {
     selection: { ranges: [], focus: null },
-    hover: null,
     resizeLine: null,
     fillHandleRange: null,
     fillPreview: null,
@@ -102,31 +101,6 @@ describe('交互浮层主题 token', () => {
     expect(rects).toContainEqual({ x: 48, y: 98, width: 200, height: 2, fill: '#2e6adb' })
     expect(rects).toContainEqual({ x: 48, y: 36, width: 2, height: 64, fill: '#2e6adb' })
     expect(rects).toContainEqual({ x: 246, y: 36, width: 2, height: 64, fill: '#2e6adb' })
-  })
-
-  it('hover：行/列带与格填充用默认 token', () => {
-    const rects = paint(makeContent({ hover: { col: 2, row: 3 } }), defaultTheme.interaction)
-    expect(rects).toContainEqual({
-      x: 48,
-      y: 132,
-      width: 752,
-      height: 32,
-      fill: 'rgba(31, 35, 41, 0.04)',
-    })
-    expect(rects).toContainEqual({
-      x: 248,
-      y: 36,
-      width: 100,
-      height: 564,
-      fill: 'rgba(31, 35, 41, 0.04)',
-    })
-    expect(rects).toContainEqual({
-      x: 248,
-      y: 132,
-      width: 100,
-      height: 32,
-      fill: 'rgba(31, 35, 41, 0.08)',
-    })
   })
 
   it('resize 拖拽线：颜色与宽度用默认 token', () => {

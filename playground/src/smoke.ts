@@ -1,6 +1,6 @@
 // 页内冒烟自检（?smoke=1 由 main.ts 触发）：对各演示区逐项断言——
 // 层结构、取值管线、像素级显示能力（冻结/合并/逐边边框/自定义渲染/checkbox/主题）、
-// 合成事件驱动的交互（拖选/整行整列/hover/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
+// 合成事件驱动的交互（拖选/整行整列/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
 // 图片加载与无闪回滚、浮动对象跟随、图表格（四类声明解析/离屏出图上屏/缓存命中/滚回无闪）、
 // 编辑闭环（双击/键盘/API/滚动跟随与滚出提交）。
 // 结果写 window.__SMOKE__ 与 document.title。
@@ -110,7 +110,7 @@ function expectColor(
   )
 }
 
-/** 区域扫描：存在不透明像素（hover/图片等内容绘制判定） */
+/** 区域扫描：存在不透明像素（选区/图片等内容绘制判定） */
 function hasOpaquePixel(
   canvas: HTMLCanvasElement,
   x0: number,
@@ -348,17 +348,6 @@ async function checkInteraction(checker: Checker, demos: DemoHandles): Promise<v
     b = normalizeRange(table.getSelection().ranges[0]!)
     assert(b.minCol === 2 && b.maxCol === 2 && b.minRow === 0 && b.maxRow === 1999, '整列选择不符')
     table.clearSelection()
-  })
-
-  await checker.step('hover：指针悬停绘制浮层高亮', async () => {
-    table.clearSelection()
-    await frames(2)
-    dispatchPointer(container, 'pointermove', colCenterX(table, 2), rowCenterY(table, 3))
-    await frames(2)
-    const sky = layerCanvas(container, 'sky')
-    const x0 = Math.round(colLeftX(table, 2))
-    const y0 = Math.round(rowTopY(table, 3))
-    assert(hasOpaquePixel(sky, x0 + 2, y0 + 2, x0 + 98, y0 + 30), 'hover 后 sky 浮层无内容')
   })
 
   await checker.step('键盘导航：方向键移动焦点、shift 扩展选区', () => {

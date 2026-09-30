@@ -76,8 +76,6 @@ export type {
   SelectionRange,
   SelectionSnapshot,
 } from './selection'
-export { HoverState } from './hover-state'
-export type { HoverListener } from './hover-state'
 export { InteractionOverlay } from './interaction-overlay'
 export type {
   HighlightRange,

@@ -1,4 +1,4 @@
-// 交互浮层：选区、hover、resize 拖拽线绘制在 sky 层，不触发 body 重绘。
+// 交互浮层：选区、resize 拖拽线绘制在 sky 层，不触发 body 重绘。
 // 浮层节点不可拾取（pickable: false），指针事件穿透到 body 层。
 // 绘制颜色/宽度唯一来源为主题 interaction 分区 token（构造时传入生效主题的解析值；
 // 运行时 updateTheme 换主题时经 updateTheme 方法更换，不残留构造期旧对象引用）。
@@ -13,7 +13,6 @@ import {
   type SelectionRange,
   type SelectionSnapshot,
 } from './selection'
-import type { CellRef } from './types'
 import type { InteractionTokens } from './theme'
 
 /** 浮层绘制所需的几何查询（闭包读取表格实时状态） */
@@ -43,7 +42,6 @@ export interface HighlightRange {
 
 export interface OverlayContent {
   readonly selection: SelectionSnapshot
-  readonly hover: CellRef | null
   readonly resizeLine: ResizeLine | null
   /** 填充柄所在焦点段（无选区为 null）；柄绘制在焦点段右下角格的角点上 */
   readonly fillHandleRange: SelectionRange | null
@@ -88,7 +86,6 @@ export class OverlayNode extends SceneNode {
     ctx.rect(viewport.x, viewport.y, viewport.width, viewport.height)
     ctx.clip()
     this.paintFreezeDividers(ctx, content, viewport)
-    this.paintHover(ctx, content)
     this.paintSelection(ctx, content)
     this.paintSelectionAnchor(ctx, content)
     this.paintHighlightRanges(ctx, content)
@@ -98,7 +95,7 @@ export class OverlayNode extends SceneNode {
     ctx.restore()
   }
 
-  /** 冻结分隔线：冻结列右缘竖线 / 冻结行下缘横线，裁剪在 body 视口内，画在选区/hover 之下 */
+  /** 冻结分隔线：冻结列右缘竖线 / 冻结行下缘横线，裁剪在 body 视口内，画在选区之下 */
   private paintFreezeDividers(ctx: RenderContext, content: OverlayContent, viewport: Region): void {
     const { x, y } = content.freezeDividers
     if (x === null && y === null) {
@@ -113,24 +110,6 @@ export class OverlayNode extends SceneNode {
     if (y !== null) {
       ctx.fillRect(viewport.x, y - w, viewport.width, w)
     }
-  }
-
-  private paintHover(ctx: RenderContext, content: OverlayContent): void {
-    const hover = content.hover
-    if (!hover) {
-      return
-    }
-    const viewport = this.geometry.bodyViewport()
-    const cell = this.geometry.cellRect(hover.col, hover.row)
-    if (!cell) {
-      return
-    }
-    // 行/列带 + 格三级 hover 高亮
-    ctx.fillStyle = this.interaction.hoverBand
-    ctx.fillRect(viewport.x, cell.y, viewport.width, cell.height)
-    ctx.fillRect(cell.x, viewport.y, cell.width, viewport.height)
-    ctx.fillStyle = this.interaction.hoverCell
-    ctx.fillRect(cell.x, cell.y, cell.width, cell.height)
   }
 
   private paintSelection(ctx: RenderContext, content: OverlayContent): void {
@@ -300,7 +279,6 @@ export class InteractionOverlay {
   update(content: OverlayContent): boolean {
     const has =
       content.selection.ranges.length > 0 ||
-      content.hover !== null ||
       content.resizeLine !== null ||
       content.fillPreview !== null ||
       content.selectionAnchor !== null ||

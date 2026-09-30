@@ -42,7 +42,7 @@ function browserBenchTable(
         requestAnimationFrame(() => resolve())
       }),
     endFrame: () => {},
-    hoverAt: (x, y) => {
+    pointerMoveAt: (x, y) => {
       const rect = container.getBoundingClientRect()
       container.dispatchEvent(
         new PointerEvent('pointermove', {

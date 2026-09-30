@@ -45,7 +45,7 @@ export interface CellStyleTokens {
   border?: CellBorder
 }
 
-/** 交互浮层样式 token：选区/hover/填充柄/resize 拖拽线的唯一颜色与宽度来源 */
+/** 交互浮层样式 token：选区/填充柄/resize 拖拽线的唯一颜色与宽度来源 */
 export interface InteractionTokens {
   /** 选区段填充色 */
   selectionFill: string
@@ -55,10 +55,6 @@ export interface InteractionTokens {
   selectionBorderWidth: number
   /** 填充柄方点颜色 */
   fillHandle: string
-  /** hover 格填充色 */
-  hoverCell: string
-  /** hover 行/列带填充色 */
-  hoverBand: string
   /** resize 拖拽指示线颜色 */
   resizeLine: string
   /** resize 拖拽指示线宽（CSS 像素） */
@@ -69,12 +65,6 @@ export interface InteractionTokens {
   freezeDividerColor: string
   /** 冻结分隔线宽（CSS 像素） */
   freezeDividerWidth: number
-}
-
-/** hover 显式开关：等价 VTable `hover: { disableHover: true }` 的关闭语义（缺省 hover 照常） */
-export interface HoverInteraction {
-  /** true 关闭 hover：悬停跟踪与高亮绘制链路整体短路，悬停不产生任何高亮 */
-  disableHover: boolean
 }
 
 /** 表格外框样式 token */
@@ -103,8 +93,6 @@ export interface TableTheme {
   underlayBackgroundColor: string
   /** 交互浮层 token */
   interaction: InteractionTokens
-  /** hover 显式开关（缺省不关闭） */
-  hover: HoverInteraction
   /** 表格外框 */
   frameStyle: FrameStyle
 }
@@ -123,8 +111,6 @@ export interface ThemeOverride {
   corner?: Partial<CellStyleTokens>
   underlayBackgroundColor?: string
   interaction?: Partial<InteractionTokens>
-  /** hover 显式开关（缺省继承 base） */
-  hover?: Partial<HoverInteraction>
   frameStyle?: Partial<FrameStyle>
 }
 
@@ -164,8 +150,6 @@ export const defaultTheme: TableTheme = {
     selectionBorder: '#2e6adb',
     selectionBorderWidth: 2,
     fillHandle: '#2e6adb',
-    hoverCell: 'rgba(31, 35, 41, 0.08)',
-    hoverBand: 'rgba(31, 35, 41, 0.04)',
     resizeLine: '#2e6adb',
     resizeLineWidth: 2,
     headerHighlight: 'rgba(46, 106, 219, 0.18)',
@@ -173,7 +157,6 @@ export const defaultTheme: TableTheme = {
     freezeDividerColor: '#c9cdd4',
     freezeDividerWidth: 1,
   },
-  hover: { disableHover: false },
   frameStyle: {
     lineWidth: 0,
     color: '#e5e6eb',
@@ -202,7 +185,6 @@ export function extendsTheme(
     corner: { ...header, ...override.corner },
     underlayBackgroundColor: override.underlayBackgroundColor ?? base.underlayBackgroundColor,
     interaction: { ...base.interaction, ...override.interaction },
-    hover: { disableHover: override.hover?.disableHover ?? base.hover.disableHover },
     frameStyle: { ...base.frameStyle, ...override.frameStyle },
   }
 }

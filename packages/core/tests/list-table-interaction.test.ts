@@ -272,23 +272,14 @@ describe('ListTable 选区', () => {
     ])
   })
 
-  it('hover：指针移动经 sky 浮层提交失效，移出数据区清除', () => {
+  it('指针移动不提交 sky 浮层失效（hover 高亮已移除，无会话 move 只管光标）', () => {
     const { host, table } = createTable({ records: [{ name: 'a' }] })
-    fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
-    expect(host.submitted).toContainEqual({
-      kind: 'sky',
-      inv: { type: 'full' },
-    })
-
-    // 原地不动不重复提交；移到列头（非数据区）清除 hover 再提交一次擦掉
     host.submitted.length = 0
     fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
-    expect(host.submitted).toEqual([])
+    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
+    // 移到列头（非数据区）同样零提交
     fireBody(host, 'pointermove', { x: cellX(1), y: 10 })
-    expect(host.submitted).toContainEqual({
-      kind: 'sky',
-      inv: { type: 'full' },
-    })
+    expect(host.submitted).toEqual([])
     expect(table.getSelection().ranges).toEqual([])
   })
 
@@ -324,46 +315,6 @@ describe('ListTable 选区', () => {
       { start: { col: 8, row: 900 }, end: { col: 9, row: 950 } },
     ])
     expect(table.getSelection().focus).toEqual({ col: 9, row: 950 })
-  })
-})
-
-describe('ListTable hover 显式开关', () => {
-  it('缺省（不配置开关）：指针移动 hover 照常产生，移出数据区清除', () => {
-    const { host, table } = createTable({ records: [{ name: 'a' }] })
-    fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
-    expect(table.hoverState.cell).toEqual({ col: 1, row: 0 })
-    expect(host.submitted).toContainEqual({
-      kind: 'sky',
-      inv: { type: 'full' },
-    })
-
-    // 移到列头（非数据区）：hover 清除并提交一次失效擦掉高亮
-    host.submitted.length = 0
-    fireBody(host, 'pointermove', { x: cellX(1), y: 10 })
-    expect(table.hoverState.cell).toBeNull()
-    expect(host.submitted).toContainEqual({
-      kind: 'sky',
-      inv: { type: 'full' },
-    })
-  })
-
-  it('theme.hover.disableHover 开启：指针移动 hover 完全不产生（不跟踪、不提交浮层失效）', () => {
-    const { host, table } = createTable({
-      records: [{ name: 'a' }],
-      theme: { hover: { disableHover: true } },
-    })
-    // 数据格间移动、原地不动、移出数据区：全程无跟踪、无任何 sky 浮层提交
-    fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
-    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
-    fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
-    fireBody(host, 'pointermove', { x: cellX(2), y: 10 })
-    expect(table.hoverState.cell).toBeNull()
-    expect(host.submitted).toEqual([])
-    // hover 关闭不外溢：选区交互照常
-    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(0) })
-    expect(table.getSelection().ranges).toEqual([
-      { start: { col: 1, row: 0 }, end: { col: 1, row: 0 } },
-    ])
   })
 })
 
@@ -430,7 +381,7 @@ describe('ListTable 表头拖选连续扩展', () => {
 
   it('角点与表体命中不误入表头拖选会话', () => {
     const { host, table } = createTable({ records: dragRecords })
-    // 角点按下：全选、不开会话——后续 move 走 hover，选区保持全选
+    // 角点按下：全选、不开会话——后续 move 无会话只管光标，选区保持全选
     fireBody(host, 'pointerdown', { x: 10, y: 10 })
     expect(table.getSelection().ranges).toEqual([
       { start: { col: 0, row: 0 }, end: { col: 9, row: 19 } },
@@ -1478,14 +1429,6 @@ describe('ListTable 表头高亮', () => {
     expect(findNode(host, 3, -1)?.style.background).toBe('#f5f6f7')
     expect(findNode(host, -1, 0)?.style.background).toBe('#f5f6f7')
     expect(host.submitted.some((e) => e.kind === 'body' && e.inv.type === 'full')).toBe(false)
-  })
-
-  it('hover 变更经同一刷新路径但不触发表头重涂（签名守卫）', () => {
-    const { host, table } = createTable({ records: records20 })
-    table.selectRow(2)
-    host.submitted.length = 0
-    table.hoverState.set(0, 0)
-    expect(host.submitted.some((e) => e.kind === 'body')).toBe(false)
   })
 })
 
