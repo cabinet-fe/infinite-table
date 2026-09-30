@@ -56,6 +56,43 @@ function paintEdge(
   fillSegment(0, run, 0, thickness)
 }
 
+/**
+ * 文本宽上界快路径的字符推进宽表（font 串 → 字符 → 推进宽 px）：
+ * 每个新 (font, 字符) 经注入的测量函数测一次并缓存，此后整串宽上界 = 各字符推进宽
+ * 之和（纯算术，替代 measureText 调用）——数字/短文本场景滚动帧走廊判定零测量。
+ * 上界语义：整串 shaping（字距/合字）通常只收窄不放宽，调用方另加安全余量；
+ * 无法按单字符推进宽构成的文本（含代理对）返回 null，调用方回落精测。
+ */
+export class TextAdvanceTable {
+  private readonly fonts = new Map<string, Map<string, number>>()
+
+  constructor(private readonly measureChar: (char: string, font: string) => number) {}
+
+  /** 文本宽上界（px）；含代理对码元（增补平面字符按单码元测量无意义）时返回 null */
+  upperBound(text: string, font: string): number | null {
+    let advances = this.fonts.get(font)
+    if (!advances) {
+      advances = new Map<string, number>()
+      this.fonts.set(font, advances)
+    }
+    let sum = 0
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i)
+      if (code >= 0xd800 && code < 0xe000) {
+        return null
+      }
+      const char = text[i]!
+      let advance = advances.get(char)
+      if (advance === undefined) {
+        advance = this.measureChar(char, font)
+        advances.set(char, advance)
+      }
+      sum += advance
+    }
+    return sum
+  }
+}
+
 export interface CellNodeInit extends SceneNodeInit {
   col: number
   row: number
@@ -173,6 +210,14 @@ export class CellNode extends SceneNode {
     }
     const minX = Math.min(0, this.textMinX)
     return { x: minX, y: 0, width: Math.max(this.width, this.textMaxX) - minX, height: this.height }
+  }
+
+  /**
+   * 节点当前 font 串（测量同源的缓存推导，见 resolveFont）：场景侧走廊快路径
+   * 求字符推进宽表的键用，与绘制/精测共用同一 font 推导结果。
+   */
+  fontString(): string {
+    return this.resolveFont()
   }
 
   /**

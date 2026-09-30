@@ -320,12 +320,19 @@ export function updateSceneWindow(table: ListTable): void {
       }
     }
   }
-  // 3.2) 窗缘反查补建窗外溢出源（P1，取舍 8）：横向滚动有滚入列、纵向滚动有滚入行
-  // 时，对滚入行的窗缘做溢出源反查（成本 O(滚入行列数)，纯平移帧零新增扫描）；
-  // 先于步骤 3.5，让补建源随行内规范统一重挂
+  // 3.2) 窗缘反查补建窗外溢出源（P1，取舍 8）：横向滚动列窗移动时全部行、纵向滚动
+  // 有滚入行时仅新滚入行做窗缘溢出源反查（P2 短路：存活行的窗缘邻格与走廊列号口径
+  // 均不随纯纵向滚动变化，其窗外源由 sweep 的走廊相交条件原地保留，重查为无效功；
+  // 列窗移动以 prevCols 对照判定——滚到最右端 end 钉住、仅 start 右移的形态无滚入列
+  // 但左缘邻格已变，仍需全行重查）；先于步骤 3.5，让补建源随行内规范统一重挂
   if (enteringCols.length > 0 || newRows.size > 0) {
+    const colsWindowMoved =
+      scrollableCols.start !== prevCols.start || scrollableCols.end !== prevCols.end
     for (const band of rowBands) {
       for (let row = band.start; row < band.end; row++) {
+        if (!colsWindowMoved && !newRows.has(row)) {
+          continue
+        }
         bodyChanged =
           appendOffWindowOverflowSources(table, [{ start: row, end: row + 1 }], left, top) ||
           bodyChanged
@@ -678,6 +685,37 @@ function cellTextWidth(table: ListTable, style: CellStyle, text: string, node?: 
 }
 
 /**
+ * 快路径安全余量（P2 走廊测宽短路）：字符推进宽之和相对整串 shaping 宽的保守放大
+ * 系数与绝对加成。整串 shaping（字距/合字）通常只收窄，极少数正字距对由余量覆盖；
+ * 上界偏大只会回落精测，不产生误判。
+ */
+const TEXT_BOUND_SAFETY_SCALE = 1.01
+const TEXT_BOUND_SAFETY_PX = 0.5
+
+/**
+ * 文本必不越格判定（走廊测宽快路径，P2）：字符推进宽上界（TextAdvanceTable，已见
+ * 字符零 measureText）加安全余量后，经与精测同源的锚点函数（cellTextAnchorX）证明
+ * 文本双缘都留在格内。锚点对文本宽单调（left 对齐右缘随宽外移、right 对齐左缘随宽
+ * 内移、center 双缘外移），上界宽代入双缘不出格则真实宽必然不出格——可返回 null
+ * 走廊而免精测。数字短文本典型全命中；上界证不出（含未缓存字符/真溢出）回落精测。
+ */
+function textConfinedToCell(
+  table: ListTable,
+  style: CellStyle,
+  width: number,
+  text: string,
+  font: string,
+): boolean {
+  const bound = table.textAdvances.upperBound(text, font)
+  if (bound === null) {
+    return false
+  }
+  const safeBound = bound * TEXT_BOUND_SAFETY_SCALE + TEXT_BOUND_SAFETY_PX
+  const textLeft = cellTextAnchorX(style, width, safeBound)
+  return textLeft >= 0 && textLeft + safeBound <= width
+}
+
+/**
  * 文本溢出走廊的列号扫描（textOverflowLimits 的扫描主体，走廊内部标记共用同一实现）；
  * null 表示该格不溢出（裁剪在本格内）。
  *
@@ -711,11 +749,20 @@ export function corridorCols(
   ) {
     return null
   }
-  const text = table.pipeline.resolveText(col, row)
+  // 节点在场时直接复用其显示文本（建格/refreshCell 均与取值管线同步，且与绘制同源），
+  // 免滚动帧走廊重扫的重复取值与字符串重建
+  const text = node ? node.text : table.pipeline.resolveText(col, row)
   if (!text) {
     return null
   }
   const width = table.colWidths[col] ?? 0
+  // 快路径（P2 走廊测宽短路）：字符推进宽上界证明文本双缘不出格时跳过精测，
+  // 数字短文本典型全命中（滚动帧建格/走廊重标零 measureText）；证不出回落精测，
+  // 走廊端点与绘制仍同源
+  const font = node ? node.fontString() : cellStyleFont(style)
+  if (textConfinedToCell(table, style, width, text, font)) {
+    return null
+  }
   const textWidth = cellTextWidth(table, style, text, node)
   // 文本左右缘（格内局部坐标）：锚点与 renderTextCell 同源（cellTextAnchorX）
   const textLeft = cellTextAnchorX(style, width, textWidth)

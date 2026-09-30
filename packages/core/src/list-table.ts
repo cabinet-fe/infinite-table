@@ -34,7 +34,7 @@ import {
   type SceneNode,
 } from '@infinitable/render'
 
-import type { CellNode } from './cell-node'
+import { TextAdvanceTable, type CellNode } from './cell-node'
 import { MergeCellMap, normalizeCellRange } from './cell-range'
 import type { CellRange } from './cell-range'
 import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
@@ -319,6 +319,12 @@ export class ListTable {
   }
   /** 列级样式投影缓存：主题 token + 列级样式的合成按列缓存（updateTheme 换主题时整体清空） */
   private readonly columnStyles = new Map<number, CellStyle>()
+  /**
+   * @internal 文本宽上界快路径的字符推进宽表（走廊判定免 measureText，P2）：
+   * 按 font 串缓存逐字符推进宽（测量经宿主测量画布，同精测口径），滚动帧建格/
+   * 走廊重标对已见字符零测量；随表实例生命周期，font 串为键无需失效。
+   */
+  readonly textAdvances: TextAdvanceTable
 
   constructor(public readonly options: ListTableOptions) {
     this.tableWidth = options.width
@@ -367,6 +373,8 @@ export class ListTable {
     // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先，缺省取宿主环境值（resize 随宿主刷新）
     this.hostDpr = options.hostOptions?.dpr ?? resolveHostDpr()
     this.ownHost = !options.host
+    // 快路径字符推进宽经宿主测量画布逐字符首见测量（与精测同源），此后整表命中
+    this.textAdvances = new TextAdvanceTable((char, font) => this.host.measure(char, font).width)
     this.body = this.host.createLayer({ kind: 'body' })
     this.sky = this.host.createLayer({ kind: 'sky' })
     this.imageService = new ImageService(options.imageServiceOptions)

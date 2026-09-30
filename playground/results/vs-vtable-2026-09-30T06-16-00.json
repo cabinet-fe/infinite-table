@@ -1,0 +1,288 @@
+{
+  "tool": "infinitable-vs-vtable",
+  "startedAt": "2026-09-30T06:14:56.481Z",
+  "env": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+  "dataset": "10 万 / 100 万行 × 20 列 · 视口 1280×720 · 行高 32 · 列宽 100 · 无冻结 · 默认主题",
+  "protocol": "每规模跑序 [infinitable, VTable, VTable, infinitable] 各 2 轮取均值；滚动 300 帧 × 360px；批量写 2000 格",
+  "writeCounts": {
+    "100000": 5000,
+    "1000000": 5000
+  },
+  "versions": {
+    "infinitable": "@infinitable/core（workspace 源码）",
+    "@visactor/vtable": "v1.26.8"
+  },
+  "durationMs": 60365.40000000037,
+  "rows": [
+    {
+      "id": "ttff-p50",
+      "scale": 100000,
+      "label": "首次渲染时间（TTFF）P50",
+      "group": "首次渲染（TTFF）",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 16.899999999906868,
+      "theirs": 31.399999999906868,
+      "note": "5 次「new Table(10 万/100 万行数据) → 内容首帧画完」",
+      "advantage": 1.8579881656852015,
+      "verdict": "faster"
+    },
+    {
+      "id": "construct-p50",
+      "scale": 100000,
+      "label": "构造耗时 P50（同步构造，不含首帧 flush）",
+      "group": "首次渲染（TTFF）",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 1.3999999999068677,
+      "theirs": 28.299999999813735,
+      "advantage": 20.214285715497383,
+      "verdict": "faster"
+    },
+    {
+      "id": "scroll-fps",
+      "scale": 100000,
+      "label": "稳态滚动平均 FPS",
+      "group": "稳态滚动",
+      "unit": "fps",
+      "better": "higher",
+      "ours": 59.996404271256765,
+      "theirs": 60.0024001920148,
+      "note": "300 帧 × 360px/帧",
+      "advantage": 0.9999000719848066,
+      "verdict": "even"
+    },
+    {
+      "id": "scroll-interval-p95",
+      "scale": 100000,
+      "label": "滚动帧间隔 P95",
+      "group": "稳态滚动",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 18.449999999953434,
+      "theirs": 18.25,
+      "advantage": 0.9891598916014125,
+      "verdict": "even"
+    },
+    {
+      "id": "scroll-work-p95",
+      "scale": 100000,
+      "label": "滚动调用 JS 耗时 P95",
+      "group": "稳态滚动",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 0.3000000002793968,
+      "theirs": 0.9499999999534339,
+      "advantage": 3.1666666635622582,
+      "verdict": "faster"
+    },
+    {
+      "id": "jump-fps",
+      "scale": 100000,
+      "label": "快速拖滚动条平均 FPS",
+      "group": "快速跳转滚动",
+      "unit": "fps",
+      "better": "higher",
+      "ours": 59.97301948463904,
+      "theirs": 60.20758204120712,
+      "note": "60 次大幅跳转（目标偏移 0~3.0M px 伪随机）",
+      "advantage": 0.9961041026957778,
+      "verdict": "even"
+    },
+    {
+      "id": "jump-work-p95",
+      "scale": 100000,
+      "label": "单次跳转 JS 耗时 P95",
+      "group": "快速跳转滚动",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 0.5,
+      "theirs": 9.800000000046566,
+      "advantage": 19.600000000093132,
+      "verdict": "faster"
+    },
+    {
+      "id": "cell-writes",
+      "scale": 100000,
+      "label": "逐格写吞吐",
+      "group": "单元格写入",
+      "unit": "ops/ms",
+      "better": "higher",
+      "ours": 332.7659945929429,
+      "theirs": 129.29778554784326,
+      "note": "5000 次单格写（含 1 帧收尾），总耗时 13ms",
+      "advantage": 2.573640323250637,
+      "verdict": "faster"
+    },
+    {
+      "id": "batch-write",
+      "scale": 100000,
+      "label": "批量写 2000 格耗时",
+      "group": "单元格写入",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 16.0999999998603,
+      "theirs": 22.6500000001397,
+      "note": "100 行 × 20 列一次区域写（含 1 帧收尾）",
+      "advantage": 1.4068322981575299,
+      "verdict": "faster"
+    },
+    {
+      "id": "rebuild",
+      "scale": 100000,
+      "label": "整表重建均值（构造 + 首帧）",
+      "group": "重建（切表口径）",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 17.62999999993481,
+      "theirs": 32.01000000000931,
+      "note": "5 次建表 → 首帧（销毁在计时窗外）",
+      "advantage": 1.8156551333027608,
+      "verdict": "faster"
+    },
+    {
+      "id": "ttff-p50",
+      "scale": 1000000,
+      "label": "首次渲染时间（TTFF）P50",
+      "group": "首次渲染（TTFF）",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 15.449999999953434,
+      "theirs": 46.15000000037253,
+      "note": "3 次「new Table(10 万/100 万行数据) → 内容首帧画完」",
+      "advantage": 2.9870550162143448,
+      "verdict": "faster"
+    },
+    {
+      "id": "construct-p50",
+      "scale": 1000000,
+      "label": "构造耗时 P50（同步构造，不含首帧 flush）",
+      "group": "首次渲染（TTFF）",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 11.150000000139698,
+      "theirs": 43.25,
+      "advantage": 3.8789237667675445,
+      "verdict": "faster"
+    },
+    {
+      "id": "scroll-fps",
+      "scale": 1000000,
+      "label": "稳态滚动平均 FPS",
+      "group": "稳态滚动",
+      "unit": "fps",
+      "better": "higher",
+      "ours": 60.00000086400281,
+      "theirs": 60.00480038403239,
+      "note": "300 帧 × 360px/帧",
+      "advantage": 0.9999200143988669,
+      "verdict": "even"
+    },
+    {
+      "id": "scroll-interval-p95",
+      "scale": 1000000,
+      "label": "滚动帧间隔 P95",
+      "group": "稳态滚动",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 18.4000000001397,
+      "theirs": 18.300000000046566,
+      "advantage": 0.9945652173862841,
+      "verdict": "even"
+    },
+    {
+      "id": "scroll-work-p95",
+      "scale": 1000000,
+      "label": "滚动调用 JS 耗时 P95",
+      "group": "稳态滚动",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 0.3000000002793968,
+      "theirs": 0.8000000002793968,
+      "advantage": 2.6666666651144624,
+      "verdict": "faster"
+    },
+    {
+      "id": "jump-fps",
+      "scale": 1000000,
+      "label": "快速拖滚动条平均 FPS",
+      "group": "快速跳转滚动",
+      "unit": "fps",
+      "better": "higher",
+      "ours": 60.07213527922213,
+      "theirs": 59.74023836812954,
+      "note": "60 次大幅跳转（目标偏移 0~30.1M px 伪随机）",
+      "advantage": 1.0055556676732254,
+      "verdict": "even"
+    },
+    {
+      "id": "jump-work-p95",
+      "scale": 1000000,
+      "label": "单次跳转 JS 耗时 P95",
+      "group": "快速跳转滚动",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 0.5,
+      "theirs": 10.449999999953434,
+      "advantage": 20.899999999906868,
+      "verdict": "faster"
+    },
+    {
+      "id": "cell-writes",
+      "scale": 1000000,
+      "label": "逐格写吞吐",
+      "group": "单元格写入",
+      "unit": "ops/ms",
+      "better": "higher",
+      "ours": 337.7612549332309,
+      "theirs": 129.06779211158192,
+      "note": "5000 次单格写（含 1 帧收尾），总耗时 14ms",
+      "advantage": 2.6169290526115834,
+      "verdict": "faster"
+    },
+    {
+      "id": "batch-write",
+      "scale": 1000000,
+      "label": "批量写 2000 格耗时",
+      "group": "单元格写入",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 16.25,
+      "theirs": 18.600000000093132,
+      "note": "100 行 × 20 列一次区域写（含 1 帧收尾）",
+      "advantage": 1.1446153846211158,
+      "verdict": "faster"
+    },
+    {
+      "id": "rebuild",
+      "scale": 1000000,
+      "label": "整表重建均值（构造 + 首帧）",
+      "group": "重建（切表口径）",
+      "unit": "ms",
+      "better": "lower",
+      "ours": 17.083333333255723,
+      "theirs": 47.29999999996896,
+      "note": "3 次建表 → 首帧（销毁在计时窗外）",
+      "advantage": 2.76878048781564,
+      "verdict": "faster"
+    }
+  ],
+  "scales": [
+    100000,
+    1000000
+  ],
+  "wins": 14,
+  "total": 20,
+  "gitCommit": "1166058",
+  "bundleSize": {
+    "note": "最小渲染面入口（infinitable = ListTable + createRenderHost；vtable = 主入口 ListTable），bun build --minify --target=browser，gzip 按产物文件分别压缩求和",
+    "ours": {
+      "minBytes": 97057,
+      "gzipBytes": 28302
+    },
+    "vtable": {
+      "minBytes": 2126128,
+      "gzipBytes": 527139
+    }
+  }
+}

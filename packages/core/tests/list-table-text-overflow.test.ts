@@ -1245,6 +1245,103 @@ describe('走廊竖线三路径一致（全量重建 / refreshCell / 滚动增�
   })
 })
 
+describe('走廊测宽快路径（P2）', () => {
+  /** 计数宿主：包装 StubHost.measure 记调用次数（快路径命中 = 整串精测趋零，只剩字符级预热） */
+  function countingHost(): { host: StubHost; calls: () => number } {
+    const host = new StubHost()
+    let count = 0
+    const measure = host.measure.bind(host)
+    host.measure = (text: string) => {
+      count++
+      return measure(text)
+    }
+    return { host, calls: () => count }
+  }
+
+  /** 数字表：10 列 × 200 行，取值 row*10+col（最长 4 位数字，StubHost 40px 放得下内容盒） */
+  function numericTable(host: StubHost): ListTable {
+    const columns = Array.from({ length: 10 }, (_, col) => ({ field: `f${col}`, title: 'C' }))
+    const records = Array.from({ length: 200 }, (_, row) =>
+      Object.fromEntries(columns.map((column, col) => [column.field, row * 10 + col])),
+    )
+    return new ListTable({ ...BASE_OPTIONS, host, columns, records, rowCount: 200 })
+  }
+
+  it('数字短文本建格只做字符级预热：0-9 各测一次，无整串精测', () => {
+    const { host, calls } = countingHost()
+    numericTable(host)
+    expect(calls()).toBe(10)
+  })
+
+  it('数字表纵向滚动帧零测量：新滚入行建格、走廊重标与窗外反查全部快路径命中', () => {
+    const { host, calls } = countingHost()
+    const table = numericTable(host)
+    expect(calls()).toBe(10)
+    table.scrollTo(0, 320) // 10 行滚入，文本仍由已见字符组成
+    expect(calls()).toBe(10)
+  })
+
+  it('快路径不吞真溢出：数字长文本上界证不出，回落精测产生走廊', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: '1'.repeat(20) }], // StubHost 10px/字 → 200px
+      rowCount: 1,
+    })
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(300)
+  })
+
+  it('居中恰满格：上界证不出回落精测，textLeft=0 边界仍判不溢出', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: 'A'.repeat(10) }], // 100px，锚点 8+(84-100)/2=0
+      rowCount: 1,
+      resolveCellStyle: (col) => (col === 0 ? { textAlign: 'center' } : null),
+    })
+    expect(findNode(host, 0, 0)?.textMinX).toBe(0)
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(100)
+  })
+
+  it('含代理对文本：推进宽不可证回落精测，走廊判定不回归', () => {
+    const { host } = createTable({
+      columns: [{ field: 'a' }, { field: 'b' }, { field: 'c' }],
+      records: [{ a: '😀'.repeat(15) }], // 30 码元 → 300px（StubHost 口径）
+      rowCount: 1,
+    })
+    expect(findNode(host, 0, 0)?.textMaxX).toBe(300)
+  })
+})
+
+describe('纯纵向滚动的窗外源反查短路（P2）', () => {
+  const TWENTY_COLUMNS = Array.from({ length: 20 }, (_, i) => ({ field: `f${i}` }))
+  /** 40 行，行号 %3==0 的行在 col 5 放右对齐长文本（右缘窗外左溢源，走廊 [3,6) 伸入窗内） */
+  const OFF_WINDOW_OPTIONS = {
+    width: 548, // 48 行号列 + 5 数据列：窗口 [0,5)，col 5 在右缘窗外
+    columns: TWENTY_COLUMNS,
+    records: Array.from({ length: 40 }, (_, row) => (row % 3 === 0 ? { f5: LONG_TEXT } : {})),
+    resolveCellStyle: (col: number) => (col === 5 ? { textAlign: 'right' as const } : null),
+  } satisfies Partial<ListTableOptions>
+
+  it('存活行窗外源保留不动；新滚入行照常反查补建；滚出随行摘除', () => {
+    const { host, table } = createTable(OFF_WINDOW_OPTIONS)
+    // 初建全窗行反查：行 0 与行 3（初始可见的左溢源行）的窗外源已补建
+    expect(findNode(host, 5, 0)?.textMinX).toBe(-200)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 5, 3)?.textMinX).toBe(-200)
+    // 纵向滚动（列窗不动）：行 0 半出仍存活，其窗外源与走廊标记原样保留；
+    // 滚入的行 18（左溢源行）照常反查补建自己的窗外源
+    table.scrollTo(0, 16)
+    expect(findNode(host, 5, 0)?.textMinX).toBe(-200)
+    expect(findNode(host, 3, 0)?.corridorInterior).toBe(6)
+    expect(findNode(host, 5, 18)?.textMinX).toBe(-200)
+    expect(findNode(host, 3, 18)?.corridorInterior).toBe(6)
+    // 继续纵向滚动：行 0 滚出随行摘除，行 3 存活期间窗外源不动
+    table.scrollTo(0, 96)
+    expect(findNode(host, 5, 0)).toBeUndefined()
+    expect(findNode(host, 5, 3)?.textMinX).toBe(-200)
+    expect(findNode(host, 3, 3)?.corridorInterior).toBe(6)
+  })
+})
+
 describe('窗外溢出源可见性（P1 窗缘反查）', () => {
   const TWENTY_COLUMNS = Array.from({ length: 20 }, (_, i) => ({ field: `f${i}` }))
 
