@@ -1,27 +1,7 @@
 {
   "name": "@infinitable/formulas",
-  "version": "0.1.0",
-  "description": "高性能 canvas 表格引擎公式引擎：A1 解析求值、依赖图与 47 个内置函数",
-  "keywords": [
-    "canvas",
-    "datagrid",
-    "grid",
-    "infinitable",
-    "spreadsheet",
-    "table",
-    "virtual-scroll"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cabinet-fe/infinite-table.git",
-    "directory": "packages/formulas"
-  },
-  "files": [
-    "dist/*.js",
-    "dist/types",
-    "!dist/types/.tsbuildinfo"
-  ],
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {
@@ -29,9 +9,6 @@
       "dev": "./src/index.ts",
       "import": "./dist/formulas.js"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "vp build"

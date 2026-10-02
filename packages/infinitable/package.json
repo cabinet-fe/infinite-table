@@ -1,0 +1,45 @@
+{
+  "name": "infinitable",
+  "version": "0.1.0",
+  "description": "高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，10 万~100 万行性能不随数据量劣化，最小构建 gzip 仅 27KB",
+  "keywords": [
+    "canvas",
+    "datagrid",
+    "excel",
+    "grid",
+    "infinitable",
+    "spreadsheet",
+    "table",
+    "virtual-scroll"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cabinet-fe/infinite-table.git",
+    "directory": "packages/infinitable"
+  },
+  "files": [
+    "dist/*.js",
+    "dist/types",
+    "!dist/types/.tsbuildinfo"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/infinitable.js"
+    }
+  },
+  "scripts": {
+    "build": "vp build && node scripts/build-types.mjs"
+  },
+  "dependencies": {
+    "@cat-kit/core": "^1.2.1"
+  },
+  "devDependencies": {
+    "@infinitable/core": "workspace:*",
+    "@infinitable/formulas": "workspace:*",
+    "@infinitable/plugins": "workspace:*",
+    "@infinitable/render": "workspace:*"
+  }
+}

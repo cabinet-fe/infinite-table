@@ -1,27 +1,7 @@
 {
   "name": "@infinitable/core",
-  "version": "0.1.0",
-  "description": "高性能 canvas 表格引擎核心：ListTable 模型、全量虚拟滚动与 Excel 式交互",
-  "keywords": [
-    "canvas",
-    "datagrid",
-    "grid",
-    "infinitable",
-    "spreadsheet",
-    "table",
-    "virtual-scroll"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cabinet-fe/infinite-table.git",
-    "directory": "packages/core"
-  },
-  "files": [
-    "dist/*.js",
-    "dist/types",
-    "!dist/types/.tsbuildinfo"
-  ],
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {
@@ -29,9 +9,6 @@
       "dev": "./src/index.ts",
       "import": "./dist/core.js"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "vp build"

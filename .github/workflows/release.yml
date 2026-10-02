@@ -1,6 +1,7 @@
-# 发版流水线：tag v* 触发，npm trusted publishing（OIDC）免 token 发布。
+# 发版流水线：tag v* 触发，npm trusted publishing（OIDC）免 token 发布统一包 infinitable。
 # 鉴权不落任何 NPM_TOKEN secret：npm >= 11.5.1 自动探测 GitHub Actions OIDC 环境，
-# 凭 workflow 顶层 id-token: write 与 npmjs.com 各包 Trusted Publisher 配置（cabinet-fe/infinite-table + release.yml）放行。
+# 凭 workflow 顶层 id-token: write 与 npmjs.com 包设置的 Trusted Publisher 配置
+# （cabinet-fe/infinite-table + release.yml）放行。
 # 幂等：scripts/release/publish.mjs 对已在 registry 的同名同版本跳过，tag 重跑安全。
 
 name: release

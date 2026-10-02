@@ -1,27 +1,7 @@
 {
   "name": "@infinitable/render",
-  "version": "0.1.0",
-  "description": "高性能 canvas 表格引擎渲染层：多层画布 RenderHost 宿主、场景图与帧调度",
-  "keywords": [
-    "canvas",
-    "datagrid",
-    "grid",
-    "infinitable",
-    "spreadsheet",
-    "table",
-    "virtual-scroll"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cabinet-fe/infinite-table.git",
-    "directory": "packages/render"
-  },
-  "files": [
-    "dist/*.js",
-    "dist/types",
-    "!dist/types/.tsbuildinfo"
-  ],
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {
@@ -29,9 +9,6 @@
       "dev": "./src/index.ts",
       "import": "./dist/render.js"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "vp build"

@@ -76,12 +76,11 @@ playground 本地开发：`cd playground && bun run dev`（示例 + 页内「vs 
 ## 快速开始
 
 ```bash
-bun add @infinitable/core @infinitable/render
+bun add infinitable
 ```
 
 ```ts
-import { ListTable } from '@infinitable/core'
-import { createRenderHost } from '@infinitable/render'
+import { ListTable, createRenderHost } from 'infinitable'
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const host = createRenderHost({ width: 1280, height: 720, container })
@@ -103,7 +102,7 @@ const table = new ListTable({
 ## 仓库结构
 
 ```
-packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（sheet/图表/填充/undo）· formulas（公式引擎）
+packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（sheet/图表/填充/undo）· formulas（公式引擎）· infinitable（统一发布包，单包 re-export 四层）
 playground/  唯一应用：示例总览（显示/交互/编辑/sheet/报表/图表/图片）+ 页内 vs VTable 对比 + 量化基准（bench.html）+ 冒烟自检
 ```
 

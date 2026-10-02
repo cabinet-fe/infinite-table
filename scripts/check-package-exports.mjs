@@ -3,13 +3,14 @@
 // 校验三条件产物文件齐备 + bun 动态 import core/render dist 产物无头建表跑一帧。
 // 用法：node scripts/check-package-exports.mjs（先 bun run build）
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 const PACKAGES = [
   { name: '@infinitable/render', dir: 'packages/render', bundle: 'dist/render.js' },
   { name: '@infinitable/core', dir: 'packages/core', bundle: 'dist/core.js' },
   { name: '@infinitable/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
   { name: '@infinitable/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
+  { name: 'infinitable', dir: 'packages/infinitable', bundle: 'dist/infinitable.js' },
 ]
 
 let failed = false
@@ -95,5 +96,25 @@ if (typeof formulasModule.evaluate !== 'function') {
   else if (formulasModule.listFormulaFunctions().length < 47) fail('formulas 内置函数缺失')
   else ok('formulas dist 求值正常（0.1+0.2=0.3）')
 }
+// 5) 统一发布包 dist 可导入（四层 re-export 单包）且 JS/类型产物均无 @infinitable 裸依赖残留
+console.log('[check-exports] 统一发布包 dist 冒烟')
+const unifiedModule = await import(
+  new URL('../packages/infinitable/dist/infinitable.js', import.meta.url)
+)
+for (const key of ['ListTable', 'createRenderHost', 'SheetStore', 'evaluate']) {
+  if (typeof unifiedModule[key] !== 'function') fail(`infinitable dist 缺 ${key}`)
+}
+const unifiedJs = readFileSync(
+  new URL('../packages/infinitable/dist/infinitable.js', import.meta.url),
+  'utf8',
+)
+if (/@infinitable\//.test(unifiedJs))
+  fail('infinitable dist JS 残留 @infinitable/* 裸导入（未整体打包）')
+const typesDir = new URL('../packages/infinitable/dist/types/', import.meta.url)
+const leakedTypes = readdirSync(typesDir, { recursive: true })
+  .filter((entry) => String(entry).endsWith('.d.ts'))
+  .filter((entry) => readFileSync(new URL(`${entry}`, typesDir), 'utf8').includes('@infinitable/'))
+if (leakedTypes.length) fail(`infinitable 类型残留裸导入：${leakedTypes.join('、')}`)
+if (!failed) ok('infinitable dist 四层 re-export 齐备且自包含（JS + 类型）')
 console.log(failed ? '[check-exports] FAIL' : '[check-exports] PASS')
 process.exit(failed ? 1 : 0)

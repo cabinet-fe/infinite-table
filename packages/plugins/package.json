@@ -1,27 +1,7 @@
 {
   "name": "@infinitable/plugins",
-  "version": "0.1.0",
-  "description": "高性能 canvas 表格引擎插件集：SheetStore 多表模型、图表位图路由与快照恢复",
-  "keywords": [
-    "canvas",
-    "datagrid",
-    "grid",
-    "infinitable",
-    "spreadsheet",
-    "table",
-    "virtual-scroll"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cabinet-fe/infinite-table.git",
-    "directory": "packages/plugins"
-  },
-  "files": [
-    "dist/*.js",
-    "dist/types",
-    "!dist/types/.tsbuildinfo"
-  ],
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {
@@ -29,9 +9,6 @@
       "dev": "./src/index.ts",
       "import": "./dist/plugins.js"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "vp build && node scripts/assert-chart-chunk.mjs"

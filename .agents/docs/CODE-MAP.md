@@ -10,7 +10,8 @@ infinitable/
 │   ├── render/          # 自研 canvas 渲染引擎（场景树/四层 canvas/三档失效/事件/池化）
 │   ├── core/            # 表格主体（ListTable/滚动/交互/编辑/溢出/图片与浮动对象）
 │   ├── formulas/        # 公式引擎（tokenizer/Pratt parser/求值/49 内置函数/依赖图）
-│   └── plugins/         # 官方插件（TablePlugin 契约 + sheet 插件族 + chart 插件）
+│   ├── plugins/         # 官方插件（TablePlugin 契约 + sheet 插件族 + chart 插件）
+│   └── infinitable/     # 统一发布包（npm 单包 infinitable，re-export 四层）
 └── playground/          # 唯一应用：示例总览 + 页内 vs VTable 对比 + 量化基准 + 冒烟自检
 ```
 
@@ -22,6 +23,7 @@ infinitable/
 | core | `packages/core` | 表格主体：ListTable、滚动（ScrollManager 唯一滚动源）、布局、主题、交互、编辑、Excel 式溢出、图片/图表/浮动对象、插件注册路径 | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
 | plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + sheet 插件族 + chart 插件 | `src/index.ts` |
+| infinitable | `packages/infinitable` | 唯一 npm 发布包：入口 re-export 四层，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版走 `scripts/release/publish.mjs` + `.github/workflows/release.yml`（tag v* 触发 OIDC trusted publishing） | `src/index.ts` |
 | playground | `playground` | 唯一应用（Vue 3 + vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.ts`、`bench.html`、`src/views/CompareView.vue`、`src/bench/headless.test.ts` |
 
 ## 模块内检索
@@ -65,6 +67,10 @@ infinitable/
 graph TD
     core --> render
     plugins --> core
+    infinitable --> render
+    infinitable --> core
+    infinitable --> formulas
+    infinitable --> plugins
     playground --> core
     playground --> render
     playground --> plugins
@@ -72,6 +78,7 @@ graph TD
 ```
 
 - render 与 core 只经 RenderHost 窄接口耦合；formulas 与 core 互不依赖，求值接线在 playground 宿主侧
+- infinitable 为发布层：devDependencies 挂四内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
 - 不入图的外部依赖：@cat-kit/core（formulas，$n）、hucre（plugins xlsx 导出 + playground 装配）、chart.js（plugins 动态分包）、@visactor/vtable 与 vue（仅 playground，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码
 
