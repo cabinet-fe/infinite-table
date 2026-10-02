@@ -1,0 +1,37 @@
+# 发版流水线：tag v* 触发，npm trusted publishing（OIDC）免 token 发布。
+# 鉴权不落任何 NPM_TOKEN secret：npm >= 11.5.1 自动探测 GitHub Actions OIDC 环境，
+# 凭 workflow 顶层 id-token: write 与 npmjs.com 各包 Trusted Publisher 配置（cabinet-fe/infinite-table + release.yml）放行。
+# 幂等：scripts/release/publish.mjs 对已在 registry 的同名同版本跳过，tag 重跑安全。
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run build
+
+      - run: bun run check:exports
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - run: node scripts/release/publish.mjs
