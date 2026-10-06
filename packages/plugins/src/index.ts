@@ -68,3 +68,26 @@ export type {
   ChartSpecType,
   ChartType,
 } from './chart/types'
+
+// ---- print 插件（headless 打印内核：分页 → 页面 HTML → 占位符求值 → iframe 输出；P3 叠加 DOM 预览薄壳） ----
+export { paginate } from './print/paginate'
+export type { PrintPage, PrintRowRange } from './print/paginate'
+export { buildPrintDocumentHtml, buildPrintPageHtml } from './print/page-html'
+export { evaluatePlaceholders, renderHeaderFooter } from './print/header-footer'
+export type { PlaceholderContext } from './print/header-footer'
+export { printPages } from './print/print-output'
+export type { PrintHooks } from './print/print-output'
+export type {
+  PrintConfig,
+  PrintHeaderFooterConfig,
+  PrintHeaderFooterSection,
+  PrintImagePayload,
+  PrintMargin,
+  PrintOrientation,
+  PrintPagingMode,
+  PrintPaperPreset,
+  PrintPaperSpec,
+  PrintScaleMode,
+  PrintSource,
+} from './print/types'
+export { WATERMARK_TEXT_DEFAULTS } from './print/types'
