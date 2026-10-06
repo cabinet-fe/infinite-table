@@ -1,6 +1,10 @@
 // 格内图片场景节点（L2 media 层）：
 // 无闪协议——位图就绪前只在 placeholderDelay 之后画确定性占位（快速滚过不闪占位），
 // 位图就绪后由 ListTable 定向失效本格，单帧切换，无"先按错误尺寸渲一帧再调整"。
+// 不可拾取：格内图片是数据格的装饰层（事件系统跨层命中 sky→media→body 自顶向下
+// 取第一个可拾取节点，再沿其父链冒泡派发），可拾取会把指针事件截在 media 根链，
+// body 根上接线的表交互（选区/浮动对象/悬停光标）全部收不到——交互实体是 body 层
+// 数据格，本节点让事件穿透下去。
 
 import { SceneNode, type Region, type RenderContext, type SceneNodeInit } from '@infinitable/render'
 
@@ -40,7 +44,7 @@ export class ImageCellNode extends SceneNode {
   private readonly now: () => number
 
   constructor(init: ImageCellNodeInit) {
-    super(init)
+    super({ pickable: false, ...init })
     this.col = init.col
     this.row = init.row
     this.url = init.url
