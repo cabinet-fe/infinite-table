@@ -12,6 +12,8 @@ import type { DisplayDemo } from './sections/display'
 import type { EditingDemo } from './sections/editing'
 import type { InteractionDemo } from './sections/interaction'
 import type { MediaDemo } from './sections/media'
+import type { WatermarkDemo } from './sections/watermark'
+import type { PrintDemo } from './sections/print'
 
 export interface DemoHandles {
   dataForms: DataFormsDemo
@@ -19,6 +21,8 @@ export interface DemoHandles {
   interaction: InteractionDemo
   media: MediaDemo
   chart: ChartDemo
+  watermark: WatermarkDemo
+  print: PrintDemo
   editing: EditingDemo
 }
 

@@ -83,6 +83,8 @@ export { evaluatePlaceholders, renderHeaderFooter } from './print/header-footer'
 export type { PlaceholderContext } from './print/header-footer'
 export { printPages } from './print/print-output'
 export type { PrintHooks } from './print/print-output'
+export { openPrintPreview } from './print/preview'
+export type { PrintPreviewHandle } from './print/preview'
 export type {
   PrintConfig,
   PrintHeaderFooterConfig,

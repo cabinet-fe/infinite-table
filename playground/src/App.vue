@@ -12,6 +12,8 @@ import { isSmokeMode } from './mount'
 import { mountDataForms } from './sections/data-forms'
 import { mountChart, type ChartDemo } from './sections/chart'
 import { mountDisplay } from './sections/display'
+import { mountWatermark, type WatermarkDemo } from './sections/watermark'
+import { mountPrint, type PrintDemo } from './sections/print'
 import { mountInteraction } from './sections/interaction'
 import { mountMedia } from './sections/media'
 import { mountEditing } from './sections/editing'
@@ -110,6 +112,84 @@ const ChartView = defineComponent({
   },
 })
 
+// 水印视图：sections/watermark.ts 与其它演示区同一挂载形态，
+// 内联定义避免只为一个薄壳多建一个 view 文件（同 ChartView/ReportView）
+const WatermarkView = defineComponent({
+  name: 'WatermarkView',
+  setup() {
+    const containerRef = ref<HTMLDivElement | null>(null)
+    let demo: WatermarkDemo | null = null
+    onMounted(() => {
+      if (containerRef.value) {
+        demo = mountWatermark(containerRef.value)
+      }
+    })
+    onUnmounted(() => {
+      demo = null
+    })
+    return () =>
+      h('div', { class: 'view-container' }, [
+        h('div', { class: 'view-header' }, [
+          h('div', { class: 'title-row' }, [
+            h('h2', null, '文字水印'),
+            h('div', { class: 'tags' }, [
+              h('span', { class: 'tag' }, 'ground 层 L0 预留位'),
+              h('span', { class: 'tag' }, '锚定视口'),
+              h('span', { class: 'tag' }, '参数即时生效'),
+            ]),
+          ]),
+          h(
+            'p',
+            { class: 'desc' },
+            '水印插件经构造 plugins 挂载：平铺文字绘制在四层 canvas 的 ground 层（惰性创建、恒在最底）。' +
+              '滚动表格观察水印锚定视口不随内容移动；开关与滑杆即时生效（updateConfig 一帧内重绘）。',
+          ),
+        ]),
+        h('div', { ref: containerRef, class: 'demo-mount-area watermark-mount-area' }),
+      ])
+  },
+})
+
+// 打印预览视图：sections/print.ts 与其它演示区同一挂载形态，
+// 内联定义避免只为一个页面新建 view 文件（同 ReportView/WatermarkView）
+const PrintView = defineComponent({
+  name: 'PrintView',
+  setup() {
+    const containerRef = ref<HTMLDivElement | null>(null)
+    let demo: PrintDemo | null = null
+    onMounted(() => {
+      if (containerRef.value) {
+        demo = mountPrint(containerRef.value)
+      }
+    })
+    onUnmounted(() => {
+      demo = null
+    })
+    return () =>
+      h('div', { class: 'view-container' }, [
+        h('div', { class: 'view-header' }, [
+          h('div', { class: 'title-row' }, [
+            h('h2', null, '打印预览与输出'),
+            h('div', { class: 'tags' }, [
+              h('span', { class: 'tag' }, 'fitpage/fixrows 分页'),
+              h('span', { class: 'tag' }, '每页重复表头'),
+              h('span', { class: 'tag' }, '页眉页脚占位符'),
+              h('span', { class: 'tag' }, 'window.print 桩计数'),
+            ]),
+          ]),
+          h(
+            'p',
+            { class: 'desc' },
+            'headless 打印内核 + DOM 薄壳预览：超过一页的示例表（两行表头带合并单元格）经 PrintSource 供数，' +
+              '配置纸张/方向/缩放/分页模式后打开预览弹层（缩略列表 + 当前页放大 + 打印按钮）；' +
+              'window.print 已替换为计数桩，点打印按钮可在状态行与 window.__DEMO__.print 读取调用计数。',
+          ),
+        ]),
+        h('div', { ref: containerRef, class: 'demo-mount-area print-mount-area' }),
+      ])
+  },
+})
+
 interface MenuItem {
   key: string
   label: string
@@ -178,6 +258,20 @@ const menuGroups: MenuGroup[] = [
         badge: 'Chart.js',
         desc: '格内声明图表 · 离屏出图 · 无闪回滚',
         component: ChartView,
+      },
+      {
+        key: 'watermark',
+        label: '文字水印',
+        icon: '💧',
+        desc: 'ground 层平铺 · 锚定视口 · 参数即时生效',
+        component: WatermarkView,
+      },
+      {
+        key: 'print',
+        label: '打印预览与输出',
+        icon: '🖨️',
+        desc: 'fitpage/fixrows 分页 · 重复表头 · 页脚占位符',
+        component: PrintView,
       },
       {
         key: 'editing',
@@ -281,6 +375,8 @@ onMounted(() => {
       interaction: mountInteraction(mountPoint),
       media: mountMedia(mountPoint),
       chart: mountChart(mountPoint),
+      watermark: mountWatermark(mountPoint),
+      print: mountPrint(mountPoint),
       editing: mountEditing(mountPoint),
     }
     window.__DEMO__ = demos
