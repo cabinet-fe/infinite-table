@@ -105,6 +105,12 @@ export type {
 export { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 export type { InertiaVelocity, ScrollDelta2D, TouchPoint } from './touch-scroll'
 export type { ScrollFrameListener } from './list-table'
+// ground 预留位（水印等 underlay 绘制方挂点）：painter 类型 + 其收到的绘制上下文与
+// 视口尺寸（渲染窄接口复用转出，消费方零引擎内部依赖）
+export type { UnderlayPainter } from './list-table'
+// 顶层 overlay 预留位（与 underlay 对称，水印等内容之上覆盖绘制方挂点）：同上转出
+export type { OverlayPainter } from './list-table'
+export type { RenderContext, Size } from '@infinitable/render'
 export { ImageService } from './media/image-service'
 export type {
   ImageErrorEvent,

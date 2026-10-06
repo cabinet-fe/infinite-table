@@ -16,6 +16,11 @@
 // 运行时可变（P8）：冻结列数/行数与合并区开放运行时修改（合并区模型越界构造期
 // 校验延伸到运行时；跨冻结边界合并区合法，主格按冻结带钉固绘制），resize 拖拽
 // 会话补结束事件，editCellOnEnter 键位开关。
+// ground 预留位（univer P6）：ground 层（L0）在首个 underlay painter 写入时惰性创建，
+// 水印等插件经 setUnderlayPainter 挂整层绘制（锚定视口，不随滚动带失效/平移）。
+// overlay 预留位（univer P6 返工 B2）：顶层整层绘制挂点与 underlay 完全对称——
+// setOverlayPainter 的承载节点挂 sky 层（四层最上）最顶，不新增 canvas 层、四层
+// 叠放不变；水印等内容之上覆盖绘制，默认主题 body 不透明底色下仍可见（零宿主配置）。
 //
 // 按职责拆分的协作模块（6.6，纯移动不改行为，均为包内实现细节、不进公共入口）：
 // - list-table-scene.ts：场景全量重建与滚动帧增量窗口、分带建格、行列头装配、溢出右界支撑
@@ -28,10 +33,12 @@
 
 import {
   createRenderHost,
+  SceneNode,
   type LayerHandle,
   type Region,
+  type RenderContext,
   type RenderHost,
-  type SceneNode,
+  type Size,
 } from '@infinitable/render'
 
 import { TextAdvanceTable, type CellNode } from './cell-node'
@@ -125,6 +132,58 @@ import type {
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
 
+/**
+ * ground 层（L0）绘制预留位：宿主/插件注入的整层绘制回调（水印等 underlay 内容）。
+ * 每次整层重绘（setUnderlayPainter 变更、容器 resize、整层失效）时以层上下文与
+ * 视口尺寸调用；ground 层不参与滚动带失效与位图平移，绘制内容天然锚定视口。
+ */
+export type UnderlayPainter = (ctx: RenderContext, viewport: Size) => void
+
+/**
+ * 顶层 overlay 绘制预留位（与 UnderlayPainter 完全对称）：宿主/插件注入的整层
+ * 绘制回调（水印等覆盖在表格内容之上的内容）。每次整层重绘（setOverlayPainter
+ * 变更、容器 resize、sky 整层失效）时以层上下文与视口尺寸调用；sky 层不参与
+ * 滚动带失效与位图平移，绘制内容天然锚定视口。
+ */
+export type OverlayPainter = (ctx: RenderContext, viewport: Size) => void
+
+/**
+ * ground 层 painter 承载节点：整层尺寸、不可命中，paint 委托注入的 painter
+ * （层坐标即视口坐标；paintedBounds 缺省取整节点包围盒，与整层平铺内容一致）。
+ */
+class GroundPainterNode extends SceneNode {
+  /** 当前生效 painter（setUnderlayPainter 原位换写，节点与树结构复用） */
+  painter: UnderlayPainter
+
+  constructor(painter: UnderlayPainter) {
+    super({ pickable: false })
+    this.painter = painter
+  }
+
+  override paint(ctx: RenderContext): void {
+    this.painter(ctx, { width: this.width, height: this.height })
+  }
+}
+
+/**
+ * overlay painter 承载节点（与 GroundPainterNode 同构，挂点与语义不同）：挂 sky
+ * 层最顶（选区浮层/浮动对象之上）、整层尺寸、不可命中——pointer 事件透传，sky 层
+ * 既有事件语义不受拦截；paint 委托注入的 painter（层坐标即视口坐标）。
+ */
+class OverlayPainterNode extends SceneNode {
+  /** 当前生效 painter（setOverlayPainter 原位换写，节点与树结构复用） */
+  painter: OverlayPainter
+
+  constructor(painter: OverlayPainter) {
+    super({ pickable: false })
+    this.painter = painter
+  }
+
+  override paint(ctx: RenderContext): void {
+    this.painter(ctx, { width: this.width, height: this.height })
+  }
+}
+
 /** 宿主环境 dpr：存在全局 window 时取运行环境值，无 window 环境（headless/离屏测试）回落 1 */
 function resolveHostDpr(): number {
   return typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
@@ -191,6 +250,12 @@ export class ListTable {
   readonly mediaCache = new MediaCache<LoadedImage>()
   /** @internal L2 media 层：首个图片/图表格出现时惰性创建 */
   media: LayerHandle | null = null
+  /** @internal ground 层句柄（L0）：首个 underlay painter 写入时惰性创建（此前零开销） */
+  ground: LayerHandle | null = null
+  /** @internal ground 层 painter 承载节点（setUnderlayPainter 维护；null 即无 underlay 内容） */
+  private underlayPainterNode: GroundPainterNode | null = null
+  /** @internal overlay painter 承载节点（setOverlayPainter 维护；null 即无顶层 overlay 内容） */
+  private overlayPainterNode: OverlayPainterNode | null = null
   /** @internal 当前窗口内的图片格节点，key 见 cellKey（随窗口重建） */
   readonly imageCellNodes = new Map<number, ImageCellNode>()
   /** @internal 当前窗口内的图表格节点，key 见 cellKey（随窗口重建；位图经 cell 级缓存直贴） */
@@ -489,6 +554,71 @@ export class ListTable {
   use(plugin: TablePlugin): void {
     this.plugins.push(plugin)
     plugin.mount(this)
+  }
+
+  /**
+   * ground 层（L0）绘制预留位（水印等 underlay 内容的引擎挂点，chart 插件
+   * chartMediaResolver 同风格的「写引擎预留位」先例）：写入 painter 后层惰性创建、
+   * painter 委托绘制；传 null 移除承载节点并清空绘制面（还原空置预留层）。
+   * painter 变更触发 ground 整层失效，下一帧重绘生效。四层叠放语义不变：ground
+   * 恒在最底（建层按层序插入 DOM），滚动 band 失效与位图 blit 均不波及本层，
+   * painter 以视口尺寸绘制、内容锚定视口不随滚动平移。
+   */
+  setUnderlayPainter(painter: UnderlayPainter | null): void {
+    if (painter) {
+      this.ground ??= this.host.createLayer({ kind: 'ground' })
+      if (this.underlayPainterNode) {
+        this.underlayPainterNode.painter = painter
+      } else {
+        this.underlayPainterNode = new GroundPainterNode(painter)
+        this.underlayPainterNode.width = this.width
+        this.underlayPainterNode.height = this.height
+        this.ground.root.appendChild(this.underlayPainterNode)
+      }
+    } else if (this.underlayPainterNode) {
+      // 还原：摘除承载节点 + 整层失效清屏（层句柄幂等留存，后续写入复用）
+      this.underlayPainterNode.removeFromParent()
+      this.underlayPainterNode = null
+    }
+    if (this.ground) {
+      this.host.submitInvalidation('ground', { type: 'full' })
+    }
+  }
+
+  /**
+   * 顶层 overlay 绘制预留位（与 setUnderlayPainter 完全对称的引擎挂点，水印等
+   * 覆盖在表格内容之上的绘制方使用）：写入 painter 后承载节点挂 sky 层（现有
+   * canvas 层结构最上层）最顶——不新增 canvas 层、四层叠放结构不变，任意主题
+   * body 底色（含不透明缺省白）都不遮挡 overlay 内容。painter 变更触发 sky 整层
+   * 失效，下一帧重绘生效；传 null 移除承载节点并清空绘制面（还原空置预留位），
+   * 状态未变的空写不提交失效。节点不可命中（pointer 事件透传，sky 层事件语义
+   * 不受影响）；滚动 band 失效不波及（只落 body/media），painter 以视口尺寸绘制、
+   * 内容锚定视口不随滚动平移，resize 时视口尺寸同步。内容之下的水印等场景用
+   * setUnderlayPainter（ground 层恒在最底，被 body 底色遮挡需宿主透明底配合，
+   * 两者用途差异见 docs/plugin-interface-map.md）。
+   */
+  setOverlayPainter(painter: OverlayPainter | null): void {
+    let changed = false
+    if (painter) {
+      if (this.overlayPainterNode) {
+        this.overlayPainterNode.painter = painter
+      } else {
+        this.overlayPainterNode = new OverlayPainterNode(painter)
+        this.overlayPainterNode.width = this.width
+        this.overlayPainterNode.height = this.height
+        // 层内挂最顶：sky root 末子节点（选区浮层/浮动对象之上）
+        this.sky.root.appendChild(this.overlayPainterNode)
+      }
+      changed = true
+    } else if (this.overlayPainterNode) {
+      // 还原：摘除承载节点 + 整层失效清屏（层句柄常在，后续写入方重建节点复用）
+      this.overlayPainterNode.removeFromParent()
+      this.overlayPainterNode = null
+      changed = true
+    }
+    if (changed) {
+      this.host.submitInvalidation('sky', { type: 'full' })
+    }
   }
 
   /**
@@ -993,6 +1123,16 @@ export class ListTable {
     this.host.resize(nextWidth, nextHeight, resolveHostDpr())
     // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
     this.overlay.resize()
+    if (this.underlayPainterNode) {
+      // ground painter 收到的视口尺寸随 resize 跟随（层自身尺寸由 host.resize 逐层落地）
+      this.underlayPainterNode.width = nextWidth
+      this.underlayPainterNode.height = nextHeight
+    }
+    if (this.overlayPainterNode) {
+      // overlay painter 同步视口尺寸（sky 层尺寸由 host.resize 逐层落地）
+      this.overlayPainterNode.width = nextWidth
+      this.overlayPainterNode.height = nextHeight
+    }
     if (this.floatLayer) {
       this.floatLayer.setBodyViewport(this.bodyViewport)
     }

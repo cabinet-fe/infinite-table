@@ -62,6 +62,8 @@
 | meta 报表地址工具 `parseAddress/formatAddress/cellKey/createRange` | `@infinitable/formulas` 公开 A1 地址等价实现：`parseCellRef`（解析）/ `formatCellRef` / `formatRangeRef`（格式化）/ `colLetters` / `createRangeRef`（区域构造）；cellKey 串由 `formatCellRef` 坐标组合承接 | 已有（S7 spec 验收「文档化等价方案」） |
 | 撤销/重做（Sheet 命令栈的视图侧配合） | `onCellChange` oldValue/newValue + 结构命令记录 | 已有（S3 UndoStack/bindCellChangeUndo 已落地） |
 | 浮动图片缩放/旋转（univer Transformer 思路） | `floatObjects` 浮动层面：`FloatObject.rotation`（顺时针度数，渲染绕中心旋转、命中逆变换）、选中态 8 缩放手柄 + 顶部旋转手柄（`handleAt` 命中 / `beginTransform`+`transformMove`+`endTransform` 会话、Shift 等比与 15° 吸附）、`onTransformEnd` 抛 `{ id, anchor, size, rotation }`（对齐 onDragEnd 事件形态，拖拽过程只改渲染态）；类型 `FloatTransformEndEvent` / `FloatTransformHandle` 从 core 公开导出 | 已有（univer P4 引擎公开） |
+| 水印 underlay 绘制位（内容之下水印等） | `setUnderlayPainter(painter \| null)`：ground 层（L0）惰性创建 + 整层绘制预留位（chart 插件 chartMediaResolver 同风格「写引擎预留位」先例），painter 收 `RenderContext` 与视口尺寸、变更即 ground 整层失效（一帧内重绘）；层恒在最底且不随滚动带失效/平移（锚定视口）；注意默认主题 body 层不透明底色会遮挡 ground 内容，作内容之下衬底水印时需宿主 `underlayBackgroundColor` 配合透明色；类型 `UnderlayPainter` / `RenderContext` / `Size` 从 core 公开导出 | 已有（univer P6 引擎公开） |
+| overlay 绘制位（内容之上水印等，univer 顶层水印同位） | `setOverlayPainter(painter \| null)`：与 underlay 完全对称的顶层整层绘制预留位——承载节点挂现有四层 canvas 最上层的 sky 层最顶（不新增 canvas 层、四层叠放不变），任意主题 body 底色（含不透明缺省白）都不遮挡、零宿主配置；painter 收 `RenderContext` 与视口尺寸、变更即 sky 整层失效（一帧内重绘）；锚定视口不随滚动带失效/平移；节点不可命中（pointer 事件透传，sky 层事件语义不受影响）；类型 `OverlayPainter` 从 core 公开导出 | 已有（univer P6 返工 B2 引擎公开） |
 
 ## 三、事件面（`ListTable.EVENT_TYPE`）
 

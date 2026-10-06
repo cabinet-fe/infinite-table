@@ -69,6 +69,12 @@ export type {
   ChartType,
 } from './chart/types'
 
+// ---- watermark 插件（文字平铺水印：core 顶层 overlay 预留位绘制，锚定视口不随滚动） ----
+export { createWatermarkPlugin, WATERMARK_PLUGIN_NAME } from './watermark/watermark-plugin'
+export type { WatermarkHandle } from './watermark/watermark-plugin'
+// 打印水印与水印插件共享的配置模型（P1 落地，经本入口一并转出）
+export type { WatermarkTextConfig } from './print/types'
+
 // ---- print 插件（headless 打印内核：分页 → 页面 HTML → 占位符求值 → iframe 输出；P3 叠加 DOM 预览薄壳） ----
 export { paginate } from './print/paginate'
 export type { PrintPage, PrintRowRange } from './print/paginate'

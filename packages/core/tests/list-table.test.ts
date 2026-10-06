@@ -5,6 +5,7 @@ import { EditorRegistry } from '../src/editor-registry'
 import { ListTable } from '../src/list-table'
 import { createFakeDoc } from './testing/fake-editor-dom'
 import { findCellNode } from './testing/find-cell-node'
+import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type {
   CellChangeEvent,
@@ -319,5 +320,63 @@ describe('ListTable 编辑生命周期事件', () => {
     table.onEditStart((event) => starts.push(event))
     expect(table.startEdit(0, 0)).toBe(false)
     expect(starts).toEqual([])
+  })
+})
+
+describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', () => {
+  /** sky 层当前子节点（构造后含 1 个交互浮层节点） */
+  const skyNodes = (host: StubHost) => host.layers.get('sky')?.root.children ?? []
+  const skyFullCount = (host: StubHost) =>
+    host.submitted.filter((s) => s.kind === 'sky' && s.inv.type === 'full').length
+
+  it('写入 painter 建承载节点挂 sky 最顶并整层失效；原位换 painter、置 null 摘除清屏', () => {
+    const { host, table } = createTable()
+    expect(skyNodes(host)).toHaveLength(1)
+
+    const viewports: Array<{ width: number; height: number }> = []
+    table.setOverlayPainter((_ctx, viewport) => viewports.push(viewport))
+    const nodes = skyNodes(host)
+    expect(nodes).toHaveLength(2)
+    expect(skyFullCount(host)).toBe(1)
+    // painter 以节点尺寸（=视口尺寸）调用，层坐标即视口坐标
+    nodes[1]?.paint(new RecordingContext())
+    expect(viewports).toEqual([{ width: 800, height: 600 }])
+
+    // 原位换 painter：承载节点与树结构复用（仍为 sky 末子节点）
+    const node = nodes[1]
+    table.setOverlayPainter(() => {})
+    expect(skyNodes(host)[1]).toBe(node)
+
+    // 置 null：节点摘除 + 清屏失效；状态未变的空写不再提交
+    table.setOverlayPainter(null)
+    expect(skyNodes(host)).toHaveLength(1)
+    expect(skyFullCount(host)).toBe(3)
+    table.setOverlayPainter(null)
+    expect(skyFullCount(host)).toBe(3)
+  })
+
+  it('承载节点不可命中（pointer 透传）；滚动 band 失效不波及 sky；resize 同步视口尺寸', () => {
+    const { host, table } = createTable({ rowCount: 500 })
+    const viewports: Array<{ width: number; height: number }> = []
+    table.setOverlayPainter((_ctx, viewport) => viewports.push(viewport))
+
+    // 覆盖全视口但 pickable=false 且无子节点：命中测试穿透（sky 事件语义不受拦截）
+    const node = skyNodes(host)[1]
+    expect(node?.pickable).toBe(false)
+    expect(node?.children).toEqual([])
+    expect(node?.width).toBe(800)
+    expect(node?.height).toBe(600)
+
+    host.submitted.length = 0
+    table.setScrollTop(2000)
+    table.setScrollLeft(100)
+    const kinds = new Set(host.submitted.map((s) => s.kind))
+    expect(kinds.has('body')).toBe(true)
+    expect(kinds.has('sky')).toBe(false)
+
+    // resize 后 painter 读到新视口尺寸（本用例首次直绘发生在 resize 之后）
+    table.resize(500, 400)
+    skyNodes(host)[1]?.paint(new RecordingContext())
+    expect(viewports).toEqual([{ width: 500, height: 400 }])
   })
 })
