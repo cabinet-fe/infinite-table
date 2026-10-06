@@ -152,7 +152,12 @@ describe('FloatObjectLayer 承载与定位', () => {
 
     // 未旋转框 (104,72)–(224,112)，中心 (164,92)；旋转 90° 后局部覆盖 =
     // 半宽 h/2=20、半高 w/2=60 的 AABB：{x: 40, y: -40, w×h: 40×120}
-    expect(node.paintedBounds()).toEqual({ x: 40, y: -40, width: 40, height: 120 })
+    //（三角函数带浮点尘，逐字段近似断言）
+    const cover = node.paintedBounds()
+    expect(cover.x).toBeCloseTo(40, 8)
+    expect(cover.y).toBeCloseTo(-40, 8)
+    expect(cover.width).toBeCloseTo(40, 8)
+    expect(cover.height).toBeCloseTo(120, 8)
 
     // 命中逆变换：原右上角区域 (210,80)（未旋转框内但旋出）不命中；
     // (164,62)（未旋转框外、中心正上方 30px，旋入）命中

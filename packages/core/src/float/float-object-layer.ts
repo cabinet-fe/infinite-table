@@ -570,16 +570,15 @@ export class FloatObjectLayer {
       return
     }
     const object = node.object
-    const hit = this.geometry.cellAtPoint?.(node.x, node.y) ?? null
-    const next = hit ? this.resolveAnchorAt(object, node.x, node.y) : null
+    const next = this.resolveAnchorAt(object, node.x, node.y)
     const samePlace =
-      next !== null &&
       next.from.col === object.anchor.from.col &&
       next.from.row === object.anchor.from.row &&
       next.offsetX === object.anchor.offsetX &&
       next.offsetY === object.anchor.offsetY
-    if (!hit || samePlace) {
-      // 回弹：恢复锚定布局（落点无效/原地放下，不写模型不残留视觉位移）
+    if (samePlace) {
+      // 回弹：恢复锚定布局（原地放下，不写模型不残留视觉位移；落点无效时
+      // resolveAnchorAt 保持原锚点，同样视为原地）
       const prev = this.coverOf(node)
       this.layoutNode(node)
       this.invalidateNode(node, prev)
