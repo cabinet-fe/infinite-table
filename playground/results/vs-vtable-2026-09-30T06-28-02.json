@@ -267,10 +267,7 @@
       "verdict": "faster"
     }
   ],
-  "scales": [
-    100000,
-    1000000
-  ],
+  "scales": [100000, 1000000],
   "wins": 15,
   "total": 20,
   "gitCommit": "1166058",

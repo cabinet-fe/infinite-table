@@ -43,7 +43,7 @@ if (!dryRun && isPublished(pkg.name, pkg.version)) {
 const dir = path.join(root, 'packages/infinitable')
 const original = readFileSync(path.join(dir, 'package.json'), 'utf8')
 try {
-  const { devDependencies, ...publishable } = pkg
+  const { devDependencies: _devDependencies, ...publishable } = pkg
   writeFileSync(path.join(dir, 'package.json'), `${JSON.stringify(publishable, null, 2)}\n`)
   console.log(`▸ ${dryRun ? 'dry-run ' : ''}publish ${pkg.name}@${pkg.version}`)
   execFileSync('npm', ['publish', dir, '--access', 'public', ...(dryRun ? ['--dry-run'] : [])], {
