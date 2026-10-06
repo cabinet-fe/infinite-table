@@ -33,6 +33,9 @@ export class RecordingContext implements RenderContext {
   translate(x: number, y: number): void {
     this.record('translate', x, y)
   }
+  rotate(rad: number): void {
+    this.record('rotate', rad)
+  }
   beginPath(): void {
     this.record('beginPath')
   }

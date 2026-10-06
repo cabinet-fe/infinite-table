@@ -127,6 +127,8 @@ export type {
   FloatGeometry,
   FloatObject,
   FloatObjectChange,
+  FloatTransformEndEvent,
+  FloatTransformHandle,
 } from './float/float-object-layer'
 export type {
   CellChangeEvent,

@@ -11,6 +11,7 @@ import type {
   FillHandleDoubleClickEvent,
   FillHandleDownEvent,
 } from './fill-handle'
+import type { FloatTransformHandle } from './float/float-object-layer'
 import {
   hitFillHandle,
   resolveFillPreview,
@@ -53,6 +54,19 @@ const FILL_EDGE_STEP = 24
 /** resize 手柄光标：列缘横向 col-resize、行缘纵向 row-resize（与 Excel / 浏览器列宽拖拽同口径） */
 const RESIZE_CURSOR = { col: 'col-resize', row: 'row-resize' } as const
 
+/** 浮动对象变换手柄光标：对角 nwse/nesw、边中点 ns/ew、旋转手柄 grab（与主流编辑器同口径） */
+const TRANSFORM_CURSOR: Record<FloatTransformHandle, string> = {
+  'left-top': 'nwse-resize',
+  'center-top': 'ns-resize',
+  'right-top': 'nesw-resize',
+  'left-middle': 'ew-resize',
+  'right-middle': 'ew-resize',
+  'left-bottom': 'nesw-resize',
+  'center-bottom': 'ns-resize',
+  'right-bottom': 'nwse-resize',
+  rotate: 'grab',
+}
+
 /** 场景事件统一接线：指针/触摸在 body 根（sky 浮层不可拾取，事件穿透），键盘在最顶层根 */
 export function bindInteractionEvents(table: ListTable): void {
   const bodyRoot = table.body.root
@@ -79,11 +93,17 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   table.pointerDownAt = { x: event.x, y: event.y }
   // 新按下终结任何残留的表头拖选会话（正常流由 pointerup 结束）
   table.headerDrag = null
-  // 浮动对象命中优先（浮动层在 sky 最顶、盖在格内容之上）：命中即点选 + 开启拖拽会话
-  // （只读仍选中、不拖拽），事件不落入编辑提交/单元格选区；未命中清除图片选中
-  // （对齐 ultra-ui「点其它处取消选中」）
+  // 浮动对象命中优先（浮动层在 sky 最顶、盖在格内容之上）：选中对象的变换手柄
+  // （缩放/旋转）最优先——按下即开启变换会话（只读返回 false 仍拦截，不落选区）；
+  // 未中手柄再看对象本体：命中即点选 + 开启拖拽会话（只读仍选中、不拖拽），
+  // 事件不落入编辑提交/单元格选区；未命中清除图片选中（对齐 ultra-ui「点其它处取消选中」）
   const floats = table.floatLayer
   if (floats) {
+    const handle = floats.handleAt(event.x, event.y)
+    if (handle) {
+      floats.beginTransform(handle, event.x, event.y)
+      return
+    }
     const floatObject = floats.getAt(event.x, event.y)
     if (floatObject) {
       floats.select(floatObject.id)
@@ -201,6 +221,11 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
 }
 
 function onPointerMove(table: ListTable, event: SceneEvent): void {
+  // 浮动对象变换会话优先：缩放/旋转跟随指针（Shift 经事件态传入，不更新选区）
+  if (table.floatLayer?.isTransforming()) {
+    table.floatLayer.transformMove(event.x, event.y, event.shiftKey)
+    return
+  }
   // 图片拖拽会话优先：跟随指针（不更新悬停/选区）
   if (table.floatLayer?.isDragging()) {
     table.floatLayer.dragMove(event.x, event.y)
@@ -274,6 +299,11 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
 }
 
 function onPointerUp(table: ListTable, event: SceneEvent): void {
+  // 浮动对象变换会话结束：缩放/旋转结束经 onTransformEnd 抛新 size/rotation/锚点给宿主写回
+  if (table.floatLayer?.isTransforming()) {
+    table.floatLayer.endTransform()
+    return
+  }
   // 图片拖拽会话结束：落点换算在浮动层（按对象视觉位置反查，onDragEnd 抛新锚点给宿主写回）
   if (table.floatLayer?.isDragging()) {
     table.floatLayer.endDrag()
@@ -794,6 +824,15 @@ function resizeHandleAt(table: ListTable, x: number, y: number): ResizeTarget | 
  * 其余恢复缺省；拖拽会话的会话期光标由各会话分支自行维持（见 onPointerMove）。
  */
 function updatePointerCursor(table: ListTable, x: number, y: number): void {
+  // 浮动对象变换手柄：缩放手柄按对角/轴向、旋转手柄 grab（仅选中对象有手柄）
+  const floats = table.floatLayer
+  if (floats) {
+    const handle = floats.handleAt(x, y)
+    if (handle) {
+      table.setContainerCursor(TRANSFORM_CURSOR[handle])
+      return
+    }
+  }
   const handle = resizeHandleAt(table, x, y)
   if (handle) {
     table.setContainerCursor(RESIZE_CURSOR[handle.kind])

@@ -61,6 +61,7 @@
 | `patchColumnHeaderDragExpand` 私有补丁（表头拖选连续扩展） | 表头拖选连续扩展内置（列头横向拖选→列区间×全部行，行头纵向拖选→行区间×全部列，抬起重算一致） | 已有（S7 P2 引擎内置，删下游补丁） |
 | meta 报表地址工具 `parseAddress/formatAddress/cellKey/createRange` | `@infinitable/formulas` 公开 A1 地址等价实现：`parseCellRef`（解析）/ `formatCellRef` / `formatRangeRef`（格式化）/ `colLetters` / `createRangeRef`（区域构造）；cellKey 串由 `formatCellRef` 坐标组合承接 | 已有（S7 spec 验收「文档化等价方案」） |
 | 撤销/重做（Sheet 命令栈的视图侧配合） | `onCellChange` oldValue/newValue + 结构命令记录 | 已有（S3 UndoStack/bindCellChangeUndo 已落地） |
+| 浮动图片缩放/旋转（univer Transformer 思路） | `floatObjects` 浮动层面：`FloatObject.rotation`（顺时针度数，渲染绕中心旋转、命中逆变换）、选中态 8 缩放手柄 + 顶部旋转手柄（`handleAt` 命中 / `beginTransform`+`transformMove`+`endTransform` 会话、Shift 等比与 15° 吸附）、`onTransformEnd` 抛 `{ id, anchor, size, rotation }`（对齐 onDragEnd 事件形态，拖拽过程只改渲染态）；类型 `FloatTransformEndEvent` / `FloatTransformHandle` 从 core 公开导出 | 已有（univer P4 引擎公开） |
 
 ## 三、事件面（`ListTable.EVENT_TYPE`）
 

@@ -499,6 +499,9 @@ export class ListTable {
    * 表头带的部分不画，行列头保持在浮动对象之上不被盖住。
    * 交互：命中由指针路由优先接管（list-table-interaction），点选选中、拖拽结束经
    * onDragEnd 抛落点换算的新锚点，宿主写回模型；只读（isReadonly）不启用拖拽。
+   * 变换（univer Transformer 思路）：选中对象画 8 缩放手柄 + 顶部旋转手柄（随
+   * rotation 旋转），拖拽缩放/旋转只改渲染态，结束经 onTransformEnd 抛
+   * { id, anchor, size, rotation } 由宿主写回；FloatObject.rotation 控制渲染旋转角。
    */
   get floatObjects(): FloatObjectLayer {
     if (!this.floatLayer) {

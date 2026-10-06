@@ -1,60 +1,12 @@
-import {
-  SceneNode,
-  type Invalidation,
-  type LayerHandle,
-  type RenderImageSource,
-} from '@infinitable/render'
+import { type RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { ImageService, type LoadedImage } from '../../src/media/image-service'
 import type { CellRef } from '../../src/types'
-import type {
-  FloatDragEndEvent,
-  FloatGeometry,
-  FloatObject,
-} from '../../src/float/float-object-layer'
+import type { FloatDragEndEvent } from '../../src/float/float-object-layer'
 import { FloatObjectLayer } from '../../src/float/float-object-layer'
 import { RecordingContext } from '../testing/recording-context'
-
-/** 记录失效的假层 */
-function stubLayer() {
-  const invalidated: Invalidation[] = []
-  const root = new SceneNode({ pickable: false })
-  const layer: LayerHandle = {
-    kind: 'sky',
-    root,
-    canvasElement: { width: 0, height: 0, getContext: () => null },
-    setSize: () => {},
-    invalidate: (inv) => invalidated.push(inv),
-    translateBy: () => {},
-  }
-  return { layer, root, invalidated }
-}
-
-/** 等行高列宽的假几何：scroll/cell 由闭包变量驱动（模拟滚动跟随与行列 resize 后尺寸变更） */
-function stubGeometry(
-  scroll: { left: number; top: number },
-  cell: { width: number; height: number } = { width: 100, height: 32 },
-  cellAtPoint?: (x: number, y: number) => CellRef | null,
-): FloatGeometry {
-  return {
-    cellOrigin: (col, row) => ({
-      x: col * cell.width - scroll.left,
-      y: row * cell.height - scroll.top,
-    }),
-    cellSize: () => ({ width: cell.width, height: cell.height }),
-    ...(cellAtPoint ? { cellAtPoint } : {}),
-  }
-}
-
-function imageObject(id: string, from: { col: number; row: number }): FloatObject {
-  return {
-    id,
-    kind: 'image',
-    anchor: { from, to: { col: from.col + 1, row: from.row + 1 }, offsetX: 4, offsetY: 8 },
-    src: `${id}.png`,
-  }
-}
+import { hitCell, imageObject, stubGeometry, stubLayer } from '../testing/float-fixtures'
 
 describe('FloatObjectLayer 承载与定位', () => {
   it('add：按锚点 from+偏移定位，尺寸由 from→to 格范围决定；size 优先', () => {
@@ -177,6 +129,37 @@ describe('FloatObjectLayer 承载与定位', () => {
     expect(floats.getAt(10_000, 10_000)).toBeNull()
   })
 
+  it('rotation 渲染状态：绕中心旋转绘制（rotate π/2）、覆盖为旋转 AABB、命中沿逆变换路径', () => {
+    const { layer } = stubLayer()
+    const floats = new FloatObjectLayer({ layer, geometry: stubGeometry({ left: 0, top: 0 }) })
+    floats.add({
+      ...imageObject('a', { col: 1, row: 2 }),
+      rotation: 90,
+      size: { width: 120, height: 40 },
+    })
+    const node = layer.root.children[0]?.children[0]
+    if (!node) {
+      throw new Error('浮动对象节点缺失')
+    }
+    // 渲染态镜像：rotation 同步到节点；绘制先平移到中心再 rotate(π/2) 再平移回
+    const ctx = new RecordingContext()
+    node.paint(ctx)
+    expect(ctx.callsOf('rotate')).toEqual([{ name: 'rotate', args: [Math.PI / 2] }])
+    expect(ctx.callsOf('translate')).toEqual([
+      { name: 'translate', args: [60, 20] },
+      { name: 'translate', args: [-60, -20] },
+    ])
+
+    // 未旋转框 (104,72)–(224,112)，中心 (164,92)；旋转 90° 后局部覆盖 =
+    // 半宽 h/2=20、半高 w/2=60 的 AABB：{x: 40, y: -40, w×h: 40×120}
+    expect(node.paintedBounds()).toEqual({ x: 40, y: -40, width: 40, height: 120 })
+
+    // 命中逆变换：原右上角区域 (210,80)（未旋转框内但旋出）不命中；
+    // (164,62)（未旋转框外、中心正上方 30px，旋入）命中
+    expect(floats.getAt(210, 80)).toBeNull()
+    expect(floats.getAt(164, 62)?.id).toBe('a')
+  })
+
   it('onChange：增删改事件按序抛出（供宿主 undo 入库）', () => {
     const { layer } = stubLayer()
     const floats = new FloatObjectLayer({ layer, geometry: stubGeometry({ left: 0, top: 0 }) })
@@ -282,10 +265,6 @@ describe('FloatObjectLayer 点选与拖拽（对齐 ultra-ui image-layer）', ()
     return { layer, floats }
   }
 
-  /** 格命中：层坐标按等分格换算（与 stubGeometry 的 cellOrigin 同口径） */
-  const hitCell = (x: number, y: number): CellRef | null =>
-    x < 0 || y < 0 ? null : { col: Math.floor(x / 100), row: Math.floor(y / 32) }
-
   it('select：单选画 2px #2170E7 外扩选中环；清除后不再画', () => {
     const { layer, floats } = dragSetup()
     const node = layer.root.children[0]?.children[0]
@@ -296,9 +275,10 @@ describe('FloatObjectLayer 点选与拖拽（对齐 ultra-ui image-layer）', ()
     expect(floats.getSelectedId()).toBe('a')
     const ctx = new RecordingContext()
     node.paint(ctx)
-    // 环画在边界外侧 2px：四边细条（上/下/左/右），颜色对齐 ultra-ui SELECTION_COLOR
+    // 环画在边界外侧 2px：四边细条（上/下/左/右）画在手柄之前（占位 fillRect 后的首 4 笔），
+    // 颜色对齐 ultra-ui SELECTION_COLOR
     expect(ctx.fillStyle).toBe('#2170E7')
-    expect(ctx.callsOf('fillRect').slice(-4)).toEqual([
+    expect(ctx.callsOf('fillRect').slice(1, 5)).toEqual([
       { name: 'fillRect', args: [-2, -2, 200, 2] },
       { name: 'fillRect', args: [-2, 56, 200, 2] },
       { name: 'fillRect', args: [-2, 0, 2, 56] },
@@ -309,7 +289,7 @@ describe('FloatObjectLayer 点选与拖拽（对齐 ultra-ui image-layer）', ()
     expect(floats.getSelectedId()).toBeNull()
     const plain = new RecordingContext()
     node.paint(plain)
-    // 无环：只剩占位绘制自身的一次 fillRect
+    // 无环无手柄：只剩占位绘制自身的一次 fillRect
     expect(plain.callsOf('fillRect')).toHaveLength(1)
   })
 

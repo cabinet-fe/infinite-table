@@ -38,6 +38,12 @@ export interface RenderContext {
   restore(): void
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void
   translate(x: number, y: number): void
+  /**
+   * 旋转后续绘制坐标（弧度，y 轴向下时正值即顺时针）。
+   * 可选成员：真实 CanvasRenderingContext2D 天然携带；最小桩实现可缺省，
+   * 消费方（浮动对象旋转渲染）需自行容错缺省（按未旋转绘制）。
+   */
+  rotate?(rad: number): void
   beginPath(): void
   rect(x: number, y: number, width: number, height: number): void
   clip(): void
