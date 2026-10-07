@@ -27,7 +27,7 @@
     },
     "packages/infinitable": {
       "name": "infinitable",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@cat-kit/core": "^1.2.1",
       },
