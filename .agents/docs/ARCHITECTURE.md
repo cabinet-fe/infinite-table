@@ -30,6 +30,7 @@
 | 渲染 | 自研 `@infinitable/render`（canvas 2d，多 region 失效） | 替代 @visactor/vrender 全家 |
 | 工具库 | `@cat-kit/core`（cabinet-fe 核心工具包） | 替代 @visactor/vutils |
 | 测试 | vitest（vite-plus 内置） | 浏览器行为用浏览器模式冒烟 |
+| 应用 UI（仅 playground） | React + shadcn/ui + Tailwind CSS | vite MPA；不进任何 packages |
 | 部署 | 私有 npm 包，下游 ultra-ui 自用 | 不公开发布 |
 
 ## 未决
