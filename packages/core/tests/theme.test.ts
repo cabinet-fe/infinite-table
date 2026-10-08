@@ -284,6 +284,8 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
       headerHighlight: 'rgba(46, 106, 219, 0.18)',
       freezeDividerColor: '#c9cdd4',
       freezeDividerWidth: 1,
+      scrollbarThumb: 'rgba(31, 35, 41, 0.4)',
+      scrollbarSize: 10,
     })
   })
 
@@ -473,7 +475,11 @@ describe('构造时背景通道固化与 updateTheme 运行时更新', () => {
     const { host, table } = createTable()
     host.submitted.length = 0
     table.updateTheme({ body: { background: '#aabbcc' } })
-    expect(host.submitted).toEqual([{ kind: 'body', inv: { type: 'full' } }])
+    // 内建滚动条常驻 sky 浮层（内容溢出即有滑块），updateTheme 重绘浮层附带 sky full
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'full' } },
+      { kind: 'sky', inv: { type: 'full' } },
+    ])
   })
 
   it('updateTheme 浮层跟随：interaction 分区更新后浮层按新 token 绘制', () => {

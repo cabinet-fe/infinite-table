@@ -203,9 +203,11 @@ describe('ListTable 虚拟滚动窗口', () => {
     expect(findNode(host, 0, 99_999)?.text).toBe('row-99999')
     expect(findNode(host, 0, 0)).toBeUndefined()
     expect(body?.root.children).toHaveLength(144 + 3)
-    // 滚动 → band 失效登记的主循环（无冻结时纵向滚动带为列头以下整个视口）
+    // 滚动 → band 失效登记的主循环（无冻结时纵向滚动带为列头以下整个视口）；
+    // 内建滚动条滑块随滚动移动，附带 sky 浮层 full 重绘
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'band', region: { x: 0, y: 36, width: 800, height: 564 } } },
+      { kind: 'sky', inv: { type: 'full' } },
     ])
   })
 
@@ -355,7 +357,7 @@ describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', 
     expect(skyFullCount(host)).toBe(3)
   })
 
-  it('承载节点不可命中（pointer 透传）；滚动 band 失效不波及 sky；resize 同步视口尺寸', () => {
+  it('承载节点不可命中（pointer 透传）；resize 同步视口尺寸', () => {
     const { host, table } = createTable({ rowCount: 500 })
     const viewports: Array<{ width: number; height: number }> = []
     table.setOverlayPainter((_ctx, viewport) => viewports.push(viewport))
@@ -372,11 +374,12 @@ describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', 
     table.setScrollLeft(100)
     const kinds = new Set(host.submitted.map((s) => s.kind))
     expect(kinds.has('body')).toBe(true)
-    expect(kinds.has('sky')).toBe(false)
+    // 内建滚动条滑块随滚动重绘 sky 浮层（painter 视口锚定，重绘输出不变）
+    expect(kinds.has('sky')).toBe(true)
 
-    // resize 后 painter 读到新视口尺寸（本用例首次直绘发生在 resize 之后）
+    // resize 后 painter 读到新视口尺寸（滚动重绘期间 painter 仍读旧视口）
     table.resize(500, 400)
     skyNodes(host)[1]?.paint(new RecordingContext())
-    expect(viewports).toEqual([{ width: 500, height: 400 }])
+    expect(viewports.at(-1)).toEqual({ width: 500, height: 400 })
   })
 })

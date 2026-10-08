@@ -105,6 +105,7 @@ import {
   type RowResizeEndEvent,
 } from './resize'
 import { ScrollManager, type ScrollDelta, type ScrollState } from './scroll-manager'
+import type { ScrollbarDragSession } from './scrollbar'
 import {
   SelectionState,
   type RangeBounds,
@@ -306,6 +307,8 @@ export class ListTable {
   /** @internal resize 拖拽会话与指示线 */
   resizeSession: ResizeSession | null = null
   resizeLine: ResizeLine | null = null
+  /** @internal 内建滚动条拖拽会话 */
+  scrollbarDrag: ScrollbarDragSession | null = null
   /** @internal 拖选进行中 */
   selecting = false
   /**

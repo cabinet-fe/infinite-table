@@ -13,6 +13,7 @@ import {
   type SelectionRange,
   type SelectionSnapshot,
 } from './selection'
+import type { ScrollbarThumbGeometry } from './scrollbar'
 import type { InteractionTokens } from './theme'
 
 /** 浮层绘制所需的几何查询（闭包读取表格实时状态） */
@@ -53,6 +54,11 @@ export interface OverlayContent {
   readonly highlightRanges: readonly HighlightRange[]
   /** 冻结分隔线位置（视口坐标；x = 冻结列右缘竖线、y = 冻结行下缘横线，冻结数为 0 的轴为 null） */
   readonly freezeDividers: { x: number | null; y: number | null }
+  /** 内建滚动条滑块几何（不可滚动的轴为 null；选项关闭两轴皆 null） */
+  readonly scrollbars: {
+    vertical: ScrollbarThumbGeometry | null
+    horizontal: ScrollbarThumbGeometry | null
+  }
   /** 可视窗口（选区裁剪用，[start, end)） */
   readonly window: { rows: WindowRange; cols: WindowRange }
 }
@@ -93,6 +99,22 @@ export class OverlayNode extends SceneNode {
     this.paintFillHandle(ctx, content)
     this.paintResizeLine(ctx, content, viewport)
     ctx.restore()
+    // 滚动条锚定视口（覆盖行号列/列头带），不随 body 裁剪
+    this.paintScrollbars(ctx, content)
+  }
+
+  /** 内建滚动条滑块：画布右/下缘条带内按几何填充；节点尺寸即画布尺寸（resize 同步） */
+  private paintScrollbars(ctx: RenderContext, content: OverlayContent): void {
+    const size = this.interaction.scrollbarSize
+    ctx.fillStyle = this.interaction.scrollbarThumb
+    const vertical = content.scrollbars.vertical
+    if (vertical) {
+      ctx.fillRect(this.width - size, vertical.thumbPos, size, vertical.thumbSize)
+    }
+    const horizontal = content.scrollbars.horizontal
+    if (horizontal) {
+      ctx.fillRect(horizontal.thumbPos, this.height - size, horizontal.thumbSize, size)
+    }
   }
 
   /** 冻结分隔线：冻结列右缘竖线 / 冻结行下缘横线，裁剪在 body 视口内，画在选区之下 */
@@ -284,7 +306,9 @@ export class InteractionOverlay {
       content.selectionAnchor !== null ||
       content.highlightRanges.length > 0 ||
       content.freezeDividers.x !== null ||
-      content.freezeDividers.y !== null
+      content.freezeDividers.y !== null ||
+      content.scrollbars.vertical !== null ||
+      content.scrollbars.horizontal !== null
     this.node.visible = has
     this.node.content = has ? content : null
     return has

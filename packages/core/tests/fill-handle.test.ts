@@ -87,6 +87,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
       selectionAnchor: null,
       highlightRanges: [],
       freezeDividers: { x: null, y: null },
+      scrollbars: { vertical: null, horizontal: null },
       window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     }
     return content

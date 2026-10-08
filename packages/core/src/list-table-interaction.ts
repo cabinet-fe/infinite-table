@@ -32,6 +32,13 @@ import { applyHeaderHighlight } from './list-table-scene'
 import type { OverlayContent } from './interaction-overlay'
 import type { ColResizeEndEvent, ResizeGeometry, ResizeTarget, RowResizeEndEvent } from './resize'
 import { hitResizeHandle, ResizeSession } from './resize'
+import {
+  hitScrollbar,
+  mapScrollbarThumbDrag,
+  mapScrollbarTrackPoint,
+  planScrollbarThumb,
+  type ScrollbarHit,
+} from './scrollbar'
 import { normalizeRange, type RangeBounds, type SelectionRange } from './selection'
 import type { CellRef, TableContextMenuEvent } from './types'
 
@@ -111,6 +118,13 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
       return
     }
     floats.clearSelection()
+  }
+  // 内建滚动条命中最优先于格交互（画布右/下缘条带）：滑块上按下开拖拽会话；
+  // 轨道空白处点按先跳转（点按处为滑块中心）再以新偏移起拖
+  const scrollbar = scrollbarHit(table, event.x, event.y)
+  if (scrollbar) {
+    beginScrollbarDrag(table, scrollbar, event)
+    return
   }
   // 编辑中点击其它格/空白：先提交当前会话（同一时刻至多一个编辑会话）；
   // 编辑拾取模式（editPickMode）命中数据格除外——不提交，选区流动由宿主消费为引用插入
@@ -231,6 +245,25 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     table.floatLayer.dragMove(event.x, event.y)
     return
   }
+  if (table.scrollbarDrag) {
+    // 滚动条拖拽会话：指针位移按轨道/滑块比例换算滚动偏移（setScroll 触发浮层重绘）
+    const session = table.scrollbarDrag
+    const geometry =
+      session.axis === 'vertical'
+        ? scrollbarSnapshot(table).vertical
+        : scrollbarSnapshot(table).horizontal
+    if (geometry) {
+      const delta = (session.axis === 'vertical' ? event.y : event.x) - session.startPx
+      const target = mapScrollbarThumbDrag(geometry, session.startOffset, delta)
+      if (session.axis === 'vertical') {
+        table.setScrollTop(target)
+      } else {
+        table.setScrollLeft(target)
+      }
+    }
+    table.setContainerCursor('default')
+    return
+  }
   if (table.resizeSession) {
     // 会话期光标恒为对应轴向（列缘会话滑进表体/另一列上也不闪回缺省）
     table.setContainerCursor(RESIZE_CURSOR[table.resizeSession.target.kind])
@@ -249,7 +282,7 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     }
     const cell = cellAt(table, event.x, event.y)
     if (cell) {
-      updateFillCurrent(table, drag, cell)
+      updateFillCurrent(drag, cell)
     }
     refreshOverlay(table)
     return
@@ -312,6 +345,11 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   // 点按图片（未成拖拽，含只读）：选中语义在按下完成，抬起不落选区/双击进编辑
   const floats = table.floatLayer
   if (floats && floats.getSelectedId() !== null && floats.getAt(event.x, event.y)) {
+    return
+  }
+  if (table.scrollbarDrag) {
+    table.scrollbarDrag = null
+    updatePointerCursor(table, event.x, event.y)
     return
   }
   if (table.resizeSession) {
@@ -419,7 +457,7 @@ function extendHeaderDrag(table: ListTable, x: number, y: number): void {
  * 填充拖拽终点更新：轴锁定（副轴夹回锚定段跨度）。
  * 柄方点骑在角点上，裸命中即右/下一格；副轴漂移不应产生侧向填充。
  */
-function updateFillCurrent(table: ListTable, drag: FillDragState, cell: CellRef): void {
+function updateFillCurrent(drag: FillDragState, cell: CellRef): void {
   const anchor = normalizeRange(drag.range)
   let col = cell.col
   let row = cell.row
@@ -463,7 +501,7 @@ function scrollFillEdge(table: ListTable): boolean {
   }
   const cell = cellAt(table, drag.pointer.x, drag.pointer.y)
   if (cell) {
-    updateFillCurrent(table, drag, cell)
+    updateFillCurrent(drag, cell)
   }
   return true
 }
@@ -485,11 +523,7 @@ function scheduleFillEdgeScroll(table: ListTable): void {
  * 拖选扩展段：锚点格与目标格各自合并包围盒的并（两端都未被合并覆盖时退化为两点框）。
  * 点按合并区任意覆盖格即选中整个合并区；从合并区拖出时包围盒不丢列/行。
  */
-export function dragExtentRange(
-  table: ListTable,
-  anchor: CellRef,
-  target: CellRef,
-): SelectionRange {
+function dragExtentRange(table: ListTable, anchor: CellRef, target: CellRef): SelectionRange {
   const a = table.mergeCells.rangeAt(anchor.col, anchor.row)
   const t = table.mergeCells.rangeAt(target.col, target.row)
   const cols = [
@@ -833,12 +867,68 @@ function updatePointerCursor(table: ListTable, x: number, y: number): void {
       return
     }
   }
+  if (scrollbarHit(table, x, y)) {
+    table.setContainerCursor('default')
+    return
+  }
   const handle = resizeHandleAt(table, x, y)
   if (handle) {
     table.setContainerCursor(RESIZE_CURSOR[handle.kind])
     return
   }
   table.setContainerCursor(fillHandleHit(table, x, y) ? 'crosshair' : 'auto')
+}
+
+/* ---------- 内建滚动条：几何快照 / 命中 / 拖拽会话 ---------- */
+
+/** 两轴滑块几何快照（选项关闭两轴皆 null；轨道起点 = 画布对应边，长度扣除空白角） */
+function scrollbarSnapshot(table: ListTable): OverlayContent['scrollbars'] {
+  if (table.options.scrollbar === false) {
+    return { vertical: null, horizontal: null }
+  }
+  const size = table.getTheme().interaction.scrollbarSize
+  const { scroll } = table
+  return {
+    vertical: planScrollbarThumb(
+      { maxScroll: scroll.maxTop, viewport: table.viewportHeight, offset: table.getScrollTop() },
+      Math.max(0, table.height - size),
+    ),
+    horizontal: planScrollbarThumb(
+      { maxScroll: scroll.maxLeft, viewport: table.viewportWidth, offset: table.getScrollLeft() },
+      Math.max(0, table.width - size),
+    ),
+  }
+}
+
+function scrollbarHit(table: ListTable, x: number, y: number): ScrollbarHit | null {
+  if (table.options.scrollbar === false) return null
+  const size = table.getTheme().interaction.scrollbarSize
+  const snapshot = scrollbarSnapshot(table)
+  return hitScrollbar(table.width, table.height, size, snapshot.vertical, snapshot.horizontal, x, y)
+}
+
+function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEvent): void {
+  if (!hit.onThumb) {
+    // 轨道点按跳转：点按处作为滑块中心（跳转即触发滚动与浮层重绘）
+    const geometry =
+      hit.axis === 'vertical'
+        ? scrollbarSnapshot(table).vertical
+        : scrollbarSnapshot(table).horizontal
+    if (geometry) {
+      const target = mapScrollbarTrackPoint(geometry, hit.pointPx)
+      if (hit.axis === 'vertical') {
+        table.setScrollTop(target)
+      } else {
+        table.setScrollLeft(target)
+      }
+    }
+  }
+  table.scrollbarDrag = {
+    axis: hit.axis,
+    startPx: hit.axis === 'vertical' ? event.y : event.x,
+    startOffset: hit.axis === 'vertical' ? table.getScrollTop() : table.getScrollLeft(),
+  }
+  table.setContainerCursor('default')
 }
 
 /** 刷新 sky 浮层；仅在（或曾在）有内容时提交 sky 失效，避免空浮层空转整层重绘 */
@@ -869,6 +959,8 @@ export function refreshOverlay(table: ListTable): void {
       x: table.frozenColCount > 0 ? table.rowHeaderWidth + table.frozenColsWidth : null,
       y: table.frozenRowCount > 0 ? table.headerHeight + table.frozenRowsHeight : null,
     },
+    // 内建滚动条滑块几何（选项关闭两轴皆 null）
+    scrollbars: scrollbarSnapshot(table),
     // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末；无冻结时起点取滚动窗
     // 起点——rangeRect 收拢后还须经 cellRect 解析双角格，起点越过可解析范围
     // （cellRect 对滚动窗外行列返回 null）会让整行/整列选区在滚动后整块浮层丢失

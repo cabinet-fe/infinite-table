@@ -158,7 +158,7 @@ describe('updateConfig 运行时更新', () => {
 })
 
 describe('水印锚定视口', () => {
-  it('滚动只失效 body/media 带，sky 无任何提交且绘制序列逐字节不变', () => {
+  it('滚动只失效 body/media 带（sky 因内建滚动条滑块重绘，绘制序列逐字节不变）', () => {
     const host = new StubHost()
     const plugin = createWatermarkPlugin({ enabled: true, text: '内部资料' })
     const table = createTable(host, [plugin])
@@ -168,9 +168,10 @@ describe('水印锚定视口', () => {
     table.setScrollTop(4800)
     table.setScrollLeft(300)
     const kinds = new Set(host.submitted.map((s) => s.kind))
-    // 滚动带失效只落在 body（本表无 media 层），sky 不波及（不平移、不重绘）
+    // 滚动带失效只落在 body（本表无 media 层）；sky 仅因内建滚动条滑块重绘，
+    // painter 视口锚定不随滚动平移
     expect(kinds.has('body')).toBe(true)
-    expect(kinds.has('sky')).toBe(false)
+    expect(kinds.has('sky')).toBe(true)
 
     const after = paintOverlay(host)
     expect(after.texts).toEqual(before.texts)

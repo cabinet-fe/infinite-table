@@ -33,7 +33,7 @@ infinitable/
 ### core — `packages/core/src`
 
 - 主体与装配：`list-table*.ts`
-- 滚动：`scroll-manager.ts`、`touch-scroll.ts`
+- 滚动：`scroll-manager.ts`、`touch-scroll.ts`；画布内建滚动条（浮层绘制 + 指针命中/拖拽会话）`scrollbar.ts`
 - 交互：`list-table-interaction.ts`、`selection.ts`、`keyboard-navigation.ts`、`resize.ts`、`fill-handle.ts`；sky 浮层 `interaction-overlay.ts`
 - 编辑：`editing/`、`editor-registry.ts`、`sheet-model.ts`、`model-binding.ts`
 - 溢出与绘制：`grid-layout.ts`、`cell-node.ts`、`cell-renderer.ts`、`shared-edges.ts`（设计依据 `docs/overflow-rendering-research.md`）

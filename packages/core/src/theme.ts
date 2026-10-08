@@ -65,6 +65,10 @@ export interface InteractionTokens {
   freezeDividerColor: string
   /** 冻结分隔线宽（CSS 像素） */
   freezeDividerWidth: number
+  /** 内建滚动条滑块颜色 */
+  scrollbarThumb: string
+  /** 内建滚动条条带厚度（CSS 像素；两轴交汇的右下空白角同厚） */
+  scrollbarSize: number
 }
 
 /** 表格外框样式 token */
@@ -156,6 +160,8 @@ export const defaultTheme: TableTheme = {
     // 比默认网格线（#e5e6eb）深一档，对齐 Excel 冻结分隔观感
     freezeDividerColor: '#c9cdd4',
     freezeDividerWidth: 1,
+    scrollbarThumb: 'rgba(31, 35, 41, 0.4)',
+    scrollbarSize: 10,
   },
   frameStyle: {
     lineWidth: 0,

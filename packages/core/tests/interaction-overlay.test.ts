@@ -65,6 +65,7 @@ function makeContent(partial: Partial<OverlayContent> = {}): OverlayContent {
     selectionAnchor: null,
     highlightRanges: [],
     freezeDividers: { x: null, y: null },
+    scrollbars: { vertical: null, horizontal: null },
     window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     ...partial,
   }

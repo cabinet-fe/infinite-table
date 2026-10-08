@@ -192,6 +192,12 @@ export interface ListTableOptions {
   canResizeRow?: (row: number) => boolean
   /** Ctrl/Cmd 点选多选：开启后 Ctrl/Cmd 点数据格在既有选区上追加选区段（缺省 false，点选替换选区） */
   ctrlMultiSelect?: boolean
+  /**
+   * 内建滚动条：开启后在画布右/下缘绘制 overlay 滚动条（内容溢出该轴才显示，
+   * 支持拖滑块 / 点轨道跳转；滚轮/触控/键盘滚动恒可用）；缺省 true。false 不绘制
+   * 且右/下缘条带不拦截指针。
+   */
+  scrollbar?: boolean
 }
 
 /** contextmenu 事件（右键菜单 UI 为非目标，仅保留事件） */
