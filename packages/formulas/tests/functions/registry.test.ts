@@ -2,16 +2,16 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { evaluate } from '../../src/index'
 import {
   FORMULA_FUNCTION_CATEGORIES,
-  evaluate,
   formatFunctionSignature,
   getFormulaFunction,
   getFormulaFunctionInfo,
   isVolatileFormulaFunction,
   listFormulaFunctions,
   registerFormulaFunction,
-} from '../../src/index'
+} from '../../src/functions/registry'
 import { EMPTY_RESOLVER } from '../testing/fake-resolver'
 
 describe('内置函数注册表', () => {

@@ -20,15 +20,15 @@
 | `widthMode: 'standard'` / `defaultRowHeight` | `rowHeight` options / 主题 `rowHeight` token | 已有 |
 | `enableLineBreak`（`\n` 强制换行） | 文本管线识别 `\n` 换行 | 已有 |
 | `maxCharactersNumber: 50000` | `ListTableOptions.editorMaxLength` / `ColumnDefine.editorMaxLength`（列级优先、options 兜底，未配置不截断） | 已有（S7 P3 引擎公开） |
-| `customComputeRowHeight({row})` 稀疏行高 | `get/setRowHeight` 逐行覆盖 + 插件侧 SheetStore 持久化行列尺寸 | 已有（S3 SheetStore 已落地） |
+| `customComputeRowHeight({row})` 稀疏行高 | `get/setRowHeight` 逐行覆盖 + sheet 插件内部 Store 持久化行列尺寸 | 已有（S3 已落地） |
 | `resize: {columnResizeMode, rowResizeMode}` | `canResizeCol/canResizeRow` 公开 options（替代 VTable `_canResizeRow` 猴补丁） | 已有 |
 | `theme: themes.DEFAULT.extends(...)` | `extendsTheme` 派生 + 分区 token（见「四、主题面」） | 已有 |
 | `showHeader` | `ListTableOptions.showRowHeader/showColHeader`（缺省 true；false 归一化为 `rowHeaderWidth=0` / `headerHeight=0`，与显式零宽/零高等价，全链路安全已由关闭态单测锁定）；行号列宽 `rowHeaderWidth` | 已有（S7 P4 引擎公开） |
 | `rowSeriesNumber{width, style}` | `rowHeaderWidth` 几何 + 主题 `rowHeader` 分区 token（S1） | 已有 |
-| `excelOptions: {fillHandle}` | 内置填充柄交互原语 + `onFillHandleDown/onFillDragEnd/onFillHandleDoubleClick`（生成算法在插件层；双击自动填充为插件侧 `bindFillGeneration` 的 autoComplete 选项） | 已有（S3 generateFill 已落地） |
+| `excelOptions: {fillHandle}` | 内置填充柄交互原语 + `onFillHandleDown/onFillDragEnd/onFillHandleDoubleClick`（生成算法在插件层；拖拽填充与双击自动填充为 sheet 插件 mount 内置装配，`readonly` 可整体关写路径） | 已有（S3 已落地） |
 | `editor` + `editCellTrigger: 'doubleclick'` | `EditorRegistry` 注册表 + 双击触发 + `editCellOnEnter` 开关 | 已有 |
 | `frozenRowCount/frozenColCount`（含表头计数） | 构造 options + `setFrozenRowCount/setFrozenColCount` 运行时；注意 ultra-ui 计数含表头，适配时 ±1 | 已有 |
-| `keyboardOptions`（Tab/Enter/Ctrl+A/ctrlMultiSelect） | `editCellOnEnter`、`ctrlMultiSelect`、键盘导航；Excel 键位组合预设 | 已有（S3 excelKeymapPreset 已落地） |
+| `keyboardOptions`（Tab/Enter/Ctrl+A/ctrlMultiSelect） | `editCellOnEnter`、`ctrlMultiSelect`、键盘导航；Excel 键位组合预设 | 已有（S3 已落地，sheet 插件 `excelKeys` 选项缺省启用） |
 | `customMergeCell(col,row,table)` | 构造 `mergeCells` + `setMergeCells/addMergeCell/removeMergeCell` 运行时替换 | 已有 |
 | `hover:{disableHover:true}` | 无对应（hover 行列高亮已移除：表头选区高亮足够，body 悬停无视觉反馈） | 不提供 |
 | `eventOptions:{preventDefaultContextMenu:true}` | 引擎无默认菜单，`onContextMenu` 纯事件 | 已有 |
@@ -37,12 +37,12 @@
 
 | ultra-ui SheetGrid 调用 | infinitable 公开 API | 状态 |
 | --- | --- | --- |
-| `setRecords`（全量重建） | 多 sheet 切换全量重挂由插件负责；值写入走模型直挂免全量重放（`model: TableModel` 形态） | 已有（S3 SheetBook 实例池已落地） |
-| `changeCellValue(col,row,value)` | `updateCell(col,row,value)` 回驱模型 + `batchUpdate` 收敛；SheetStore 写路径 | 已有（S3 SheetStore 已落地） |
+| `setRecords`（全量重建） | 多 sheet 切换全量重挂由插件负责；值写入走模型直挂免全量重放（`model: TableModel` 形态） | 已有（S3 已落地：sheet 插件书形态内置实例池） |
+| `changeCellValue(col,row,value)` | `updateCell(col,row,value)` 回驱模型 + `batchUpdate` 收敛；sheet 插件 handle 写路径 | 已有（S3 已落地） |
 | `updateCellContent(col,row)` | `refreshCell(col,row)` 局部 cell 级刷新 | 已有 |
 | `selectCells(ranges[])` | `selectCells`（多段选区） | 已有 |
 | `getSelectedCellRanges()` | `getSelectedCellRanges` | 已有 |
-| 外部选区回写 | `applyExternalSelection`（防回环）+ `onSelectionChange` | 已有（S3 bindSelectionSync 已落地） |
+| 外部选区回写 | `applyExternalSelection`（防回环）+ `onSelectionChange` | 已有（S3 已落地：sheet 插件 `selectionSync` 选项 + `syncSelectionFromExternal`） |
 | `scrollToCell({col,row})` | `scrollToCell` | 已有 |
 | `getCellAtRelativePosition(x,y)` | `getCellAtRelativePosition` | 已有 |
 | `getCellRelativeRect(col,row)` | `getCellRelativeRect` | 已有 |
@@ -50,7 +50,7 @@
 | `getBodyVisibleCellRange()` | `getBodyVisibleCellRange` | 已有 |
 | `isSeriesNumber(col,row)` | `isSeriesNumber` | 已有 |
 | `columnHeaderLevelCount` | `getHeaderLevelCount()`（恒 1 层） | 已有 |
-| `rowCount/colCount` | 引擎未公开维度访问器；SheetStore 提供行列维数 | 已有（S3 SheetStore getRowCount/getColCount） |
+| `rowCount/colCount` | 引擎未公开维度访问器；sheet 插件 handle 的 Store 提供行列维数 | 已有（S3 Store getRowCount/getColCount） |
 | `frozenRowCount/frozenColCount`（可写属性） | `getFrozenRowCount/getFrozenColCount` + `setFrozenRowCount/setFrozenColCount` | 已有 |
 | `get/setColWidth` | `getColWidth/setColWidth` | 已有 |
 | `get/setRowHeight` | `getRowHeight/setRowHeight` | 已有 |
@@ -60,7 +60,7 @@
 | `table._canResizeRow` 私有猴补丁 | `canResizeCol/canResizeRow` 公开能力 | 已有（架构优势项） |
 | `patchColumnHeaderDragExpand` 私有补丁（表头拖选连续扩展） | 表头拖选连续扩展内置（列头横向拖选→列区间×全部行，行头纵向拖选→行区间×全部列，抬起重算一致） | 已有（S7 P2 引擎内置，删下游补丁） |
 | meta 报表地址工具 `parseAddress/formatAddress/cellKey/createRange` | `@infinitable/formulas` 公开 A1 地址等价实现：`parseCellRef`（解析）/ `formatCellRef` / `formatRangeRef`（格式化）/ `colLetters` / `createRangeRef`（区域构造）；cellKey 串由 `formatCellRef` 坐标组合承接 | 已有（S7 spec 验收「文档化等价方案」） |
-| 撤销/重做（Sheet 命令栈的视图侧配合） | `onCellChange` oldValue/newValue + 结构命令记录 | 已有（S3 UndoStack/bindCellChangeUndo 已落地） |
+| 撤销/重做（Sheet 命令栈的视图侧配合） | `onCellChange` oldValue/newValue + 结构命令记录 | 已有（S3 已落地：sheet 插件内置撤销栈，handle `undo`/`redo`/`writeValues`） |
 | 浮动图片缩放/旋转（univer Transformer 思路） | `floatObjects` 浮动层面：`FloatObject.rotation`（顺时针度数，渲染绕中心旋转、命中逆变换）、选中态 8 缩放手柄 + 顶部旋转手柄（`handleAt` 命中 / `beginTransform`+`transformMove`+`endTransform` 会话、Shift 等比与 15° 吸附）、`onTransformEnd` 抛 `{ id, anchor, size, rotation }`（对齐 onDragEnd 事件形态，拖拽过程只改渲染态）；类型 `FloatTransformEndEvent` / `FloatTransformHandle` 从 core 公开导出 | 已有（univer P4 引擎公开） |
 | 水印 underlay 绘制位（内容之下水印等） | `setUnderlayPainter(painter \| null)`：ground 层（L0）惰性创建 + 整层绘制预留位（chart 插件 chartMediaResolver 同风格「写引擎预留位」先例），painter 收 `RenderContext` 与视口尺寸、变更即 ground 整层失效（一帧内重绘）；层恒在最底且不随滚动带失效/平移（锚定视口）；注意默认主题 body 层不透明底色会遮挡 ground 内容，作内容之下衬底水印时需宿主 `underlayBackgroundColor` 配合透明色；类型 `UnderlayPainter` / `RenderContext` / `Size` 从 core 公开导出 | 已有（univer P6 引擎公开） |
 | overlay 绘制位（内容之上水印等，univer 顶层水印同位） | `setOverlayPainter(painter \| null)`：与 underlay 完全对称的顶层整层绘制预留位——承载节点挂现有四层 canvas 最上层的 sky 层最顶（不新增 canvas 层、四层叠放不变），任意主题 body 底色（含不透明缺省白）都不遮挡、零宿主配置；painter 收 `RenderContext` 与视口尺寸、变更即 sky 整层失效（一帧内重绘）；锚定视口不随滚动带失效/平移；节点不可命中（pointer 事件透传，sky 层事件语义不受影响）；类型 `OverlayPainter` 从 core 公开导出 | 已有（univer P6 返工 B2 引擎公开） |
@@ -94,14 +94,14 @@
 | ultra-ui（vtable-editors） | infinitable 对应 | 状态 |
 | --- | --- | --- |
 | `register.editor(name, editor)` 全局注册表 | `EditorRegistry.registerEditor`（实例级，无全局闭包泄露坑） | 已有 |
-| `InputEditor/EditContext` onStart（可替换初值：公式格显示 `=原文`） | 编辑初值取基础值口径（`resolveValue`），插件把 `=formula` 原文作为基础值喂入即等价；进编辑会话 `onEditStart` 携带初值 | 已有（S3 createFormulaDisplay 已落地） |
+| `InputEditor/EditContext` onStart（可替换初值：公式格显示 `=原文`） | 编辑初值取基础值口径（`resolveValue`），sheet 插件把 `=formula` 求值结果作为基础值喂入即等价；进编辑会话 `onEditStart` 携带初值 | 已有（S3 已落地：sheet 插件 `evaluate` 选项注入公式显示） |
 | onEnd（通知公式栏退出镜像） | `onEditEnd`（committed 区分提交/取消） | 已有 |
 | 编辑器单例 + WeakMap 路由（绕 VTable 注册表泄露坑 #1） | 不适用：引擎注册表按名注册、随表实例生命周期 | 已有（架构优势项） |
-| `resolveEditText` 语义 | 同 onStart 行；displayValue/f 原文经 `resolveDisplayValue` hook 或 SheetStore 提供 | 已有（S3 createFormulaDisplay） |
+| `resolveEditText` 语义 | 同 onStart 行；displayValue/f 原文经 `resolveDisplayValue` hook 或 sheet 插件 Store 提供 | 已有（S3 sheet 插件公式显示） |
 
 ## 六、与后续阶段的衔接
 
-- **S3 sheet 插件**（`packages/plugins/src/sheet`）：已全部落地——SheetStore（值/样式/合并/行列尺寸/冻结 + asModel 模型适配 + cell meta 命名空间 setCellMeta/getCellMeta/entriesCellMeta/clearCellMeta（ns×格坐标稀疏存储、越界守卫）与独立 `onMetaChange` 事件面、模型侧读取 `getEffectiveStyle`（基础→列级→格级逐字段合成）/ `getDisplayValue`（可注入 SheetDisplayResolver））、generateFill 填充生成与 bindFillGeneration 接线、bindSelectionSync 选区双向同步、createFormulaDisplay 公式显示、excelKeymapPreset 键位预设、SheetBook 多 sheet 实例池、UndoStack/bindCellChangeUndo 最小撤销栈、border-presets 边框预设展开（8 预设 × 5 线型 → 逐格 border 片段，纯函数；不做邻居共享边回写，core 共享边裁决保证单侧设置即正确显示。既有取舍：共享边所有者滚出可视窗口时邻居对侧边暂不显示——`packages/core/src/shared-edges.ts` 既有取舍，非缺陷）、xlsx 导出引擎化（`sheetToWriteSheet`：SheetExportSource（name/store/numFmt 查询/images FloatObject[]/imageData 字节解析）→ hucre WriteSheet 纯映射，值/样式经 Store 读取面 getDisplayValue/getEffectiveStyle 取数；附 `decodeDataUrlImage`、`numFmtToXlsxCode` 公开）。依赖面：core 公开入口 + hucre（仅 xlsx 导出映射，纯类型与格式码映射；测试基础设施除外，见包内说明）。
+- **S3 sheet 插件**（`packages/plugins/src/sheet`）：已全部落地，形态为「插件对象 + options 类型」——`createSheetPlugin(options)` 返回 TablePlugin 契约对象（name/mount/unmount + 运行时 handle），`SheetPluginOptions` 为唯一配置面、`SheetPluginHandle` 为操作面；既有散装能力（Store、快照、填充生成、选区同步、公式显示、键位、多 sheet 实例池、撤销栈、边框预设、xlsx 导出）全部收拢为插件内置装配或 handle 方法，实现细节保留包内深路径。能力对应：Store 参考模型（值/样式/合并/行列尺寸/冻结 + asModel 模型适配 + cell meta 命名空间 setCellMeta/getCellMeta/entriesCellMeta/clearCellMeta（ns×格坐标稀疏存储、越界守卫）与独立 `onMetaChange` 事件面、模型侧读取 `getEffectiveStyle`（基础→列级→格级逐字段合成）/ `getDisplayValue`（可注入 SheetDisplayResolver））经 handle `store`/`createStore`/`activeStore` 与书形态实例池（`registerSheet`/`switchTo`/`onSheetChange` 等）达成；填充生成（拖拽 + 双击自动填充）由 mount 装配（`readonly` 可整体关写路径）；选区双向同步经 `selectionSync` 选项 + `syncSelectionFromExternal`；公式显示经 `evaluate` 选项；Excel 键位经 `excelKeys` 选项；撤销栈经 handle `undo`/`redo`/`writeValues`（撤销化批量写）；快照经 handle `saveSnapshot`/`restoreSnapshot`；边框预设经 handle `borderEdge`/`borderCells`（8 预设 × 5 线型 → 逐格 border 片段，纯函数；不做邻居共享边回写，core 共享边裁决保证单侧设置即正确显示。既有取舍：共享边所有者滚出可视窗口时邻居对侧边暂不显示——`packages/core/src/shared-edges.ts` 既有取舍，非缺陷）；xlsx 导出经 handle `exportSheet`（SheetExportSource（name/store/numFmt 查询/images FloatObject[]/imageData 字节解析）→ hucre WriteSheet 纯映射，值/样式经 Store 读取面 getDisplayValue/getEffectiveStyle 取数）与 `decodeImage`（内部 `decodeDataUrlImage`、`numFmtToXlsxCode`，不再公开）。依赖面：core 公开入口 + hucre（仅 xlsx 导出映射，纯类型与格式码映射；测试基础设施除外，见包内说明）。
 - **S4 demo sheet**：在插件 API 之上复现 ultra-ui playground sheet 功能，产出功能对照表；UI 归下游，不碰引擎内部。
 - **S5 工程化收口**：已落地——包 `exports` 三条件（types/dev/import→dist，仓内 apps 走 dev 条件）、`scripts/check-package-exports.mjs` 消费冒烟、bench sheet 四场景口径与阈值、happy-dom 挂载安全单测。消费面以本清单允许面为准。
 - **S6 替换路线图**：`docs/replace-vtable-roadmap.md` 直接引用本清单作为 VTable 接口面 → infinitable 接口面的映射基准，并补测试改写与灰度顺序。

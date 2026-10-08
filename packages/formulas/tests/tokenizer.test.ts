@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { FormulaParseError, tokenizeFormula } from '../src/index'
+import { FormulaParseError, tokenizeFormula } from '../src/tokenizer'
 
 describe('tokenizeFormula', () => {
   it('数字：整数 / 小数 / 前导点 / 科学计数', () => {

@@ -78,10 +78,18 @@ if (text !== 'r0') fail(`dist 产物取值异常：getCellText(0,0) = ${text}`)
 else ok('dist 建表 + 取值 + 帧调度 flush 正常')
 table.destroy()
 
-// 3) plugins dist 可导入（SheetStore）
+// 3) plugins dist 可导入（插件对象形态：四个插件工厂；P1 起散装能力不再导出）
 const pluginsModule = await import(new URL('../packages/plugins/dist/plugins.js', import.meta.url))
-if (typeof pluginsModule.SheetStore !== 'function') fail('plugins dist 缺 SheetStore')
-else ok('plugins dist SheetStore 可导入')
+const pluginFactories = [
+  'createSheetPlugin',
+  'createChartPlugin',
+  'createWatermarkPlugin',
+  'createPrintPlugin',
+]
+for (const key of pluginFactories) {
+  if (typeof pluginsModule[key] !== 'function') fail(`plugins dist 缺 ${key}`)
+}
+if (!failed) ok('plugins dist 插件工厂可导入')
 
 // 4) formulas dist 可导入并无头求值（含 @cat-kit/core 精确计算）
 const formulasModule = await import(
@@ -101,7 +109,7 @@ console.log('[check-exports] 统一发布包 dist 冒烟')
 const unifiedModule = await import(
   new URL('../packages/infinitable/dist/infinitable.js', import.meta.url)
 )
-for (const key of ['ListTable', 'createRenderHost', 'SheetStore', 'evaluate']) {
+for (const key of ['ListTable', 'createRenderHost', 'createSheetPlugin', 'evaluate']) {
   if (typeof unifiedModule[key] !== 'function') fail(`infinitable dist 缺 ${key}`)
 }
 const unifiedJs = readFileSync(

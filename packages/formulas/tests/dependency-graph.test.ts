@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { DependencyGraph } from '../src/index'
-import type { SheetCellCoord, SheetRangeCoord } from '../src/index'
+import { DependencyGraph } from '../src/dependency-graph'
+import type { SheetCellCoord, SheetRangeCoord } from '../src/dependency-graph'
 
 const cell = (sheet: string, col: number, row: number): SheetCellCoord => ({ sheet, col, row })
 const cellRef = (sheet: string, col: number, row: number) => ({

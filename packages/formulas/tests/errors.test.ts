@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { FORMULA_ERROR_CODES, formulaError, isFormulaError, isFormulaErrorCode } from '../src/index'
+import {
+  FORMULA_ERROR_CODES,
+  formulaError,
+  isFormulaError,
+  isFormulaErrorCode,
+} from '../src/errors'
 
 describe('错误值体系', () => {
   it('7 种错误码枚举齐全', () => {

@@ -535,7 +535,8 @@ async function checkMedia(checker: Checker, demos: DemoHandles): Promise<void> {
   })
 
   await checker.step('浮动对象：承载命中 + 滚动帧级跟随', async () => {
-    assert(table.floatObjects.size === 1, `浮动对象数 ${table.floatObjects.size}`)
+    // media 演示区挂载两个浮动对象：跟随演示（FLOAT_OBJECT_ID）+ 缩放旋转演示对象
+    assert(table.floatObjects.size === 2, `浮动对象数 ${table.floatObjects.size}`)
     // 锚点 (2,1)+offset(8,8)：层坐标 x=256..548，y=76..164
     assert(table.floatObjects.getAt(300, 100)?.id === FLOAT_OBJECT_ID, '浮动对象未命中')
     table.scrollBy(0, 64)

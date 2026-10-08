@@ -1,7 +1,8 @@
 // 测试辅助：内存多表假 resolver（'A1' 键值地图 + 跨表路由 + 调用记录），镜像 SheetBook 宿主语义。
 
 import { colLetters, formulaError } from '../../src/index'
-import type { CellRef, FormulaResolver, RangeRef } from '../../src/index'
+import type { CellRef, FormulaResolver } from '../../src/index'
+import type { RangeRef } from '../../src/address'
 
 export interface FakeResolver extends FormulaResolver {
   /** cell 调用记录（跨表断言用） */

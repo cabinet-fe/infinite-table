@@ -10,7 +10,7 @@ import {
   formatSheetName,
   parseCellRef,
   parseColLetters,
-} from '../src/index'
+} from '../src/address'
 
 describe('colLetters / parseColLetters', () => {
   it('0 基列号 ↔ 列字母互逆', () => {
