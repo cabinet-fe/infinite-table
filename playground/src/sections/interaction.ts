@@ -1,10 +1,8 @@
 // 交互能力演示：拖选/整行整列、行列 resize（canResizeRow/Col 第 0 行列禁用）、
 // 键盘导航、触控滚动（容器 touch-action:none）、批量更新、contextmenu、onScrollFrame。
-// 订阅事件经状态行可见化；按钮触发批量更新/全选/清空。
+// 订阅事件可见化（状态行）与批量更新/全选/清空按钮由 React 页面（InteractionPage）驱动句柄承担。
 
-import { normalizeRange } from '@infinitable/core'
-
-import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount'
+import { createSection, mountTable, type DemoMount } from '../mount'
 
 const INTERACTION_COL_COUNT = 8
 const INTERACTION_ROW_COUNT = 2000
@@ -43,46 +41,6 @@ export function mountInteraction(root: HTMLElement): InteractionDemo {
     canResizeCol: (col) => col !== 0,
     canResizeRow: (row) => row !== 0,
   })
-  const { table } = mount
-
-  const selectionStatus = addStatus(section, '选区：无')
-  table.onSelectionChange((snapshot) => {
-    if (snapshot.ranges.length === 0) {
-      selectionStatus.textContent = '选区：无'
-      return
-    }
-    const parts = snapshot.ranges.map((range) => {
-      const b = normalizeRange(range)
-      return `(${b.minCol},${b.minRow})~(${b.maxCol},${b.maxRow})`
-    })
-    selectionStatus.textContent = `选区：${parts.join(' + ')}`
-  })
-
-  const menuStatus = addStatus(section, 'contextmenu：未触发')
-  table.onContextMenu((event) => {
-    menuStatus.textContent = event.cell
-      ? `contextmenu：格 (${event.cell.col},${event.cell.row})`
-      : `contextmenu：(${event.x},${event.y}) 非数据格`
-  })
-
-  const scrollStatus = addStatus(section, 'scroll：(0,0)')
-  table.onScrollFrame((state) => {
-    scrollStatus.textContent = `scroll：(${Math.round(state.left)},${Math.round(state.top)})`
-  })
-
-  addButton(section, '批量更新 100 格', () => {
-    table.batchUpdate(() => {
-      for (let row = 0; row < 100; row++) {
-        const record = records[row]
-        if (record) {
-          record['c1'] = `B-${row}`
-          table.refreshCell(1, row)
-        }
-      }
-    })
-  })
-  addButton(section, '全选', () => table.selectAll())
-  addButton(section, '清空选区', () => table.clearSelection())
 
   return { mount, records }
 }

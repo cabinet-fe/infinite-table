@@ -1,15 +1,9 @@
 // 数据供给三形态演示：records/columns 数组、按格 hook、模型事件订阅（含表格回驱防回环）。
+// 模型区的改写按钮与取值状态行由 React 页面（DataFormsPage）驱动本模块返回的句柄，不在 section 内建 DOM。
 
 import type { CellChangeEvent, TableModel } from '@infinitable/core'
 
-import {
-  addButton,
-  addStatus,
-  createSection,
-  createSubSection,
-  mountTable,
-  type DemoMount,
-} from '../mount'
+import { createSection, createSubSection, mountTable, type DemoMount } from '../mount'
 
 /** 演示用外部数据模型：Map 存储 + 变更事件订阅 + 回写入口 */
 export class DemoModel implements TableModel {
@@ -88,20 +82,6 @@ export function mountDataForms(root: HTMLElement): DataFormsDemo {
     columns: Array.from({ length: 4 }, (_, col) => ({ title: `模型列${col}`, width: 160 })),
     model,
   })
-  const status = addStatus(section, `model(1,1) = ${model.getCellValue(1, 1)}；变更次数 0`)
-  const showModelState = () => {
-    status.textContent = `model(1,1) = ${model.getCellValue(1, 1)}；变更次数 ${model.changeCount}`
-  }
-  addButton(section, '模型外部改 (1,1)', () => {
-    model.setCellValue(1, 1, `EXT-${model.changeCount}`)
-    showModelState()
-  })
-  addButton(section, '表格回驱改 (1,1)', () => {
-    modelMount.table.updateCell(1, 1, `WB-${model.changeCount}`)
-    showModelState()
-  })
-  // 模型事件驱动的局部刷新发生后同步可见状态
-  model.onCellChange(showModelState)
 
   return { records, hooks, modelMount, model }
 }
