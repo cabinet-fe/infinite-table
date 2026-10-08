@@ -2,7 +2,7 @@
 title: infinitable 性能与虚拟滚动
 description: infinitable 大数据量实践：全量虚拟滚动窗口 O(1)、数据三形态选型（模型直挂免全量重放）、batchUpdate 批量写收敛、refreshCell 局部失效、图片窗口化加载与位图 LRU、容器 resize 原地自适应。完成后 100 万行表格的构造、滚动与写入性能不随数据量劣化。
 aliases: [性能优化, 虚拟滚动, 大数据量, 百万行, 性能指南]
-keywords: [虚拟滚动, 性能, 100万行, rowCount, records, model, 模型直挂, asModel, SheetStore, batchUpdate, updateCell, refreshCell, getVisibleRange, imageServiceOptions, resize, onScrollFrame, 大数据量, 失效, 局部刷新]
+keywords: [虚拟滚动, 性能, 100万行, rowCount, records, model, 模型直挂, SheetModel, batchUpdate, updateCell, refreshCell, getVisibleRange, imageServiceOptions, resize, onScrollFrame, 大数据量, 失效, 局部刷新]
 ---
 
 # infinitable 性能与虚拟滚动
@@ -12,14 +12,14 @@ keywords: [虚拟滚动, 性能, 100万行, rowCount, records, model, 模型直�
 ## 前置条件
 
 - 已按 `guide/quick-start.md` 完成安装（`infinitable` + `@cat-kit/core`）与基础挂载。
-- 大数据量来源：内存数组（records）或坐标模型（SheetModel/SheetStore）；远程分页数据用 `rowCount` + `resolveDisplayValue` 钩子按格取数。
+- 大数据量来源：内存数组（records）或坐标模型（`SheetModel`；sheet 插件 Store 经 `handle.store.asModel()` 同样产出模型直挂形态）；远程分页数据用 `rowCount` + `resolveDisplayValue` 钩子按格取数。
 
 ## 步骤
 
 1. 选数据形态（决策规则）：
 
    - 只读展示 10 万行以上：`records` 数组或 `rowCount` + `resolveDisplayValue`（纯 hook 形态零行对象分配，最快）。
-   - 需要编辑回写：`model`（`SheetModel`/`SheetStore.asModel()` 模型直挂）——按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法。
+   - 需要编辑回写：`model` 模型直挂（`SheetModel` 或 sheet 插件 `handle.store.asModel()`）——按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法。
    - 三形态可叠加 `resolveDisplayValue`（作用于取值管线末端）。
 
    纯 hook 形态构造 100 万行：
@@ -41,15 +41,15 @@ keywords: [虚拟滚动, 性能, 100万行, rowCount, records, model, 模型直�
 2. 批量写入收敛失效——大块写包进 `batchUpdate`，结束时只提交一次 band 失效：
 
    ```ts
-   import { ListTable, SheetStore } from 'infinitable'
+   import { ListTable, SheetModel } from 'infinitable'
 
-   const store = new SheetStore({ rowCount: 1_000_000, colCount: 20 })
+   const model = new SheetModel(1_000_000, 20) // 内存坐标模型：值按格 O(1) 读写
    const container = document.querySelector<HTMLDivElement>('#table')!
    const table = new ListTable({
      width: 1280,
      height: 720,
      columns: Array.from({ length: 20 }, (_, col) => ({ title: `列${col}`, width: 100 })),
-     model: store.asModel(), // 模型直挂
+     model, // 模型直挂
      hostOptions: { container },
    })
 
@@ -123,11 +123,10 @@ keywords: [虚拟滚动, 性能, 100万行, rowCount, records, model, 模型直�
 
 ```ts
 // src/main.ts
-import { EditorRegistry, ListTable, SheetStore } from 'infinitable'
+import { EditorRegistry, ListTable, SheetModel } from 'infinitable'
 
-// 1) 模型直挂：SheetStore 是唯一事实源（值 O(1) 读写）
-const store = new SheetStore({ rowCount: 1_000_000, colCount: 20 })
-store.setFrozen({ colCount: 1, rowCount: 1 }) // Store 状态在构造前就位（SheetBook 场景自动接线）
+// 1) 模型直挂：SheetModel 内存坐标模型（值 O(1) 读写）
+const model = new SheetModel(1_000_000, 20)
 
 const registry = new EditorRegistry()
 registry.registerEditor('text', {})
@@ -139,14 +138,14 @@ const table = new ListTable({
   columns: Array.from({ length: 20 }, (_, col) => ({
     title: `列${col}`,
     width: 100,
-    editor: 'text', // 20 列全部可编辑（回写经 asModel().setCellValue 落 Store）
+    editor: 'text', // 20 列全部可编辑（回写经模型 setCellValue 落 SheetModel）
   })),
-  model: store.asModel(), // 模型直挂：构造只处理可视窗口，与行数无关
+  model, // 模型直挂：构造只处理可视窗口，与行数无关
   editorRegistry: registry,
   hostOptions: { container },
 })
 
-// 冻结（构造 options 也行；这里演示 Store 状态与引擎同步）
+// 冻结（构造 options.frozenColCount/frozenRowCount 也可；运行时改走 set 系）
 table.setFrozenColCount(1)
 table.setFrozenRowCount(1)
 

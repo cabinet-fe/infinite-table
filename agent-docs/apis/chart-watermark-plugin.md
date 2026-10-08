@@ -1,8 +1,8 @@
 ---
 title: chart 图表插件与 watermark 水印插件
-description: infinitable 官方插件：createChartPlugin 单元格图表（Chart.js 按需动态加载 + 离屏出图 + cell 级 MediaCache blit 上屏，bar/line/area/pie 四类）与 createWatermarkPlugin 文字平铺水印（顶层 overlay 预留位绘制，锚定视口不随滚动，updateConfig 运行时改配置）。
-aliases: [chart 插件, watermark 插件, 水印, 单元格图表, ChartPlugin, WatermarkPlugin]
-keywords: [createChartPlugin, resolveCellChart, ChartType, bar, line, area, pie, parseChartDeclaration, renderChartBitmap, loadChartJs, chart.js, createWatermarkPlugin, WatermarkTextConfig, updateConfig, isEnabled, 图表, 迷你图, 水印, 平铺水印, 图表格]
+description: infinitable 官方插件：createChartPlugin 单元格图表（resolveCellChart 按格声明，Chart.js 按需动态加载 + 离屏出图 + cell 级位图缓存 blit 上屏，bar/line/area/pie 四类；handle 提供 getChartSpec/loadLibrary）与 createWatermarkPlugin 文字平铺水印（顶层 overlay 预留位绘制，锚定视口不随滚动，updateConfig 运行时改配置）。
+aliases: [chart 插件, watermark 插件, 水印, 单元格图表, ChartPlugin, WatermarkPlugin, loadChartJs, parseChartDeclaration]
+keywords: [createChartPlugin, ChartPluginOptions, ChartPluginHandle, resolveCellChart, getChartSpec, loadLibrary, ChartType, bar, line, area, pie, ChartSpec, chart.js, createWatermarkPlugin, WatermarkHandle, WatermarkTextConfig, updateConfig, isEnabled, 图表, 迷你图, 水印, 平铺水印, 图表格]
 ---
 
 # chart 图表插件与 watermark 水印插件
@@ -89,51 +89,26 @@ export interface ChartSpec {
   datasets: ChartDatasetSpec[]
 }
 
-/** 解析结果：显式容错——非法声明返回 ok:false 与原因，不抛异常 */
-export type ChartParseResult = { ok: true; spec: ChartSpec } | { ok: false; reason: string }
-
-/** 解析声明（unknown 入参）；非法返回 ok:false */
-export function parseChartDeclaration(declaration: unknown): ChartParseResult
+/** 解析结果：显式容错——非法声明不抛异常（getChartSpec 返回 null）；声明解析为插件内部能力 */
 
 export interface ChartPluginOptions {
   /** 返回该格的图表声明；null/undefined 表示普通格 */
   resolveCellChart?: (col: number, row: number) => ChartCellDeclaration | null | undefined
   /** 离屏画布工厂注入（测试用）；缺省 document.createElement('canvas') */
   createCanvas?: () => HTMLCanvasElement
-  /** Chart.js 模块注入（测试用）；缺省按需动态加载 */
-  chartJsModule?: ChartJsModule | Promise<ChartJsModule>
+  /** Chart.js 模块注入（测试用）；类型 `typeof import('chart.js')`，缺省按需动态加载 */
+  chartJsModule?: typeof import('chart.js') | Promise<typeof import('chart.js')>
 }
 
 /** 插件句柄：TablePlugin 契约 + 渲染通路消费的解析/加载入口 */
 export interface ChartPluginHandle extends TablePlugin {
   /** 解析指定格的图表声明为 ChartSpec；未声明或非法声明返回 null（不抛异常） */
   getChartSpec(col: number, row: number): ChartSpec | null
-  /** 按需加载 Chart.js（首次触发动态 import，之后共享模块缓存） */
-  loadLibrary(): Promise<ChartJsModule>
+  /** 按需加载 Chart.js（首次触发动态 import 并注册全量 registerables，之后共享模块缓存） */
+  loadLibrary(): Promise<typeof import('chart.js')>
 }
 
-export const CHART_PLUGIN_NAME = 'chart'
 export function createChartPlugin(options?: ChartPluginOptions): ChartPluginHandle
-
-/** Chart.js 模块类型 */
-export type ChartJsModule = typeof import('chart.js')
-/** 按需加载 Chart.js（加载后注册全量 registerables） */
-export function loadChartJs(): Promise<ChartJsModule>
-
-export interface ChartRenderOptions {
-  spec: ChartSpec
-  /** 格 CSS 宽高（物理分辨率 = CSS × dpr） */
-  width: number
-  height: number
-  dpr: number
-  module?: ChartJsModule
-  createCanvas?: () => HTMLCanvasElement
-}
-
-/** 按声明内容生成缓存内容 key（ChartSpec 确定性序列化；同声明必同 key） */
-export function chartContentKey(spec: ChartSpec): string
-/** 同步确定性出图（返回 promise 只为首次库加载）；产物位图物理尺寸 = CSS × dpr */
-export function renderChartBitmap(options: ChartRenderOptions): Promise<LoadedImage>
 
 // ---- watermark 插件 ----
 
@@ -155,14 +130,8 @@ export interface WatermarkTextConfig {
   gapY?: number
 }
 
-export const WATERMARK_TEXT_DEFAULTS = Object.freeze({
-  fontSize: 14,
-  color: '#000000',
-  opacity: 0.12,
-  rotate: -30,
-  gapX: 160,
-  gapY: 120,
-})
+// 缺省值（引擎内置常量，未导出）：fontSize 14、color '#000000'、opacity 0.12、
+// rotate -30、gapX 160、gapY 120
 
 /** 水印插件句柄：TablePlugin 契约 + 运行时配置读写 */
 export interface WatermarkHandle extends TablePlugin {
@@ -174,7 +143,6 @@ export interface WatermarkHandle extends TablePlugin {
   isEnabled(): boolean
 }
 
-export const WATERMARK_PLUGIN_NAME = 'watermark'
 export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHandle
 ```
 
@@ -186,28 +154,28 @@ export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHan
 | --- | --- | --- | :---: | --- |
 | `resolveCellChart` | `(col, row) => ChartCellDeclaration \| null \| undefined` | — | 否 | 与 core `resolveCellImage` 同风格；返回声明的格按图表位图渲染，null 走常规管线 |
 | `createCanvas` | `() => HTMLCanvasElement` | DOM canvas | 否 | 离屏画布工厂（测试注入） |
-| `chartJsModule` | `ChartJsModule \| Promise<ChartJsModule>` | 动态加载 | 否 | Chart.js 模块注入（测试注入；运行时缺省 `import('chart.js')`） |
+| `chartJsModule` | `typeof import('chart.js') \| Promise<typeof import('chart.js')>` | 动态加载 | 否 | Chart.js 模块注入（测试注入；运行时缺省 `import('chart.js')`） |
 
-`ChartCellDeclaration` 校验规则（`parseChartDeclaration`）：
+`ChartCellDeclaration` 校验规则（插件内部解析，非法声明按普通格处理）：
 
-- `type` 限 `'bar' | 'line' | 'area' | 'pie'`（大小写敏感，非法 → `ok: false`）。
+- `type` 限 `'bar' | 'line' | 'area' | 'pie'`（大小写敏感，非法判不通过）。
 - `labels` 缺省为 null（按数据序号）；给定时须为字符串数组。
 - `datasets` 须为数据集数组；`data` 逐点须为有限数值或 `null`（折线/面积断点缺口）；`label` 可省略（缺省空串）。
 - 饼图规范化只取第一个数据集。
-- 解析器对同一声明对象 memo（内容 key 未变时复用同一 media）；声明常被宿主就地改数据（对象身份不变），每次 resolve 重算内容 key——key 变了即换新 media 定向失效重出图。
+- 插件对同一声明对象 memo（内容 key 未变时复用同一 media）；声明常被宿主就地改数据（对象身份不变），每次 resolve 重算内容 key——key 变了即换新 media 定向失效重出图。
 
-`WatermarkTextConfig`（`enabled`/`text` 必填，样式字段缺省见 `WATERMARK_TEXT_DEFAULTS`）：见签名块内注释。
+`WatermarkTextConfig`（`enabled`/`text` 必填，样式字段缺省：`fontSize` 14、`color` `'#000000'`、`opacity` 0.12、`rotate` -30、`gapX` 160、`gapY` 120）：见签名块内注释。
 
 ## 方法与事件
 
 `createChartPlugin(options)` — 返回 `ChartPluginHandle`（同时是 `TablePlugin`）：
 
-- `mount(table)` — 把「格 → 图表媒体」解析器写入 `table.chartMediaResolver`（core L2 media 的 chart 预留位）；晚挂载（`table.use`）补一次全量重建即时上图。
+- `mount(table)` — 把「格 → 图表媒体」解析器写入引擎 chart 预留位（core L2 media）；晚挂载（`table.use`）补一次全量重建即时上图。
 - `unmount(table)` — 解析器是本插件时置 null。
 - `getChartSpec(col, row)` — 独立解析（冒烟断言/取数用）；未声明或非法返回 null。
-- `loadLibrary()` — `loadChartJs` 直通；首次调用触发动态 import 并 `Chart.register(...registerables)`（chart.js 4 树摇设计不自动注册，缺这步 `new Chart` 抛 `bar is not a registered controller`），之后模块级缓存。
+- `loadLibrary()` — 按需加载 Chart.js：首次调用触发动态 import 并 `Chart.register(...registerables)`（chart.js 4 树摇设计不自动注册，缺这步 `new Chart` 抛 `bar is not a registered controller`），之后模块级缓存共享。
 
-出图通路（`renderChartBitmap`）：插件持有的离屏 canvas 上同步确定性出图（`responsive: false` + `animation: false` + 显式 `devicePixelRatio`），双画布协议（chart.js destroy 会清 scratch 画布，产物先拷出到 output 画布）；配色由出图器确定性缺省色板（9 色循环），单元格声明不携带配色。产物位图经 cell 级 MediaCache 缓存（key = 内容 key + 格尺寸 + DPR），同 key 并发出图由 core 单飞收敛。
+出图通路（插件内部）：离屏 canvas 上同步确定性出图（`responsive: false` + `animation: false` + 显式 `devicePixelRatio`），双画布协议（chart.js destroy 会清 scratch 画布，产物先拷出到 output 画布）；配色由出图器确定性缺省色板（9 色循环），单元格声明不携带配色。产物位图经 cell 级位图缓存（key = 声明内容 key + 格尺寸 + DPR），同 key 并发出图由 core 单飞收敛。
 
 `createWatermarkPlugin(config)` — 返回 `WatermarkHandle`（同时是 `TablePlugin`）：
 
@@ -250,8 +218,7 @@ const table = new ListTable({
   hostOptions: { container },
 })
 
-// 滚动再滚回：同 key 命中 cell 级缓存直贴（无闪）
-console.log(table.mediaCache.size, table.chartCellNodes.size) // => 6 6（400 行共享 6 组声明）
+// 滚动再滚回：同 key 命中 cell 级缓存直贴（无闪，400 行共享 6 组声明）
 ```
 
 ### 内容换 key 失效重出图
@@ -325,6 +292,7 @@ console.log(handle.getConfig()) // => { enabled: true, text: '...', fontSize: 16
 ## 注意事项
 
 > [!WARNING]
+> - 0.1.2 起 plugins 层只导出插件工厂与 options/handle/声明类型：原 `CHART_PLUGIN_NAME`/`WATERMARK_PLUGIN_NAME`/`loadChartJs`/`parseChartDeclaration`/`renderChartBitmap`/`chartContentKey`/`WATERMARK_TEXT_DEFAULTS` 不再导出——Chart.js 预热与独立解析改走 `handle.loadLibrary()`/`handle.getChartSpec(col, row)`。
 > - Chart.js 不在 infinitable 依赖里：chart 插件首次出图动态 `import('chart.js')`——用到图表须自装 `chart.js`（v4），否则运行时报模块加载失败；未启用图表插件的宿主不触发加载、产物不含 chart.js 代码。
 > - 单元格声明只有「类型 + 数据」：配色、动画、交互全部不携带（出图器确定性缺省色板、禁动画）；需要自定义 chart.js 配置的宿主走自建 `CellChartMedia` 出图管线，不用本插件。
 > - 图表格与图片格同走 L2 media 层：`resolveCellChart` 返回声明的格整格按位图渲染，不叠加文本。

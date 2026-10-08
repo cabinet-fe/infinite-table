@@ -1,13 +1,13 @@
 ---
 title: TableTheme 主题与 CellStyle 单元格样式
-description: infinitable 主题系统：defaultTheme 默认主题、extendsTheme 深覆盖派生、TableTheme/ThemeOverride 分区 token（body/header/rowHeader/corner/interaction/frameStyle），以及 CellStyle 逐格样式、projectCellStyle 样式投影与逐边边框 CellBorder。覆盖链「主题分区 token → 列级样式 → 按格 hook」。
-aliases: [Theme, 主题, 样式, Style, extendsTheme]
-keywords: [defaultTheme, extendsTheme, ThemeOverride, TableTheme, CellStyleTokens, InteractionTokens, FrameStyle, projectCellStyle, CellStyle, CellBorder, CellPadding, textAlign, textOverflow, textWrap, borderColor, underlayBackgroundColor, selectionFill, 主题, 边框, 样式投影]
+description: infinitable 主题系统：extendsTheme 深覆盖派生、TableTheme/ThemeOverride 分区 token（body/header/rowHeader/corner/interaction/frameStyle，interaction 含滚动条三态色/圆角/内缩/隐藏延时 token），以及 CellStyle 逐格样式、projectCellStyle 样式投影与逐边边框 CellBorder。覆盖链「主题分区 token → 列级样式 → 按格 hook」。
+aliases: [Theme, 主题, 样式, Style, extendsTheme, defaultTheme]
+keywords: [extendsTheme, ThemeOverride, TableTheme, projectCellStyle, CellStyle, CellBorder, scrollbarThumb, scrollbarThumbHover, scrollbarThumbActive, scrollbarRadius, scrollbarSize, scrollbarMargin, scrollbarMarginHover, scrollbarHideDelay, textAlign, textOverflow, textWrap, borderColor, underlayBackgroundColor, selectionFill, 主题, 边框, 样式投影, 滚动条]
 ---
 
 # TableTheme 主题与 CellStyle 单元格样式
 
-`infinitable`（core 层）导出主题系统（`defaultTheme`、`extendsTheme`、`TableTheme`、`ThemeOverride` 与分区 token 类型）与逐格样式（`CellStyle` 边框族、`projectCellStyle` 投影纯函数）。样式生效链固定为「主题分区 token → 列级样式（`ColumnDefine.style`）→ 按格 hook（`resolveCellStyle`）」，逐字段覆盖、边框逐边独立合并；构造时经 `ListTableOptions.theme` 接入，运行时经 `table.updateTheme()` 深覆盖。
+`infinitable`（core 层）导出主题系统（`extendsTheme` 深覆盖派生、`TableTheme`、`ThemeOverride`）与逐格样式（`CellStyle` 边框族、`projectCellStyle` 投影纯函数）；分区 token 结构（`body`/`header`/`rowHeader`/`corner`/`interaction`/`frameStyle`）内嵌于 `TableTheme` 类型，未单独导出。样式生效链固定为「主题分区 token → 列级样式（`ColumnDefine.style`）→ 按格 hook（`resolveCellStyle`）」，逐字段覆盖、边框逐边独立合并；构造时经 `ListTableOptions.theme` 接入，运行时经 `table.updateTheme()` 深覆盖。默认主题值经 `extendsTheme()` 派生结果或 `table.getTheme()` 读取（`defaultTheme` 常量 0.1.2 起不再导出）。
 
 ## 快速上手
 
@@ -41,8 +41,9 @@ table.updateTheme({ body: { color: '#d1d5db' } })
 ## API 签名
 
 ```ts
-/** 单元格样式 token（body 数据格与行列头各一份；corner/rowHeader 缺省随 header 派生） */
-export interface CellStyleTokens {
+/** 单元格样式 token（body 数据格与行列头各一份；corner/rowHeader 缺省随 header 派生）。
+ *  未单独导出，作为 TableTheme 分区结构出现 */
+interface CellStyleTokens {
   font: string
   color: string
   background: string
@@ -58,14 +59,14 @@ export interface CellStyleTokens {
   lineThrough?: boolean
   /** 超宽文本处理；缺省数据格保持 Excel 式溢出，行列头由表侧兜底 ellipsis */
   textOverflow?: 'ellipsis' | 'clip'
-  /** 格内边距 [上,右,下,左]；缺省 [0, 8, 0, 8] */
-  padding?: CellPadding
+  /** 格内边距 [上,右,下,左]（CSS 像素）；缺省 [0, 8, 0, 8] */
+  padding?: [top: number, right: number, bottom: number, left: number]
   /** 逐边边框；缺省的边不绘制 */
   border?: CellBorder
 }
 
-/** 交互浮层样式 token：选区/填充柄/resize 线的唯一颜色与宽度来源 */
-export interface InteractionTokens {
+/** 交互浮层样式 token（未单独导出）：选区/填充柄/resize 拖拽线/内建滚动条的唯一颜色与尺寸来源 */
+interface InteractionTokens {
   selectionFill: string
   selectionBorder: string
   selectionBorderWidth: number
@@ -75,12 +76,26 @@ export interface InteractionTokens {
   headerHighlight: string
   freezeDividerColor: string
   freezeDividerWidth: number
+  /** 内建滚动条滑块默认色（灰阶三档的基准） */
   scrollbarThumb: string
+  /** 内建滚动条滑块 hover 色（指针悬停滑块即时切换） */
+  scrollbarThumbHover: string
+  /** 内建滚动条滑块拖拽激活色（拖拽会话期间） */
+  scrollbarThumbActive: string
+  /** 内建滚动条圆角半径（CSS 像素；绘制时钳到厚度一半成胶囊形） */
+  scrollbarRadius: number
+  /** 内建滚动条条带厚度（CSS 像素；两轴交汇的右下空白角同厚） */
   scrollbarSize: number
+  /** 滑块与条带边缘的内缩边距（仅厚度方向内缩变细；行程换算不受影响） */
+  scrollbarMargin: number
+  /** hover/拖拽态的内缩边距（收窄即视觉变粗） */
+  scrollbarMarginHover: number
+  /** 'scrolling' 显隐档静止后隐藏延时（ms；options.scrollbar.hideDelay 显式给定时优先） */
+  scrollbarHideDelay: number
 }
 
-/** 表格外框样式 token */
-export interface FrameStyle {
+/** 表格外框样式 token（未单独导出） */
+interface FrameStyle {
   /** 外框线宽（CSS 像素）；0 不绘制 */
   lineWidth: number
   color: string
@@ -119,8 +134,6 @@ export interface ThemeOverride {
   frameStyle?: Partial<FrameStyle>
 }
 
-export const defaultTheme: TableTheme
-
 export function extendsTheme(override?: ThemeOverride, base?: TableTheme): TableTheme
 
 /** 单元格样式（逐格投影的最终形态；按格 hook 与列级样式的字段集） */
@@ -138,20 +151,12 @@ export interface CellStyle {
   lineThrough?: boolean
   textWrap?: boolean
   textOverflow?: 'ellipsis' | 'clip'
-  padding?: CellPadding
+  padding?: [top: number, right: number, bottom: number, left: number]
   border?: CellBorder
 }
 
-/** 水平对齐 */
-export type CellTextAlign = 'left' | 'center' | 'right'
-/** 垂直对齐 */
-export type CellVerticalAlign = 'top' | 'middle' | 'bottom'
-/** 超宽文本处理；缺省 Excel 式溢出到右侧空格 */
-export type CellTextOverflow = 'ellipsis' | 'clip'
-/** 格内边距 [上,右,下,左]（CSS 像素） */
-export type CellPadding = [top: number, right: number, bottom: number, left: number]
-/** 边框线型 */
-export type CellBorderStyle = 'solid' | 'dashed' | 'dotted' | 'double'
+/** 边框线型（内嵌于 CellBorderEdge，未单独导出） */
+type CellBorderStyle = 'solid' | 'dashed' | 'dotted' | 'double'
 
 export interface CellBorderEdge {
   width: number
@@ -168,14 +173,13 @@ export interface CellBorder {
   left?: CellBorderEdge
 }
 
-/** 按格样式 hook：纯函数、同步、O(1)；返回 null 沿用基础样式 */
-export type ResolveCellStyle = (col: number, row: number) => CellStyle | null
-
 /** 样式投影：override 逐字段覆盖 base，边框逐边独立合并；返回新对象 */
 export function projectCellStyle(base: CellStyle, override: CellStyle | null | undefined): CellStyle
 ```
 
-`defaultTheme` 关键值：`rowHeight: 32`、`headerHeight: 36`、`rowHeaderWidth: 48`、`defaultColWidth: 100`；body/header/rowHeader/corner 均为 `12px sans-serif`、前景 `#1f2329`、表头底 `#f5f6f7`、网格线 `#e5e6eb`；`underlayBackgroundColor: '#ffffff'`；interaction：`selectionFill: 'rgba(46, 106, 219, 0.08)'`、`selectionBorder: '#2e6adb'`、`selectionBorderWidth: 2`、`fillHandle/resizeLine: '#2e6adb'`、`resizeLineWidth: 2`、`headerHighlight: 'rgba(46, 106, 219, 0.18)'`、`freezeDividerColor: '#c9cdd4'`、`freezeDividerWidth: 1`、`scrollbarThumb: 'rgba(31, 35, 41, 0.4)'`、`scrollbarSize: 10`；`frameStyle.lineWidth: 0`（不绘制外框）。
+`ListTableOptions.resolveCellStyle`（按格样式 hook，未导出为独立类型）：`(col: number, row: number) => CellStyle | null`——纯函数、同步、O(1)，返回 null 沿用基础样式。
+
+默认主题关键值（经 `extendsTheme()` 派生结果读取）：`rowHeight: 32`、`headerHeight: 36`、`rowHeaderWidth: 48`、`defaultColWidth: 100`；body/header/rowHeader/corner 均为 `12px sans-serif`、前景 `#1f2329`、表头底 `#f5f6f7`、网格线 `#e5e6eb`；`underlayBackgroundColor: '#ffffff'`；interaction：`selectionFill: 'rgba(46, 106, 219, 0.08)'`、`selectionBorder: '#2e6adb'`、`selectionBorderWidth: 2`、`fillHandle/resizeLine: '#2e6adb'`、`resizeLineWidth: 2`、`headerHighlight: 'rgba(46, 106, 219, 0.18)'`、`freezeDividerColor: '#c9cdd4'`、`freezeDividerWidth: 1`、`scrollbarThumb: 'rgba(31, 35, 41, 0.4)'`、`scrollbarThumbHover: 'rgba(31, 35, 41, 0.55)'`、`scrollbarThumbActive: 'rgba(31, 35, 41, 0.7)'`、`scrollbarRadius: 4`、`scrollbarSize: 10`、`scrollbarMargin: 2`、`scrollbarMarginHover: 1`、`scrollbarHideDelay: 1000`；`frameStyle.lineWidth: 0`（不绘制外框）。
 
 ## 参数说明
 
@@ -184,7 +188,7 @@ export function projectCellStyle(base: CellStyle, override: CellStyle | null | u
 | 参数 | 类型 | 默认 | 必填 | 约束 |
 | --- | --- | --- | :---: | --- |
 | `override` | `ThemeOverride` | `{}` | 否 | 覆盖键生效，未给键继承 base |
-| `base` | `TableTheme` | `defaultTheme` | 否 | 派生基座；`rowHeader`/`corner` 随「生效 header」（base+override 合并结果）派生后，再应用各自显式覆盖键 |
+| `base` | `TableTheme` | 引擎内置默认主题 | 否 | 派生基座；`rowHeader`/`corner` 随「生效 header」（base+override 合并结果）派生后，再应用各自显式覆盖键 |
 
 `CellStyle`/`CellStyleTokens` 关键缺省：
 
@@ -257,10 +261,10 @@ const table = new ListTable({
 })
 ```
 
-### 深色主题整体派生
+### 深色主题整体派生（含滚动条 token）
 
 ```ts
-import { defaultTheme, extendsTheme, ListTable, type ThemeOverride } from 'infinitable'
+import { extendsTheme, ListTable, type ThemeOverride } from 'infinitable'
 
 const dark: ThemeOverride = {
   underlayBackgroundColor: '#111318',
@@ -272,10 +276,16 @@ const dark: ThemeOverride = {
     fillHandle: '#60a5fa',
     resizeLine: '#60a5fa',
     freezeDividerColor: '#3a3f47',
+    // 滚动条 token 深覆盖：三态色逐级提亮 + 收窄内缩
+    scrollbarThumb: 'rgba(229, 230, 235, 0.4)',
+    scrollbarThumbHover: 'rgba(229, 230, 235, 0.55)',
+    scrollbarThumbActive: 'rgba(229, 230, 235, 0.7)',
   },
 }
-console.log(extendsTheme(dark).body.color) // => '#e5e6eb'
-console.log(extendsTheme(dark).rowHeight === defaultTheme.rowHeight) // => true（未给键继承）
+const theme = extendsTheme(dark)
+console.log(theme.body.color) // => '#e5e6eb'
+console.log(theme.rowHeight) // => 32（未给键继承默认主题）
+console.log(theme.interaction.scrollbarRadius) // => 4（未覆盖的滚动条 token 继承默认）
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const table = new ListTable({
@@ -291,9 +301,11 @@ const table = new ListTable({
 ## 注意事项
 
 > [!WARNING]
+> - `defaultTheme` 常量 0.1.2 起不再导出：默认主题值经 `extendsTheme()` 派生结果或 `table.getTheme()` 读取；分区 token 结构（`CellStyleTokens`/`InteractionTokens`/`FrameStyle`）内嵌于 `TableTheme`，未单独导出。
 > - 本库样式链是「主题分区 token → 列级样式 → 按格 hook」三级逐字段覆盖，不是 CSS 类名体系；不要试图用 class 控制 infinitable 单元格样式。
 > - 主题 `borderColor` 投影为每格右/下 1px 默认网格边（收入本格）；显式 `border.right/bottom` 整边替换网格边，显式边与相邻格共享边的裁决规则：显式边恒胜网格派生边。
 > - `CellBorderEdge.grid` 是引擎内部标记，宿主设置样式时禁止自填 `grid: true`。
+> - 内建滚动条样式全部走 interaction token（0.1.2 起）：滑块三态色 `scrollbarThumb`/`scrollbarThumbHover`/`scrollbarThumbActive`（取档：拖拽激活 > hover > 默认）、圆角 `scrollbarRadius`（钳到厚度一半成胶囊形）、条带厚度 `scrollbarSize`、内缩 `scrollbarMargin`/`scrollbarMarginHover`（hover/拖拽收窄内缩即视觉变粗）、`'scrolling'` 档静止隐藏延时 `scrollbarHideDelay`；token 只影响绘制观感，不影响命中与拖拽行程换算。显示策略经 `ListTableOptions.scrollbar` 配置（见 `apis/list-table.md`）。
 > - `underlayBackgroundColor` 是数据区底色（格背景之下）；做「内容之下衬底水印」时 ground 层内容会被 body 不透明底色遮挡，须把 body/underlay 配透明色，或改用顶层 `setOverlayPainter`。
 > - 表头分区（header/rowHeader/corner）的 `textOverflow` 缺省由表侧兜底 ellipsis；数据格缺省是 Excel 式溢出到右侧空格，两者行为不同。
 > - `updateTheme` 后 rowHeight/headerHeight 等几何 token 的已生效值不重算；要改运行时几何用 `setRowHeight`/`setColWidth`/`resize`。

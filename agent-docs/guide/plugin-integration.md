@@ -13,7 +13,7 @@ keywords: [TablePlugin, mount, unmount, table.use, plugins, createChartPlugin, r
 
 - 已按 `guide/quick-start.md` 完成安装与基础挂载（`infinitable` + `@cat-kit/core`）。
 - 图表插件：`bun add chart.js`（Chart.js v4；不用图表可不装，插件按需动态加载不进主产物）。
-- sheet 插件族（SheetStore/SheetBook 等）属 plugins 包导出，本指南不展开，见 `apis/sheet-plugin.md`。
+- sheet 插件（`createSheetPlugin`：Store 参考模型 + 多 sheet + 撤销/填充/公式显示等）属 plugins 包导出，本指南不展开，见 `apis/sheet-plugin.md`。
 
 ## 步骤
 
@@ -209,16 +209,15 @@ bunx vite --open
 
 ```ts
 // 接完整示例的 table / chartPlugin 变量
-table.chartCellNodes.size // => 4（当前窗口内图表格节点数）
-table.mediaCache.size // => 4（cell 级位图缓存；滚动滚回命中直贴不闪）
 chartPlugin.getChartSpec(1, 0)?.type // => 'line'（独立解析声明）
-chartPlugin.loadLibrary() // => Promise<ChartJsModule>（按需加载 Chart.js）
+chartPlugin.loadLibrary() // => Promise<typeof import('chart.js')>（按需加载 Chart.js）
+// 滚动再滚回：图表格同 key 命中 cell 级位图缓存直贴（无闪）
 ```
 
 ## 注意事项
 
 > [!WARNING]
-> - 图表插件依赖 `chart.js` v4 且不随 infinitable 安装：漏装时首次出图报模块加载失败；未启用图表的宿主不受影响（动态 import 独立分包）。首次出图触发 `import('chart.js')` 的网络加载，需要预热的宿主提前调 `loadChartJs()`（`void loadChartJs()`）。
+> - 图表插件依赖 `chart.js` v4 且不随 infinitable 安装：漏装时首次出图报模块加载失败；未启用图表的宿主不受影响（动态 import 独立分包）。首次出图触发 `import('chart.js')` 的网络加载，需要预热的宿主提前调 `chartPlugin.loadLibrary()`（`void chartPlugin.loadLibrary()`）。
 > - `resolveCellChart` 返回声明的格整格按图表位图渲染（与 `resolveCellImage` 同层互斥），不叠加文本；数据变更后必须 `table.refreshCell(col, row)` 定向失效。
 > - 顶层 overlay 预留位是单写方槽位：watermark 插件与自写 overlay 插件会互相覆盖 painter（后挂载的覆盖先挂载的）——多种顶层内容须合并成一个 painter 内自绘。
 > - 内容之下的衬底水印用 `setUnderlayPainter`（ground 层恒在最底）：默认主题 body 不透明底色会遮挡它，须配透明底或改用顶层 overlay。

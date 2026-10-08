@@ -1,13 +1,13 @@
 ---
-title: SelectionState 选区与交互原语
-description: infinitable 选区状态机 SelectionState/SelectionSnapshot、交互浮层 InteractionOverlay、填充柄几何与事件（fillHandleRect/hitFillHandle/onFillDragEnd）、行列 resize（hitResizeHandle/ResizeSession）、触控惯性滚动（InertiaScroller/TouchScrollTracker）与键盘导航纯函数（nextActiveCell/revealAxis）。
-aliases: [Selection, 选区, 填充柄, FillHandle, 惯性滚动, Resize, 键盘导航]
-keywords: [SelectionState, normalizeRange, SelectionSnapshot, RangeBounds, selectCells, applyExternalSelection, HighlightRange, FILL_HANDLE_SIZE, hitFillHandle, onFillDragEnd, onFillHandleDoubleClick, hitResizeHandle, onColResizeEnd, onRowResizeEnd, InertiaScroller, nextActiveCell, ctrlMultiSelect, 选区, 填充柄, 拖拽]
+title: SelectionSnapshot 选区与交互事件
+description: infinitable 选区与交互：选区快照 SelectionSnapshot（ranges + focus）、normalizeRange 归一化、程序化选区（selectCells/selectRow/selectAll）、applyExternalSelection 外部回流防回环、HighlightRange 引用染色高亮，以及填充柄（onFillDragEnd 拖拽生成事件）、行列 resize（onColResizeEnd/onRowResizeEnd）等交互事件的载荷语义。拖选/加选/惯性/键盘导航由引擎内置接线。
+aliases: [选区, 填充柄, SelectionState, InteractionOverlay, 行列调整, 拖拽]
+keywords: [SelectionSnapshot, RangeBounds, normalizeRange, HighlightRange, FillDragEndEvent, getSelection, getSelectedCellRanges, selectCells, selectRow, selectAll, applyExternalSelection, onSelectionChange, onFillDragEnd, onFillHandleDoubleClick, onColResizeEnd, onRowResizeEnd, ctrlMultiSelect, setHighlightRanges, 选区, 填充柄, 拖拽, 染色框]
 ---
 
-# SelectionState 选区与交互原语
+# SelectionSnapshot 选区与交互事件
 
-`infinitable`（core 层）导出选区状态机 `SelectionState` 与交互原语：填充柄几何/命中、行列 resize 手柄命中/会话、触控惯性滚动、键盘导航纯函数。`ListTable` 已内置接线——指针拖选、Ctrl/Cmd 加选（`ctrlMultiSelect`）、表头拖选、填充柄按下/拖拽/双击事件、行列 resize、触控惯性、方向键/Tab 导航；宿主直接消费 `table.selection` 快照与 `on*` 事件即可，本篇 API 用于独立组装或扩展交互。
+`infinitable`（core 层）导出选区公共类型与工具：`SelectionSnapshot`（选区快照：段数组 + 焦点格）、`normalizeRange`（段边界归一化）、`RangeBounds`、`HighlightRange`（sky 浮层高亮区）与 `FillDragEndEvent`（填充柄拖拽结束事件载荷）。选区状态机、交互浮层、触控惯性、键盘导航等原语是引擎内部实现，不占公共导出面——`ListTable` 已内置接线：指针拖选、Ctrl/Cmd 加选（`ctrlMultiSelect`）、表头拖选、填充柄按下/拖拽/双击事件、行列 resize、触控惯性、方向键/Tab 导航全部开箱可用；宿主消费 `table.select*/getSelection/on*` 事件面即可。
 
 ## 快速上手
 
@@ -44,9 +44,9 @@ table.selectCells([
 
 ```ts
 /** 选区段：start 为锚点，end 为焦点侧（可反向，读取边界用 normalizeRange） */
-export interface SelectionRange {
-  start: CellRef
-  end: CellRef
+interface SelectionRange {
+  start: { col: number; row: number } // 格坐标（0 基；统一入口类型名 GridCellRef，未随选区面导出）
+  end: { col: number; row: number }
 }
 
 /** 归一化后的选区边界（min/max 序） */
@@ -57,168 +57,15 @@ export interface RangeBounds {
   maxRow: number
 }
 
+/** 选区快照：程序化选区入参、getSelection 返回与 onSelectionChange 载荷的统一形态 */
 export interface SelectionSnapshot {
   readonly ranges: readonly SelectionRange[]
   /** 焦点格（键盘导航的活动格）；无选区时为 null */
-  readonly focus: CellRef | null
+  readonly focus: { col: number; row: number } | null
 }
-
-/** 外部回写坐标的钳制边界 */
-export interface SelectionBounds {
-  colCount: number
-  rowCount: number
-}
-
-export type SelectionListener = (snapshot: SelectionSnapshot) => void
 
 /** 求选区段的 min/max 边界 */
 export function normalizeRange(range: SelectionRange): RangeBounds
-
-export class SelectionState {
-  get snapshot(): SelectionSnapshot
-  onChange(listener: SelectionListener): () => void
-  selectCell(col: number, row: number, extend?: boolean): void
-  selectCells(ranges: readonly SelectionRange[]): void
-  addRange(range: SelectionRange): void
-  beginDrag(col: number, row: number): void
-  beginDragRange(start: CellRef, end: CellRef, focus?: CellRef): void
-  updateDrag(col: number, row: number): void
-  updateDragRange(start: CellRef, end: CellRef): void
-  endDrag(): void
-  selectRow(row: number, colCount: number): void
-  selectCol(col: number, rowCount: number): void
-  selectAll(colCount: number, rowCount: number, focus?: CellRef): void
-  clear(): void
-  applyExternal(snapshot: SelectionSnapshot, bounds?: SelectionBounds): void
-}
-
-/** 填充柄方点边长（px） */
-export const FILL_HANDLE_SIZE = 8
-
-/** 焦点段：包含焦点格的选区段（填充柄挂在它的右下角）；焦点不在任何段内时取末段 */
-export function resolveFocusRange(snapshot: SelectionSnapshot): SelectionRange | null
-
-/** 填充柄方点矩形：骑在锚定段右下角格的右下角点上，向格内格外各伸一半边长 */
-export function fillHandleRect(cellRect: Region): Region
-
-/** 填充柄命中判定 */
-export function hitFillHandle(x: number, y: number, cellRect: Region): boolean
-
-export interface FillHandleDownEvent {
-  range: SelectionRange
-}
-export interface FillDragEndEvent {
-  /** 柄所在选区段的归一化边界 */
-  anchor: RangeBounds
-  /** 拖拽目标格范围（min/max 序） */
-  target: RangeBounds
-}
-export interface FillHandleDoubleClickEvent {
-  range: SelectionRange
-}
-export type FillHandleDownListener = (event: FillHandleDownEvent) => void
-export type FillDragEndListener = (event: FillDragEndEvent) => void
-export type FillHandleDoubleClickListener = (event: FillHandleDoubleClickEvent) => void
-
-/** resize 几何快照（视口→内容坐标换算含冻结区与滚动，由调用方注入） */
-export interface ResizeGeometry {
-  readonly colOffsets: readonly number[]
-  readonly rowOffsets: readonly number[]
-  readonly rowHeaderWidth: number
-  readonly headerHeight: number
-  toContentX(x: number): number
-  toContentY(y: number): number
-}
-
-export type ResizeTarget = { readonly kind: 'col'; readonly index: number } | { readonly kind: 'row'; readonly index: number }
-export interface ColResizeEndEvent {
-  col: number
-  width: number
-}
-export interface RowResizeEndEvent {
-  row: number
-  height: number
-}
-export interface ResizeCapability {
-  canResizeCol?(col: number): boolean
-  canResizeRow?(row: number): boolean
-}
-
-/** 命中 resize 手柄：列手柄在列头区的列右缘，行手柄在行号列区的行下缘 */
-export function hitResizeHandle(
-  x: number,
-  y: number,
-  geo: ResizeGeometry,
-  capability?: ResizeCapability,
-  threshold?: number,
-): ResizeTarget | null
-
-/** 一次拖拽 resize 会话：记录起始尺寸，按指针位移给出夹取后的目标尺寸 */
-export class ResizeSession {
-  constructor(target: ResizeTarget, startSize: number, startPointer: number)
-  sizeAt(pointer: number): number
-}
-
-/** 触控滚动采样 */
-export class TouchScrollTracker {
-  /* 逐 touchmove 采样，产出速度估计 */
-}
-/** 惯性滚动器 */
-export class InertiaScroller {
-  constructor(
-    scroll: (dx: number, dy: number) => void,
-    schedule: (task: () => void) => void,
-  )
-  /* 速度衰减帧循环驱动 scroll 回调 */
-}
-export interface TouchPoint {
-  x: number
-  y: number
-}
-export interface ScrollDelta2D {
-  dx: number
-  dy: number
-}
-export interface InertiaVelocity {
-  dx: number
-  dy: number
-}
-
-/** 按按键求下一个活动格；方向键四向、Tab 右移 / Shift+Tab 左移；越界夹取到表缘 */
-export function nextActiveCell(
-  key: string,
-  current: CellRef,
-  colCount: number,
-  rowCount: number,
-  shiftKey?: boolean,
-): CellRef | null
-
-/** 单轴滚动跟随：求让 [start, start+size) 完整进入视口的最小滚动位置 */
-export function revealAxis(
-  scrollPos: number,
-  viewportSize: number,
-  start: number,
-  size: number,
-): number
-
-/** sky 层交互浮层（ListTable 内置；独立宿主可自建） */
-export class InteractionOverlay {
-  constructor(layerRoot: SceneNode, geometry: OverlayGeometry, tokens: InteractionTokens)
-  updateTheme(tokens: InteractionTokens): void
-  resize(): void
-}
-
-/** 浮层绘制所需的几何查询 */
-export interface OverlayGeometry {
-  cellRect(col: number, row: number): Region | null
-  bodyViewport(): Region
-}
-
-/** resize 拖拽指示线（视口坐标） */
-export interface ResizeLine {
-  readonly orientation: 'vertical' | 'horizontal'
-  readonly position: number
-}
 
 /** 宿主高亮区域（公式引用染色框等）：四边细条边框，只绘制不拦截事件 */
 export interface HighlightRange {
@@ -226,59 +73,56 @@ export interface HighlightRange {
   readonly color: string
 }
 
-/** 浮层内容源（选区 + 指示线 + 填充预览 + 高亮 + 冻结分隔 + 滚动条几何） */
-export interface OverlayContent {
-  readonly selection: SelectionSnapshot
-  readonly resizeLine: ResizeLine | null
-  readonly fillHandleRange: SelectionRange | null
-  readonly fillPreview: RangeBounds | null
-  readonly selectionAnchor: RangeBounds | null
-  readonly highlightRanges: readonly HighlightRange[]
-  readonly freezeDividers: { x: number | null; y: number | null }
-  readonly scrollbars: { vertical: unknown; horizontal: unknown }
+/** 填充柄拖拽结束事件（onFillDragEnd 载荷） */
+export interface FillDragEndEvent {
+  /** 柄所在选区段的归一化边界 */
+  anchor: RangeBounds
+  /** 拖拽目标格范围（min/max 序） */
+  target: RangeBounds
 }
 ```
 
 ## 参数说明
 
-`SelectionState` 方法：
+| 参数 | 类型 | 默认 | 必填 | 约束 |
+| --- | --- | --- | :---: | --- |
+| `SelectionRange.start` / `.end` | `{ col, row }` | — | 是 | 0 基格坐标；end 可小于 start（反向拖选），读取边界必须先 `normalizeRange` |
+| `SelectionSnapshot.focus` | `{ col, row } \| null` | — | — | 键盘导航活动格；无选区为 null |
+| `HighlightRange.bounds` | `RangeBounds` | — | 是 | min/max 序边界（先归一化再构造） |
+| `HighlightRange.color` | `string` | — | 是 | CSS 颜色串（四边细条边框色） |
 
-| 方法 | 默认 | 约束 |
-| --- | --- | --- |
-| `selectCell(col, row, extend = false)` | — | 单格选中；extend=true 以既有末段锚点做 shift 扩展，焦点同步目标 |
-| `selectCells(ranges)` | — | 整组替换；焦点落末段 end（填充柄挂焦点段） |
-| `addRange(range)` | — | 追加一段（ctrlMultiSelect 的 Ctrl/Cmd 点选路径），焦点同步新段 end |
-| `beginDrag` / `updateDrag` / `endDrag` | — | 拖选会话：锚定格、扩展末段（焦点同步）、结束（锚点不重置） |
-| `selectRow(row, colCount)` / `selectCol(col, rowCount)` | — | 整行/整列；colCount/rowCount ≤ 0 时不广播 |
-| `selectAll(colCount, rowCount, focus?)` | — | 全选，焦点缺省左上角首格 |
-| `applyExternal(snapshot, bounds?)` | — | 外部回写：不广播防回环；给 bounds 先把段边界与焦点钳到数据区；拖拽中同边界段只同步焦点不替换（保锚点） |
-
-`hitResizeHandle(x, y, geo, capability = {}, threshold = 4)`：命中带宽 4px；列头关闭（headerHeight = 0）时列手柄不可命中，行号列关闭（rowHeaderWidth = 0）时行手柄不可命中；被 `canResizeCol`/`canResizeRow` 拒绝返回 null。
-
-`ResizeSession.sizeAt(pointer)`：夹取下限——列宽最小 20px（`MIN_COL_WIDTH`），行高最小 20px（`MIN_ROW_HEIGHT`）。
-
-`nextActiveCell(key, ...)`：只识别 `'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Tab'`，其余键返回 null；colCount/rowCount ≤ 0 返回 null。
-
-`FILL_HANDLE_SIZE` 固定 `8`（px 方点边长）。
+`ListTableOptions.ctrlMultiSelect`：`boolean`，缺省 `false`（Ctrl/Cmd 点数据格为点选替换选区）；`true` 时 Ctrl/Cmd 点数据格在既有选区上追加选区段。
 
 ## 方法与事件
 
-`ListTable` 上的选区与交互事件（全部同步、返回退订函数）：
+`ListTable` 选区程序化 API（全部同步）：
 
-- `onSelectionChange(listener)` — 选区变更级粒度（拖选过程每帧触发）；适配层自行节流。
-- `getSelection()` / `getSelectedCellRanges()`（返回副本，段 start/end 可反向）。
-- `applyExternalSelection(snapshot)` — 外部模型选区回写：钳制到数据区（行头/列头带坐标不入库）并刷新浮层但不广播。
-- `onFillHandleDown(listener)` — 载荷 `{ range }`（柄所在选区段，start/end 可反向）。
-- `onFillDragEnd(listener)` — 载荷 `{ anchor, target }`（均 min/max 序）。轴锁定规则：行/列位移绝对值大者为主轴（相等取纵向），副轴夹回锚定段跨度内。填充生成不在内核——宿主据差集自行实现（sheet 插件 `bindFillGeneration` 是参考实现）。
-- `onFillHandleDoubleClick(listener)` — 与拖拽结束事件互斥（双击的第二次抬起只抛双击事件）。Excel 语义为按相邻列连续数据块向下自动填充。
-- `onColResizeEnd` / `onRowResizeEnd` — 会话结束，载荷为夹取后的最终生效值。
+- `selectCell(col, row)` — 单格选中（焦点同步该格）。
+- `selectCells(ranges: readonly SelectionRange[])` — 整组替换，焦点落末段 end（填充柄挂焦点段）。
+- `selectRow(row)` / `selectCol(col)` / `selectAll()` / `clearSelection()` — 整行/整列/全选/清空。
+- `getSelection(): SelectionSnapshot` / `getSelectedCellRanges(): SelectionRange[]`（返回副本，段 start/end 可反向）。
+- `applyExternalSelection(snapshot)` — 外部模型选区回写：钳制到数据区（行头/列头带坐标不入库）、刷新 sky 浮层但不广播（天然防回环）。
+- `setHighlightRanges(ranges: readonly HighlightRange[])` — sky 浮层宿主高亮区（公式引用染色框等）。
+- `setSelectionAnchor(anchor | null)` — 编辑拾取会话的选区锚点绘制。
+
+选区与交互事件订阅（全部返回退订函数）：
+
+| 方法 | 触发 | 载荷 |
+| --- | --- | --- |
+| `onSelectionChange` | 选区变更（拖选过程每帧触发） | `SelectionSnapshot`；适配层自行节流 |
+| `onFillHandleDown` | 填充柄按下 | `{ range }`（柄所在选区段，start/end 可反向） |
+| `onFillDragEnd` | 填充柄拖拽结束 | `{ anchor, target }`（均 min/max 序）；轴锁定：行/列位移绝对值大者为主轴（相等取纵向），副轴夹回锚定段跨度内 |
+| `onFillHandleDoubleClick` | 填充柄双击（与拖拽结束互斥） | `{ range }`；Excel 语义为按相邻列连续数据块向下自动填充，写入由宿主或 sheet 插件完成 |
+| `onColResizeEnd` / `onRowResizeEnd` | 列宽/行高拖拽会话结束 | `{ col, width }` / `{ row, height }`（夹取后生效值，宽高下限 20px） |
+
+引擎内置交互（无需宿主接线）：指针拖选、Ctrl/Cmd 加选（`ctrlMultiSelect: true`）、表头拖选整列/行号列拖选整行、填充柄拖拽与双击事件、行列 resize 手柄（列手柄在列头区列右缘、行手柄在行号列区行下缘；`canResizeCol`/`canResizeRow` 返回 false 的行列不可拖）、触控惯性滚动、方向键/Tab 键盘导航。
 
 ## 典型示例
 
-### 填充柄拖拽生成写入（SheetStore 供给）
+### 填充柄拖拽生成写入
 
 ```ts
-import { ListTable, normalizeRange, SheetModel } from 'infinitable'
+import { ListTable, SheetModel } from 'infinitable'
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const model = new SheetModel(50, 2)
@@ -332,7 +176,7 @@ table.onColResizeEnd((event) => {
 ### 外部模型选区回流（防回环）
 
 ```ts
-import { ListTable, normalizeRange, type SelectionSnapshot } from 'infinitable'
+import { ListTable, type SelectionSnapshot } from 'infinitable'
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const table = new ListTable({
@@ -358,17 +202,16 @@ function syncFromExternal(): void {
 
 > [!WARNING]
 > - `SelectionRange.start/end` 可反向（拖选反向时 start 是锚点、end 是焦点）；读取边界必须先 `normalizeRange`，直接读 start/end 当 min 角会得到反向区间。
-> - 填充生成算法不在内核：引擎只画柄与抛 `onFillHandleDown`/`onFillDragEnd`/`onFillHandleDoubleClick` 事件，写入由宿主完成（sheet 插件的 `generateFill`/`bindFillGeneration` 是参考实现，见 `apis/sheet-plugin.md`）。
-> - `applyExternal`（SelectionState 方法）不广播；`table.applyExternalSelection` 在其上多做了钳制与浮层刷新。宿主自己调 `selection.applyExternal` 时不会刷新 sky 浮层。
-> - 拖拽进行中收到与当前拖拽段归一化边界等值的外部快照时，引擎只同步焦点不替换段（保拖拽锚点）——这是防「反向拖拽选区塌缩」的内部规则，宿主不需要也不应该绕过。
+> - 填充生成算法不在内核：引擎只画柄与抛 `onFillHandleDown`/`onFillDragEnd`/`onFillHandleDoubleClick` 事件，写入由宿主完成（sheet 插件的填充生成接线是参考实现，见 `apis/sheet-plugin.md`）。
+> - 选区状态机与交互浮层（原 `SelectionState`/`InteractionOverlay`，0.1.2 起不再导出）为引擎内部实现：选区读写只走 `table.select*/getSelection/applyExternalSelection`；拖拽进行中收到与当前拖拽段归一化边界等值的外部快照时，引擎只同步焦点不替换段（保拖拽锚点），宿主不需要也不应该绕过。
 > - 列头关闭（`showColHeader: false`）后列 resize 手柄不可命中；行号列关闭后行 resize 手柄不可命中——没有表头带就没有可抓的边缘。
-> - 本库 `ctrlMultiSelect` 缺省 false（点选替换选区）；Excel 式 Ctrl 加选须显式开启。
+> - 本库 `ctrlMultiSelect` 缺省 false（点选替换选区）；Excel 式 Ctrl 加选须显式开启（sheet 插件构造期默认注入 `ctrlMultiSelect: false` 的 Excel 键位底座）。
 
 ## 常见问题
 
 ### 拖填充柄松手后表格数据没变
 
-原因：填充生成不在内核，`onFillDragEnd` 只是事件通知。修复：订阅事件并写入模型（或接入 sheet 插件 `bindFillGeneration`）。
+原因：填充生成不在内核，`onFillDragEnd` 只是事件通知。修复：订阅事件并写入模型，或接入 sheet 插件（其构造期自动接线填充生成与双击自动填充）。
 
 ```ts
 import { ListTable, SheetModel } from 'infinitable'

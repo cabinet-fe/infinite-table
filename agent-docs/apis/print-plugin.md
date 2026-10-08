@@ -1,23 +1,24 @@
 ---
-title: print 打印插件
-description: infinitable 打印插件（headless 内核 + DOM 输出）：paginate 分页（fitpage 行高累加 / fixrows 固定行数、重复表头、分组换页、fit-width 缩放）、buildPrintDocumentHtml 页面 HTML、evaluatePlaceholders 页眉页脚占位符（{page}/{pageSum:COL} 等）、printPages iframe 打印输出与 openPrintPreview 预览弹层；PrintSource 供数适配 SheetStore。
-aliases: [print 插件, 打印, 打印预览, paginate, 分页]
-keywords: [paginate, PrintPage, PrintConfig, PrintSource, paperSize, A4, orientation, landscape, fitpage, fixrows, headerRepeatRows, groupBreakBy, evaluatePlaceholders, printPages, openPrintPreview, 打印, 分页, 页眉页脚, 套打, 打印预览]
+title: createPrintPlugin 打印插件
+description: infinitable 打印插件 createPrintPlugin（ureport2 双模式移植，headless 内核 + DOM 输出）：handle.paginate 分页（fitpage 行高累加 / fixrows 固定行数、重复表头、分组换页、fit-width 缩放）、buildDocumentHtml 页面 HTML、print iframe 打印输出与 openPreview 预览弹层；PrintSource 供数适配，PrintConfig 纸张/边距/页眉页脚占位符（{page}/{pageSum:COL}）与水印配置。
+aliases: [print 插件, 打印, 打印预览, paginate, 分页, printPages, openPrintPreview]
+keywords: [createPrintPlugin, PrintPluginOptions, PrintPluginHandle, paginate, buildDocumentHtml, print, openPreview, PrintConfig, PrintSource, paperSize, A4, orientation, landscape, fitpage, fixrows, headerRepeatRows, groupBreakBy, "pageSum", PrintPaperPreset, 打印, 分页, 页眉页脚, 套打, 打印预览]
 ---
 
-# print 打印插件
+# createPrintPlugin 打印插件
 
-`infinitable`（plugins 层）导出打印能力（ureport2 双模式移植）：`paginate` 分页引擎（headless 纯函数零 DOM）、`buildPrintDocumentHtml`/`buildPrintPageHtml` 页面 HTML 构建（页眉页脚占位符求值 + 表格页 + 水印平铺）、`printPages`（隐藏 iframe 装载 → 调起打印）与 `openPrintPreview`（DOM 预览薄壳）。供数走 `PrintSource` 窄接口（适配 SheetStore 或任意模型）；配置走 `PrintConfig`（纸张/方向/边距/缩放/分页/重复表头/分组换页/页眉页脚/水印）。
+`infinitable`（plugins 层）导出 `createPrintPlugin(options)` 工厂（ureport2 双模式移植）：返回值同时是 `TablePlugin`（可经构造 `plugins` / `table.use()` 注册；mount 为契约占位，注册与销毁均无表侧副作用）与运行时 handle——打印链路本身 headless（不接线表格任何挂点），`paginate`（分页纯函数零 DOM）、`buildDocumentHtml`（页面 HTML 构建：页眉页脚占位符求值 + 表格页 + 水印平铺）、`print`（隐藏 iframe 装载 → 调起打印）与 `openPreview`（DOM 预览薄壳）全部经 handle 方法达成，可脱离表格直接以 handle 形态消费。供数走 `PrintSource` 窄接口（适配 sheet 插件 Store 或任意模型）；配置走 `PrintConfig`（纸张/方向/边距/缩放/分页/重复表头/分组换页/页眉页脚/水印），方法调用可逐次覆盖插件 options 的基线 config。原散装函数（`paginate`/`printPages`/`openPrintPreview` 等，0.1.2 起不再导出）收敛为 handle 方法。
 
 ## 快速上手
 
 ```ts
-import { printPages, type PrintConfig, type PrintSource } from 'infinitable'
-import type { SheetStore } from 'infinitable'
+import { createPrintPlugin, type PrintConfig, type PrintSource } from 'infinitable'
+import type { SheetPluginHandle } from 'infinitable'
 
-declare const store: SheetStore
+declare const sheet: SheetPluginHandle
+const store = sheet.activeStore()!
 
-// SheetStore → PrintSource 适配（宿主/适配器供数形态）
+// Store → PrintSource 适配（宿主/适配器供数形态）
 const source: PrintSource = {
   name: '销售明细',
   rowCount: store.getRowCount(),
@@ -30,16 +31,19 @@ const source: PrintSource = {
   displayValue: (col, row) => store.getDisplayValue(col, row),
 }
 
-const config: PrintConfig = {
-  paperSize: 'A4',
-  orientation: 'portrait',
-  headerRepeatRows: 1, // 每页重复第 0 行作表头
-  headerFooter: {
-    footer: { center: '第 {page} 页 / 共 {pageCount} 页' },
-  },
-}
+const print = createPrintPlugin({
+  source,
+  config: {
+    paperSize: 'A4',
+    orientation: 'portrait',
+    headerRepeatRows: 1, // 每页重复第 0 行作表头
+    headerFooter: {
+      footer: { center: '第 {page} 页 / 共 {pageCount} 页' },
+    },
+  } satisfies PrintConfig,
+})
 
-await printPages(source, config) // 隐藏 iframe 装载并调起系统打印对话框
+await print.print() // 隐藏 iframe 装载并调起系统打印对话框
 ```
 
 ## API 签名
@@ -105,89 +109,64 @@ export interface PrintConfig {
   headerRepeatRows?: number
   groupBreakBy?: number | readonly number[]
   headerFooter?: PrintHeaderFooterConfig
+  /** 与水印插件同一配置模型；enabled 才平铺 */
   watermark?: WatermarkTextConfig
 }
 
-// ---- 分页（P1 headless） ----
+// ---- 插件 ----
 
-export interface PrintRowRange {
-  start: number
-  end: number
+export interface PrintPluginOptions {
+  /** 打印数据源（宿主/适配器供数的窄接口） */
+  source: PrintSource
+  /** 基线打印配置（方法调用未显式给 config 时回落到此；缺省字段走各模块缺省值） */
+  config?: PrintConfig
+  /** 打印钩子（未导出为独立类型；print 输出与预览内打印按钮共用；测试注入桩替换真实 print） */
+  hooks?: {
+    /** 打印触发（缺省 iframe.contentWindow.print()）；返回 Promise 时等待其完成后再清理 */
+    print?: (iframe: HTMLIFrameElement) => void | Promise<void>
+  }
 }
 
-export interface PrintPage {
+/** 打印插件句柄：TablePlugin 契约 + 打印链路既有入口（可脱离表格 headless 调用） */
+export interface PrintPluginHandle extends TablePlugin {
+  /** 打印分页（headless 纯函数零 DOM）：按配置把数据源划分为页 */
+  paginate(config?: PrintConfig): PrintPage[]
+  /** 构建完整打印文档 HTML（headless 纯函数：分页 + 各页拼装） */
+  buildDocumentHtml(config?: PrintConfig): string
+  /** 打印输出（触 DOM）：隐藏 iframe 装载文档 → 调起打印 → 清理 */
+  print(config?: PrintConfig): Promise<void>
+  /** 打开打印预览弹层（触 DOM）：缩略列表 + 当前页放大预览 + 打印按钮；返回句柄 close() 幂等清理 */
+  openPreview(config?: PrintConfig): { close(): void }
+}
+
+/** paginate 返回的页结构（未导出为独立类型） */
+interface PrintPage {
   /** 本页数据行区间（源表行号，不含重复表头行；含 start 不含 end） */
-  rowRange: PrintRowRange
+  rowRange: { start: number; end: number }
   /** 每页重复的表头行区间（源表前 N 行）；headerRepeatRows = 0 时为 null */
-  headerRows: PrintRowRange | null
+  headerRows: { start: number; end: number } | null
   /** 末尾补的空白行数（fixrows 补齐每页行数一致；fitpage 恒 0） */
   blankRows: number
   /** 本页缩放系数（origin 恒 1；fit-width 按可用页宽/内容宽只缩不放） */
   scale: number
 }
 
-export function paginate(source: PrintSource, config: PrintConfig): PrintPage[]
-
-// ---- 页面构建（P2） ----
-
-export function buildPrintDocumentHtml(source: PrintSource, config: PrintConfig): string
-export function buildPrintPageHtml(
-  source: PrintSource,
-  config: PrintConfig,
-  page: PrintPage,
-  pageNumber: number,
-  pageCount: number,
-): string
-
-// ---- 页眉页脚占位符（P2 headless 纯函数） ----
-
-export interface PlaceholderContext {
-  page: number
-  pageCount: number
-  title: string
-  date: string
-  time: string
-  /** 页级聚合取数：页内数据行在指定列上的数值集合（构建方已滤除非数值） */
-  columnNumbers: (col: number) => readonly number[]
-}
-
-export function evaluatePlaceholders(text: string, ctx: PlaceholderContext): string
-/** 三段式页眉/页脚渲染（left/center/right 各占 1/3 宽）；section 为 null/undefined 返回空串 */
-export function renderHeaderFooter(
-  section: PrintHeaderFooterSection | null | undefined,
-  ctx: PlaceholderContext,
-  kind: 'header' | 'footer',
-): string
-
-// ---- 输出与预览（触 DOM 环节） ----
-
-export interface PrintHooks {
-  /** 打印触发（缺省 iframe.contentWindow.print()）；返回 Promise 时等待其完成后再清理 */
-  print?: (iframe: HTMLIFrameElement) => void | Promise<void>
-}
-
-export async function printPages(
-  source: PrintSource,
-  config: PrintConfig,
-  hooks?: PrintHooks,
-): Promise<void>
-
-export interface PrintPreviewHandle {
-  close(): void
-}
-
-export function openPrintPreview(
-  source: PrintSource,
-  config: PrintConfig,
-  hooks?: PrintHooks,
-): PrintPreviewHandle
+export function createPrintPlugin(options: PrintPluginOptions): PrintPluginHandle
 ```
 
-`PrintConfig` 缺省值：`paperSize: 'A4'`、`orientation: 'portrait'`、`margin: 48px`（四边，`DEFAULT_PRINT_MARGIN_PX`）、`scale: 'origin'`、`paging: 'fitpage'`、`headerRepeatRows: 0`、页眉页脚 section 存在即预留 32px 高（`DEFAULT_HEADER_FOOTER_HEIGHT_PX`，可显式覆盖）。
+`PrintConfig` 缺省值：`paperSize: 'A4'`、`orientation: 'portrait'`、`margin: 48px`（四边）、`scale: 'origin'`、`paging: 'fitpage'`、`headerRepeatRows: 0`、页眉页脚 section 存在即预留 32px 高（可显式覆盖）。
 
 占位符集：`{page}`/`{pageCount}`/`{date}`（yyyy-MM-dd）/`{time}`（HH:mm）/`{title}`（缺省取 `PrintSource.name`）与页级聚合 `{pageSum:COL}`/`{pageAvg:COL}`/`{pageMax:COL}`/`{pageMin:COL}`（COL 为 0 起列索引）；未识别占位符原样保留（宿主自定义文案不破坏）。聚合：sum 空集为 0，avg/max/min 空集为空串；格式化消除浮点累加尾差（0.1+0.2 → 0.3）。
 
 ## 参数说明
+
+`PrintPluginOptions`：
+
+| 参数 | 类型 | 默认 | 必填 | 约束 |
+| --- | --- | --- | :---: | --- |
+| `source` | `PrintSource` | — | 是 | 打印数据源；行高/列宽单位 px（96dpi） |
+| `config` | `PrintConfig` | 各字段缺省值 | 否 | 基线配置；方法调用显式给 config 时逐次覆盖 |
+| `hooks` | `{ print?: (iframe) => void \| Promise<void> }` | `iframe.contentWindow.print()` | 否 | print 输出与预览内打印按钮共用的触发钩子 |
 
 `PrintConfig`：
 
@@ -208,30 +187,24 @@ export function openPrintPreview(
 
 ## 方法与事件
 
-`paginate(source, config): PrintPage[]` — 同步纯函数零 DOM：
+`createPrintPlugin(options)` — 返回 `PrintPluginHandle`（name `'print'`，同时是 `TablePlugin`；mount/unmount 无表侧副作用）：
 
-- fitpage：行高（× scale）累加至放不下即换页；重复表头行每页先占高；单行高超可用页高时该行独占一页按原样输出（不截断行）。
-- fixrows：每页数据行数 = `fixRows − headerRepeatRows`，按行数切页不看行高；未满额的页（末页、分组提前换页的中间页）补空白行使各页行数一致（套打行栅格）。
-- groupBreakBy：列值变化处提前收页/切页，两模式通用。
-- fit-width：先按内容宽（列宽和）算缩放系数，行高按系数折算后再累加。
-- 空表（数据行数为 0）返回空页列表；`buildPrintDocumentHtml` 对空表输出单页兜底（重复表头照常、无数据行）。
-
-`buildPrintDocumentHtml(source, config): string` — 完整文档 HTML：分页 → 各页拼装；全页共享同一时间戳（同一次打印的 `{date}/{time}` 一致）。
-
-`buildPrintPageHtml(source, config, page, pageNumber, pageCount): string` — 单页片段（页眉 + 表格体 + 页脚 + 水印层）；时间戳取调用时刻，整文档打印用 `buildPrintDocumentHtml` 的共享时间戳口径。
-
-`evaluatePlaceholders(text, ctx): string` — 占位符求值；非法列索引按未识别处理原样保留。
-
-`printPages(source, config, hooks?): Promise<void>` — 触 DOM：隐藏 iframe 装载（load 等待上限 5s，超时降级直通）→ 等待文档内图片 decode → 调起打印（缺省 `iframe.contentWindow.print()`，可经 `hooks.print` 接管）→ afterprint/print 返回后清理 iframe（幂等）。无 DOM 环境抛 `printPages 需要浏览器 DOM 环境（headless 场景消费 buildPrintDocumentHtml）`。
-
-`openPrintPreview(source, config, hooks?): PrintPreviewHandle` — 预览弹层（缩略列表 + 当前页放大 + 打印按钮）：逐页内容 = `buildPrintPageHtml` 片段 + 文档级 CSS 装进独立 iframe 隔离渲染（与真实打印同一份样式）；关闭（按钮/ESC/背景点击/handle.close）幂等清理；打印按钮汇到 `printPages`。无 DOM 环境抛 `openPrintPreview 需要浏览器 DOM 环境（headless 场景消费 paginate/buildPrintPageHtml）`。
+- `paginate(config?): PrintPage[]` — 同步纯函数零 DOM：
+  - fitpage：行高（× scale）累加至放不下即换页；重复表头行每页先占高；单行高超可用页高时该行独占一页按原样输出（不截断行）。
+  - fixrows：每页数据行数 = `fixRows − headerRepeatRows`，按行数切页不看行高；未满额的页（末页、分组提前换页的中间页）补空白行使各页行数一致（套打行栅格）。
+  - groupBreakBy：列值变化处提前收页/切页，两模式通用。
+  - fit-width：先按内容宽（列宽和）算缩放系数，行高按系数折算后再累加。
+  - 空表（数据行数为 0）返回空页列表；`buildDocumentHtml` 对空表输出单页兜底（重复表头照常、无数据行）。
+- `buildDocumentHtml(config?): string` — 完整文档 HTML：分页 → 各页拼装（页眉 + 表格体 + 页脚 + 水印层）；全页共享同一时间戳（同一次打印的 `{date}/{time}` 一致）。
+- `print(config?): Promise<void>` — 触 DOM：隐藏 iframe 装载（load 等待上限 5s，超时降级直通）→ 等待文档内图片 decode → 调起打印（缺省 `iframe.contentWindow.print()`，可经 `options.hooks.print` 接管）→ afterprint/print 返回后清理 iframe（幂等）。无 DOM 环境抛 `printPages 需要浏览器 DOM 环境（headless 场景消费 buildPrintDocumentHtml）`。
+- `openPreview(config?)` — 预览弹层（触 DOM；缩略列表 + 当前页放大 + 打印按钮）：逐页内容装进独立 iframe 隔离渲染（与真实打印同一份样式）；关闭（按钮/ESC/背景点击/handle.close）幂等清理；打印按钮汇到 `options.hooks` 同一钩子。无 DOM 环境抛 `openPrintPreview 需要浏览器 DOM 环境（headless 场景消费 paginate/buildPrintPageHtml）`。返回句柄 `{ close(): void }`。
 
 ## 典型示例
 
 ### fitpage + 重复表头 + 页脚页码
 
 ```ts
-import { paginate, printPages, type PrintConfig, type PrintSource } from 'infinitable'
+import { createPrintPlugin, type PrintConfig, type PrintSource } from 'infinitable'
 
 const source: PrintSource = {
   name: '月度报表',
@@ -254,15 +227,16 @@ const config: PrintConfig = {
   },
 }
 
-const pages = paginate(source, config)
+const print = createPrintPlugin({ source, config })
+const pages = print.paginate() // 基线 config 生效
 console.log(pages.length, pages[0]?.rowRange) // 分页结果（页数与首页行区间）
-await printPages(source, config)
+await print.print() // 调起系统打印
 ```
 
 ### fixrows 套打 + 分组换页
 
 ```ts
-import { paginate, type PrintConfig, type PrintSource } from 'infinitable'
+import { createPrintPlugin, type PrintSource } from 'infinitable'
 
 const source: PrintSource = {
   name: '套打凭证',
@@ -276,65 +250,71 @@ const source: PrintSource = {
   displayValue: (col, row) => String(col === 0 ? `组${Math.floor(row / 20)}` : row * 6 + col),
 }
 
-const config: PrintConfig = {
-  paging: 'fixrows',
-  fixRows: 21, // 每页 21 行 = 1 行表头 + 20 行数据
-  headerRepeatRows: 1,
-  groupBreakBy: 0, // 第 0 列值变化处强制换页
-}
+const print = createPrintPlugin({
+  source,
+  config: {
+    paging: 'fixrows',
+    fixRows: 21, // 每页 21 行 = 1 行表头 + 20 行数据
+    headerRepeatRows: 1,
+    groupBreakBy: 0, // 第 0 列值变化处强制换页
+  },
+})
 
-console.log(paginate(source, config).map((page) => page.blankRows))
+console.log(print.paginate().map((page) => page.blankRows))
 // => 每页 20 数据行；组边界提前换页的页 blankRows > 0（补齐行栅格）
 ```
 
 ### 预览弹层 + 打印钩子接管
 
 ```ts
-import { openPrintPreview, printPages, type PrintHooks } from 'infinitable'
-import type { PrintSource, PrintConfig } from 'infinitable'
+import { createPrintPlugin, type PrintConfig, type PrintSource } from 'infinitable'
 
 declare const source: PrintSource
 declare const config: PrintConfig
 
-const hooks: PrintHooks = {
-  // 测试注入桩（不弹系统对话框）：
-  print: (iframe) => {
-    console.log(iframe.srcdoc.length) // 文档 HTML 长度
+const print = createPrintPlugin({
+  source,
+  hooks: {
+    // 测试注入桩（不弹系统对话框）：
+    print: (iframe) => {
+      console.log(iframe.srcdoc.length) // 文档 HTML 长度
+    },
   },
-}
+})
 
-const handle = openPrintPreview(source, config, hooks)
+const handle = print.openPreview(config)
 document.querySelector<HTMLButtonElement>('#close-preview')!.addEventListener('click', () => {
   handle.close() // 幂等清理弹层
 })
 
-await printPages(source, config, hooks) // 桩接管打印触发
+await print.print(config) // 桩接管打印触发
 ```
 
 ## 注意事项
 
 > [!WARNING]
-> - `printPages`/`openPrintPreview` 触 DOM：无 DOM 环境（SSR/纯测试）直接抛错——headless 场景消费 `paginate`/`buildPrintDocumentHtml`/`buildPrintPageHtml`/`evaluatePlaceholders`。
-> - `fixrows` 模式 `fixRows` 缺省或 ≤ `headerRepeatRows` 抛错（配置错误快速失败），两个报错原文：`fixrows 分页必须配置 fixRows（每页总行数，含重复表头行）`、`fixRows（N）必须大于 headerRepeatRows（M）`。
+> - 0.1.2 起 print 散装函数（`paginate`/`buildPrintDocumentHtml`/`buildPrintPageHtml`/`evaluatePlaceholders`/`renderHeaderFooter`/`printPages`/`openPrintPreview` 与 `PrintPage`/`PrintHooks`/`PrintPreviewHandle` 等类型）不再导出：能力一律经 `createPrintPlugin` 的 handle 方法（`paginate`/`buildDocumentHtml`/`print`/`openPreview`）消费。
+> - `print`/`openPreview` 触 DOM：无 DOM 环境（SSR/纯测试）直接抛错（报错原文仍以 `printPages`/`openPrintPreview` 函数名开头）——headless 场景消费 `handle.paginate`/`handle.buildDocumentHtml`。
+> - fixrows 模式 `fixRows` 缺省或 ≤ `headerRepeatRows` 抛错（配置错误快速失败），两个报错原文：`fixrows 分页必须配置 fixRows（每页总行数，含重复表头行）`、`fixRows（N）必须大于 headerRepeatRows（M）`。
 > - 行高/列宽单位是 px（96dpi），与引擎行列尺寸同口径；mm 纸张换算由内核处理，宿主不要二次换算。
 > - `groupBreakBy` 按 `cellValue`（原始值）判定分组，显示链（numFmt 等）不影响换页。
 > - 占位符求值对未识别的 `{...}` 原样保留——宿主自定义文案里的花括号不会被清空。
-> - `PrintSource.images` 为浮动图列表（与 xlsx 导出 `SheetExportSource.images` 同构），`kind === 'image'` 且 `imageData` 解析到字节才进打印输出。
+> - `PrintSource.images` 为浮动图列表（与 sheet 插件导出通道的 images 同构），`kind === 'image'` 且 `imageData` 解析到字节才进打印输出。
 
 ## 常见问题
 
 ### 报错 `printPages 需要浏览器 DOM 环境（headless 场景消费 buildPrintDocumentHtml）`
 
-原因：在 SSR/Node 环境调用了触 DOM 的输出函数。修复：headless 消费纯函数产物，浏览器环境再调 `printPages`。
+原因：在 SSR/Node 环境调用了触 DOM 的输出方法（`handle.print` / `handle.openPreview`）。修复：headless 消费纯函数产物，浏览器环境再调 `print`。
 
 ```ts
-import { buildPrintDocumentHtml, paginate } from 'infinitable'
-import type { PrintSource, PrintConfig } from 'infinitable'
+import { createPrintPlugin, type PrintConfig, type PrintSource } from 'infinitable'
 
 declare const source: PrintSource
 declare const config: PrintConfig
-const pages = paginate(source, config) // headless：只算分页
-const html = buildPrintDocumentHtml(source, config) // headless：只产 HTML（自行上传/内嵌）
+const print = createPrintPlugin({ source })
+const pages = print.paginate(config) // headless：只算分页
+const html = print.buildDocumentHtml(config) // headless：只产 HTML（自行上传/内嵌）
 ```
 
 ### fitrows 抛 `fixRows（1）必须大于 headerRepeatRows（1）`
@@ -342,11 +322,16 @@ const html = buildPrintDocumentHtml(source, config) // headless：只产 HTML（
 原因：每页总行数不大于重复表头行数，数据行配额为 0。修复：`fixRows` 至少为 `headerRepeatRows + 1`。
 
 ```ts
-import type { PrintConfig } from 'infinitable'
+import { createPrintPlugin, type PrintConfig } from 'infinitable'
+import type { PrintSource } from 'infinitable'
 
-const config: PrintConfig = {
-  paging: 'fixrows',
-  headerRepeatRows: 1,
-  fixRows: 21, // 修复：21 > 1（每页 20 行数据）
-}
+declare const source: PrintSource
+const print = createPrintPlugin({
+  source,
+  config: {
+    paging: 'fixrows',
+    headerRepeatRows: 1,
+    fixRows: 21, // 修复：21 > 1（每页 20 行数据）
+  } satisfies PrintConfig,
+})
 ```

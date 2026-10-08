@@ -1,13 +1,13 @@
 ---
 title: ListTable 表格主类
-description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期。含 TableModel/SheetModel/ModelBinding/ScrollManager。
+description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions 显隐档与主题 token 三态样式）。含 TableModel/SheetModel。
 aliases: [Table, DataTable, Grid, 表格, ListTable]
-keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap]
+keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, scrollbar, visibility, hideDelay, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条]
 ---
 
 # ListTable 表格主类
 
-`infinitable`（core 层）导出表格主类 `ListTable` 与构造选项 `ListTableOptions`。构造时按可视窗口建场景（窗口外行列不进入场景树），滚动由 `ScrollManager` 唯一状态源驱动并按方向提交 band 失效；数据供给三形态任选其一：`records` 数组、`model`（TableModel，如 `SheetStore.asModel()` 或 `SheetModel`）、`rowCount` + `resolveDisplayValue` 钩子。
+`infinitable`（core 层）导出表格主类 `ListTable` 与构造选项 `ListTableOptions`。构造时按可视窗口建场景（窗口外行列不进入场景树），滚动由引擎内部唯一状态源驱动并按方向提交 band 失效；数据供给三形态任选其一：`records` 数组、`model`（TableModel，如 sheet 插件的 `store.asModel()` 或 `SheetModel`）、`rowCount` + `resolveDisplayValue` 钩子。内建滚动条经 `scrollbar` 选项开关与配档（`boolean | ScrollbarOptions`），样式全部走主题 interaction token。
 
 ## 快速上手
 
@@ -103,14 +103,26 @@ export interface ListTableOptions {
   rowCount?: number
   model?: TableModel
   resolveDisplayValue?: ResolveDisplayValue
-  resolveCellStyle?: ResolveCellStyle
-  resolveCellRenderer?: ResolveCellRenderer
-  resolveCellImage?: ResolveCellImage
+  /** 按格样式 hook（未导出为独立类型）：返回 CellStyle 片段或 null（沿用基础样式） */
+  resolveCellStyle?: (col: number, row: number) => CellStyle | null
+  /** 自定义渲染 hook（未导出为独立类型）：返回 CellRenderer 或 null（走内置 cellType 渲染） */
+  resolveCellRenderer?: (col: number, row: number) => CellRenderer | null
+  /** 按格图片 hook（未导出为独立类型）：返回 URL 的格按图片渲染，null 走常规管线 */
+  resolveCellImage?: (col: number, row: number) => string | null | undefined
   resolveEditable?: (col: number, row: number) => boolean
   editCellOnEnter?: boolean
   editorRegistry?: EditorRegistry
   editorMaxLength?: number
-  imageServiceOptions?: ImageServiceOptions
+  /** 图片服务配置（类型未导出，字段见 apis/media-float.md） */
+  imageServiceOptions?: {
+    maxCacheBytes?: number
+    maxCacheCount?: number
+    concurrency?: number
+    placeholderDelay?: number
+    crossOrigin?: string | null
+    loadImage?: (url: string, crossOrigin: string | null | undefined) => Promise<LoadedImage>
+    estimateBytes?: (image: LoadedImage) => number
+  }
   frozenColCount?: number
   frozenRowCount?: number
   mergeCells?: readonly CellRange[]
@@ -127,7 +139,18 @@ export interface ListTableOptions {
   canResizeCol?: (col: number) => boolean
   canResizeRow?: (row: number) => boolean
   ctrlMultiSelect?: boolean
-  scrollbar?: boolean
+  scrollbar?: boolean | ScrollbarOptions
+}
+
+/** 内建滚动条配置（ListTableOptions.scrollbar 的对象形态） */
+export interface ScrollbarOptions {
+  /**
+   * 显示策略：'always' 常驻（缺省，与 true 语义一致）；'scrolling' 滚动或滚动条
+   * 交互（拖拽/点按/悬停）时显示，静止 hideDelay 后隐藏。
+   */
+  visibility?: 'always' | 'scrolling'
+  /** 'scrolling' 档静止后隐藏延时（ms）；缺省回落主题 interaction.scrollbarHideDelay */
+  hideDelay?: number
 }
 
 export class ListTable {
@@ -136,28 +159,19 @@ export class ListTable {
   get height(): number
   readonly options: ListTableOptions
   readonly host: RenderHost
-  readonly scroll: ScrollManager
-  readonly selection: SelectionState
-  readonly editManager: EditManager
+  /** 滚动状态源实例（类型未单独导出；滚动读写走本表 scrollTo/scrollBy/getScroll* 方法） */
+  readonly scroll: { readonly state: { left: number; top: number } }
+  /** 选区状态机实例（类型未单独导出；选区读写走本表 select*/getSelection 方法） */
+  readonly selection: object
   readonly editorRegistry: EditorRegistry
-  readonly imageService: ImageService
-  get floatObjects(): FloatObjectLayer
+  /** 图片加载服务实例（类型未单独导出；见 apis/media-float.md 实例面） */
+  readonly imageService: object
+  /** 浮动对象层实例（类型未单独导出；见 apis/media-float.md 实例面） */
+  get floatObjects(): object
   getTheme(): TableTheme
   updateTheme(override: ThemeOverride): void
   use(plugin: TablePlugin): void
   destroy(): void
-}
-
-/** 唯一滚动状态源：所有滚动经此收敛并广播 (state, delta) */
-export class ScrollManager {
-  get state(): ScrollState
-  get maxLeft(): number
-  get maxTop(): number
-  setContentSize(width: number, height: number): void
-  setViewportSize(width: number, height: number): void
-  scrollTo(left: number, top: number): void
-  scrollBy(dx: number, dy: number): void
-  onScroll(listener: (state: ScrollState, delta: ScrollDelta) => void): () => void
 }
 
 /** 内置内存坐标模型：实现 TableModel，写值同步通知订阅者 */
@@ -169,22 +183,6 @@ export class SheetModel implements TableModel {
   getCellValue(col: number, row: number): unknown
   setCellValue(col: number, row: number, value: unknown): void
   onCellChange(listener: (change: CellChangeEvent) => void): () => void
-}
-
-/** 模型事件订阅绑定：外部变更 → 局部刷新；回驱 echo 收集防回环 */
-export class ModelBinding {
-  constructor(model: TableModel, onExternalChange: (change: CellChangeEvent) => void)
-  attach(): void
-  writeBack(col: number, row: number, value: unknown): readonly CellChangeEvent[]
-  dispose(): void
-}
-
-/** 取值管线：基础值优先级 model > records 字段；resolveDisplayValue 作用末端 */
-export class CellValuePipeline {
-  constructor(init: CellValuePipelineInit)
-  get rowCount(): number
-  resolveText(col: number, row: number): string
-  resolveValue(col: number, row: number): unknown
 }
 
 /** 插件契约：构造传入或 table.use() 注册即挂载，销毁逆序卸载 */
@@ -214,7 +212,7 @@ ListTableOptions 全部字段（五要素）：
 | `editCellOnEnter` | `boolean` | `false` | 否 | 开启后非编辑态按 Enter 进入焦点格编辑 |
 | `editorRegistry` | `EditorRegistry` | 空表 | 否 | 可编第一级判定与格级路由；也可事后经 `table.editorRegistry` 注册 |
 | `editorMaxLength` | `number` | 不截断 | 否 | 编辑器字符上限；列级 `editorMaxLength` 优先 |
-| `imageServiceOptions` | `ImageServiceOptions` | `maxCacheBytes: 256MB`、`maxCacheCount: 1000`、`concurrency: 10`、`placeholderDelay: 80` | 否 | 位图 LRU 预算/并发/占位延迟/加载器注入 |
+| `imageServiceOptions` | 图片服务配置对象 | `maxCacheBytes: 256MB`、`maxCacheCount: 1000`、`concurrency: 10`、`placeholderDelay: 80` | 否 | 位图 LRU 预算/并发/占位延迟/加载器注入（字段见 `apis/media-float.md`；类型未导出） |
 | `frozenColCount` | `number` | `0` | 否 | 左侧冻结列数（数据列，不含行号列），构造时夹取到 [0, 列数] |
 | `frozenRowCount` | `number` | `0` | 否 | 顶部冻结行数（数据行，不含列头），构造时夹取到 [0, 行数] |
 | `mergeCells` | `readonly CellRange[]` | `[]` | 否 | 闭区间；重叠抛错、越出表格抛错；跨冻结边界合法 |
@@ -231,7 +229,7 @@ ListTableOptions 全部字段（五要素）：
 | `canResizeCol` | `(col) => boolean` | 全部允许 | 否 | 返回 false 禁止该列拖拽改宽 |
 | `canResizeRow` | `(row) => boolean` | 全部允许 | 否 | 返回 false 禁止该行拖拽改高 |
 | `ctrlMultiSelect` | `boolean` | `false` | 否 | 开启后 Ctrl/Cmd 点数据格追加选区段 |
-| `scrollbar` | `boolean` | `true` | 否 | 内建滚动条：内容溢出该轴才显示，支持拖滑块/点轨道 |
+| `scrollbar` | `boolean \| ScrollbarOptions` | `true` | 否 | 内建滚动条：`false` 整体关闭（不绘制、右/下缘条带不拦截指针）；`true`/缺省 `'always'` 常驻；对象形态配显隐档——`visibility: 'scrolling'` 时滚动或滚动条交互（拖拽/点按/悬停）显示、静止 `hideDelay`（默认回落主题 `interaction.scrollbarHideDelay` = 1000ms）后隐藏。内容溢出该轴才显示该轴；支持拖滑块/点轨道跳转 |
 
 `CellRange`（合并区，闭区间）：`{ startCol, startRow, endCol, endRow }`，构造与 `setMergeCells` 前先归一化（start ≤ end），1×1 单格区间不算合并。
 
@@ -244,7 +242,7 @@ ListTableOptions 全部字段（五要素）：
 - `use(plugin: TablePlugin): void` — 注册即挂载；构造期 `plugins` 数组同一路径。
 - `scrollTo(left, top)` / `scrollBy(dx, dy)` — 位置自动夹取到 `[0, max]`。
 - `getScrollState()` / `getScrollLeft()` / `getScrollTop()` / `setScrollLeft(left)` / `setScrollTop(top)`。
-- `getVisibleRange(): { rows: WindowRange; cols: WindowRange }` — 当前滚动窗口（[start, end)，不含冻结区）。
+- `getVisibleRange(): { rows: { start: number; end: number }; cols: { start: number; end: number } }` — 当前滚动窗口（[start, end)，不含冻结区；区间类型未单独导出）。
 - `getBodyVisibleCellRange()` — 可视数据格范围（冻结行列并入）。
 - `scrollToCell(cell: CellRef): void` — 滚动到目标格完整可见（冻结轴恒可见跳过）。
 - `getCellText(col, row): string` — 最终显示文本（经取值管线，同步 O(1)）；被合并覆盖的格取主格文本。
@@ -265,7 +263,7 @@ ListTableOptions 全部字段（五要素）：
 - `setHighlightRanges(ranges)` — sky 浮层宿主高亮区（公式引用染色框等）。
 - `setSelectionAnchor(anchor | null)` — 编辑拾取会话的选区锚点绘制。
 - `selectCell(col, row)` / `selectCells(ranges)` / `selectRow(row)` / `selectCol(col)` / `selectAll()` / `clearSelection()` — 程序化选区。
-- `getSelection(): SelectionSnapshot` / `getSelectedCellRanges(): SelectionRange[]` / `applyExternalSelection(snapshot)`（钳制到数据区、不广播防回环）。
+- `getSelection(): SelectionSnapshot` / `getSelectedCellRanges()`（选区段数组副本，段形态见 `apis/interaction-selection.md`，类型未单独导出）/ `applyExternalSelection(snapshot)`（钳制到数据区、不广播防回环）。
 - `destroy(): void` — 幂等；逆序卸载插件、解绑事件、销毁自建 host。
 
 事件订阅（全部返回退订函数）：
@@ -276,16 +274,16 @@ ListTableOptions 全部字段（五要素）：
 | `onEditStart` | 编辑会话打开（可编判定通过且浮层已开） | `{ col, row, initialValue }`（基础值口径） |
 | `onEditEnd` | 会话结束（提交在 onCellChange 之后） | `{ col, row, initialValue, finalValue?, committed }` |
 | `onSelectionChange` | 选区变更 | `SelectionSnapshot` |
-| `onScrollFrame` | 滚动帧（同帧多次滚动只触发一次） | `ScrollState` |
+| `onScrollFrame` | 滚动帧（同帧多次滚动只触发一次） | `{ left, top }`（滚动状态，类型未单独导出） |
 | `onContextMenu` | 右键 | `{ cell: CellRef \| null, region: 'body' \| 'row-header' \| 'col-header', x, y, originalEvent }` |
 | `onColResizeEnd` / `onRowResizeEnd` | 列宽/行高拖拽会话结束 | `{ col, width }` / `{ row, height }`（夹取后生效值） |
 | `onFillHandleDown` / `onFillDragEnd` / `onFillHandleDoubleClick` | 填充柄按下/拖拽结束/双击 | 按下载荷 `{ range }`（柄所在选区段，start/end 可反向）；拖拽结束载荷 `{ anchor, target }`（均 min/max 序，轴锁定：位移绝对值大的轴为主轴、相等取纵向）；双击与拖拽结束互斥。填充生成不在内核，写入由宿主完成 |
 
-`ScrollManager`：`scrollTo`/`scrollBy` 位置未变时不广播；`state` 返回 `{ left, top }`；`maxLeft`/`maxTop` = `max(0, content - viewport)`。
+滚动语义（引擎内部唯一状态源驱动，`ScrollManager` 类 0.1.2 起不再导出）：`scrollTo`/`scrollBy` 位置自动夹取且未变时不广播；`table.scroll.state` 返回 `{ left, top }`；最大可滚动量 = `max(0, content − viewport)`。
 
 `SheetModel`：`setCellValue` 越界（含负坐标）为空操作；`getCellValue` 越界返回 undefined；`setRowCount` 扩大补空行、缩小截断。
 
-`ModelBinding.writeBack(col, row, value)`：模型未提供 `setCellValue` 或重入时返回空数组不写入；正常返回本次回驱窗口内模型 echo 的变更格（去重保序）。
+`updateCell(col, row, value)` 回驱链路（内部 `ModelBinding` 收口，0.1.2 起不再导出）：模型未提供 `setCellValue` 时直接返回不写入；正常写入后本次回驱窗口内模型 echo 的派生格变更收集去重并统一局部刷新。
 
 ## 典型示例
 
@@ -320,7 +318,7 @@ table.onCellChange((change) => {
 })
 ```
 
-### 纯 hook 形态（rowCount + resolveDisplayValue，10 万行）
+### 纯 hook 形态（rowCount + resolveDisplayValue，10 万行 + scrolling 档滚动条）
 
 ```ts
 import { ListTable } from 'infinitable'
@@ -340,9 +338,11 @@ const table = new ListTable({
     if (col === 1) return `部门-${(row % 8) + 1}`
     return `${((row * 37) % 900) + 100}.00`
   },
+  // 滚动条 'scrolling' 档：滚动/拖拽/悬停时显示，静止 600ms 后隐藏（缺省回落主题 1000ms）
+  scrollbar: { visibility: 'scrolling', hideDelay: 600 },
   hostOptions: { container },
 })
-table.scrollTo(0, 3200) // 滚动到第 100 行附近，仍只有可视区进场景
+table.scrollTo(0, 3200) // 滚动到第 100 行附近，仍只有可视区进场景；滚动条随滚动显现
 ```
 
 ### 冻结 + 合并 + 批量写收敛
@@ -383,7 +383,9 @@ table.setFrozenColCount(2) // 运行时改冻结（跨冻结边界的既有合�
 ## 注意事项
 
 > [!WARNING]
+> - 0.1.2 起公共导出面大幅收敛：`ScrollManager`/`ModelBinding`/`CellValuePipeline`/`SelectionState`/`InteractionOverlay`/`EditManager`/`createTextEditor`/`ImageService`/`MediaCache`/`FloatObjectLayer`/`CellNode`/网格布局纯函数族不再从 `infinitable` 导出（滚动/选区/编辑/媒体/布局原语经引擎内置接线消费，实例面见 `table.scroll`/`table.selection`/`table.imageService`/`table.floatObjects` 与本表方法）。
 > - 鼠标滚轮滚动不内置：引擎内置触控惯性/键盘/内建滚动条，滚轮必须宿主自行 `container.addEventListener('wheel', ...)` 接线到 `table.scrollBy`（`preventDefault` + `passive: false`）。
+> - 内建滚动条（0.1.2 重构）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。
 > - `CellRef` 在统一入口有两个：core 的格坐标以 `GridCellRef` 导出，`CellRef` 是 formulas 层的 A1 引用（含 `colAbsolute`/`rowAbsolute`/`sheet` 字段）。
 > - 合并区重叠构造即抛错：`merge ranges overlap at (col, row): [startCol,startRow ~ endCol,endRow]`；越出表格抛 `assertMergesWithinTable` 系列错误。跨冻结边界的合并区合法（主格按冻结带钉固绘制）。
 > - `updateCell` 只对 model 形态生效；records 形态直接改行对象字段后调 `refreshCell`。
