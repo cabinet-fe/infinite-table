@@ -6,7 +6,7 @@ export default defineConfig({
     singleQuote: true,
     printWidth: 100,
     semi: false,
-    ignorePatterns: ['docs/**', '.agents/**', 'AGENTS.md'],
+    ignorePatterns: ['docs/**', 'agent-docs/**', '.agents/**', 'AGENTS.md'],
   },
   lint: {
     plugins: ['typescript', 'unicorn', 'oxc', 'vitest'],
