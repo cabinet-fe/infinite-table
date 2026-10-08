@@ -18,6 +18,7 @@
 - 原 `vtable-core/`（迁移参考与 API 行为基准）已删除：迁移已完成，代码全部在 `packages/`
 - 渲染引擎自研（`@infinitable/render`，即 perf-redesign 08 决策的 vtable-engine 目标态）：场景树 + 分层渲染器 + 多 region 失效 + federated 事件 + canvas 池化；目标引擎核心 ≤60KB gzip
 - `@infinitable/core`（表格主体）只依赖 render 的窄接口（RenderHost 风格：创建层/提交失效/请求帧/读测量），不依赖任何 vrender 系列包
+- `@infinitable/sheet`（电子表格核心：sheet 模型/命令/IO/SheetGrid 适配，自 plugins 的 sheet 插件族整体迁入，`createSheetPlugin` 已删）依赖 core 与 formulas；infinitable 发布形态新增 `./sheet` 子路径
 - 四层 canvas 自下而上：L0 ground（网格线/斑马纹，整层离屏缓存）→ L1 body（单元格滚动窗口）→ L2 media（chart/图片，cell 级位图缓存 LRU）→ L3 sky（选区/滚动条/编辑器）；所有层由唯一 ScrollManager 状态机驱动
 - 失效模型三档统一：cell / row-band / full；滚动、交互、图片加载、批量更新共用同一失效语言
 
@@ -35,4 +36,4 @@
 
 ## 未决
 
-- 无（plugins 首批插件清单已定：S3 起为 sheet 插件族，见 CODE-MAP plugins 行）
+- 无（sheet 插件族已整体迁出 plugins、独立为 `@infinitable/sheet` 包，见 CODE-MAP）

@@ -10,8 +10,9 @@ infinitable/
 │   ├── render/          # 自研 canvas 渲染引擎（场景树/四层 canvas/三档失效/事件/池化）
 │   ├── core/            # 表格主体（ListTable/滚动/交互/编辑/溢出/图片与浮动对象）
 │   ├── formulas/        # 公式引擎（tokenizer/Pratt parser/求值/49 内置函数/依赖图）
-│   ├── plugins/         # 官方插件（TablePlugin 契约 + sheet 插件族 + chart/print/watermark 插件）
-│   └── infinitable/     # 统一发布包（npm 单包 infinitable，re-export 四层）
+│   ├── plugins/         # 官方插件（TablePlugin 契约 + chart/print/watermark 插件）
+│   ├── sheet/           # 电子表格核心（sheet 模型/命令/IO/SheetGrid 适配，自 plugins sheet 插件族迁入）
+│   └── infinitable/     # 统一发布包（npm 单包 infinitable，re-export 五层，`./sheet` 子路径）
 └── playground/          # 唯一应用：示例总览 + 页内 vs VTable 对比 + 量化基准 + 冒烟自检
 ```
 
@@ -22,8 +23,9 @@ infinitable/
 | render | `packages/render` | 自研 canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、canvas 池化 | `src/index.ts` |
 | core | `packages/core` | 表格主体：ListTable、滚动（ScrollManager 唯一滚动源）、布局、主题、交互、编辑、Excel 式溢出、图片/图表/浮动对象、插件注册路径 | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
-| plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + sheet 插件族 + chart/print/watermark 插件 | `src/index.ts` |
-| infinitable | `packages/infinitable` | 唯一 npm 发布包：入口 re-export 四层，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版走 `scripts/release/publish.mjs` + `.github/workflows/release.yml`（tag v* 触发 OIDC trusted publishing） | `src/index.ts` |
+| plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + chart/print/watermark 插件 | `src/index.ts` |
+| sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 core 与 formulas | `src/index.ts` |
+| infinitable | `packages/infinitable` | 唯一 npm 发布包：入口 re-export 五层（新增 `./sheet` 子路径），vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版走 `scripts/release/publish.mjs` + `.github/workflows/release.yml`（tag v* 触发 OIDC trusted publishing） | `src/index.ts` |
 | playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ComparePage.tsx`、`src/bench/headless.test.ts` |
 
 ## 模块内检索
@@ -50,11 +52,14 @@ infinitable/
 
 ### plugins — `packages/plugins/src`
 
-- sheet 插件族 `sheet/`：统一收拢为 `sheet-plugin.ts` 的 `createSheetPlugin(options)` 插件对象（TablePlugin 契约 + 运行时 handle；单表/书两种形态，mount 装配撤销记录/填充生成/选区同步，构造期注入键位与公式显示底座）；SheetStore 参考模型、快照、填充生成、选区同步、公式显示、键位预设、多 sheet 实例池、撤销栈、边框预设、xlsx 导出（映射 hucre，产物纯数据可进 worker）为包内深路径实现，公共入口只导出插件工厂与参数类型
 - chart 插件 `chart/`：声明解析、Chart.js 按需加载、插件工厂、离屏出图；`scripts/assert-chart-chunk.mjs` 构建断言守 chart.js 不进主产物
 - print 插件 `print/`：headless 分页引擎（fitpage/fixrows 双模式）+ 页面 HTML 构建（页眉页脚占位符）+ iframe 打印输出与 DOM 预览薄壳；数据经 PrintSource 抽象供数
 - watermark 插件 `watermark/`：文字平铺水印，挂 core 顶层 overlay 绘制预留位（锚定视口）
 - 接口面红线：`docs/plugin-interface-map.md`
+
+### sheet — `packages/sheet/src`
+
+- 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删）；内部文件清单以盘上为准
 
 ### playground — `playground`
 
@@ -70,10 +75,13 @@ infinitable/
 graph TD
     core --> render
     plugins --> core
+    sheet --> core
+    sheet --> formulas
     infinitable --> render
     infinitable --> core
     infinitable --> formulas
     infinitable --> plugins
+    infinitable --> sheet
     playground --> core
     playground --> render
     playground --> plugins
@@ -81,8 +89,8 @@ graph TD
 ```
 
 - render 与 core 只经 RenderHost 窄接口耦合；formulas 与 core 互不依赖，求值接线在 playground 宿主侧
-- infinitable 为发布层：devDependencies 挂四内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
-- 不入图的外部依赖：@cat-kit/core（formulas，$n）、hucre（plugins xlsx 导出 + playground 装配）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
+- infinitable 为发布层：devDependencies 挂五内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
+- 不入图的外部依赖：@cat-kit/core（formulas，$n）、hucre（sheet xlsx 导出 + playground 装配）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码
 
 ## 关键路径
@@ -94,4 +102,4 @@ graph TD
 - chart 出图：plugins 离屏出图 → 注入 core `chartMediaResolver` → cell 级 MediaCache blit 上屏，与格内图片同一管线
 - 水印上屏：plugins 平铺 painter → 注入 core `setOverlayPainter`（ground 层 `setUnderlayPainter` 同构）→ 对应层整层失效，锚定视口不随滚动平移
 - formulas 求值：宿主（playground 装配）经 FormulaResolver 驱动求值；依赖图标脏由宿主消费
-- sheet 装配：playground 经 plugins 的 `createSheetPlugin`（书形态：Store/键位/撤销/导出经插件 handle 与 mount 装配）+ core + formulas 接成电子表格示例
+- sheet 装配：playground + `@infinitable/sheet`（电子表格核心：模型/命令/IO/SheetGrid 适配）+ core + formulas 接成电子表格示例

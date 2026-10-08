@@ -2,7 +2,7 @@
 
 高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **27KB**。
 
-单包发布（本包），内含四层能力：表格主体（core）、自研 canvas 渲染引擎（render）、官方插件集（plugins：sheet 多表/图表/填充/undo）、公式引擎（formulas）。chart.js 等重组件按需动态分包，不进主产物。
+单包发布（本包），内含五层能力：表格主体（core）、自研 canvas 渲染引擎（render）、官方插件集（plugins：图表/打印/水印）、电子表格核心（sheet：模型/命令/IO/SheetGrid 适配，经 `infinitable/sheet` 子路径导出）、公式引擎（formulas）。chart.js 等重组件按需动态分包，不进主产物。
 
 ## 安装
 

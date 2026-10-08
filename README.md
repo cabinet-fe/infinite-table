@@ -9,7 +9,7 @@
 - **模型直挂**：`SheetStore.asModel()` 按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法；`batchUpdate` 大块写收敛单次失效。
 - **Excel 式交互**：选区/填充/hover/行列 resize（Excel 口径光标）/键盘导航/触控惯性滚动/编辑器注册表/冻结/合并单元格。
 - **图表格位图路由**：Chart.js 离屏出图经 cell 级 MediaCache LRU blit 上屏，滚动滚回命中直贴无闪。
-- **插件体系**：sheet（SheetBook 多表实例池）、图表、填充、undo 等以插件挂载。
+- **插件体系**：图表、打印、水印等以插件挂载；电子表格核心（sheet 模型/命令/IO/SheetGrid 适配）独立为 sheet 包，经 `infinitable/sheet` 子路径导出。
 
 ## 性能对比：infinitable vs @visactor/vtable
 
@@ -102,7 +102,7 @@ const table = new ListTable({
 ## 仓库结构
 
 ```
-packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（sheet/图表/填充/undo）· formulas（公式引擎）· infinitable（统一发布包，单包 re-export 四层）
+packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（图表/打印/水印）· formulas（公式引擎）· sheet（电子表格核心：模型/命令/IO/SheetGrid 适配）· infinitable（统一发布包，单包 re-export 五层）
 playground/  唯一应用：示例总览（显示/交互/编辑/sheet/报表/图表/图片）+ 页内 vs VTable 对比 + 量化基准（bench.html）+ 冒烟自检
 ```
 
