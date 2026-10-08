@@ -2,16 +2,10 @@
 // FloatObjectLayer 承载格上浮动图片、随滚动帧级跟随。
 // 加载器注入本地生成的彩色位图（40ms 人工延迟），零网络、可重复。
 // 第二个浮动对象演示缩放/旋转（univer Transformer 思路：选中后 8 缩放手柄 + 顶部旋转手柄，
-// Shift 等比/15° 吸附，初始 45°）：变换结束经 onTransformEnd 写回示例模型并实时显示新状态。
+// Shift 等比/15° 吸附，初始 45°）：变换结束经 onTransformEnd 写回示例模型。
+// 用户可见控件（浮动对象开关、图片加载/变换状态行）由 MediaPage 以 shadcn 组件承担。
 
-import {
-  addButton,
-  addStatus,
-  createSection,
-  demoLoadImage,
-  mountTable,
-  type DemoMount,
-} from '../mount'
+import { createSection, demoLoadImage, mountTable, type DemoMount } from '../mount'
 
 const MEDIA_COL_COUNT = 6
 const MEDIA_ROW_COUNT = 500
@@ -35,6 +29,10 @@ const TRANSFORM_INITIAL = {
 
 export interface MediaDemo {
   mount: DemoMount
+  /** 浮动跟随对象移除/重建切换；返回切换后是否在场（页面控制面板驱动） */
+  toggleFloat(): boolean
+  /** 缩放/旋转演示对象当前变换（页面状态行展示） */
+  getTransform(): { width: number; height: number; rotation: number }
 }
 
 export function mountMedia(root: HTMLElement): MediaDemo {
@@ -60,16 +58,6 @@ export function mountMedia(root: HTMLElement): MediaDemo {
   })
   const { table } = mount
 
-  let loadedCount = 0
-  const status = addStatus(section, '图片已加载 0 张')
-  table.imageService.onImageLoad(() => {
-    loadedCount++
-    status.textContent = `图片已加载 ${loadedCount} 张`
-  })
-  table.imageService.onImageError((event) => {
-    status.textContent = `图片加载失败：${event.url}`
-  })
-
   const addFloat = () => {
     table.floatObjects.add({
       id: FLOAT_OBJECT_ID,
@@ -80,13 +68,14 @@ export function mountMedia(root: HTMLElement): MediaDemo {
     })
   }
   addFloat()
-  addButton(section, '移除/重建浮动对象', () => {
+  const toggleFloat = (): boolean => {
     if (table.floatObjects.get(FLOAT_OBJECT_ID)) {
       table.floatObjects.remove(FLOAT_OBJECT_ID)
-    } else {
-      addFloat()
+      return false
     }
-  })
+    addFloat()
+    return true
+  }
 
   // ---- 缩放/旋转演示：固定图 + 初始 45°，变换结束写回示例模型并显示新状态 ----
   const transformModel = {
@@ -99,10 +88,6 @@ export function mountMedia(root: HTMLElement): MediaDemo {
     size: { ...TRANSFORM_INITIAL.size },
     rotation: TRANSFORM_INITIAL.rotation,
   }
-  const transformStatus = addStatus(
-    section,
-    `变换对象：${TRANSFORM_INITIAL.size.width}×${TRANSFORM_INITIAL.size.height} · ${TRANSFORM_INITIAL.rotation}°`,
-  )
   table.floatObjects.add({
     id: TRANSFORM_OBJECT_ID,
     kind: 'image',
@@ -122,8 +107,15 @@ export function mountMedia(root: HTMLElement): MediaDemo {
       size: event.size,
       rotation: event.rotation,
     })
-    transformStatus.textContent = `变换对象：${event.size.width}×${event.size.height} · ${Math.round(event.rotation)}°`
   })
 
-  return { mount }
+  return {
+    mount,
+    toggleFloat,
+    getTransform: () => ({
+      width: transformModel.size.width,
+      height: transformModel.size.height,
+      rotation: transformModel.rotation,
+    }),
+  }
 }

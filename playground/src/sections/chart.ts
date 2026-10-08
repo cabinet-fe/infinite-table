@@ -2,6 +2,7 @@
 // （类型 + 数据）由插件离屏出图，位图落 L2 media cell 级缓存 blit 上屏——滚动滚回命中直贴
 // 无闪。静态场景覆盖柱状/折线/面积/饼四类基线图表；滚动场景为长列表图表格，声明按行取模
 // 共享 6 组（同 key 单飞出图 + cell 级缓存共享）。
+// 出图统计与折线数据轮换的用户可见控件由 ChartPage 以 shadcn 组件承担。
 
 import {
   createChartPlugin,
@@ -10,14 +11,7 @@ import {
   type ChartType,
 } from '@infinitable/plugins'
 
-import {
-  addButton,
-  addStatus,
-  createSection,
-  createSubSection,
-  mountTable,
-  type DemoMount,
-} from '../mount'
+import { createSection, createSubSection, mountTable, type DemoMount } from '../mount'
 
 /** 静态场景行数：2 行 × 4 个图表列（柱状/折线/面积/饼各一格以上） */
 export const CHART_STATIC_ROW_COUNT = 2
@@ -111,6 +105,8 @@ export interface ChartDemo {
   scrollMount: DemoMount
   /** 静态表图表插件句柄（冒烟断言用：getChartSpec 抽查解析结果） */
   staticPlugin: ChartPluginHandle
+  /** 轮换静态表折线数据：内容换 key 失效重绘（页面控制面板驱动） */
+  rotateLineData(): void
 }
 
 export function mountChart(root: HTMLElement): ChartDemo {
@@ -175,21 +171,12 @@ export function mountChart(root: HTMLElement): ChartDemo {
     plugins: [scrollPlugin],
   })
 
-  const status = addStatus(section, '提示：滚动长列表再滚回，观察图表格无闪直贴。')
-  const refreshStats = (): void => {
-    status.textContent =
-      `静态表：图表格 ${staticMount.table.chartCellNodes.size} 个、位图缓存 ${staticMount.table.mediaCache.size} 条；` +
-      `滚动表：图表格 ${scrollMount.table.chartCellNodes.size} 个、位图缓存 ${scrollMount.table.mediaCache.size} 条` +
-      `（声明共享 ${CHART_SCROLL_VARIANTS} 组）`
-  }
-  addButton(section, '出图统计', refreshStats)
-  addButton(section, '轮换折线数据（内容换 key 失效重绘）', () => {
+  const rotateLineData = (): void => {
     lineRevision++
     for (let row = 0; row < CHART_STATIC_ROW_COUNT; row++) {
       staticMount.table.refreshCell(CHART_STATIC_LINE_COL, row)
     }
-    refreshStats()
-  })
+  }
 
-  return { staticMount, scrollMount, staticPlugin }
+  return { staticMount, scrollMount, staticPlugin, rotateLineData }
 }
