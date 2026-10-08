@@ -17,10 +17,9 @@
     "check:exports": "node scripts/check-package-exports.mjs"
   },
   "devDependencies": {
-    "happy-dom": "^20.0.0",
+    "happy-dom": "^20.14.5",
     "typescript": "~7.0.2",
-    "vite-plus": "0.3.2",
-    "vitest": "4.1.11"
+    "vite-plus": "1.1.0"
   },
   "packageManager": "bun@1.4.2"
 }

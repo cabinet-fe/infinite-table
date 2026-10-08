@@ -1,6 +1,6 @@
 {
   "name": "infinitable",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，10 万~100 万行性能不随数据量劣化，最小构建 gzip 仅 27KB",
   "keywords": [
     "canvas",
@@ -33,13 +33,13 @@
   "scripts": {
     "build": "vp build && node scripts/build-types.mjs"
   },
-  "dependencies": {
-    "@cat-kit/core": "^1.2.1"
-  },
   "devDependencies": {
     "@infinitable/core": "workspace:*",
     "@infinitable/formulas": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*"
+  },
+  "peerDependencies": {
+    "@cat-kit/core": "^1.2.1"
   }
 }

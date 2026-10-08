@@ -9,15 +9,16 @@
     "preview": "vp preview"
   },
   "dependencies": {
+    "@cat-kit/core": "^1.2.1",
     "@infinitable/core": "workspace:*",
     "@infinitable/formulas": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@visactor/vtable": "^1.26.8",
-    "hucre": "^1.1.0",
-    "vue": "^3.5.0"
+    "hucre": "^1.2.0",
+    "vue": "^3.5.43"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.0.0"
+    "@vitejs/plugin-vue": "^6.0.9"
   }
 }

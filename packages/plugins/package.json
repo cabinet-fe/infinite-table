@@ -16,7 +16,7 @@
   "dependencies": {
     "@infinitable/core": "workspace:*",
     "chart.js": "^4.5.1",
-    "hucre": "^1.1.0"
+    "hucre": "^1.2.0"
   },
   "devDependencies": {
     "@infinitable/render": "workspace:*"

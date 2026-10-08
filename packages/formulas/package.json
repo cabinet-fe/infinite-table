@@ -13,7 +13,7 @@
   "scripts": {
     "build": "vp build"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@cat-kit/core": "^1.2.1"
   }
 }
