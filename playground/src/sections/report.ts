@@ -4,19 +4,13 @@
 // images/selection 随快照携带，经灌回 wiring 由宿主接线引擎 floatObjects / applyExternalSelection——
 // 与 meta 迁移时「服务端快照 → 灌模型 → 只读渲染」的形态一致，可整段照搬。
 // 行列头关闭（showColHeader/showRowHeader false）：报表的表头带/标题行本身就是快照数据，
-// 引擎级行列头对纯报表形态是多余的 Chrome。
+// 引擎级行列头对纯报表形态是多余的 Chrome。控件面（重灌按钮与状态行）由 ReportPage
+// 以 shadcn 渲染，经 demo.reloadSnapshot 驱动。
 
 import type { CellStyle, ListTable, ListTableOptions } from '@infinitable/core'
 import { createSheetPlugin, type SheetPluginHandle } from '@infinitable/plugins'
 
-import {
-  addButton,
-  addStatus,
-  createSection,
-  demoLoadImage,
-  mountTable,
-  type DemoMount,
-} from '../mount'
+import { createSection, demoLoadImage, mountTable, type DemoMount } from '../mount'
 
 /** 演示层 Store 类型（sheet 插件 handle 的 store 面） */
 type SheetStore = NonNullable<SheetPluginHandle['store']>
@@ -304,7 +298,6 @@ export interface ReportDemo {
   reloadSnapshot: () => void
   /** 当前 Store 全量快照采集（smoke 往返等价断言用） */
   saveSnapshot: () => SheetSnapshot
-  status: HTMLElement
 }
 
 /** 冒烟/控制台驱动句柄（SmokeMode 冒烟路径写入 window.__REPORT_DEMO__） */
@@ -421,13 +414,7 @@ export function mountReport(root: HTMLElement): ReportDemo {
   }
   reloadSnapshot()
 
-  const status = addStatus(section, '快照已灌入（九字段全量灌回）')
-  addButton(section, '重灌快照（替换语义）', () => {
-    reloadSnapshot()
-    status.textContent = '快照已重灌（替换语义，浮动图对账后重建）'
-  })
-
-  return { mount, store, reloadSnapshot, status, saveSnapshot: () => sheet.saveSnapshot(store) }
+  return { mount, store, reloadSnapshot, saveSnapshot: () => sheet.saveSnapshot(store) }
 }
 
 /** 调试句柄装配（SmokeMode 冒烟路径共用） */

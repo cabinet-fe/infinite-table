@@ -1,29 +1,27 @@
-// 打印演示区：print 插件（createPrintPlugin）handle 形态的浏览器可验证路径——
-// headless 打印内核（分页/页面构建/占位符求值）+ DOM 薄壳预览（openPreview）。
-// 示例表超过一页（两行表头带合并单元格 + 48 行数据），PrintSource 由本区数据函数
-// 直接适配供数（「宿主/适配器供数」形态，屏上表格与打印共用同一数据源）；纸张/方向/
-// 缩放/分页模式（fitpage/fixrows 每页行数）配置入口即时合成 PrintConfig 逐次传入
-// handle 方法。window.print 在示例内替换为计数桩（不弹系统对话框），打印按钮经插件
-// print → 注入钩子汇到 window.print，计数与最近配置写入状态行；
-// window.__DEMO__.print 暴露 getPrintCount/getLastPrintConfig 供冒烟判定。
+// 打印演示区装配：print 插件（createPrintPlugin）handle 形态的浏览器可验证路径——
+// headless 打印内核（分页/页面构建/占位符求值）+ iframe 打印输出。示例表超过一页
+// （两行表头带合并单元格 + 48 行数据），PrintSource 由本区数据函数直接适配供数
+// （「宿主/适配器供数」形态，屏上表格与打印共用同一数据源）。控件面（纸张/方向/
+// 缩放/分页模式参数与预览弹层）由 PrintPage 以 shadcn 渲染，经 PrintDemo.plugin
+// 消费 paginate/buildDocumentHtml/print。window.print 在示例内替换为计数桩
+// （不弹系统对话框），打印经 demo.print（记录最近配置 + 插件 print → 注入钩子汇到
+// window.print 桩）；window.__DEMO__.print 暴露 getPrintCount/getLastPrintConfig
+// 供冒烟判定。
 
 import type { CellStyle, ListTableOptions } from '@infinitable/core'
 import {
   createPrintPlugin,
   type PrintConfig,
-  type PrintOrientation,
-  type PrintPaperPreset,
-  type PrintPagingMode,
-  type PrintScaleMode,
+  type PrintPluginHandle,
   type PrintSource,
 } from '@infinitable/plugins'
 
-import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount'
+import { createSection, mountTable, type DemoMount } from '../mount'
 
 // ---- 示例数据维度（确定性生成，无随机） ----
 
-/** 表头带行数（两行表头 = 每页重复表头行数） */
-const PRINT_HEADER_ROWS = 2
+/** 表头带行数（两行表头 = 每页重复表头行数；页面 buildConfig 消费） */
+export const PRINT_HEADER_ROWS = 2
 /** 数据行数（A4 纵向约 32 行/页 → 2 页起，fixrows/横向更多页） */
 const PRINT_DATA_ROWS = 48
 /** 逐列宽度（合计 598 ≤ 屏上演示区 640；A4 纵向可用宽 698 装得下） */
@@ -115,74 +113,14 @@ function cellStyle(col: number, row: number): CellStyle | undefined {
 
 export interface PrintDemo {
   mount: DemoMount
+  /** 打印插件句柄（页面预览/打印消费：paginate 分页、buildDocumentHtml 文档、print 输出） */
+  plugin: PrintPluginHandle
+  /** 打印入口：记录最近配置并走插件 print（注入钩子汇到 window.print 计数桩） */
+  print(config: PrintConfig): Promise<void>
   /** window.print 桩计数（打印按钮真实触发 print 链路 ≥1 即通过） */
   getPrintCount(): number
   /** 最近一次打印的完整配置（null = 尚未打印） */
   getLastPrintConfig(): PrintConfig | null
-}
-
-/** 配置入口当前值（预览/打印按钮每次点击时合成） */
-interface PrintSettings {
-  paper: PrintPaperPreset
-  orientation: PrintOrientation
-  scale: PrintScaleMode
-  paging: PrintPagingMode
-  fixRows: number
-}
-
-/** 控件行内联样式（不进共享 style.css：打印区自包含，同 watermark 区形态） */
-function styleControlRow(row: HTMLLabelElement): void {
-  row.style.display = 'flex'
-  row.style.alignItems = 'center'
-  row.style.gap = '10px'
-  row.style.margin = '8px 0'
-  const caption = row.firstElementChild as HTMLElement | null
-  if (caption) {
-    caption.style.flex = '0 0 72px'
-    caption.style.fontSize = '12px'
-    caption.style.color = 'var(--text-2)'
-  }
-  const input = row.querySelector<HTMLElement>('select, input')
-  if (input) {
-    input.style.flex = '0 0 150px'
-  }
-}
-
-function addControlRow(section: HTMLElement, label: string): HTMLLabelElement {
-  const row = document.createElement('label')
-  row.className = 'print-control'
-  row.appendChild(document.createElement('span')).textContent = label
-  section.appendChild(row)
-  return row
-}
-
-function addSelect<T extends string>(
-  section: HTMLElement,
-  label: string,
-  options: ReadonlyArray<{ value: T; label: string }>,
-  value: T,
-  onChange: (value: T) => void,
-): void {
-  const row = addControlRow(section, label)
-  const select = document.createElement('select')
-  for (const option of options) {
-    const optionElement = document.createElement('option')
-    optionElement.value = option.value
-    optionElement.textContent = option.label
-    select.appendChild(optionElement)
-  }
-  select.value = value
-  select.addEventListener('change', () => onChange(select.value as T))
-  row.appendChild(select)
-  styleControlRow(row)
-}
-
-/** 纸张标注（状态行显示用；预设代号或自定义 mm 尺寸） */
-function paperLabel(paper: PrintConfig['paperSize']): string {
-  if (paper === undefined) {
-    return 'A4'
-  }
-  return typeof paper === 'object' ? `自定义 ${paper.widthMm}×${paper.heightMm}mm` : paper
 }
 
 export function mountPrint(root: HTMLElement): PrintDemo {
@@ -190,9 +128,9 @@ export function mountPrint(root: HTMLElement): PrintDemo {
     root,
     '打印预览与输出',
     'print 插件（handle 形态）：分页（fitpage 按页高 / fixrows 固定行数补空行）、每页重复两行' +
-      '表头、页眉页脚占位符（{title}/{date}/{page}/{pageCount} 与页级聚合 {pageSum:4}）。示例表超过一页，' +
-      '「打印预览」打开缩略列表 + 当前页放大预览弹层；window.print 已替换为计数桩，点打印按钮后状态行' +
-      '与 window.__DEMO__.print 可读取调用计数与最近配置。',
+      '表头、页眉页脚占位符（{title}/{date}/{page}/{pageCount} 与页级聚合 {pageSum:4}）。示例表超过' +
+      '一页，右侧配置参数后打开预览弹层（缩略列表 + 当前页放大）；window.print 已替换为计数桩，' +
+      '点打印按钮后状态行与 window.__DEMO__.print 可读取调用计数与最近配置。',
   )
 
   // ---- 数据面：PrintSource 由本区数据函数适配（屏上表格与打印共用的单一事实源） ----
@@ -239,122 +177,20 @@ export function mountPrint(root: HTMLElement): PrintDemo {
   mount.table.setMergeCells(MERGES.map((merge) => ({ ...merge })))
   mount.table.setFrozenRowCount(PRINT_HEADER_ROWS)
 
-  // ---- 配置入口（每次打开预览/打印时合成 PrintConfig，逐次传入 handle 方法） ----
-  const settings: PrintSettings = {
-    paper: 'A4',
-    orientation: 'portrait',
-    scale: 'origin',
-    paging: 'fitpage',
-    fixRows: 12,
-  }
-  const buildConfig = (): PrintConfig => ({
-    paperSize: settings.paper,
-    orientation: settings.orientation,
-    scale: settings.scale,
-    paging: settings.paging,
-    fixRows: settings.paging === 'fixrows' ? settings.fixRows : undefined,
-    headerRepeatRows: PRINT_HEADER_ROWS,
-    headerFooter: {
-      header: { left: '{title}', right: '{date} {time}' },
-      footer: { left: '本页小计 {pageSum:4}', center: '第 {page} 页 / 共 {pageCount} 页' },
-    },
-  })
-
   // ---- 打印桩：替换 window.print 计数真实调用（打印链路终态汇到此处） ----
   let printCount = 0
   let lastPrintConfig: PrintConfig | null = null
   window.print = () => {
     printCount++
-    lastPrintConfig = buildConfig()
-    refreshStatus()
   }
-
-  const status = addStatus(section)
-  const refreshStatus = (): void => {
-    const last = lastPrintConfig
-    status.textContent =
-      `打印调用 ${printCount} 次` +
-      (last
-        ? `；最近：${paperLabel(last.paperSize)} ${last.orientation ?? 'portrait'}` +
-          ` ${last.paging ?? 'fitpage'}` +
-          `${last.paging === 'fixrows' ? `（每页 ${last.fixRows ?? '-'} 行）` : ''}` +
-          ` ${last.scale ?? 'origin'}`
-        : '；尚未打印（打开预览后点打印按钮）')
-  }
-  refreshStatus()
-
-  addSelect(
-    section,
-    '纸张',
-    [
-      { value: 'A4', label: 'A4' },
-      { value: 'A5', label: 'A5' },
-      { value: 'Letter', label: 'Letter' },
-      { value: 'A3', label: 'A3' },
-    ],
-    settings.paper,
-    (paper) => {
-      settings.paper = paper
-    },
-  )
-  addSelect(
-    section,
-    '方向',
-    [
-      { value: 'portrait', label: '纵向' },
-      { value: 'landscape', label: '横向' },
-    ],
-    settings.orientation,
-    (orientation) => {
-      settings.orientation = orientation
-    },
-  )
-  addSelect(
-    section,
-    '缩放',
-    [
-      { value: 'origin', label: '原始尺寸' },
-      { value: 'fit-width', label: '适配页宽' },
-    ],
-    settings.scale,
-    (scale) => {
-      settings.scale = scale
-    },
-  )
-  addSelect(
-    section,
-    '分页模式',
-    [
-      { value: 'fitpage', label: 'fitpage 按页高' },
-      { value: 'fixrows', label: 'fixrows 固定行数' },
-    ],
-    settings.paging,
-    (paging) => {
-      settings.paging = paging
-    },
-  )
-  const fixRowsRow = addControlRow(section, '每页行数')
-  const fixRowsInput = document.createElement('input')
-  fixRowsInput.type = 'number'
-  fixRowsInput.min = String(PRINT_HEADER_ROWS + 1)
-  fixRowsInput.max = '40'
-  fixRowsInput.value = String(settings.fixRows)
-  fixRowsInput.addEventListener('change', () => {
-    const parsed = Number(fixRowsInput.value)
-    if (Number.isFinite(parsed) && parsed > PRINT_HEADER_ROWS) {
-      settings.fixRows = Math.trunc(parsed)
-      refreshStatus()
-    }
-  })
-  fixRowsRow.appendChild(fixRowsInput)
-  styleControlRow(fixRowsRow)
-
-  addButton(section, '打印预览', () => {
-    printPlugin.openPreview(buildConfig())
-  })
 
   return {
     mount,
+    plugin: printPlugin,
+    print(config) {
+      lastPrintConfig = config
+      return printPlugin.print(config)
+    },
     getPrintCount: () => printCount,
     getLastPrintConfig: () => lastPrintConfig,
   }
