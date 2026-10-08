@@ -6,3 +6,5 @@ coverage/
 .agents/cooking/
 .playwright-cli/
 .zcode/
+.env
+playground/results/
