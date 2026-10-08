@@ -127,7 +127,7 @@ interface SheetDemoControls {
   evaluate: (formula: string) => EvaluatedValue
 }
 
-/** 调试句柄形态（SheetView 挂载时写入 window.__SHEET_DEMO__；句柄面只含公开 API） */
+/** 调试句柄形态（SheetPage 挂载时写入 window.__SHEET_DEMO__；句柄面只含公开 API） */
 interface SheetDemoHandle {
   /** 当前活跃表实例 */
   getTable: () => ListTable
@@ -470,7 +470,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   }
 }
 
-/** 调试句柄装配（SheetView 与 App.vue 冒烟路径共用） */
+/** 调试句柄装配（SheetPage 与 SmokeMode 冒烟路径共用） */
 export function createSheetHandle(demo: SheetDemo): SheetDemoHandle {
   return {
     getTable: () => demo.table,

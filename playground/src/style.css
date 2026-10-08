@@ -1,4 +1,5 @@
-/* ═══ 设计 token（App.vue / 各视图 / 演示区共享） ═══ */
+/* ═══ 设计 token（sections 命令式演示区共享；React 壳用 styles/global.css 的 Tailwind tokens） ═══
+   过渡文件：品牌强调色已由旧紫换为与 global.css --primary 同源的深蓝（oklch(0.5 0.19 260) ≈ #115bcd）。 */
 
 :root {
   --bg: #f4f5fa;
@@ -8,8 +9,8 @@
   --text-1: #191b23;
   --text-2: #575d6e;
   --text-3: #8a90a2;
-  --brand: #4f46e5;
-  --brand-soft: #eef0ff;
+  --brand: #115bcd;
+  --brand-soft: #e9f1fd;
   --radius-lg: 14px;
   --radius-md: 10px;
   --radius-sm: 8px;
@@ -48,68 +49,7 @@ p {
   margin: 0;
 }
 
-/* ═══ 视图公共骨架（view-header 卡片 / 标签 / 描述） ═══ */
-
-.view-container {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.view-header {
-  position: relative;
-  overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px 24px;
-  box-shadow: var(--shadow-1);
-}
-
-.view-header::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: linear-gradient(180deg, #6366f1, #38bdf8);
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-}
-
-.title-row h2 {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: var(--text-1);
-}
-
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.tag {
-  font-size: 12px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-weight: 500;
-}
-
-.tag-success {
-  background: #e9f9f0;
-  color: #0f9952;
-}
+/* ═══ 演示区描述文本（sections 的 createSection 产出；卡片内由下方规则隐藏） ═══ */
 
 .desc {
   font-size: 13px;
@@ -193,7 +133,7 @@ p {
 }
 
 .toolbar button:active {
-  background: #e0e2ff;
+  background: #dce8fc;
 }
 
 /* 事件订阅状态条 */
@@ -202,7 +142,7 @@ p {
   font-size: 12px;
   color: var(--brand);
   background: var(--brand-soft);
-  border: 1px solid rgba(79, 70, 229, 0.2);
+  border: 1px solid rgba(17, 91, 205, 0.22);
   border-radius: 6px;
   padding: 4px 10px;
   margin-top: 8px;
@@ -211,118 +151,9 @@ p {
   font-family: var(--mono);
 }
 
-/* ═══ 共享按钮（冒烟自检 / 对比页 / 总览 hero） ═══ */
+/* ═══ 冒烟自检 ═══ */
 
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 18px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #ffffff;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.32);
-  transition: all 0.15s ease;
-}
-
-.btn-primary:hover:not(:disabled) {
-  filter: brightness(1.07);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
-}
-
-.btn-primary:active:not(:disabled) {
-  transform: none;
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ═══ 冒烟自检视图 ═══ */
-
-.action-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  box-shadow: var(--shadow-1);
-}
-
-.action-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.result-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 14px;
-  border-radius: 999px;
-}
-
-.result-badge.pass {
-  background: #e9f9f0;
-  color: #0f9952;
-}
-
-.result-badge.fail {
-  background: #fef0ef;
-  color: #d93026;
-}
-
-.result-badge .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.failure-list {
-  margin-top: 16px;
-  padding: 12px 16px;
-  border-radius: var(--radius-sm);
-  background: #fef0ef;
-  border: 1px solid #f7c6c2;
-  color: #c0231c;
-  font-size: 13px;
-}
-
-.failure-title {
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.failure-list ul {
-  margin: 0;
-  padding-left: 20px;
-}
-
+/* 冒烟页离屏暂存区（按钮触发的子集挂载；结果面板由 React 页 Tailwind 类承担） */
 .smoke-staging {
   position: absolute;
   left: -9999px;
@@ -331,7 +162,7 @@ p {
   pointer-events: none;
 }
 
-/* 冒烟模式挂载区（?smoke=1：sections 直接挂 smoke-mount-target，不走视图卡片化） */
+/* 冒烟模式挂载区（?smoke=1：sections 直接挂容器，不走页面卡片化） */
 .smoke-mode-container section {
   margin-bottom: 20px;
 }

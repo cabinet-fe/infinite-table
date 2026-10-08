@@ -1,4 +1,4 @@
-// 页内冒烟自检（?smoke=1 由 main.ts 触发）：对各演示区逐项断言——
+// 页内冒烟自检（?smoke=1 由 app/SmokeMode.tsx 触发）：对各演示区逐项断言——
 // 层结构、取值管线、像素级显示能力（冻结/合并/逐边边框/自定义渲染/checkbox/主题）、
 // 合成事件驱动的交互（拖选/整行整列/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
 // 图片加载与无闪回滚、浮动对象跟随、图表格（四类声明解析/离屏出图上屏/缓存命中/滚回无闪）、
@@ -7,7 +7,7 @@
 
 import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinitable/core'
 
-import type { DemoHandles } from './main'
+import type { DemoHandles } from './app/types'
 import {
   BORDER_LEFT_COLOR,
   BORDER_RIGHT_COLOR,

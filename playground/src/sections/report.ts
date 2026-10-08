@@ -307,7 +307,7 @@ export interface ReportDemo {
   status: HTMLElement
 }
 
-/** 冒烟/控制台驱动句柄（App.vue 冒烟路径写入 window.__REPORT_DEMO__） */
+/** 冒烟/控制台驱动句柄（SmokeMode 冒烟路径写入 window.__REPORT_DEMO__） */
 interface ReportDemoHandle {
   getTable: () => ListTable
   getStore: () => SheetStore
@@ -430,7 +430,7 @@ export function mountReport(root: HTMLElement): ReportDemo {
   return { mount, store, reloadSnapshot, status, saveSnapshot: () => sheet.saveSnapshot(store) }
 }
 
-/** 调试句柄装配（App.vue 冒烟路径共用） */
+/** 调试句柄装配（SmokeMode 冒烟路径共用） */
 export function createReportHandle(demo: ReportDemo): ReportDemoHandle {
   return {
     getTable: () => demo.mount.table,

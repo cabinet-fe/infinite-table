@@ -24,7 +24,7 @@ infinitable/
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
 | plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + sheet 插件族 + chart/print/watermark 插件 | `src/index.ts` |
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：入口 re-export 四层，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版走 `scripts/release/publish.mjs` + `.github/workflows/release.yml`（tag v* 触发 OIDC trusted publishing） | `src/index.ts` |
-| playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.ts`、`bench.html`、`src/views/CompareView.vue`、`src/bench/headless.test.ts` |
+| playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ComparePage.tsx`、`src/bench/headless.test.ts` |
 
 ## 模块内检索
 
@@ -58,8 +58,9 @@ infinitable/
 
 ### playground — `playground`
 
+- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 13 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
 - 示例：`src/sections/**` 十演示区（新增 print、watermark）；`?smoke=1` 页内自检写 `window.__SMOKE__`
-- vs 对比：`src/views/CompareView.vue` + `src/bench/vs/`（@visactor/vtable 仅进本页动态分包；`?vsrun=1` 报告模式）
+- vs 对比：`src/app/views/ComparePage.tsx` + `src/bench/vs/`（页内跑批 React 化中，P4 恢复 `?vsrun=1` 契约与 @visactor/vtable 动态分包）
 - 基准：`src/bench/headless.test.ts` 并入 `vp test run`（headless 回归，无独立命令）+ `bench.html` 浏览器入口，10 场景 JSON 落档 `results/`
 - 脚本（npm script 收敛，按需直跑）：`scripts/smoke.mjs`（构建 + preview + 冒烟断言）、`scripts/vs.mjs`（体积实测 + 对比落档）
 
