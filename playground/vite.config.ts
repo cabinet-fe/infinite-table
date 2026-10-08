@@ -1,13 +1,20 @@
 import { fileURLToPath } from 'node:url'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite-plus'
 
 // playground 是浏览器应用（index.html 入口）；本文件存在即覆盖向上解析到的根库构建配置
 export default defineConfig({
-  plugins: [vue()],
-  // 仓内应用经 dev 条件吃 workspace 源码（对齐 veltra-dev 约定）；外部消费者走 import → dist
+  // 过渡态：vue 与 React 插件并存，P2 移除 vue
+  plugins: [tailwindcss(), vue(), react()],
   resolve: {
+    // 仓内应用经 dev 条件吃 workspace 源码（对齐 veltra-dev 约定）；外部消费者走 import → dist
     conditions: ['dev'],
+    // shadcn 约定：@/* → src/*
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
   },
   build: {
     rollupOptions: {
