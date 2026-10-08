@@ -13,8 +13,8 @@ import {
   type DemoMount,
 } from '../mount'
 
-export const MEDIA_COL_COUNT = 6
-export const MEDIA_ROW_COUNT = 500
+const MEDIA_COL_COUNT = 6
+const MEDIA_ROW_COUNT = 500
 
 /** 图片格规则：第 1 列偶数行；URL 为本地伪协议（由注入的 loadImage 生成位图） */
 export function imageUrlForRow(row: number): string {
@@ -22,12 +22,12 @@ export function imageUrlForRow(row: number): string {
 }
 
 export const FLOAT_OBJECT_ID = 'float-1'
-export const FLOAT_IMAGE_URL = 'demo://float/main'
+const FLOAT_IMAGE_URL = 'demo://float/main'
 
 /** 缩放/旋转演示对象：固定演示图 + 初始 45°（可复现） */
-export const TRANSFORM_OBJECT_ID = 'float-transform'
-export const TRANSFORM_IMAGE_URL = 'demo://float/transform'
-export const TRANSFORM_INITIAL = {
+const TRANSFORM_OBJECT_ID = 'float-transform'
+const TRANSFORM_IMAGE_URL = 'demo://float/transform'
+const TRANSFORM_INITIAL = {
   anchor: { from: { col: 0, row: 6 }, to: { col: 1, row: 7 }, offsetX: 16, offsetY: 16 },
   size: { width: 180, height: 120 },
   rotation: 45,

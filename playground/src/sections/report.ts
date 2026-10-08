@@ -20,8 +20,8 @@ import {
 
 // ---- 报表维度与口径常量（smoke 断言与快照 fixture 共用） ----
 
-export const REPORT_ROW_COUNT = 36
-export const REPORT_COL_COUNT = 8
+const REPORT_ROW_COUNT = 36
+const REPORT_COL_COUNT = 8
 /** 标题行 / 元信息行 / 表头带上 / 表头带下 / 数据首行 / 数据末行 / 合计行 */
 export const REPORT_ROWS = {
   title: 0,
@@ -94,7 +94,7 @@ function summaryRowCells(): unknown[] {
 }
 
 /** 构造报表快照（九字段：cells/styles/merges/frozen/rowHeights/colWidths/images/meta/selection） */
-export function createReportSnapshot(): SheetSnapshot {
+function createReportSnapshot(): SheetSnapshot {
   const cells: SheetSnapshot['cells'] = []
   const push = (col: number, row: number, value: unknown): void => {
     if (value !== null && value !== undefined) {
@@ -301,7 +301,7 @@ export interface ReportDemo {
 }
 
 /** 冒烟/控制台驱动句柄（App.vue 冒烟路径写入 window.__REPORT_DEMO__） */
-export interface ReportDemoHandle {
+interface ReportDemoHandle {
   getTable: () => ListTable
   getStore: () => SheetStore
   getContainer: () => HTMLElement

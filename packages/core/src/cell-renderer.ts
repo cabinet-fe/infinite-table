@@ -64,7 +64,7 @@ const CHECKBOX_BORDER_COLOR = '#8f959e'
 const CHECKBOX_CHECK_COLOR = '#3370ff'
 
 /** 格内容盒：格内边距内缩后的局部矩形（文本与 checkbox 的定位/截断基准） */
-export interface CellContentBox {
+interface CellContentBox {
   x: number
   y: number
   width: number
@@ -76,7 +76,7 @@ export interface CellContentBox {
  * 文本的定位 / 截断基准，溢出走廊的文本缘同样按本盒推导（场景侧共用，保证
  * 「走廊端点」与「实际绘制位置」同源，见 list-table-scene 的 corridorCols）。
  */
-export function cellContentBox(style: CellStyle, width: number, height: number): CellContentBox {
+function cellContentBox(style: CellStyle, width: number, height: number): CellContentBox {
   const [paddingTop, paddingRight, paddingBottom, paddingLeft] = style.padding ?? DEFAULT_PADDING
   return {
     x: paddingLeft,

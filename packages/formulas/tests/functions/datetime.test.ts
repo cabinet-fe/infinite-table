@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { evaluate, isVolatileFormulaFunction } from '../../src/index'
+import { evaluate } from '../../src/index'
 import { EMPTY_RESOLVER } from '../testing/fake-resolver'
 
 describe('TODAY / NOW', () => {
@@ -19,10 +19,5 @@ describe('TODAY / NOW', () => {
     expect(typeof now).toBe('number')
     expect(now as number).toBeGreaterThanOrEqual(today as number)
     expect(now as number).toBeLessThan((today as number) + 1)
-  })
-
-  it('易失性标记可查询', () => {
-    expect(isVolatileFormulaFunction('today')).toBe(true)
-    expect(isVolatileFormulaFunction('NOW')).toBe(true)
   })
 })

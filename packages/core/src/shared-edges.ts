@@ -12,13 +12,13 @@ import type { CellBorder, CellBorderEdge } from './cell-style'
  * right = 右邻居的 left 边（本格 right 共享边的对侧）；bottom = 下邻居的 top 边。
  * 无邻居（模型最右列/最下行）或邻居该边未设置为 undefined。
  */
-export interface FacingEdges {
+interface FacingEdges {
   right?: CellBorderEdge
   bottom?: CellBorderEdge
 }
 
 /** 生效绘制四边的边界条件：模型最左列/最上行（无同带左/上邻居）才画自己的 left/top */
-export interface EdgeBoundary {
+interface EdgeBoundary {
   firstCol: boolean
   firstRow: boolean
 }

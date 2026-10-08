@@ -155,7 +155,7 @@ function requestWorker<T>(
 // ---- 导出：模型 → hucre（映射走 plugins；WriteSheet 为纯数据，可结构化克隆发 worker） ----
 
 /** 整本导出为 xlsx 字节（表序 = 入参顺序，activeIndex 为打开时的活跃表；zip 压缩在 worker） */
-export async function writeBookXlsx(
+async function writeBookXlsx(
   sheets: readonly SheetExportSource[],
   activeIndex: number,
 ): Promise<Uint8Array> {
@@ -167,7 +167,7 @@ export async function writeBookXlsx(
 }
 
 /** 导出为文件下载（与 downloadCSV 同款机制） */
-export function downloadXlsx(bytes: Uint8Array, filename: string): void {
+function downloadXlsx(bytes: Uint8Array, filename: string): void {
   const blob = new Blob([bytes as unknown as BlobPart], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
@@ -182,13 +182,13 @@ export function downloadXlsx(bytes: Uint8Array, filename: string): void {
 // ---- 导入：worker 纯数据 → Store ----
 
 /** 导入结果的一张表（Store + numFmt 侧车表 + 表名） */
-export interface ImportedSheet {
+interface ImportedSheet {
   name: string
   store: SheetStore
   numFmt: Map<string, NumFmt>
 }
 
-export interface ImportedBook {
+interface ImportedBook {
   sheets: ImportedSheet[]
   activeIndex: number
   /** 超出行列硬顶被丢弃的内容格数（0 = 无截断） */
@@ -234,7 +234,7 @@ function plainSheetToImported(plain: PlainImportedSheet): ImportedSheet {
  * xlsx 字节 → 整本导入结果（解压/解析在 worker；解析异常向上抛，由调用方转用户可读提示）。
  * 入参字节 transfer 给 worker（零拷贝），调用后入参 detached、不应复用。
  */
-export async function readBookXlsx(buffer: ArrayBuffer | Uint8Array): Promise<ImportedBook> {
+async function readBookXlsx(buffer: ArrayBuffer | Uint8Array): Promise<ImportedBook> {
   // 归一为 ArrayBuffer 再让渡：整段覆盖的视图直取底层 buffer，部分视图拷出独立段
   const transferable =
     buffer instanceof Uint8Array

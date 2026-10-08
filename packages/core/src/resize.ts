@@ -36,7 +36,7 @@ export interface ResizeCapability {
   canResizeRow?(row: number): boolean
 }
 
-export const RESIZE_HANDLE_THRESHOLD = 4
+const RESIZE_HANDLE_THRESHOLD = 4
 export const MIN_COL_WIDTH = 20
 export const MIN_ROW_HEIGHT = 20
 

@@ -9,7 +9,7 @@ import { createWatermarkPlugin, type WatermarkHandle } from '@infinitable/plugin
 import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount'
 
 /** 演示表数据行数（足够滚动） */
-export const WATERMARK_ROW_COUNT = 400
+const WATERMARK_ROW_COUNT = 400
 
 export interface WatermarkDemo {
   mount: DemoMount

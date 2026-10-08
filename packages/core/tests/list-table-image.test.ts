@@ -113,7 +113,7 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
 
   it('位图就绪后滚回：cell 级 LRU / ImageService 命中，首帧直接持图（无闪），不重复加载', async () => {
     const { host, loader, table } = createImageTable({
-      resolveCellImage: (col, row) => (row < 20 ? `r${row}.png` : null),
+      resolveCellImage: (_col, row) => (row < 20 ? `r${row}.png` : null),
     })
     // 并发 10：分两波决出（首波落定后排队请求补发）
     loader.resolveAll()

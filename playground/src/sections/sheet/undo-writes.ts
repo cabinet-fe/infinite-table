@@ -6,7 +6,7 @@
 import type { SheetStore, UndoCommand, UndoStack } from '@infinitable/plugins'
 
 /** 单格值写入（value 为新值） */
-export interface ValueWrite {
+interface ValueWrite {
   col: number
   row: number
   value: unknown

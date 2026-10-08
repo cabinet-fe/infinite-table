@@ -28,12 +28,12 @@ import type { SheetStore } from '@infinitable/plugins'
 export type EvaluatedValue = number | string | boolean
 
 /** 宿主注入面（book.ts 实现） */
-export interface SheetEvaluatorHost {
+interface SheetEvaluatorHost {
   /** 表名（大小写不敏感，兼容 id 与展示名）→ 目标；未知表 null */
   resolveSheet(name: string): { id: string; store: SheetStore } | null
 }
 
-export interface SheetEvaluator {
+interface SheetEvaluator {
   /** createFormulaDisplay 的 evaluate 入参：绑定指定 sheet（裸引用缺省表），按格缓存；布尔显示为 TRUE/FALSE */
   forSheet(
     sheetId: string,

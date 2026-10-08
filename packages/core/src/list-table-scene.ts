@@ -638,7 +638,7 @@ function isEmptyTextCell(table: ListTable, col: number, row: number): boolean {
  * 文本溢出允许的层坐标走廊区间；null 表示该格不溢出（裁剪在本格内）。
  * 走廊扫描与阻断判定见 corridorCols（同一实现），此处只做列号 → 层坐标换算。
  */
-export interface TextOverflowLimits {
+interface TextOverflowLimits {
   /** 走廊左界（层坐标）：无左溢时即本格左缘 */
   minX: number
   /** 走廊右界（层坐标）：无右溢时即本格右缘 */
@@ -668,7 +668,7 @@ export function textOverflowLimits(
 }
 
 /** 溢出走廊的列号区间：[leftStart, rightEnd) 含源格与被覆盖空格 */
-export interface CorridorCols {
+interface CorridorCols {
   /** 走廊左端列号（含）：无左溢时即源格列号 */
   leftStart: number
   /** 走廊右端列号（不含）：无右溢时即源格列号 + 1 */
@@ -831,7 +831,7 @@ export function overflowSourceColRight(table: ListTable, col: number, row: numbe
 }
 
 /** 窗外溢出源反查命中：源格列号、溢出走廊（伸入窗内）与已建节点（未补建为 null） */
-export interface OffWindowOverflowSource {
+interface OffWindowOverflowSource {
   col: number
   corridor: CorridorCols
   node: CellNode | null
@@ -1128,7 +1128,7 @@ export function headerStyles(table: ListTable): HeaderStyles {
 }
 
 /** 表头三分区样式集合（共享边裁决 facing 溯源与节点装配共用） */
-export interface HeaderStyles {
+interface HeaderStyles {
   col: CellStyle
   row: CellStyle
   corner: CellStyle

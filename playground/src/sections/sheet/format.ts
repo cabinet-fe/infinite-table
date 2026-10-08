@@ -117,7 +117,7 @@ function formatCnUpper(value: number): string {
 }
 
 /** 按 numFmt 把数字值格式化为显示文本（仅显示用，不改动存储值） */
-export function formatByNumFmt(value: number, fmt: NumFmt): string {
+function formatByNumFmt(value: number, fmt: NumFmt): string {
   switch (fmt.kind) {
     case 'date':
       return formatDate(value)
@@ -131,7 +131,7 @@ export function formatByNumFmt(value: number, fmt: NumFmt): string {
 }
 
 /** 求值器签名（与 plugins createFormulaDisplay 的 FormulaEvaluator 同形，demo 层不复引用 plugins 类型） */
-export type SheetDisplayEvaluator = (
+type SheetDisplayEvaluator = (
   formula: string,
   col: number,
   row: number,

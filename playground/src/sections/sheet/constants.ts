@@ -6,17 +6,6 @@ import type { CellStyle } from '@infinitable/core'
 export const SHEET_COL_COUNT = 26
 export const SHEET_ROW_COUNT = 40
 
-/**
- * 初始合并区（C12:E13 主格含 \n 多行文本）。
- * 起始列取 2：冻结列数在 0/1/2 挡位切换时均不跨冻结边界（运行时校验会拒绝跨界合并）。
- */
-export const SHEET_MERGE_RANGE = { startCol: 2, startRow: 11, endCol: 4, endRow: 12 } as const
-/** 运行时切换时追加的合并区（G16:H17） */
-export const SHEET_MERGE_EXTRA_RANGE = { startCol: 5, startRow: 15, endCol: 6, endRow: 16 } as const
-/** 填充柄预置选区（B16:C18：数字序列 1/2/3 + 文本 a/b） */
-export const SHEET_FILL_SELECTION = [
-  { start: { col: 1, row: 15 }, end: { col: 2, row: 17 } },
-] as const
 /** 格内示例图所在格（F1） */
 export const SHEET_IMAGE_CELL = { col: 5, row: 0 } as const
 

@@ -95,7 +95,7 @@ const STYLE_LABELS: Record<string, string> = {
   textWrap: '自动换行',
 }
 
-export interface ToolbarDeps {
+interface ToolbarDeps {
   table: () => ListTable
   store: () => SheetStore
   notify: (text: string, kind?: 'info' | 'warn') => void
@@ -108,7 +108,7 @@ export interface ToolbarDeps {
   formulaBar: { insertSnippet: (snippet: string) => void }
 }
 
-export interface ToolbarHandle {
+interface ToolbarHandle {
   /** 编程式样式应用（冒烟驱动用）：对当前选区逐格套用片段 */
   applyFragment(fragment: CellStyle, mode: 'toggle' | 'set'): void
   /** 清除当前选区格式 */

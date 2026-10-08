@@ -39,24 +39,6 @@ export class FakeEditorElement implements TextEditorElement {
   removeEventListener(type: string, listener: (event: EditorKeyEvent) => void): void {
     this.listeners.get(type)?.delete(listener)
   }
-
-  /** 派发键盘事件（当前链路用不到，保持与 core 辅助同形） */
-  dispatchKey(key: string): { prevented: boolean; stopped: boolean } {
-    let prevented = false
-    let stopped = false
-    for (const listener of this.listeners.get('keydown') ?? []) {
-      listener({
-        key,
-        preventDefault: () => {
-          prevented = true
-        },
-        stopPropagation: () => {
-          stopped = true
-        },
-      })
-    }
-    return { prevented, stopped }
-  }
 }
 
 export class FakeEditorHost implements TextEditorHost {

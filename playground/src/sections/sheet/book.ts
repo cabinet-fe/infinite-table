@@ -19,12 +19,12 @@ import { createSheetDisplay, type NumFmt } from './format'
 import { SHEET_COL_COUNT, SHEET_ROW_COUNT } from './constants'
 
 /** sheet id → 默认展示名：sheet-1 → Sheet1（tabs 未重命名/未注册名时的名字） */
-export function defaultSheetName(id: string): string {
+function defaultSheetName(id: string): string {
   return id.replace(/^sheet-(\d+)$/, 'Sheet$1')
 }
 
 /** 注册附加项：导入表名 / 导入的 numFmt 侧车表 */
-export interface RegisterSheetOptions {
+interface RegisterSheetOptions {
   /** 展示名（空则回落默认名；跨表引用按此名路由） */
   name?: string
   /** numFmt 侧车表（缺省新建空表；xlsx 导入传入解析结果） */

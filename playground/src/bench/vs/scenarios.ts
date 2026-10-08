@@ -382,7 +382,7 @@ export interface VsProgress {
 }
 
 /** 对比数据规模：10 万与 100 万行 */
-export const VS_SCALES = [100_000, 1_000_000] as const
+const VS_SCALES = [100_000, 1_000_000] as const
 
 /** 单库单轮内的场景步数（TTFF / 稳态滚动 / 快速跳转 / 逐格写 / 批量写 / 重建） */
 const SCENARIO_STEPS = 6

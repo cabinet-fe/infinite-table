@@ -56,9 +56,9 @@ export interface ImageErrorEvent {
   cells: CellRef[]
 }
 
-export type ImageSettledCallback = (state: ImageState) => void
+type ImageSettledCallback = (state: ImageState) => void
 /** 窗口判定：返回 cell 是否位于「视口+余量」内 */
-export type WindowPredicate = (cell: CellRef) => boolean
+type WindowPredicate = (cell: CellRef) => boolean
 
 type UrlResolver = (raw: string) => string | null
 

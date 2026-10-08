@@ -1,6 +1,6 @@
 // @infinitable/formulas 公共入口（唯一；显式导出，禁止 export *）。
 //
-// 公式引擎 v1：A1 解析 / 分词 / Pratt 解析 / 求值 / 47 个内置函数 / 7 种错误值 / 函数注册表元数据
+// 公式引擎 v1：A1 解析 / 分词 / Pratt 解析 / 求值 / 49 个内置函数 / 7 种错误值 / 函数注册表元数据
 // / 依赖图（DependencyGraph，宿主驱动增量重算）/ 容错引用扫描（编辑染色框用）。
 // 四则与 SUM/AVERAGE/ROUND/ABS 走 @cat-kit/core 的 $n 精确计算（结果仍 JS number）。
 //

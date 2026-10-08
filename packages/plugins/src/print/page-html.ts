@@ -90,11 +90,7 @@ interface PageMergeIndex {
  * - 主格（合并区左上）在本页渲染行内 → 输出 rowspan（沿本页连续渲染行截断）+ colspan；
  * - 合并区覆盖的其余格全部记为客格（跳过渲染），含主格不在本页（在前页）的合并区残段。
  */
-function buildPageMergeIndex(
-  source: PrintSource,
-  page: PrintPage,
-  renderedRows: readonly number[],
-): PageMergeIndex {
+function buildPageMergeIndex(source: PrintSource, renderedRows: readonly number[]): PageMergeIndex {
   const positionOf = new Map<number, number>()
   renderedRows.forEach((row, index) => positionOf.set(row, index))
   const spans = new Map<string, { rowspan: number; colspan: number }>()
@@ -214,7 +210,7 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
   for (let row = page.rowRange.start; row < page.rowRange.end; row++) {
     renderedRows.push(row)
   }
-  const merges = buildPageMergeIndex(source, page, renderedRows)
+  const merges = buildPageMergeIndex(source, renderedRows)
 
   for (const row of renderedRows) {
     parts.push(`<tr style="height:${round2(source.rowHeight(row) * scale)}px">`)

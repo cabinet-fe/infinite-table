@@ -1,11 +1,11 @@
 // vs 报告：两库多轮样本聚合 → 逐指标对比（倍数 = 快/慢多少倍），按数据规模分节，
-// 同一份 HTML 渲染既注入浏览器页面也落静态报告文件；文本渲染供驱动脚本打控制台。
+// 同一份 HTML 渲染既注入浏览器页面也落静态报告文件（驱动脚本控制台汇总直接消费 JSON 报告）。
 
 import type { VsRunResult, VsSample } from './scenarios'
 import { BATCH_CELLS, SCROLL_MEASURE_FRAMES, SCROLL_STEP_Y, scaleLabel } from './scenarios'
 
 /** 视角固定为 infinitable：advantage > 1 表示我们占优 */
-export interface VsComparisonRow {
+interface VsComparisonRow {
   id: string
   scale: number
   label: string
@@ -20,7 +20,7 @@ export interface VsComparisonRow {
   verdict: 'faster' | 'slower' | 'even'
 }
 
-export interface VsComparisonReport {
+interface VsComparisonReport {
   tool: 'infinitable-vs-vtable'
   startedAt: string
   env: string
@@ -246,28 +246,3 @@ const REPORT_STYLES = `
   .vs-report .bar.bad { opacity: 0.45; }
   .vs-report footer { margin: 24px 0 40px; color: #9ca3af; font-size: 12px; line-height: 1.7; }
 `
-
-/** 控制台文本（驱动脚本汇总输出用） */
-export function formatComparisonText(report: VsComparisonReport): string {
-  const lines: string[] = [
-    `infinitable vs @visactor/vtable（${report.dataset}）`,
-    `领先 ${report.wins} / ${report.total} 项指标`,
-    '',
-  ]
-  for (const scale of report.scales) {
-    lines.push(`—— ${scaleLabel(scale)} ——`)
-    for (const row of report.rows.filter((r) => r.scale === scale)) {
-      const badge =
-        row.verdict === 'faster'
-          ? `快 ${row.advantage.toFixed(2)}x`
-          : row.verdict === 'slower'
-            ? `慢 ${(1 / row.advantage).toFixed(2)}x`
-            : '持平'
-      lines.push(
-        `${badge.padStart(8)}  ${row.label}: infinitable ${formatValue(row.ours, row.unit)}${row.unit} vs vtable ${formatValue(row.theirs, row.unit)}${row.unit}`,
-      )
-    }
-    lines.push('')
-  }
-  return lines.join('\n')
-}

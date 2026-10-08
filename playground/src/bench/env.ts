@@ -29,7 +29,7 @@ export interface BenchEnv {
 }
 
 /** SheetStore 结构子集（避免 bench 对 plugins 的类型级硬绑定；运行时传插件实例） */
-export interface SheetStoreLike {
+interface SheetStoreLike {
   asModel(): import('@infinitable/core').TableModel
   getRowCount(): number
   getColCount(): number

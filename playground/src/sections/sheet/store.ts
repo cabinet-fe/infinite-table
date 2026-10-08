@@ -25,6 +25,7 @@ export function createMainStore(): SheetStore {
   }
   // 默认无冻结（对标 ultra-ui 演示初始态；冻结经右键菜单「冻结到当前行/列」）
   store.setFrozen({ colCount: 0, rowCount: 0 })
+  // 初始合并区 C12:E13（主格含 \n 多行文本）；起始列取 2：冻结列数 0/1/2 挡位切换时均不跨冻结边界
   store.setMerges([{ startCol: 2, startRow: 11, endCol: 4, endRow: 12 }])
   // 公式演示格：D1=7、D2=5；E2 = 引用运算，E3 = 区域函数（显示求值结果、编辑见原文）
   store.setValue(3, 0, 7)

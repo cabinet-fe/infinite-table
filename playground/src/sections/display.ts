@@ -7,7 +7,7 @@ import type { CellRenderer } from '@infinitable/core'
 import { createSection, mountTable, type DemoMount } from '../mount'
 
 /** 列宽：id 80 / name 140 / qty 80 / price 100 / rating 120 / done 80 / note 160（冻结第 0 列） */
-export const DISPLAY_COL_WIDTHS = [80, 140, 80, 100, 120, 80, 160] as const
+const DISPLAY_COL_WIDTHS = [80, 140, 80, 100, 120, 80, 160] as const
 
 export const DISPLAY_ROW_COUNT = 100_000
 

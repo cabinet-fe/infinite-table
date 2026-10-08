@@ -1,9 +1,9 @@
 // 轻量消息提示（对标 ultra-ui 的 message 顶出形态）：顶部居中堆叠、自动消退。
 // 取代旧演示区的常驻状态文本行（sheet 卡片内无状态栏，与 ultra-ui 一致）。
 
-export type NotifyKind = 'info' | 'warn'
+type NotifyKind = 'info' | 'warn'
 
-export interface Notifier {
+interface Notifier {
   notify(text: string, kind?: NotifyKind): void
   destroy(): void
 }

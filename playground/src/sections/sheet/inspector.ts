@@ -68,7 +68,7 @@ const BLOCKS: readonly BlockDef[] = [
   },
 ]
 
-export interface InspectorHandle {
+interface InspectorHandle {
   destroy(): void
   /** 立即重取当前活动表快照（撤销/重做回写后由宿主调用，观察区即时反映） */
   refresh(): void

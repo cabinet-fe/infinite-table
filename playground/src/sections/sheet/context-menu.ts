@@ -22,7 +22,7 @@ import {
 import { colLetters } from './formula-bar'
 import type { NumFmt } from './format'
 
-export interface ContextMenuHandle {
+interface ContextMenuHandle {
   destroy(): void
 }
 

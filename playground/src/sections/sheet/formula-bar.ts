@@ -18,7 +18,7 @@ import type { SheetStore } from '@infinitable/plugins'
 import { closeActivePopup, isPopupAnchoredTo, openAnchoredPopup } from './popup'
 import type { SheetBookBundle } from './book'
 
-export interface FormulaBarHandle {
+interface FormulaBarHandle {
   /** 选区/值变化后刷新显示 */
   refresh(): void
   /** 函数面板/建议确认的插入落点：以 `=NAME()` 形态写入，光标落括号内 */
@@ -34,7 +34,7 @@ export function formatCellAddress(col: number, row: number): string {
 }
 
 /** 解析 A1 / B3:D5；非法返回 null */
-export function parseCellAddress(text: string): { col: number; row: number } | null {
+function parseCellAddress(text: string): { col: number; row: number } | null {
   const single = /^([A-Za-z]+)([0-9]+)$/.exec(text.trim())
   if (!single) {
     return null

@@ -11,7 +11,7 @@ import type { RenderContext } from '@infinitable/core'
 import { WATERMARK_TEXT_DEFAULTS, type WatermarkTextConfig } from '../print/types'
 
 /** 水印样式解析结果：缺省值已并入的完整样式快照（几何与绘制共用同一份） */
-export interface ResolvedWatermarkStyle {
+interface ResolvedWatermarkStyle {
   fontSize: number
   color: string
   opacity: number
@@ -68,7 +68,7 @@ export function watermarkFillColor(color: string, opacity: number): string {
 }
 
 /** 平铺水印单元原点（层坐标，单元左上角；视口外或 step 退化时为空） */
-export interface WatermarkTileOrigin {
+interface WatermarkTileOrigin {
   x: number
   y: number
 }

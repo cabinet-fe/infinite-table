@@ -10,10 +10,10 @@ import type {
 } from './types'
 
 /** mm → px 换算系数（96dpi：1 inch = 25.4mm = 96px） */
-export const MM_TO_PX = 96 / 25.4
+const MM_TO_PX = 96 / 25.4
 
 /** px → mm 换算系数（@page 尺寸输出用，P2 消费） */
-export const PX_TO_MM = 25.4 / 96
+const PX_TO_MM = 25.4 / 96
 
 /** mm → px */
 export function mmToPx(mm: number): number {

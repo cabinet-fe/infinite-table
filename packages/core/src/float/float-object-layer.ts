@@ -210,7 +210,7 @@ interface FloatRotateSession {
 
 type FloatTransformSession = FloatScaleSession | FloatRotateSession
 
-export interface FloatObjectLayerInit {
+interface FloatObjectLayerInit {
   /** 承载层（通常 sky：浮动对象在格内容之上） */
   layer: LayerHandle
   geometry: FloatGeometry

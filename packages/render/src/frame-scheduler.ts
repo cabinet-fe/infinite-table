@@ -39,11 +39,6 @@ export class FrameScheduler {
     }
   }
 
-  /** 是否有已排期未执行的帧 */
-  get pending(): boolean {
-    return this.handle !== null
-  }
-
   private flush(): void {
     this.handle = null
     const tasks = [...this.tasks]

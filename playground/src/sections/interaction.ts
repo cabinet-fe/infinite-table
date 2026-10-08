@@ -6,8 +6,8 @@ import { normalizeRange } from '@infinitable/core'
 
 import { addButton, addStatus, createSection, mountTable, type DemoMount } from '../mount'
 
-export const INTERACTION_COL_COUNT = 8
-export const INTERACTION_ROW_COUNT = 2000
+const INTERACTION_COL_COUNT = 8
+const INTERACTION_ROW_COUNT = 2000
 
 export interface InteractionDemo {
   mount: DemoMount

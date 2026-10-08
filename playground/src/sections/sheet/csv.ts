@@ -7,7 +7,7 @@ import type { ListTable } from '@infinitable/core'
 import type { SheetStore } from '@infinitable/plugins'
 
 /** 值矩阵 → CSV 字符串 */
-export function toCSV(store: SheetStore): string {
+function toCSV(store: SheetStore): string {
   const lines: string[] = []
   for (let row = 0; row < store.getRowCount(); row++) {
     const cells: string[] = []
@@ -32,7 +32,7 @@ function escapeCSVCell(value: unknown): string {
 }
 
 /** CSV 字符串 → 值写入 Store（从 (0,0) 起）；返回写入格数 */
-export function fromCSV(store: SheetStore, csv: string): number {
+function fromCSV(store: SheetStore, csv: string): number {
   const rows = parseCSV(csv)
   let count = 0
   for (let row = 0; row < Math.min(rows.length, store.getRowCount()); row++) {
@@ -108,7 +108,7 @@ export function downloadCSV(store: SheetStore, filename: string): string {
 }
 
 /** 导入接线（覆盖 + 全表刷新）；文件选择由调用方装配 */
-export function importCSV(table: ListTable, store: SheetStore, csv: string): number {
+function importCSV(table: ListTable, store: SheetStore, csv: string): number {
   const count = fromCSV(store, csv)
   table.batchUpdate(() => {
     for (let col = 0; col < store.getColCount(); col++) {

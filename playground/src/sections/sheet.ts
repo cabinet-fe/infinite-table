@@ -45,15 +45,6 @@ import { createToaster } from './sheet/toast'
 import { createXlsx, type XlsxHandle } from './sheet/xlsx'
 import { SHEET_COL_COUNT, SHEET_IMAGE_CELL } from './sheet/constants'
 
-export {
-  SHEET_COL_COUNT,
-  SHEET_ROW_COUNT,
-  SHEET_MERGE_RANGE,
-  SHEET_MERGE_EXTRA_RANGE,
-  SHEET_FILL_SELECTION,
-  SHEET_IMAGE_CELL,
-} from './sheet/constants'
-
 /**
  * 网格主题（对标 ultra-ui vtable-theme 实际生效值）：表头/行号 #F5F5F5 非粗体 12px 居中、
  * 正文 14px/#000（VTable DEFAULT bodyStyle 继承值）、格内边距 [2,6,2,6]、网格线 #E1E4E8
@@ -125,9 +116,8 @@ function formatBounds(bounds: RangeBounds): string {
 }
 
 /** 冒烟/控制台驱动面（全部经公开 API 组合） */
-export interface SheetDemoControls {
+interface SheetDemoControls {
   toolbar: ReturnType<typeof mountToolbar>
-  formulaBar: ReturnType<typeof mountFormulaBar>
   find: ReturnType<typeof mountToolbar>['find']
   csv: ReturnType<typeof createCSV>
   /** xlsx 整本导入导出（hucre） */
@@ -144,7 +134,7 @@ export interface SheetDemoControls {
 }
 
 /** 调试句柄形态（SheetView 挂载时写入 window.__SHEET_DEMO__；句柄面只含公开 API） */
-export interface SheetDemoHandle {
+interface SheetDemoHandle {
   /** 当前活跃表实例 */
   getTable: () => ListTable
   /** 当前活跃 Store */
@@ -403,7 +393,6 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   /** 冒烟/控制台驱动面（全部经公开 API 组合） */
   const controls: SheetDemoControls = {
     toolbar,
-    formulaBar,
     find: toolbar.find,
     csv,
     xlsx,

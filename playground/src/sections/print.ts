@@ -24,9 +24,9 @@ import { addButton, addStatus, createSection, mountTable, type DemoMount } from 
 // ---- 示例数据维度（确定性生成，无随机） ----
 
 /** 表头带行数（两行表头 = 每页重复表头行数） */
-export const PRINT_HEADER_ROWS = 2
+const PRINT_HEADER_ROWS = 2
 /** 数据行数（A4 纵向约 32 行/页 → 2 页起，fixrows/横向更多页） */
-export const PRINT_DATA_ROWS = 48
+const PRINT_DATA_ROWS = 48
 /** 逐列宽度（合计 598 ≤ 屏上演示区 640；A4 纵向可用宽 698 装得下） */
 const PRINT_COL_WIDTHS = [56, 84, 84, 104, 90, 90, 90] as const
 /** 数值列（页脚「本页小计 {pageSum:4}」取销售额列） */
