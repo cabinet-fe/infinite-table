@@ -2,8 +2,8 @@
 // 工具栏（图标分组）→ 公式栏（名称框/fx/建议）→ 网格（flex 铺满）→ 底部 tabs，
 // 右键菜单三套（行号/列头/正文，正文含「设置数据格式」子菜单）、查找替换弹层、
 // CSV/xlsx 导入导出（hucre）、插入浮动图片、数据结构观察区；消息走顶部 toast（无状态栏，与 ultra-ui 一致）。
-// 数据面不变：SheetStore 单一事实源 + sheet 插件族（填充/选区同步/公式显示/键位/实例池/撤销栈）；
-// numFmt 为 demo 级侧车通道（book.ts 按 sheet 持稀疏 Map，仅影响显示，Store 恒存原始值）。
+// 数据面不变：Store 单一事实源 + createSheetPlugin 插件对象（书形态：实例池/键位/撤销栈/填充生成
+// 经 mount 装配）；numFmt 为 demo 级侧车通道（book.ts 按 sheet 持稀疏 Map，仅影响显示，Store 恒存原始值）。
 
 import {
   EditorRegistry,
@@ -15,19 +15,13 @@ import {
   type ThemeOverride,
 } from '@infinitable/core'
 
-import {
-  bindCellChangeUndo,
-  excelKeymapPreset,
-  UndoStack,
-  type SheetStore,
-} from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
 import { createSection, demoLoadImage } from '../mount'
 
-import { createDemoBook, type SheetBookBundle } from './sheet/book'
+import { createDemoBook, type SheetBookBundle, type SheetStore } from './sheet/book'
 import { createCSV } from './sheet/csv'
 import { mountContextMenu } from './sheet/context-menu'
-import { bindStoreFill } from './sheet/fills'
 import { mountFormulaBar } from './sheet/formula-bar'
 import type { EvaluatedValue } from './sheet/evaluator'
 import type { NumFmt } from './sheet/format'
@@ -141,8 +135,8 @@ interface SheetDemoHandle {
   getStore: () => SheetStore
   /** UI 驱动面 */
   controls: SheetDemoControls
-  /** SheetBook（多 sheet 注册/切换/事件） */
-  book: SheetBookBundle['book']
+  /** sheet 插件 handle（多 sheet 注册/切换/事件/撤销栈） */
+  sheet: SheetPluginHandle
   /** 切换 sheet */
   switchTo: (id: string) => void
   /** sheet id 列表 */
@@ -183,12 +177,10 @@ export interface SheetDemo {
   readonly table: ListTable
   /** 当前活跃 Store */
   getStore: () => SheetStore
-  /** SheetBook（多 sheet 状态） */
-  getBook: () => SheetBookBundle['book']
+  /** sheet 插件 handle（多 sheet 状态/撤销栈/导出） */
+  getSheet: () => SheetPluginHandle
   /** 装配束（切换/新建/删除/ids/containers/stores） */
   getBundle: () => SheetBookBundle
-  /** 撤销栈（值命令） */
-  getUndo: () => UndoStack
   /** UI 驱动面 */
   getControls: () => SheetDemoControls
   /** 资源释放（卸载时调用） */
@@ -222,7 +214,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     toaster.notify(text, kind)
   }
 
-  // ---- SheetBook 装配（容器铺满网格区，尺寸以测量值为准） ----
+  // ---- sheet 插件装配（书形态；容器铺满网格区，尺寸以测量值为准） ----
   const registry = new EditorRegistry()
   registry.registerEditor('text', {})
   const gridWidth = gridArea.clientWidth || 960
@@ -238,10 +230,10 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     })),
     editorRegistry: registry,
     theme: SHEET_THEME,
-    ...excelKeymapPreset,
+    // Excel 键位（Enter 进编辑、关闭 Ctrl 加选）由插件构造期底座注入
     // resolveCellImage 经活跃 id 判定：格内示例图仅演示于 sheet-1 的 F1
     resolveCellImage: (col, row) =>
-      bundleRef?.book.activeId === 'sheet-1' &&
+      bundleRef?.sheet.activeId === 'sheet-1' &&
       col === SHEET_IMAGE_CELL.col &&
       row === SHEET_IMAGE_CELL.row
         ? 'demo://sheet/cell-img'
@@ -249,11 +241,12 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     imageServiceOptions: { loadImage: sheetLoadImage },
   } satisfies Partial<ListTableOptions>)
   bundleRef = bundle
+  const sheet = bundle.sheet
 
-  // ---- 每实例接线（创建时一次性绑定）：填充真实写值 / resize 持久化 / 撤销栈 ----
-  const stack = new UndoStack(200)
+  // ---- 每实例接线（创建时一次性绑定）：编辑/填充 toast / resize 持久化 ----
+  // 撤销记录与填充写值由插件 mount 装配（switchTo 建表即挂），此处只补演示层接线
   const teardowns = new Map<string, Array<() => void>>()
-  bundle.book.onChange((event) => {
+  sheet.onSheetChange((event) => {
     if (!event.table || !event.created || !event.activeId) {
       return
     }
@@ -298,13 +291,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       created.selectCell(0, 0)
       addPresetFloatImage(created)
     }
-    const undoBinding = bindCellChangeUndo({ table: created, store, stack })
-    const offs = [
-      bindStoreFill(created, store, stack),
-      bindResizePersistence(created, store),
-      () => undoBinding.dispose(),
-    ]
-    teardowns.set(id, offs)
+    teardowns.set(id, [bindResizePersistence(created, store)])
   })
 
   // ---- UI 面：公式栏 → 工具栏（含查找/CSV/xlsx 弹层）→ tabs → 右键菜单 ----
@@ -328,11 +315,11 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   /** 活跃 sheet 的 numFmt 侧车读写（右键菜单与冒烟驱动面共用） */
   const numFmtControl = {
     get: (col: number, row: number): NumFmt | undefined => {
-      const id = bundle.book.activeId
+      const id = sheet.activeId
       return id ? bundle.getNumFmt(id, col, row) : undefined
     },
     set: (col: number, row: number, fmt: NumFmt | undefined): void => {
-      const id = bundle.book.activeId
+      const id = sheet.activeId
       if (id) {
         bundle.setNumFmt(id, col, row, fmt)
       }
@@ -361,7 +348,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     table,
     store,
     notify,
-    stack,
+    sheet,
     bundle,
     csv,
     xlsx,
@@ -378,7 +365,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
   const contextMenu = mountContextMenu({
     table,
     store,
-    stack,
+    sheet,
     notify,
     setNumFmt: numFmtControl.set,
   })
@@ -386,7 +373,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     bundle,
     table,
     store,
-    stack,
+    sheet,
     labelOf: tabs.labelOf,
   })
 
@@ -442,13 +429,13 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       toolbar.toggleFind()
     } else if (key === 'z' && !event.shiftKey && canUndoRedo()) {
       event.preventDefault()
-      stack.undo()
+      sheet.undo()
       notify('已撤销')
       toolbar.refreshStates()
       inspector.refresh()
     } else if ((key === 'z' || key === 'y') && canUndoRedo()) {
       event.preventDefault()
-      stack.redo()
+      sheet.redo()
       notify('已重做')
       toolbar.refreshStates()
       inspector.refresh()
@@ -461,9 +448,8 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       return table()
     },
     getStore: store,
-    getBook: () => bundle.book,
+    getSheet: () => sheet,
     getBundle: () => bundle,
-    getUndo: () => stack,
     getControls: () => controls,
     destroy: () => {
       document.removeEventListener('keydown', onKeydown)
@@ -489,22 +475,22 @@ export function createSheetHandle(demo: SheetDemo): SheetDemoHandle {
   return {
     getTable: () => demo.table,
     getStore: () => demo.getStore(),
-    book: demo.getBook(),
+    sheet: demo.getSheet(),
     switchTo: (id) => demo.getBundle().switchTo(id),
     ids: () => demo.getBundle().ids(),
-    undo: () => demo.getUndo().undo(),
-    redo: () => demo.getUndo().redo(),
+    undo: () => demo.getSheet().undo(),
+    redo: () => demo.getSheet().redo(),
     history: {
-      canUndo: () => demo.getUndo().canUndo,
-      canRedo: () => demo.getUndo().canRedo,
-      clear: () => demo.getUndo().clear(),
+      canUndo: () => demo.getSheet().canUndo,
+      canRedo: () => demo.getSheet().canRedo,
+      clear: () => demo.getSheet().clearHistory(),
     },
     controls: demo.getControls(),
     queries: () => {
       const table = demo.table
       const store = demo.getStore()
       return {
-        activeId: demo.getBook().activeId,
+        activeId: demo.getSheet().activeId,
         frozen: { cols: table.getFrozenColCount(), rows: table.getFrozenRowCount() },
         selection: table.getSelectedCellRanges(),
         bodyVisible: table.getBodyVisibleCellRange(),

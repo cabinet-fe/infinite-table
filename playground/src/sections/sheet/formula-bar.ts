@@ -13,7 +13,7 @@ import {
   scanFormulaReferences,
   type FormulaFunctionInfo,
 } from '@infinitable/formulas'
-import type { SheetStore } from '@infinitable/plugins'
+import type { SheetStore } from './book'
 
 import { closeActivePopup, isPopupAnchoredTo, openAnchoredPopup } from './popup'
 import type { SheetBookBundle } from './book'
@@ -850,7 +850,7 @@ export function mountFormulaBar(
       table.setHighlightRanges([])
       return
     }
-    const activeId = ctx.bundle.book.activeId
+    const activeId = ctx.bundle.sheet.activeId
     const highlights: HighlightRange[] = []
     const seen = new Set<string>()
     for (const { ref } of scanFormulaReferences(text.slice(1))) {
@@ -973,7 +973,7 @@ export function mountFormulaBar(
     boundTable = table
   }
   bindTo(ctx.table())
-  const offBookChange = ctx.bundle.book.onChange((event) => {
+  const offBookChange = ctx.bundle.sheet.onSheetChange((event) => {
     if (!event.table) {
       return
     }

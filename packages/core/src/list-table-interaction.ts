@@ -38,6 +38,7 @@ import {
   mapScrollbarTrackPoint,
   planScrollbarThumb,
   type ScrollbarHit,
+  type ScrollbarThumbGeometry,
 } from './scrollbar'
 import { normalizeRange, type RangeBounds, type SelectionRange } from './selection'
 import type { CellRef, TableContextMenuEvent } from './types'
@@ -246,21 +247,22 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     return
   }
   if (table.scrollbarDrag) {
-    // 滚动条拖拽会话：指针位移按轨道/滑块比例换算滚动偏移（setScroll 触发浮层重绘）
+    // 滚动条拖拽会话（会话隔离：优先于 resize/填充/表头拖选/拖选与悬停，全部跳过）。
+    // 画布外松手兜底：真实指针事件携带 buttons 位集，无按键即视为已释放——
+    // 浏览器窗外释放时 up 事件不可达，会话在此终结（悬挂缺陷的兜底闸）
+    if (pointerButtons(event) === 0) {
+      endScrollbarDrag(table, event)
+      return
+    }
+    // 指针位移按轨道/滑块比例换算目标偏移，经 rAF 合帧提交（一帧多次 move 一次 setScroll）
     const session = table.scrollbarDrag
-    const geometry =
-      session.axis === 'vertical'
-        ? scrollbarSnapshot(table).vertical
-        : scrollbarSnapshot(table).horizontal
+    const geometry = scrollbarGeometry(table, session.axis)
     if (geometry) {
       const delta = (session.axis === 'vertical' ? event.y : event.x) - session.startPx
-      const target = mapScrollbarThumbDrag(geometry, session.startOffset, delta)
-      if (session.axis === 'vertical') {
-        table.setScrollTop(target)
-      } else {
-        table.setScrollLeft(target)
-      }
+      session.pendingOffset = mapScrollbarThumbDrag(geometry, session.startOffset, delta)
+      table.host.requestFrame(table.scrollbarCommitTask)
     }
+    table.pokeScrollbar()
     table.setContainerCursor('default')
     return
   }
@@ -348,8 +350,7 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     return
   }
   if (table.scrollbarDrag) {
-    table.scrollbarDrag = null
-    updatePointerCursor(table, event.x, event.y)
+    endScrollbarDrag(table, event)
     return
   }
   if (table.resizeSession) {
@@ -867,7 +868,7 @@ function updatePointerCursor(table: ListTable, x: number, y: number): void {
       return
     }
   }
-  if (scrollbarHit(table, x, y)) {
+  if (updateScrollbarHover(table, x, y)) {
     table.setContainerCursor('default')
     return
   }
@@ -879,41 +880,85 @@ function updatePointerCursor(table: ListTable, x: number, y: number): void {
   table.setContainerCursor(fillHandleHit(table, x, y) ? 'crosshair' : 'auto')
 }
 
-/* ---------- 内建滚动条：几何快照 / 命中 / 拖拽会话 ---------- */
-
-/** 两轴滑块几何快照（选项关闭两轴皆 null；轨道起点 = 画布对应边，长度扣除空白角） */
-function scrollbarSnapshot(table: ListTable): OverlayContent['scrollbars'] {
-  if (table.options.scrollbar === false) {
-    return { vertical: null, horizontal: null }
+/**
+ * 非拖拽指针的滚动条悬停/显隐脉动（与光标判定共用同一次命中计算）：
+ * 命中滑块置 hover 态（一帧内视觉反馈——变色/变粗）；任何命中（滑块或轨道）在
+ * 'scrolling' 档触发显示并重置静止计时；离开滑块清 hover 并重新计时隐藏。
+ */
+function updateScrollbarHover(table: ListTable, x: number, y: number): ScrollbarHit | null {
+  const hit = scrollbarHit(table, x, y)
+  const hover = hit?.onThumb ? hit.axis : null
+  if (hover !== table.scrollbarHover) {
+    table.scrollbarHover = hover
+    table.pokeScrollbar()
+    refreshOverlay(table)
+  } else if (hit) {
+    table.pokeScrollbar()
   }
+  return hit
+}
+
+/* ---------- 内建滚动条：几何 / 视图 / 命中 / 拖拽会话 ---------- */
+
+/**
+ * 单轴滑块几何（可滚动且轨道非正才非 null）。不受显隐策略影响——命中与拖拽换算
+ * 恒用真实几何（'scrolling' 静止隐藏档悬停/点按条带即触发显示）。
+ */
+function scrollbarGeometry(
+  table: ListTable,
+  axis: 'vertical' | 'horizontal',
+): ScrollbarThumbGeometry | null {
   const size = table.getTheme().interaction.scrollbarSize
   const { scroll } = table
-  return {
-    vertical: planScrollbarThumb(
-      { maxScroll: scroll.maxTop, viewport: table.viewportHeight, offset: table.getScrollTop() },
-      Math.max(0, table.height - size),
-    ),
-    horizontal: planScrollbarThumb(
-      { maxScroll: scroll.maxLeft, viewport: table.viewportWidth, offset: table.getScrollLeft() },
-      Math.max(0, table.width - size),
-    ),
+  return planScrollbarThumb(
+    axis === 'vertical'
+      ? { maxScroll: scroll.maxTop, viewport: table.viewportHeight, offset: table.getScrollTop() }
+      : { maxScroll: scroll.maxLeft, viewport: table.viewportWidth, offset: table.getScrollLeft() },
+    Math.max(0, (axis === 'vertical' ? table.height : table.width) - size),
+  )
+}
+
+/** 浮层滚动条视图：显隐门控 + hover/active 态（关闭或静止隐藏两轴皆 null） */
+function scrollbarViews(table: ListTable): OverlayContent['scrollbars'] {
+  if (!table.scrollbarConfig.enabled || !table.scrollbarVisible) {
+    return { vertical: null, horizontal: null }
   }
+  const view = (axis: 'vertical' | 'horizontal') => {
+    const geometry = scrollbarGeometry(table, axis)
+    return geometry
+      ? {
+          geometry,
+          hover: table.scrollbarHover === axis,
+          active: table.scrollbarDrag?.axis === axis,
+        }
+      : null
+  }
+  return { vertical: view('vertical'), horizontal: view('horizontal') }
 }
 
 function scrollbarHit(table: ListTable, x: number, y: number): ScrollbarHit | null {
-  if (table.options.scrollbar === false) return null
+  if (!table.scrollbarConfig.enabled) return null
   const size = table.getTheme().interaction.scrollbarSize
-  const snapshot = scrollbarSnapshot(table)
-  return hitScrollbar(table.width, table.height, size, snapshot.vertical, snapshot.horizontal, x, y)
+  return hitScrollbar(
+    table.width,
+    table.height,
+    size,
+    scrollbarGeometry(table, 'vertical'),
+    scrollbarGeometry(table, 'horizontal'),
+    x,
+    y,
+  )
+}
+
+/** 真实 DOM 指针事件的 buttons 位集（PointerEvent 携带；合成事件缺省为 undefined） */
+function pointerButtons(event: SceneEvent): number | undefined {
+  return (event.originalEvent as { buttons?: number }).buttons
 }
 
 function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEvent): void {
   if (!hit.onThumb) {
-    // 轨道点按跳转：点按处作为滑块中心（跳转即触发滚动与浮层重绘）
-    const geometry =
-      hit.axis === 'vertical'
-        ? scrollbarSnapshot(table).vertical
-        : scrollbarSnapshot(table).horizontal
+    // 轨道点按跳转：点按处作为滑块中心（同步提交一次滚动，跳转后按住可继续拖拽）
+    const geometry = scrollbarGeometry(table, hit.axis)
     if (geometry) {
       const target = mapScrollbarTrackPoint(geometry, hit.pointPx)
       if (hit.axis === 'vertical') {
@@ -927,8 +972,81 @@ function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEve
     axis: hit.axis,
     startPx: hit.axis === 'vertical' ? event.y : event.x,
     startOffset: hit.axis === 'vertical' ? table.getScrollTop() : table.getScrollLeft(),
+    pendingOffset: undefined,
   }
+  table.pokeScrollbar()
+  bindScrollbarPointerCapture(table)
   table.setContainerCursor('default')
+}
+
+/**
+ * 结束拖拽会话：同步冲刷合帧中未落地的末次滚动目标（拖拽终点不丢帧）、解绑画布外
+ * 指针接续，落点光标按 hover/命中重判（顺带脉动 'scrolling' 档重新计时）。
+ */
+function endScrollbarDrag(table: ListTable, event: SceneEvent): void {
+  table.scrollbarCommitTask()
+  table.scrollbarDrag = null
+  releaseScrollbarCapture(table)
+  updatePointerCursor(table, event.x, event.y)
+}
+
+/**
+ * 滚动条拖拽的画布外指针接续（setPointerCapture 的等价机制）：场景事件只在容器
+ * （EventSystem 事件源）内派发，指针移出画布后 move/up 丢失——原「移出画布会话
+ * 悬挂、回画布未按住仍滚动」缺陷的根因。会话期间在 window 挂 pointermove/pointerup，
+ * 画布外事件按容器矩形换算回层坐标后直接喂交互处理；目标仍在容器内的事件跳过
+ * （已经场景系统派发，重复喂会双触发）。无 window 环境（离屏/无 DOM）不挂。
+ */
+function bindScrollbarPointerCapture(table: ListTable): void {
+  releaseScrollbarCapture(table)
+  if (typeof window === 'undefined') {
+    return
+  }
+  const container = table.getContainer()
+  const insideCanvasHost = (dom: PointerEvent): boolean =>
+    container !== undefined && dom.target instanceof Node && container.contains(dom.target)
+  const synthesize = (type: 'pointermove' | 'pointerup', dom: PointerEvent): SceneEvent => {
+    const rect = container?.getBoundingClientRect()
+    return {
+      type,
+      target: null,
+      x: (dom.clientX ?? 0) - (rect?.left ?? 0),
+      y: (dom.clientY ?? 0) - (rect?.top ?? 0),
+      deltaX: 0,
+      deltaY: 0,
+      key: undefined,
+      shiftKey: dom.shiftKey ?? false,
+      ctrlKey: dom.ctrlKey ?? false,
+      metaKey: dom.metaKey ?? false,
+      button: dom.button,
+      originalEvent: dom,
+    }
+  }
+  const onMove = (dom: PointerEvent): void => {
+    if (!table.scrollbarDrag || insideCanvasHost(dom)) {
+      return
+    }
+    onPointerMove(table, synthesize('pointermove', dom))
+  }
+  const onUp = (dom: PointerEvent): void => {
+    releaseScrollbarCapture(table)
+    if (!table.scrollbarDrag || insideCanvasHost(dom)) {
+      return
+    }
+    onPointerUp(table, synthesize('pointerup', dom))
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  table.scrollbarReleaseCapture = () => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+  }
+}
+
+/** 解绑画布外指针接续（会话结束/表销毁；幂等） */
+function releaseScrollbarCapture(table: ListTable): void {
+  table.scrollbarReleaseCapture?.()
+  table.scrollbarReleaseCapture = null
 }
 
 /** 刷新 sky 浮层；仅在（或曾在）有内容时提交 sky 失效，避免空浮层空转整层重绘 */
@@ -959,8 +1077,8 @@ export function refreshOverlay(table: ListTable): void {
       x: table.frozenColCount > 0 ? table.rowHeaderWidth + table.frozenColsWidth : null,
       y: table.frozenRowCount > 0 ? table.headerHeight + table.frozenRowsHeight : null,
     },
-    // 内建滚动条滑块几何（选项关闭两轴皆 null）
-    scrollbars: scrollbarSnapshot(table),
+    // 内建滚动条视图（不可滚动/静止隐藏/选项关闭的轴为 null）
+    scrollbars: scrollbarViews(table),
     // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末；无冻结时起点取滚动窗
     // 起点——rangeRect 收拢后还须经 cellRect 解析双角格，起点越过可解析范围
     // （cellRect 对滚动窗外行列返回 null）会让整行/整列选区在滚动后整块浮层丢失

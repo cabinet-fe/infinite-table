@@ -1,13 +1,13 @@
 // 报表式只读快照渲染场景（meta 报表迁移参考形态）：
-// 手写报表快照（P6 snapshot 九字段结构）→ restore() 全量灌入 SheetStore（模型侧唯一事实源）→
-// readonly 渲染（resolveEditable 全禁编 + canResizeCol/Row 全禁改尺寸 + 不接填充/撤销等写路径插件）。
-// images/selection 随快照携带，经 restore wiring 由宿主接线引擎 floatObjects / applyExternalSelection——
+// 手写报表快照（九字段结构）→ sheet 插件（单表只读形态）handle 全量灌入 Store（模型侧唯一事实源）→
+// readonly 渲染（resolveEditable 全禁编 + canResizeCol/Row 全禁改尺寸 + 插件 readonly 不接填充/撤销写路径）。
+// images/selection 随快照携带，经灌回 wiring 由宿主接线引擎 floatObjects / applyExternalSelection——
 // 与 meta 迁移时「服务端快照 → 灌模型 → 只读渲染」的形态一致，可整段照搬。
 // 行列头关闭（showColHeader/showRowHeader false）：报表的表头带/标题行本身就是快照数据，
 // 引擎级行列头对纯报表形态是多余的 Chrome。
 
 import type { CellStyle, ListTable, ListTableOptions } from '@infinitable/core'
-import { SheetStore, restore, type SheetSnapshot } from '@infinitable/plugins'
+import { createSheetPlugin, type SheetPluginHandle } from '@infinitable/plugins'
 
 import {
   addButton,
@@ -17,6 +17,11 @@ import {
   mountTable,
   type DemoMount,
 } from '../mount'
+
+/** 演示层 Store 类型（sheet 插件 handle 的 store 面） */
+type SheetStore = NonNullable<SheetPluginHandle['store']>
+/** 快照类型（插件 handle 的采集产物形态；fixture 构建与往返断言共用） */
+type SheetSnapshot = ReturnType<SheetPluginHandle['saveSnapshot']>
 
 // ---- 报表维度与口径常量（smoke 断言与快照 fixture 共用） ----
 
@@ -295,8 +300,10 @@ function negativeQoqStyles(): Array<{ col: number; row: number; style: { color: 
 export interface ReportDemo {
   mount: DemoMount
   store: SheetStore
-  /** 重灌快照（restore 替换语义：对账后一切如初，验证灌回幂等） */
+  /** 重灌快照（替换语义：对账后一切如初，验证灌回幂等） */
   reloadSnapshot: () => void
+  /** 当前 Store 全量快照采集（smoke 往返等价断言用） */
+  saveSnapshot: () => SheetSnapshot
   status: HTMLElement
 }
 
@@ -306,6 +313,8 @@ interface ReportDemoHandle {
   getStore: () => SheetStore
   getContainer: () => HTMLElement
   reloadSnapshot: () => void
+  /** 当前 Store 全量快照采集（smoke 往返等价断言用） */
+  saveSnapshot: () => SheetSnapshot
   /** 快照 fixture 重建（smoke 往返等价断言的对照源） */
   buildSnapshot: () => SheetSnapshot
 }
@@ -320,19 +329,24 @@ export function mountReport(root: HTMLElement): ReportDemo {
   const section = createSection(
     root,
     '报表式只读快照渲染',
-    '报表快照（九字段）全量灌入 SheetStore → readonly 渲染：禁编辑（resolveEditable 全 false）、' +
+    '报表快照（九字段）全量灌入 sheet 插件 Store → readonly 渲染：禁编辑（resolveEditable 全 false）、' +
       '禁行列尺寸拖改（canResizeCol/Row 全 false）、不接填充/撤销写路径；浮动图与选区随快照经 wiring 接线。' +
-      '行列头关闭——报表自身的标题/表头带就是数据。meta 迁移时照搬「快照 → restore → 只读渲染」三段即可。',
+      '行列头关闭——报表自身的标题/表头带就是数据。meta 迁移时照搬「快照 → 灌回 → 只读渲染」三段即可。',
   )
 
-  const store = new SheetStore({
-    rowCount: REPORT_ROW_COUNT,
-    colCount: REPORT_COL_COUNT,
-    defaultColWidth: 96,
-    defaultRowHeight: 32,
+  // sheet 插件单表只读形态：持有唯一 Store（报表事实源），不装配写路径接线
+  const sheet = createSheetPlugin({
+    store: {
+      rowCount: REPORT_ROW_COUNT,
+      colCount: REPORT_COL_COUNT,
+      defaultColWidth: 96,
+      defaultRowHeight: 32,
+    },
+    readonly: true,
   })
+  const store = sheet.store!
 
-  // readonly 渲染口径：可编判定恒 false、行列尺寸拖改恒禁止；不注册编辑器、不绑定任何写路径插件
+  // readonly 渲染口径：可编判定恒 false、行列尺寸拖改恒禁止；不注册编辑器、插件 readonly 不接写路径
   const readonlyOptions: Partial<ListTableOptions> = {
     resolveEditable: () => false,
     canResizeCol: () => false,
@@ -346,6 +360,7 @@ export function mountReport(root: HTMLElement): ReportDemo {
       width: REPORT_COL_WIDTHS[col],
     })),
     model: store.asModel(),
+    plugins: [sheet],
     // 有效样式走模型侧读取 API（基础→列级→格级合成），样式面与快照单一事实源一致
     resolveCellStyle: (col, row) => store.getEffectiveStyle(col, row) ?? null,
     showColHeader: false,
@@ -382,10 +397,10 @@ export function mountReport(root: HTMLElement): ReportDemo {
     }
   })
 
-  // 浮动图对账：先移除上一轮灌入的，再按快照全量加（restore wiring 的宿主侧实现）
+  // 浮动图对账：先移除上一轮灌入的，再按快照全量加（灌回 wiring 的宿主侧实现）
   let appliedImageIds: string[] = []
   const reloadSnapshot = (): void => {
-    restore(store, createReportSnapshot(), {
+    sheet.restoreSnapshot(store, createReportSnapshot(), {
       images: (images) => {
         for (const id of appliedImageIds) {
           table.floatObjects.remove(id)
@@ -406,13 +421,13 @@ export function mountReport(root: HTMLElement): ReportDemo {
   }
   reloadSnapshot()
 
-  const status = addStatus(section, '快照已灌入（九字段全量 restore）')
-  addButton(section, '重灌快照 restore()', () => {
+  const status = addStatus(section, '快照已灌入（九字段全量灌回）')
+  addButton(section, '重灌快照（替换语义）', () => {
     reloadSnapshot()
     status.textContent = '快照已重灌（替换语义，浮动图对账后重建）'
   })
 
-  return { mount, store, reloadSnapshot, status }
+  return { mount, store, reloadSnapshot, status, saveSnapshot: () => sheet.saveSnapshot(store) }
 }
 
 /** 调试句柄装配（App.vue 冒烟路径共用） */
@@ -422,6 +437,7 @@ export function createReportHandle(demo: ReportDemo): ReportDemoHandle {
     getStore: () => demo.store,
     getContainer: () => demo.mount.container,
     reloadSnapshot: demo.reloadSnapshot,
+    saveSnapshot: demo.saveSnapshot,
     buildSnapshot: createReportSnapshot,
   }
 }

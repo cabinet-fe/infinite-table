@@ -22,7 +22,7 @@ import {
   type ScalarValue,
   type SheetCellCoord,
 } from '@infinitable/formulas'
-import type { SheetStore } from '@infinitable/plugins'
+import type { SheetStore } from './book'
 
 /** 求值结果（错误已转为错误码文本，可直接进 createFormulaDisplay 显示链） */
 export type EvaluatedValue = number | string | boolean

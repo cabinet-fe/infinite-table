@@ -1,7 +1,10 @@
 // 画布内建滚动条：几何换算与命中的纯函数（绘制在 sky 交互浮层、指针在交互层拦截）。
 // 滚动边界唯一来源 ScrollManager——可滚动 ⟺ maxLeft/maxTop > 0；滑块行程与滚动
 // 范围同构（内容 = 视口 + 滚动余量），视口口径取整个画布（含行号列/列头带），
-// 比例映射不受行头/列头像素差影响。
+// 比例映射不受行头/列头像素差影响。内缩边距（margin）只作用于滑块厚度方向，
+// 纵向行程几何不变——拖拽/点按换算与命中语义不受主题 token 影响。
+
+import type { ScrollbarOptions } from './types'
 
 /** 单轴滚动状态（ScrollManager 字段子集） */
 export interface ScrollbarAxisState {
@@ -23,6 +26,47 @@ export interface ScrollbarThumbGeometry {
 
 /** 滑块最小长度：内容远超视口时保持可抓取 */
 export const MIN_SCROLLBAR_THUMB_PX = 24
+
+/**
+ * 滑块绘制厚度：条带厚度扣除两侧内缩边距（hover/拖拽档传收窄边距即视觉变粗）；负值钳 0。
+ * 仅厚度方向内缩——纵向 thumbPos/thumbSize 行程几何不变，换算语义与 token 解耦。
+ */
+export function scrollbarThumbThickness(size: number, margin: number): number {
+  return Math.max(0, size - 2 * margin)
+}
+
+/** 单轴滚动条浮层视图：几何 + 视觉态（三态色与两档厚度在浮层按此选取） */
+export interface ScrollbarAxisView {
+  geometry: ScrollbarThumbGeometry
+  /** 指针悬停滑块（非拖拽 pointermove 命中滑块置位） */
+  hover: boolean
+  /** 拖拽会话进行中（激活色 + 收窄内缩档） */
+  active: boolean
+}
+
+/** options.scrollbar 归一化：false/undefined 关开与默认档位、对象形态透传策略与延时 */
+export interface ScrollbarConfig {
+  enabled: boolean
+  visibility: 'always' | 'scrolling'
+  /** 显式延时（缺省回落主题 scrollbarHideDelay token，运行时逐次读取） */
+  hideDelay: number | undefined
+}
+
+export function resolveScrollbarConfig(
+  option: boolean | ScrollbarOptions | undefined,
+): ScrollbarConfig {
+  if (option === false) {
+    return { enabled: false, visibility: 'always', hideDelay: undefined }
+  }
+  if (option === true || option === undefined) {
+    return { enabled: true, visibility: 'always', hideDelay: undefined }
+  }
+  return {
+    enabled: true,
+    visibility: option.visibility === 'scrolling' ? 'scrolling' : 'always',
+    hideDelay: option.hideDelay,
+  }
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -80,6 +124,8 @@ export interface ScrollbarDragSession {
   axis: 'vertical' | 'horizontal'
   startPx: number
   startOffset: number
+  /** 合帧待提交的滚动目标（rAF 提交任务读取后清空；会话结束同步冲刷） */
+  pendingOffset: number | undefined
 }
 
 /**

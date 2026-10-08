@@ -28,9 +28,6 @@ export interface ChartPluginHandle extends TablePlugin {
   loadLibrary(): Promise<ChartJsModule>
 }
 
-/** 插件名（core 插件注册路径用） */
-export const CHART_PLUGIN_NAME = 'chart'
-
 export function createChartPlugin(options: ChartPluginOptions = {}): ChartPluginHandle {
   // 声明身份 + 内容 key 双重校验 memo：场景重建/走廊扫描对图表格反复解析，声明内容未变
   // 时复用同一 media（O(1) 复用产物对象）。声明常被宿主就地改数据（记录式数据源，对象
@@ -68,7 +65,8 @@ export function createChartPlugin(options: ChartPluginOptions = {}): ChartPlugin
   }
 
   return {
-    name: CHART_PLUGIN_NAME,
+    // 插件名（core 插件注册路径用；常量内化，不经公共入口转出）
+    name: 'chart',
     mount(table: ListTable) {
       // L2 media 的 chart 预留位接线：场景重建按此解析器装配图表格节点
       table.chartMediaResolver = resolveChartMedia

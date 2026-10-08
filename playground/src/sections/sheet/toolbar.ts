@@ -10,14 +10,7 @@ import {
   type ListTable,
 } from '@infinitable/core'
 
-import {
-  borderPresetLine,
-  buildBorderPresetCells,
-  type BorderLineStyle,
-  type BorderPreset,
-  type SheetStore,
-  type UndoStack,
-} from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
 import { FORMULA_FUNCTION_CATEGORIES, listFormulaFunctions } from '@infinitable/formulas'
 
@@ -25,9 +18,13 @@ import { createFindReplace, type FindReplaceHandle } from './find-replace'
 import { icon } from './icons'
 import { closeActivePopup, isPopupAnchoredTo, openAnchoredPopup } from './popup'
 import { mergeBounds, unmergeAt } from './ops'
-import type { SheetBookBundle } from './book'
+import type { SheetBookBundle, SheetStore } from './book'
 import type { CSVHandle } from './csv'
 import type { XlsxHandle } from './xlsx'
+
+/** 边框线型 / 预设（sheet 插件 handle 边框方法的参数面） */
+type BorderLineStyle = Parameters<SheetPluginHandle['borderEdge']>[0]
+type BorderPreset = Parameters<SheetPluginHandle['borderCells']>[1]
 
 /** 填充/字色共用色板（7 列 × 5 行） */
 const PALETTE: readonly string[] = [
@@ -71,7 +68,7 @@ const PALETTE: readonly string[] = [
 /** 字号档位（pt 标注语义，落 Store 为 fontSize 像素数值） */
 const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32] as const
 
-/** 边框线型（边定义由 plugins borderPresetLine 映射：thin/medium/thick→solid 1/2/3px，dashed/dotted 同名线型） */
+/** 边框线型（边定义由 sheet 插件 handle.borderEdge 映射：thin/medium/thick→solid 1/2/3px，dashed/dotted 同名线型） */
 const LINE_STYLES: ReadonlyArray<{ id: BorderLineStyle; label: string }> = [
   { id: 'thin', label: '细线' },
   { id: 'medium', label: '中粗线' },
@@ -99,8 +96,8 @@ interface ToolbarDeps {
   table: () => ListTable
   store: () => SheetStore
   notify: (text: string, kind?: 'info' | 'warn') => void
-  /** 撤销栈（历史组按钮 + Ctrl+Z/Y） */
-  stack: UndoStack
+  /** sheet 插件 handle（撤销/重做：历史组按钮 + Ctrl+Z/Y；边框预设展开） */
+  sheet: SheetPluginHandle
   bundle: SheetBookBundle
   csv: CSVHandle
   xlsx: XlsxHandle
@@ -276,7 +273,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
   }
 
   /**
-   * 边框预设写入选区：逐格片段由 plugins buildBorderPresetCells 展开（8 预设语义对齐 ultra-ui），
+   * 边框预设写入选区：逐格片段由 sheet 插件 handle.borderCells 展开（8 预设语义对齐 ultra-ui），
    * 写入按边级合并进既有 border（部分预设不丢其余边）；none 清除边框键。
    * 不做邻居共享边回写——core 共享边裁决保证单侧设置即正确显示；左/上邻居刷新由
    * refreshCell 联动覆盖（refreshSelection 只刷选区内）。
@@ -288,7 +285,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
       return
     }
     const store = deps.store()
-    for (const item of buildBorderPresetCells(bounds, preset, edge)) {
+    for (const item of deps.sheet.borderCells(bounds, preset, edge)) {
       const base = { ...store.getStyle(item.col, item.row) } as Record<string, unknown>
       if (item.border === null) {
         delete base.border
@@ -516,7 +513,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     }
     /** 线型 + 颜色 → 边定义（plugins borderPresetLine），并渲染线型按钮的预览色条 */
     const swatchBorder = (line: (typeof LINE_STYLES)[number], color: string): string => {
-      const edge = borderPresetLine(line.id, color)
+      const edge = deps.sheet.borderEdge(line.id, color)
       return `${edge.width}px ${edge.style ?? 'solid'} ${edge.color}`
     }
 
@@ -592,7 +589,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
         `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke-width="1.5" ` +
         `stroke-linecap="square">${borderGlyph(preset)}</svg>`
       button.addEventListener('click', () => {
-        applyBorderPreset(preset, borderPresetLine(selected.line.id, selected.color))
+        applyBorderPreset(preset, deps.sheet.borderEdge(selected.line.id, selected.color))
         close()
       })
       presets.appendChild(button)
@@ -764,7 +761,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     title: '撤销（Ctrl/Cmd+Z）',
     iconId: 'undo',
     onClick: () => {
-      deps.stack.undo()
+      deps.sheet.undo()
       deps.notify('已撤销')
       refreshStates()
     },
@@ -774,7 +771,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     title: '重做（Ctrl/Cmd+Shift+Z 或 Ctrl+Y）',
     iconId: 'redo',
     onClick: () => {
-      deps.stack.redo()
+      deps.sheet.redo()
       deps.notify('已重做')
       refreshStates()
     },
@@ -954,8 +951,8 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     active('valign-top', valign === 'top')
     active('valign-middle', valign === 'middle')
     active('valign-bottom', valign === 'bottom')
-    tools.get('undo')?.toggleAttribute('disabled', !deps.stack.canUndo)
-    tools.get('redo')?.toggleAttribute('disabled', !deps.stack.canRedo)
+    tools.get('undo')?.toggleAttribute('disabled', !deps.sheet.canUndo)
+    tools.get('redo')?.toggleAttribute('disabled', !deps.sheet.canRedo)
   }
 
   const bindTo = (table: ListTable): void => {
@@ -973,7 +970,7 @@ export function mountToolbar(area: HTMLElement, deps: ToolbarDeps): ToolbarHandl
     refreshStates()
   }
   bindTo(deps.table())
-  const offBookChange = deps.bundle.book.onChange((event) => {
+  const offBookChange = deps.bundle.sheet.onSheetChange((event) => {
     if (event.table) {
       bindTo(event.table)
     }

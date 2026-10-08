@@ -285,8 +285,24 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
       freezeDividerColor: '#c9cdd4',
       freezeDividerWidth: 1,
       scrollbarThumb: 'rgba(31, 35, 41, 0.4)',
+      scrollbarThumbHover: 'rgba(31, 35, 41, 0.55)',
+      scrollbarThumbActive: 'rgba(31, 35, 41, 0.7)',
+      scrollbarRadius: 4,
       scrollbarSize: 10,
+      scrollbarMargin: 2,
+      scrollbarMarginHover: 1,
+      scrollbarHideDelay: 1000,
     })
+  })
+
+  it('滚动条 token 深覆盖：extendsTheme 逐键覆盖生效、未覆盖键继承默认', () => {
+    const theme = extendsTheme({
+      interaction: { scrollbarThumb: '#111111', scrollbarMargin: 3 },
+    })
+    expect(theme.interaction.scrollbarThumb).toBe('#111111')
+    expect(theme.interaction.scrollbarMargin).toBe(3)
+    expect(theme.interaction.scrollbarThumbHover).toBe('rgba(31, 35, 41, 0.55)')
+    expect(theme.interaction.scrollbarHideDelay).toBe(1000)
   })
 
   it('underlayBackgroundColor 默认白色；frameStyle 默认不绘制', () => {

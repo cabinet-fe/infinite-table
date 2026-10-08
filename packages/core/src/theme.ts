@@ -45,7 +45,7 @@ export interface CellStyleTokens {
   border?: CellBorder
 }
 
-/** 交互浮层样式 token：选区/填充柄/resize 拖拽线的唯一颜色与宽度来源 */
+/** 交互浮层样式 token：选区/填充柄/resize 拖拽线/内建滚动条的唯一颜色与尺寸来源 */
 export interface InteractionTokens {
   /** 选区段填充色 */
   selectionFill: string
@@ -65,10 +65,22 @@ export interface InteractionTokens {
   freezeDividerColor: string
   /** 冻结分隔线宽（CSS 像素） */
   freezeDividerWidth: number
-  /** 内建滚动条滑块颜色 */
+  /** 内建滚动条滑块默认色（灰阶三档的基准，随主题基调协调） */
   scrollbarThumb: string
+  /** 内建滚动条滑块 hover 色（指针悬停滑块即时切换，一帧内反馈） */
+  scrollbarThumbHover: string
+  /** 内建滚动条滑块拖拽激活色（拖拽会话期间） */
+  scrollbarThumbActive: string
+  /** 内建滚动条圆角半径（CSS 像素；绘制时钳到厚度一半成胶囊形） */
+  scrollbarRadius: number
   /** 内建滚动条条带厚度（CSS 像素；两轴交汇的右下空白角同厚） */
   scrollbarSize: number
+  /** 滑块与条带边缘的内缩边距（仅横向内缩变细；纵向行程换算不受影响） */
+  scrollbarMargin: number
+  /** hover/拖拽态的内缩边距（收窄即视觉变粗，参照 univer margin 2→1） */
+  scrollbarMarginHover: number
+  /** 'scrolling' 显隐档静止后隐藏延时（ms；options.scrollbar.hideDelay 显式给定时优先） */
+  scrollbarHideDelay: number
 }
 
 /** 表格外框样式 token */
@@ -160,8 +172,17 @@ export const defaultTheme: TableTheme = {
     // 比默认网格线（#e5e6eb）深一档，对齐 Excel 冻结分隔观感
     freezeDividerColor: '#c9cdd4',
     freezeDividerWidth: 1,
+    // 滚动条三态色：基准灰（#1f2329 同源）按透明度分档，hover/激活逐级加深
     scrollbarThumb: 'rgba(31, 35, 41, 0.4)',
+    scrollbarThumbHover: 'rgba(31, 35, 41, 0.55)',
+    scrollbarThumbActive: 'rgba(31, 35, 41, 0.7)',
+    scrollbarRadius: 4,
     scrollbarSize: 10,
+    // 缺省内缩 2px（厚度 10 − 2×2 = 6），hover/拖拽收窄到 1px（厚度 8，视觉变粗）
+    scrollbarMargin: 2,
+    scrollbarMarginHover: 1,
+    // 'scrolling' 档静止 1s 后隐藏（对齐 VTable autoHide 1000ms）
+    scrollbarHideDelay: 1000,
   },
   frameStyle: {
     lineWidth: 0,

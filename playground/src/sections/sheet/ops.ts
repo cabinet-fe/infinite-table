@@ -4,9 +4,9 @@
 
 import type { CellRange, CellStyle, ListTable } from '@infinitable/core'
 
-import type { SheetStore, UndoStack } from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
-import { applyValueWrites } from './undo-writes'
+import type { SheetStore } from './book'
 
 /** 读全表非空值/样式快照（稀疏） */
 interface GridSnapshot {
@@ -88,7 +88,7 @@ export function syncMergesToTable(
 export function clearValues(
   store: SheetStore,
   bounds: { minCol: number; maxCol: number; minRow: number; maxRow: number },
-  stack: UndoStack,
+  sheet: SheetPluginHandle,
 ): void {
   const writes: { col: number; row: number; value: null }[] = []
   for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
@@ -96,7 +96,7 @@ export function clearValues(
       writes.push({ col, row, value: null })
     }
   }
-  applyValueWrites(store, stack, writes)
+  sheet.writeValues(store, writes)
 }
 
 /** 合并选区（调用方需 try/catch 引擎校验）；返回合并区间 */

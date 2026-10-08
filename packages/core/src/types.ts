@@ -193,11 +193,22 @@ export interface ListTableOptions {
   /** Ctrl/Cmd 点选多选：开启后 Ctrl/Cmd 点数据格在既有选区上追加选区段（缺省 false，点选替换选区） */
   ctrlMultiSelect?: boolean
   /**
-   * 内建滚动条：开启后在画布右/下缘绘制 overlay 滚动条（内容溢出该轴才显示，
-   * 支持拖滑块 / 点轨道跳转；滚轮/触控/键盘滚动恒可用）；缺省 true。false 不绘制
-   * 且右/下缘条带不拦截指针。
+   * 内建滚动条：false 整体关闭（不绘制、右/下缘条带不拦截指针）；缺省 true 常驻；
+   * 对象形态配置显示策略——'always' 常驻（旧 true 语义）、'scrolling' 滚动或滚动条
+   * 交互时显示、静止 hideDelay 后隐藏（hideDelay 缺省回落主题 scrollbarHideDelay token）。
    */
-  scrollbar?: boolean
+  scrollbar?: boolean | ScrollbarOptions
+}
+
+/** 内建滚动条配置（ListTableOptions.scrollbar 的对象形态） */
+export interface ScrollbarOptions {
+  /**
+   * 显示策略：'always' 常驻（缺省，与旧 true 语义一致）；'scrolling' 滚动或滚动条
+   * 交互（拖拽/点按/悬停）时显示，静止 hideDelay 后隐藏（参照 VTable scrollStyle.visible）。
+   */
+  visibility?: 'always' | 'scrolling'
+  /** 'scrolling' 档静止后隐藏延时（ms）；缺省回落主题 interaction.scrollbarHideDelay */
+  hideDelay?: number
 }
 
 /** contextmenu 事件（右键菜单 UI 为非目标，仅保留事件） */

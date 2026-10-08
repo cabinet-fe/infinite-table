@@ -1,13 +1,16 @@
 // SheetStore 构建：演示区两个 sheet 的单一事实源（值/样式/尺寸/冻结/合并）。
 // 初始值与样式矩阵种子在构造时播种；样式经 resolveCellStyle hook 落引擎。
+// Store 一律经 sheet 插件 handle 创建（散装构造已从 plugins 公共入口收敛）。
 
-import { SheetStore } from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
 import { MATRIX_STYLE_SEEDS, SHEET_COL_COUNT, SHEET_ROW_COUNT, VALUE_SEEDS } from './constants'
 
+import type { SheetStore } from './book'
+
 /** 主 sheet（Sheet1）：样式矩阵 + 合并区 + 填充演示 + 公式演示格 */
-export function createMainStore(): SheetStore {
-  const store = new SheetStore({
+export function createMainStore(sheet: SheetPluginHandle): SheetStore {
+  const store = sheet.createStore({
     rowCount: SHEET_ROW_COUNT,
     colCount: SHEET_COL_COUNT,
     defaultColWidth: 80,
@@ -38,8 +41,8 @@ export function createMainStore(): SheetStore {
 }
 
 /** 次 sheet（Sheet2）：轻量数字网格（验证切换状态隔离） */
-export function createSecondaryStore(): SheetStore {
-  const store = new SheetStore({
+export function createSecondaryStore(sheet: SheetPluginHandle): SheetStore {
+  const store = sheet.createStore({
     rowCount: SHEET_ROW_COUNT,
     colCount: SHEET_COL_COUNT,
     defaultColWidth: 80,

@@ -1,15 +1,15 @@
-// SheetBook 装配：sheet 定义注册（Store + 每表 resolveCellStyle/显示链闭包）、
+// sheet 插件（书形态）装配：sheet 定义注册（Store + 每表 resolveCellStyle/显示链闭包）、
 // 容器 hostOptions 注入、活跃切换时的容器显隐与滚轮接线（DOM 呈现归宿主，
 // 即「切换全量重挂」的宿主侧：引擎实例池化复用，容器按活跃 id 显隐）。
 // 容器铺满网格区（absolute inset 0），尺寸由调用方测量网格区后经 tableOptions 传入。
 // numFmt 走 demo 级侧车（每 sheet 一张稀疏 Map，key 同格 `${col},${row}`）：
-// SheetStore 是 plugins 公共面不加字段；显示链在注册定义时闭包绑定本表 numFmt Map。
+// SheetStore 是插件 handle 面；显示链在注册定义时闭包绑定本表 numFmt Map。
 // 表名注册表（xlsx 导入沿用文件名；跨表引用解析按 id → 注册名 → 默认名匹配）。
 
 import type { ListTable, ListTableOptions } from '@infinitable/core'
 
 import { colLetters, type SheetCellCoord } from '@infinitable/formulas'
-import { SheetBook, SheetStore, type SheetDef } from '@infinitable/plugins'
+import { createSheetPlugin, type SheetPluginHandle } from '@infinitable/plugins'
 
 import { attachWheel, resolveDpr } from '../../mount'
 
@@ -17,6 +17,9 @@ import { createMainStore, createSecondaryStore } from './store'
 import { createSheetEvaluator } from './evaluator'
 import { createSheetDisplay, type NumFmt } from './format'
 import { SHEET_COL_COUNT, SHEET_ROW_COUNT } from './constants'
+
+/** 演示层 Store 类型（sheet 插件 handle 的 store 面；散装类型已从 plugins 公共入口收敛） */
+export type SheetStore = NonNullable<SheetPluginHandle['store']>
 
 /** sheet id → 默认展示名：sheet-1 → Sheet1（tabs 未重命名/未注册名时的名字） */
 function defaultSheetName(id: string): string {
@@ -32,7 +35,8 @@ interface RegisterSheetOptions {
 }
 
 export interface SheetBookBundle {
-  book: SheetBook
+  /** sheet 插件 handle（书形态：注册/切换/事件/撤销/导出面） */
+  sheet: SheetPluginHandle
   /** 当前活跃表（无活跃为 null） */
   activeTable: () => ListTable | null
   /** 当前活跃 Store */
@@ -96,8 +100,8 @@ export function createDemoBook(
     },
   })
 
-  const book = new SheetBook({
-    createHost: (def: SheetDef) => {
+  const sheet = createSheetPlugin({
+    createHost: (def) => {
       const container = document.createElement('div')
       container.className = 'sheet-grid-instance'
       container.dataset.sheetId = def.id
@@ -107,10 +111,11 @@ export function createDemoBook(
       return { hostOptions: { container, dpr: resolveDpr() } }
     },
     tableOptions,
+    undoLimit: 200,
   })
 
   // 实例首次创建后接滚轮（每实例一次；切换复用不重复接线）
-  book.onChange((event) => {
+  sheet.onSheetChange((event) => {
     if (!event.table || !event.activeId || !event.created || wheels.has(event.activeId)) {
       return
     }
@@ -141,7 +146,7 @@ export function createDemoBook(
       }
     }
     for (const [sheetId, list] of bySheet) {
-      const table = book.get(sheetId)
+      const table = sheet.get(sheetId)
       if (!table) {
         continue
       }
@@ -172,7 +177,7 @@ export function createDemoBook(
         }
       }),
     )
-    const def: SheetDef = {
+    sheet.registerSheet({
       id,
       store,
       options: {
@@ -183,12 +188,11 @@ export function createDemoBook(
           numFmt: (col, row) => numFmt.get(`${col},${row}`),
         }),
       },
-    }
-    book.register(def)
+    })
   }
 
-  registerWith('sheet-1', createMainStore())
-  registerWith('sheet-2', createSecondaryStore())
+  registerWith('sheet-1', createMainStore(sheet))
+  registerWith('sheet-2', createSecondaryStore(sheet))
 
   const registerSheet = (store: SheetStore, options?: RegisterSheetOptions): string => {
     counter += 1
@@ -198,11 +202,11 @@ export function createDemoBook(
   }
 
   return {
-    book,
-    activeTable: () => book.activeTable,
-    activeStore: () => (book.activeId ? (stores.get(book.activeId) ?? null) : null),
+    sheet,
+    activeTable: () => sheet.activeTable(),
+    activeStore: () => (sheet.activeId ? (stores.get(sheet.activeId) ?? null) : null),
     switchTo(id: string) {
-      book.switchTo(id)
+      sheet.switchTo(id)
       // 容器显隐：活跃 sheet 显示、其余隐藏
       for (const [defId, container] of containers) {
         container.style.display = defId === id ? 'block' : 'none'
@@ -210,7 +214,7 @@ export function createDemoBook(
     },
     createSheet() {
       return registerSheet(
-        new SheetStore({
+        sheet.createStore({
           rowCount: SHEET_ROW_COUNT,
           colCount: SHEET_COL_COUNT,
           defaultColWidth: 80,
@@ -221,7 +225,7 @@ export function createDemoBook(
     registerSheet,
     removeSheet(id: string) {
       // 活跃 sheet 不允许删（tabs 语义：先切走再删，由 tabs 层保证）
-      if (id === book.activeId || !book.has(id)) {
+      if (id === sheet.activeId || !sheet.has(id)) {
         return false
       }
       containers.get(id)?.remove()
@@ -234,10 +238,10 @@ export function createDemoBook(
       wheels.get(id)?.()
       wheels.delete(id)
       evaluator.dropSheet(id) // 连带整表标脏其余表缓存（依赖方重算出 #REF!）
-      book.remove(id)
+      sheet.removeSheet(id)
       return true
     },
-    ids: () => [...stores.keys()].filter((id) => book.has(id)),
+    ids: () => [...stores.keys()].filter((id) => sheet.has(id)),
     nameOf: (id: string) => names.get(id) ?? defaultSheetName(id),
     getNumFmt(id, col, row) {
       return numFmtMaps.get(id)?.get(`${col},${row}`)
@@ -257,7 +261,7 @@ export function createDemoBook(
     containers,
     stores,
     evaluateActive(formula: string) {
-      const id = book.activeId
+      const id = sheet.activeId
       const store = id ? stores.get(id) : undefined
       if (!id || !store) {
         return '#REF!'
@@ -274,7 +278,7 @@ export function createDemoBook(
       for (const off of storeWatchOffs.values()) {
         off()
       }
-      book.dispose()
+      sheet.dispose()
     },
   }
 }

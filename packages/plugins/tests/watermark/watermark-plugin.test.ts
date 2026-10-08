@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ListTable, type TablePlugin } from '@infinitable/core'
 
-import { createWatermarkPlugin, WATERMARK_PLUGIN_NAME } from '../../src/watermark/watermark-plugin'
+import { createWatermarkPlugin } from '../../src/watermark/watermark-plugin'
 import { StubHost } from '../testing/stub-host'
 import { RecordingContext } from '../testing/recording-context'
 
@@ -58,7 +58,7 @@ describe('createWatermarkPlugin 预留位接线', () => {
     const host = new StubHost()
     const plugin = createWatermarkPlugin({ enabled: true, text: '内部资料' })
     const table = createTable(host, [plugin])
-    expect(plugin.name).toBe(WATERMARK_PLUGIN_NAME)
+    expect(plugin.name).toBe('watermark')
     expect(skyChildren(host)).toBe(2)
     expect(skyFullCount(host)).toBe(1)
     const painted = paintOverlay(host)

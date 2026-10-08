@@ -1,9 +1,10 @@
 // sheet 场景口径（S5）：切 sheet（全量重建）、逐格写（cell 级失效）、大块粘贴（batchUpdate
 // 收敛单次 band）、冻结切换（运行时重建）。headless 与浏览器跑同一份逻辑。
 // P9 增：大批量初始化写 + 大样式池（口径对齐下游 sheet-big-data：万行级批量写 + 20 色样式池）。
+// Store 一律经 sheet 插件 handle 创建（散装构造已从 plugins 公共入口收敛）。
 
 import type { CellStyle } from '@infinitable/core'
-import { SheetStore } from '@infinitable/plugins'
+import { createSheetPlugin } from '@infinitable/plugins'
 
 import type { BenchEnv, BenchTable } from './env'
 import type { BenchCheck, BenchMetric, ScenarioResult } from './report'
@@ -32,8 +33,11 @@ function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
-function createSheetStore(seed = false): SheetStore {
-  const store = new SheetStore({ rowCount: SHEET_ROWS, colCount: SHEET_COLS })
+/** sheet 插件（Store 工厂形态：基准建表只挂模型，不装配交互接线） */
+const sheetPlugin = createSheetPlugin({})
+
+function createSheetStore(seed = false) {
+  const store = sheetPlugin.createStore({ rowCount: SHEET_ROWS, colCount: SHEET_COLS })
   if (seed) {
     for (let col = 0; col < SHEET_COLS; col++) {
       for (let row = 0; row < 100; row++) {
@@ -209,7 +213,7 @@ async function runSheetBigInitWrites(env: BenchEnv): Promise<ScenarioResult> {
   let totalOps = 0
   let totalElapsed = 0
   for (const rows of BIG_INIT_SIZES) {
-    const store = new SheetStore({
+    const store = sheetPlugin.createStore({
       rowCount: rows,
       colCount: BIG_INIT_COLS,
       defaultColWidth: 104,

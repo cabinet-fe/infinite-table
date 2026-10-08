@@ -13,7 +13,8 @@ import {
   type SelectionRange,
   type SelectionSnapshot,
 } from './selection'
-import type { ScrollbarThumbGeometry } from './scrollbar'
+import type { ScrollbarAxisView } from './scrollbar'
+import { scrollbarThumbThickness } from './scrollbar'
 import type { InteractionTokens } from './theme'
 
 /** 浮层绘制所需的几何查询（闭包读取表格实时状态） */
@@ -54,10 +55,10 @@ export interface OverlayContent {
   readonly highlightRanges: readonly HighlightRange[]
   /** 冻结分隔线位置（视口坐标；x = 冻结列右缘竖线、y = 冻结行下缘横线，冻结数为 0 的轴为 null） */
   readonly freezeDividers: { x: number | null; y: number | null }
-  /** 内建滚动条滑块几何（不可滚动的轴为 null；选项关闭两轴皆 null） */
+  /** 内建滚动条浮层视图（不可滚动/静止隐藏/选项关闭的轴为 null） */
   readonly scrollbars: {
-    vertical: ScrollbarThumbGeometry | null
-    horizontal: ScrollbarThumbGeometry | null
+    vertical: ScrollbarAxisView | null
+    horizontal: ScrollbarAxisView | null
   }
   /** 可视窗口（选区裁剪用，[start, end)） */
   readonly window: { rows: WindowRange; cols: WindowRange }
@@ -103,17 +104,81 @@ export class OverlayNode extends SceneNode {
     this.paintScrollbars(ctx, content)
   }
 
-  /** 内建滚动条滑块：画布右/下缘条带内按几何填充；节点尺寸即画布尺寸（resize 同步） */
+  /**
+   * 内建滚动条滑块：条带内按几何 + 内缩/圆角/三态绘制（节点尺寸即画布尺寸）。
+   * 厚度 = 条带厚 − 2×内缩（hover/拖拽档收窄内缩即变粗）；颜色按 激活 > hover > 默认 取档。
+   */
   private paintScrollbars(ctx: RenderContext, content: OverlayContent): void {
-    const size = this.interaction.scrollbarSize
-    ctx.fillStyle = this.interaction.scrollbarThumb
+    const tokens = this.interaction
     const vertical = content.scrollbars.vertical
     if (vertical) {
-      ctx.fillRect(this.width - size, vertical.thumbPos, size, vertical.thumbSize)
+      const margin =
+        vertical.active || vertical.hover ? tokens.scrollbarMarginHover : tokens.scrollbarMargin
+      this.paintRoundedRect(
+        ctx,
+        this.width - tokens.scrollbarSize + margin,
+        vertical.geometry.thumbPos,
+        scrollbarThumbThickness(tokens.scrollbarSize, margin),
+        vertical.geometry.thumbSize,
+        tokens.scrollbarRadius,
+        this.scrollbarThumbColor(vertical),
+      )
     }
     const horizontal = content.scrollbars.horizontal
     if (horizontal) {
-      ctx.fillRect(horizontal.thumbPos, this.height - size, horizontal.thumbSize, size)
+      const margin =
+        horizontal.active || horizontal.hover ? tokens.scrollbarMarginHover : tokens.scrollbarMargin
+      this.paintRoundedRect(
+        ctx,
+        horizontal.geometry.thumbPos,
+        this.height - tokens.scrollbarSize + margin,
+        horizontal.geometry.thumbSize,
+        scrollbarThumbThickness(tokens.scrollbarSize, margin),
+        tokens.scrollbarRadius,
+        this.scrollbarThumbColor(horizontal),
+      )
+    }
+  }
+
+  /** 滑块三态取色：拖拽激活 > hover > 默认 */
+  private scrollbarThumbColor(view: ScrollbarAxisView): string {
+    if (view.active) {
+      return this.interaction.scrollbarThumbActive
+    }
+    return view.hover ? this.interaction.scrollbarThumbHover : this.interaction.scrollbarThumb
+  }
+
+  /**
+   * 圆角矩形填充：RenderContext 最小子集无圆角路径原语，用「中段整条 + 两端按圆弧
+   * 逐行光栅化」拼出（半径钳到短边一半成胶囊形；半径 <1 退化为直角整条）。
+   */
+  private paintRoundedRect(
+    ctx: RenderContext,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+    color: string,
+  ): void {
+    ctx.fillStyle = color
+    const r = Math.max(0, Math.min(radius, width / 2, height / 2))
+    if (r < 1) {
+      ctx.fillRect(x, y, width, height)
+      return
+    }
+    // 中段整条（半径钳到短边一半的胶囊形态下中段长度为 0，仅端部行覆盖全厚度）
+    if (height - 2 * r > 0) {
+      ctx.fillRect(x, y + r, width, height - 2 * r)
+    }
+    for (let i = 0; i < Math.ceil(r); i++) {
+      const rowHeight = Math.min(1, r - i)
+      // 行中心到端点的圆弧半宽 → 两端内缩量（端行内缩最多、近中行贴合全宽）
+      const dy = Math.min(i + rowHeight / 2, r)
+      const inset = r - Math.sqrt(r * r - (r - dy) * (r - dy))
+      const insetWidth = Math.max(0, width - 2 * inset)
+      ctx.fillRect(x + inset, y + i, insetWidth, rowHeight)
+      ctx.fillRect(x + inset, y + height - i - rowHeight, insetWidth, rowHeight)
     }
   }
 

@@ -2,7 +2,7 @@
 
 import type { ListTable } from '@infinitable/core'
 
-import type { SheetStore } from '@infinitable/plugins'
+import type { SheetStore } from './book'
 
 /** 行列尺寸持久化接线；返回退订函数集合（表格销毁前无需手动解绑） */
 export function bindResizePersistence(table: ListTable, store: SheetStore): () => void {

@@ -1,17 +1,16 @@
-// 打印演示区：headless 打印内核（分页/页面构建/占位符求值/iframe 输出）+ DOM 薄壳
-// 预览（openPrintPreview）的浏览器可验证路径。示例表超过一页（两行表头带合并单元格
-// + 48 行数据），PrintSource 经 SheetStore 适配供数（「宿主/适配器供数」形态，meta
-// 接入同款）；纸张/方向/缩放/分页模式（fitpage/fixrows 每页行数）配置入口即时合成
-// PrintConfig。window.print 在示例内替换为计数桩（不弹系统对话框），打印按钮经
-// printPages → 注入钩子汇到 window.print，计数与最近配置写入状态行；
+// 打印演示区：print 插件（createPrintPlugin）handle 形态的浏览器可验证路径——
+// headless 打印内核（分页/页面构建/占位符求值）+ DOM 薄壳预览（openPreview）。
+// 示例表超过一页（两行表头带合并单元格 + 48 行数据），PrintSource 由本区数据函数
+// 直接适配供数（「宿主/适配器供数」形态，屏上表格与打印共用同一数据源）；纸张/方向/
+// 缩放/分页模式（fitpage/fixrows 每页行数）配置入口即时合成 PrintConfig 逐次传入
+// handle 方法。window.print 在示例内替换为计数桩（不弹系统对话框），打印按钮经插件
+// print → 注入钩子汇到 window.print，计数与最近配置写入状态行；
 // window.__DEMO__.print 暴露 getPrintCount/getLastPrintConfig 供冒烟判定。
 
 import type { CellStyle, ListTableOptions } from '@infinitable/core'
 import {
-  openPrintPreview,
-  SheetStore,
+  createPrintPlugin,
   type PrintConfig,
-  type PrintHooks,
   type PrintOrientation,
   type PrintPaperPreset,
   type PrintPagingMode,
@@ -31,6 +30,8 @@ const PRINT_DATA_ROWS = 48
 const PRINT_COL_WIDTHS = [56, 84, 84, 104, 90, 90, 90] as const
 /** 数值列（页脚「本页小计 {pageSum:4}」取销售额列） */
 const SALES_COL = 4
+/** 全表行高（px，屏上演示与打印同口径） */
+const PRINT_ROW_HEIGHT = 30
 
 const REGION_CITIES: ReadonlyArray<{ region: string; city: string }> = [
   { region: '华东', city: '上海' },
@@ -80,19 +81,34 @@ const HEADER_SUB_CELLS: Array<[number, string]> = [
   [6, '环比'],
 ]
 
-/** SheetStore → PrintSource 适配（types.ts P1 注释的宿主适配形态） */
-function createPrintSource(store: SheetStore): PrintSource {
-  return {
-    name: '2026 Q3 销售明细（打印示例）',
-    rowCount: store.getRowCount(),
-    colCount: store.getColCount(),
-    rowHeight: (row) => store.getRowHeight(row),
-    colWidth: (col) => store.getColWidth(col),
-    merges: () => store.getMerges(),
-    cellValue: (col, row) => store.getValue(col, row),
-    cellStyle: (col, row) => store.getEffectiveStyle(col, row),
-    displayValue: (col, row) => store.getDisplayValue(col, row),
+/** 全表行数（表头带 + 数据行） */
+const ROW_COUNT = PRINT_HEADER_ROWS + PRINT_DATA_ROWS
+
+/** 合并区：整列字段纵合并（表头带两行）+「指标」横跨三列 */
+const MERGES = [
+  ...[0, 1, 2, 3].map((col) => ({ startCol: col, endCol: col, startRow: 0, endRow: 1 })),
+  { startCol: SALES_COL, endCol: 6, startRow: 0, endRow: 0 },
+]
+
+/** 格值（表头带文本 / 数据行取值；合并客格空） */
+function cellValue(col: number, row: number): unknown {
+  if (row === 0) {
+    return HEADER_TOP_CELLS.find(([c]) => c === col)?.[1] ?? null
   }
+  if (row === 1) {
+    return HEADER_SUB_CELLS.find(([c]) => c === col)?.[1] ?? null
+  }
+  return dataRowValue(col, row)
+}
+
+/** 有效格样式（表头带底纹；数据行负环比红字） */
+function cellStyle(col: number, row: number): CellStyle | undefined {
+  if (row < PRINT_HEADER_ROWS) {
+    const declared = (row === 0 ? HEADER_TOP_CELLS : HEADER_SUB_CELLS).some(([c]) => c === col)
+    return declared ? headerBandStyle() : undefined
+  }
+  const qoq = dataRowValue(6, row) as string
+  return qoq.startsWith('-') ? { color: '#dc2626' } : undefined
 }
 
 // ---- 演示区装配 ----
@@ -173,69 +189,57 @@ export function mountPrint(root: HTMLElement): PrintDemo {
   const section = createSection(
     root,
     '打印预览与输出',
-    'headless 打印内核 + DOM 薄壳预览：分页（fitpage 按页高 / fixrows 固定行数补空行）、每页重复两行' +
+    'print 插件（handle 形态）：分页（fitpage 按页高 / fixrows 固定行数补空行）、每页重复两行' +
       '表头、页眉页脚占位符（{title}/{date}/{page}/{pageCount} 与页级聚合 {pageSum:4}）。示例表超过一页，' +
       '「打印预览」打开缩略列表 + 当前页放大预览弹层；window.print 已替换为计数桩，点打印按钮后状态行' +
       '与 window.__DEMO__.print 可读取调用计数与最近配置。',
   )
 
-  // ---- 数据面：SheetStore 灌入表头带 + 48 行数据（单一事实源，屏上表格与打印共用） ----
-  const rowCount = PRINT_HEADER_ROWS + PRINT_DATA_ROWS
-  const store = new SheetStore({
-    rowCount,
+  // ---- 数据面：PrintSource 由本区数据函数适配（屏上表格与打印共用的单一事实源） ----
+  const source: PrintSource = {
+    name: '2026 Q3 销售明细（打印示例）',
+    rowCount: ROW_COUNT,
     colCount: PRINT_COL_WIDTHS.length,
-    defaultColWidth: 90,
-    defaultRowHeight: 30,
-  })
-  for (const [col, text] of HEADER_TOP_CELLS) {
-    store.setValue(col, 0, text)
-    store.setStyle(col, 0, headerBandStyle())
-  }
-  for (const [col, text] of HEADER_SUB_CELLS) {
-    store.setValue(col, 1, text)
-    store.setStyle(col, 1, headerBandStyle())
-  }
-  for (let row = PRINT_HEADER_ROWS; row < rowCount; row++) {
-    for (let col = 0; col < PRINT_COL_WIDTHS.length; col++) {
-      store.setValue(col, row, dataRowValue(col, row))
-    }
-    const qoq = dataRowValue(6, row) as string
-    if (qoq.startsWith('-')) {
-      store.setStyle(6, row, { color: '#dc2626' })
-    }
-  }
-  // 整列字段纵合并（表头带两行）+「指标」横跨三列
-  store.setMerges([
-    ...[0, 1, 2, 3].map((col) => ({ startCol: col, endCol: col, startRow: 0, endRow: 1 })),
-    { startCol: SALES_COL, endCol: 6, startRow: 0, endRow: 0 },
-  ])
-  for (const [col, width] of PRINT_COL_WIDTHS.entries()) {
-    store.setColWidth(col, width)
+    rowHeight: () => PRINT_ROW_HEIGHT,
+    colWidth: (col) => PRINT_COL_WIDTHS[col] ?? 90,
+    merges: () => MERGES,
+    cellValue,
+    cellStyle,
+    // 显示链回落原始值口径（与缺省 SheetStore 显示链一致）
+    displayValue: cellValue,
   }
 
-  // ---- 屏上演示表格（只读渲染：样式走模型侧有效样式读取面） ----
+  // ---- 屏上演示表格（只读渲染：样式走同一 cellStyle 读取面） ----
   const readonlyOptions: Partial<ListTableOptions> = {
     resolveEditable: () => false,
     canResizeCol: () => false,
     canResizeRow: () => false,
   }
+  const printPlugin = createPrintPlugin({
+    source,
+    hooks: {
+      print: () => {
+        window.print()
+      },
+    },
+  })
   const mount = mountTable(section, {
     width: 640,
     height: 320,
     columns: PRINT_COL_WIDTHS.map((width, col) => ({ title: `C${col}`, width })),
-    model: store.asModel(),
-    resolveCellStyle: (col, row) => store.getEffectiveStyle(col, row) ?? null,
+    rowCount: ROW_COUNT,
+    rowHeight: PRINT_ROW_HEIGHT,
+    resolveDisplayValue: (col, row) => String(cellValue(col, row) ?? ''),
+    resolveCellStyle: (col, row) => cellStyle(col, row) ?? null,
     showColHeader: false,
     showRowHeader: false,
-    rowHeight: 30,
+    plugins: [printPlugin],
     ...readonlyOptions,
   })
-  mount.table.setMergeCells([...store.getMerges()])
+  mount.table.setMergeCells(MERGES.map((merge) => ({ ...merge })))
   mount.table.setFrozenRowCount(PRINT_HEADER_ROWS)
 
-  const source = createPrintSource(store)
-
-  // ---- 配置入口（每次打开预览/打印时合成 PrintConfig） ----
+  // ---- 配置入口（每次打开预览/打印时合成 PrintConfig，逐次传入 handle 方法） ----
   const settings: PrintSettings = {
     paper: 'A4',
     orientation: 'portrait',
@@ -263,11 +267,6 @@ export function mountPrint(root: HTMLElement): PrintDemo {
     printCount++
     lastPrintConfig = buildConfig()
     refreshStatus()
-  }
-  const printHooks: PrintHooks = {
-    print: () => {
-      window.print()
-    },
   }
 
   const status = addStatus(section)
@@ -351,7 +350,7 @@ export function mountPrint(root: HTMLElement): PrintDemo {
   styleControlRow(fixRowsRow)
 
   addButton(section, '打印预览', () => {
-    openPrintPreview(source, buildConfig(), printHooks)
+    printPlugin.openPreview(buildConfig())
   })
 
   return {

@@ -105,7 +105,11 @@ import {
   type RowResizeEndEvent,
 } from './resize'
 import { ScrollManager, type ScrollDelta, type ScrollState } from './scroll-manager'
-import type { ScrollbarDragSession } from './scrollbar'
+import {
+  resolveScrollbarConfig,
+  type ScrollbarConfig,
+  type ScrollbarDragSession,
+} from './scrollbar'
 import {
   SelectionState,
   type RangeBounds,
@@ -309,6 +313,36 @@ export class ListTable {
   resizeLine: ResizeLine | null = null
   /** @internal 内建滚动条拖拽会话 */
   scrollbarDrag: ScrollbarDragSession | null = null
+  /** @internal 滚动条开关与显隐策略（options.scrollbar 构造期归一化） */
+  readonly scrollbarConfig: ScrollbarConfig
+  /** @internal 滚动条当前可见（'always' 档恒 true；'scrolling' 档由活动状态机维护） */
+  scrollbarVisible: boolean
+  /** @internal 滚动条 hover 轴（非拖拽指针悬停滑块；null 无 hover） */
+  scrollbarHover: 'vertical' | 'horizontal' | null = null
+  /** @internal 'scrolling' 档静止隐藏定时器 */
+  private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null
+  /** @internal 滚动条拖拽画布外指针接续的解绑器（会话结束/销毁时调用） */
+  scrollbarReleaseCapture: (() => void) | null = null
+  /**
+   * @internal 滚动条拖拽提交任务（稳定引用供帧调度去重）：同帧多次 pointermove 的
+   * 待提交目标收敛为一次 setScroll；会话结束时同步冲刷末次目标。
+   */
+  readonly scrollbarCommitTask = () => {
+    const session = this.scrollbarDrag
+    if (!session) {
+      return
+    }
+    const target = session.pendingOffset
+    if (target === undefined) {
+      return
+    }
+    session.pendingOffset = undefined
+    if (session.axis === 'vertical') {
+      this.setScrollTop(target)
+    } else {
+      this.setScrollLeft(target)
+    }
+  }
   /** @internal 拖选进行中 */
   selecting = false
   /**
@@ -396,6 +430,9 @@ export class ListTable {
     this.tableHeight = options.height
     // 主题接入样式管线：几何与格样式默认取自主题，显式 options 优先
     this.theme = extendsTheme(options.theme)
+    // 滚动条配置归一化：'always' 档常驻可见，'scrolling' 档初始静止隐藏（首次滚动/交互显示）
+    this.scrollbarConfig = resolveScrollbarConfig(options.scrollbar)
+    this.scrollbarVisible = this.scrollbarConfig.visibility === 'always'
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
     // 行列头开关（showRowHeader/showColHeader）构造期归一化为零宽/零高：
     // 几何（视口/内容原点/冻结偏移/命中/编辑浮层定位）全部经既有 headerHeight/
@@ -1078,6 +1115,38 @@ export class ListTable {
     }
   }
 
+  /** @internal 上屏容器（无 DOM 环境为 undefined；滚动条拖拽画布外指针坐标换算用） */
+  getContainer(): HTMLElement | undefined {
+    return this.container
+  }
+
+  /**
+   * @internal 滚动条活动脉动（滚轮/触控/键盘/滚动条交互的每一条路径汇入）：
+   * 'always' 档空操作；'scrolling' 档显示滚动条并重置静止隐藏计时——计时到点时
+   * 若正被拖拽或悬停则保持可见（后续状态变化会重新计时）。
+   */
+  pokeScrollbar(): void {
+    if (this.scrollbarConfig.visibility !== 'scrolling') {
+      return
+    }
+    if (!this.scrollbarVisible) {
+      this.scrollbarVisible = true
+      refreshOverlay(this)
+    }
+    if (this.scrollbarHideTimer !== null) {
+      clearTimeout(this.scrollbarHideTimer)
+    }
+    const delay = this.scrollbarConfig.hideDelay ?? this.theme.interaction.scrollbarHideDelay
+    this.scrollbarHideTimer = setTimeout(() => {
+      this.scrollbarHideTimer = null
+      if (this.destroyed || this.scrollbarDrag !== null || this.scrollbarHover !== null) {
+        return
+      }
+      this.scrollbarVisible = false
+      refreshOverlay(this)
+    }, delay)
+  }
+
   // ---- 行列 resize（P5，canResizeRow 能力见 ListTableOptions） ----
 
   getColWidth(col: number): number {
@@ -1393,6 +1462,13 @@ export class ListTable {
     }
     this.destroyed = true
     this.inertia.stop()
+    this.scrollbarDrag = null
+    this.scrollbarReleaseCapture?.()
+    this.scrollbarReleaseCapture = null
+    if (this.scrollbarHideTimer !== null) {
+      clearTimeout(this.scrollbarHideTimer)
+      this.scrollbarHideTimer = null
+    }
     this.editManager.dispose()
     for (const unsubscribe of this.eventUnsubscribers) {
       unsubscribe()
@@ -1489,6 +1565,11 @@ export class ListTable {
    */
   private onScroll(delta: ScrollDelta): void {
     updateSceneWindow(this)
+    // 滚动即滚动条活动：'scrolling' 档显示并重置静止隐藏计时（滚轮/触控/键盘全走此路径；
+    // 钳制后无实际位移不脉动，静止期不被空转 setScroll 无谓续期）
+    if (delta.dx !== 0 || delta.dy !== 0) {
+      this.pokeScrollbar()
+    }
     if (delta.dy !== 0) {
       const y = this.headerHeight + this.frozenRowsHeight
       const band = { x: 0, y, width: this.width, height: Math.max(0, this.height - y) }

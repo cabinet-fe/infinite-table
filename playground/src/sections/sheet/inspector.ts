@@ -5,10 +5,10 @@
 
 import type { ListTable } from '@infinitable/core'
 
-import type { SheetStore, UndoStack } from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
 import { formatCellAddress, colLetters } from './formula-bar'
-import type { SheetBookBundle } from './book'
+import type { SheetBookBundle, SheetStore } from './book'
 
 /** 大 JSON 高亮渲染行数阈值（超过截断展示，完整数据走复制/放大） */
 const HIGHLIGHT_MAX_LINES = 10_000
@@ -80,7 +80,8 @@ export function mountInspector(
     bundle: SheetBookBundle
     table: () => ListTable
     store: () => SheetStore
-    stack: UndoStack
+    /** sheet 插件 handle（撤销栈状态面） */
+    sheet: SheetPluginHandle
     /** id → 展示名 */
     labelOf: (id: string) => string
   },
@@ -193,7 +194,7 @@ export function mountInspector(
     const table = ctx.table()
     const cells = collectCells(store)
     const styles = collectStyles(store)
-    const activeId = ctx.bundle.book.activeId
+    const activeId = ctx.bundle.sheet.activeId
     const payload = {
       sheets: ctx.bundle.ids().map((id) => buildSheetPayload(id, ctx.bundle.stores.get(id)!)),
       activeIndex: Math.max(
@@ -216,7 +217,7 @@ export function mountInspector(
           floatObjects: table.floatObjects.size,
           cellImage: 'demo://sheet/cell-img（resolveCellImage 命中格）',
         },
-        history: { canUndo: ctx.stack.canUndo, canRedo: ctx.stack.canRedo },
+        history: { canUndo: ctx.sheet.canUndo, canRedo: ctx.sheet.canRedo },
       },
       payload,
       storeCount: Object.keys(cells).length,

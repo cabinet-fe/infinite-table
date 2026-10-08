@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '@infinitable/core'
 
-import { createChartPlugin, CHART_PLUGIN_NAME } from '../../src/chart/chart-plugin'
+import { createChartPlugin } from '../../src/chart/chart-plugin'
 import { loadChartJs } from '../../src/chart/chart-loader'
 import { StubHost } from '../testing/stub-host'
 
@@ -29,7 +29,7 @@ describe('createChartPlugin 插件契约', () => {
       plugins: [plugin],
       host,
     })
-    expect(plugin.name).toBe(CHART_PLUGIN_NAME)
+    expect(plugin.name).toBe('chart')
     // 声明解析入口：声明格出 spec，普通格 null
     expect(plugin.getChartSpec(0, 0)?.type).toBe('bar')
     expect(plugin.getChartSpec(1, 1)).toBeNull()

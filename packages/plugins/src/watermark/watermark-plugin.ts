@@ -25,9 +25,6 @@ export interface WatermarkHandle extends TablePlugin {
   isEnabled(): boolean
 }
 
-/** 插件名（core 插件注册路径用） */
-export const WATERMARK_PLUGIN_NAME = 'watermark'
-
 /** 两份配置是否逐字段相同（updateConfig 的无变化守卫） */
 function sameWatermarkConfig(a: WatermarkTextConfig, b: WatermarkTextConfig): boolean {
   return (
@@ -61,7 +58,8 @@ export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHan
   }
 
   return {
-    name: WATERMARK_PLUGIN_NAME,
+    // 插件名（core 插件注册路径用；常量内化，不经公共入口转出）
+    name: 'watermark',
     mount(target: ListTable) {
       table = target
       applyPainter()

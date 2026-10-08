@@ -127,7 +127,7 @@ export function mountTabs(
         return
       }
       // 活跃表不可直接删：先切到相邻表
-      if (id === ctx.bundle.book.activeId) {
+      if (id === ctx.bundle.sheet.activeId) {
         const neighbor = ids.find((other) => other !== id)!
         ctx.bundle.switchTo(neighbor)
       }
@@ -142,7 +142,7 @@ export function mountTabs(
 
   const renderTabs = (): void => {
     list.textContent = ''
-    const activeId = ctx.bundle.book.activeId
+    const activeId = ctx.bundle.sheet.activeId
     for (const id of ctx.bundle.ids()) {
       const tab = document.createElement('button')
       tab.type = 'button'
@@ -150,7 +150,7 @@ export function mountTabs(
       tab.textContent = labelOf(id)
       tab.title = '右键重命名 / 删除'
       tab.addEventListener('click', () => {
-        if (id === ctx.bundle.book.activeId) {
+        if (id === ctx.bundle.sheet.activeId) {
           return
         }
         ctx.bundle.switchTo(id)

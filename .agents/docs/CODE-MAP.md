@@ -50,7 +50,7 @@ infinitable/
 
 ### plugins — `packages/plugins/src`
 
-- sheet 插件族 `sheet/`：SheetStore 参考模型、快照、填充生成、选区同步、公式显示、键位预设、多 sheet 实例池、撤销栈、边框预设、xlsx 导出（映射 hucre，产物纯数据可进 worker）
+- sheet 插件族 `sheet/`：统一收拢为 `sheet-plugin.ts` 的 `createSheetPlugin(options)` 插件对象（TablePlugin 契约 + 运行时 handle；单表/书两种形态，mount 装配撤销记录/填充生成/选区同步，构造期注入键位与公式显示底座）；SheetStore 参考模型、快照、填充生成、选区同步、公式显示、键位预设、多 sheet 实例池、撤销栈、边框预设、xlsx 导出（映射 hucre，产物纯数据可进 worker）为包内深路径实现，公共入口只导出插件工厂与参数类型
 - chart 插件 `chart/`：声明解析、Chart.js 按需加载、插件工厂、离屏出图；`scripts/assert-chart-chunk.mjs` 构建断言守 chart.js 不进主产物
 - print 插件 `print/`：headless 分页引擎（fitpage/fixrows 双模式）+ 页面 HTML 构建（页眉页脚占位符）+ iframe 打印输出与 DOM 预览薄壳；数据经 PrintSource 抽象供数
 - watermark 插件 `watermark/`：文字平铺水印，挂 core 顶层 overlay 绘制预留位（锚定视口）
@@ -93,4 +93,4 @@ graph TD
 - chart 出图：plugins 离屏出图 → 注入 core `chartMediaResolver` → cell 级 MediaCache blit 上屏，与格内图片同一管线
 - 水印上屏：plugins 平铺 painter → 注入 core `setOverlayPainter`（ground 层 `setUnderlayPainter` 同构）→ 对应层整层失效，锚定视口不随滚动平移
 - formulas 求值：宿主（playground 装配）经 FormulaResolver 驱动求值；依赖图标脏由宿主消费
-- sheet 装配：playground 把 plugins（SheetStore/键位/撤销/导出）、core、formulas 接成电子表格示例
+- sheet 装配：playground 经 plugins 的 `createSheetPlugin`（书形态：Store/键位/撤销/导出经插件 handle 与 mount 装配）+ core + formulas 接成电子表格示例

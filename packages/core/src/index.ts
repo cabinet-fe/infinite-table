@@ -150,6 +150,7 @@ export type {
   ResolveCellChart,
   ResolveCellImage,
   ResolveDisplayValue,
+  ScrollbarOptions,
   TableContextMenuEvent,
   TableModel,
 } from './types'

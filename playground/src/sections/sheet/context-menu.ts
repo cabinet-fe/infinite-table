@@ -5,7 +5,7 @@
 
 import type { ListTable } from '@infinitable/core'
 
-import type { SheetStore, UndoStack } from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
 import { openFixedPopup } from './popup'
 import {
@@ -21,6 +21,7 @@ import {
 } from './ops'
 import { colLetters } from './formula-bar'
 import type { NumFmt } from './format'
+import type { SheetStore } from './book'
 
 interface ContextMenuHandle {
   destroy(): void
@@ -33,8 +34,8 @@ const SIZE_MAX = 1000
 export function mountContextMenu(ctx: {
   table: () => ListTable
   store: () => SheetStore
-  /** 撤销栈：「清空内容」值命令入栈 */
-  stack: UndoStack
+  /** sheet 插件 handle：「清空内容」值命令入撤销栈 */
+  sheet: SheetPluginHandle
   notify: (text: string, kind?: 'info' | 'warn') => void
   /** numFmt 侧车写路径（绑定活跃 sheet；fmt undefined = 清除）。格刷新由本模块触发 */
   setNumFmt: (col: number, row: number, fmt: NumFmt | undefined) => void
@@ -308,7 +309,7 @@ export function mountContextMenu(ctx: {
           }),
           separator(),
           actionItem('清空内容', () => {
-            clearValues(store, current, ctx.stack)
+            clearValues(store, current, ctx.sheet)
             refreshAllGrid(table, store)
             ctx.notify('已清空选区内容')
           }),

@@ -1,9 +1,10 @@
 // xlsx 导入导出装配层（hucre@^1.1.0）：SheetStore + numFmt 侧车 ↔ xlsx 字节。
-// 导出映射走 `@infinitable/plugins` 公开能力（sheetToWriteSheet：Store + 合并 / 行列尺寸 /
-// 浮动图 → hucre WriteSheet 纯映射，值/样式经 P5 读取 API 取数）；本文件只留装配：
+// 导出映射走 sheet 插件 handle（exportSheet：Store + 合并 / 行列尺寸 / 浮动图 → hucre
+// WriteSheet 纯映射，值/样式经模型侧读取 API 取数；decodeImage 解析 data: URL 图片字节）；
+// 本文件只留装配：
 // - worker 客户端（惰性单例 + requestId 配对）与 book 级导出导入编排；
 // - 浮动对象列表的引擎侧收集（实例层 onChange 维护，导出源注入）；
-// - 导入回填（PlainImportedSheet → SheetStore + numFmt 侧车表）。
+// - 导入回填（PlainImportedSheet → SheetStore + numFmt 侧车表；Store 经 handle.createStore 建）。
 // 重 CPU 段（zip 解压/压缩 + XML 解析/生成）在 xlsx.worker.ts（module worker）：
 // hucre 为纯 ESM 零依赖（仅 TextEncoder/CompressionStream），可原样进 worker；
 // 导入方向的 hucre→纯数据映射为 demo 自用，内联在 worker（见该文件头注释）。
@@ -15,19 +16,24 @@
 // - 尺寸收敛：行/列数按 有值格∪合并 取高水位 + 可编辑余量（底线 40×26），硬顶 2000×256
 //   （SheetModel 稠密存储，防止 Excel 极限行列撑爆内存）；超顶内容格计数丢弃并提示
 
-import type { WriteSheet as HucreWriteSheet } from 'hucre'
+import type { SheetImage as HucreSheetImage, WriteSheet as HucreWriteSheet } from 'hucre'
 
 import type { CellStyle, FloatObject, ListTable } from '@infinitable/core'
-import {
-  decodeDataUrlImage,
-  sheetToWriteSheet,
-  SheetStore,
-  type SheetExportSource,
-  type SheetImagePayload,
-} from '@infinitable/plugins'
 
-import type { SheetBookBundle } from './book'
+import type { SheetBookBundle, SheetStore } from './book'
 import type { NumFmt } from './format'
+
+/** 单表导出源（sheet 插件 handle.exportSheet 入参的演示侧形态：Store + numFmt 侧车 + 浮动图） */
+interface ExportSource {
+  name: string
+  store: SheetStore
+  numFmt: (col: number, row: number) => NumFmt | undefined
+  images: readonly FloatObject[]
+  imageData: (object: FloatObject) => ImagePayload | undefined
+}
+
+/** 浮动图字节载荷（handle.decodeImage 产物形态） */
+type ImagePayload = { data: Uint8Array; type: HucreSheetImage['type'] }
 
 /** 行列数硬顶（导入收敛；与 worker 内联映射的硬顶成对维护） */
 const MAX_IMPORT_ROWS = 2000
@@ -156,10 +162,11 @@ function requestWorker<T>(
 
 /** 整本导出为 xlsx 字节（表序 = 入参顺序，activeIndex 为打开时的活跃表；zip 压缩在 worker） */
 async function writeBookXlsx(
-  sheets: readonly SheetExportSource[],
+  sheet: SheetBookBundle['sheet'],
+  sheets: readonly ExportSource[],
   activeIndex: number,
 ): Promise<Uint8Array> {
-  const writeSheets = sheets.map((source) => sheetToWriteSheet(source))
+  const writeSheets = sheets.map((source) => sheet.exportSheet(source))
   return requestWorker<Uint8Array>((requestId) => ({
     message: { kind: 'export', requestId, sheets: writeSheets, activeIndex },
     transfer: [],
@@ -195,9 +202,12 @@ interface ImportedBook {
   truncatedCells: number
 }
 
-/** PlainImportedSheet → ImportedSheet（批量回填新 SheetStore + numFmt 侧车表） */
-function plainSheetToImported(plain: PlainImportedSheet): ImportedSheet {
-  const store = new SheetStore({
+/** PlainImportedSheet → ImportedSheet（批量回填新 Store + numFmt 侧车表；Store 经插件 handle 建） */
+function plainSheetToImported(
+  sheet: SheetBookBundle['sheet'],
+  plain: PlainImportedSheet,
+): ImportedSheet {
+  const store = sheet.createStore({
     rowCount: plain.rowCount,
     colCount: plain.colCount,
     defaultColWidth: 80,
@@ -234,7 +244,10 @@ function plainSheetToImported(plain: PlainImportedSheet): ImportedSheet {
  * xlsx 字节 → 整本导入结果（解压/解析在 worker；解析异常向上抛，由调用方转用户可读提示）。
  * 入参字节 transfer 给 worker（零拷贝），调用后入参 detached、不应复用。
  */
-async function readBookXlsx(buffer: ArrayBuffer | Uint8Array): Promise<ImportedBook> {
+async function readBookXlsx(
+  sheet: SheetBookBundle['sheet'],
+  buffer: ArrayBuffer | Uint8Array,
+): Promise<ImportedBook> {
   // 归一为 ArrayBuffer 再让渡：整段覆盖的视图直取底层 buffer，部分视图拷出独立段
   const transferable =
     buffer instanceof Uint8Array
@@ -247,13 +260,13 @@ async function readBookXlsx(buffer: ArrayBuffer | Uint8Array): Promise<ImportedB
     transfer: [transferable],
   }))
   return {
-    sheets: plain.sheets.map(plainSheetToImported),
+    sheets: plain.sheets.map((plain) => plainSheetToImported(sheet, plain)),
     activeIndex: plain.activeIndex,
     truncatedCells: plain.truncatedCells,
   }
 }
 
-// ---- 装配：SheetBook 级导出导入 ----
+// ---- 装配：工作簿（sheet 插件书形态）级导出导入 ----
 
 export interface XlsxHandle {
   /** 编程式导出整本（返回字节，不触发下载；冒烟断言用） */
@@ -288,33 +301,37 @@ export function createXlsx(ctx: {
       // update 变更原地改对象（层内 Object.assign），列表持活引用无需维护
     })
   }
-  // 既有实例补订（sheet-1 首建早于本装配，其后插入的浮动图仍被捕获）+ 后建实例经 book 事件订阅
+  // 既有实例补订（sheet-1 首建早于本装配，其后插入的浮动图仍被捕获）+ 后建实例经插件事件订阅
   for (const id of ctx.bundle.ids()) {
-    const table = ctx.bundle.book.get(id)
+    const table = ctx.bundle.sheet.get(id)
     if (table) {
       watchFloatObjects(id, table)
     }
   }
-  ctx.bundle.book.onChange((event) => {
+  ctx.bundle.sheet.onSheetChange((event) => {
     if (event.table && event.activeId && event.created) {
       watchFloatObjects(event.activeId, event.table)
     }
   })
 
   /** 单表导出源（Store + numFmt 侧车 + 浮动图；图片字节自 data: URL 解码，非 data: 源跳过） */
-  const toExportSource = (id: string): SheetExportSource => ({
+  const toExportSource = (id: string): ExportSource => ({
     name: ctx.bundle.nameOf(id),
     store: ctx.bundle.stores.get(id)!,
     numFmt: (col: number, row: number) => ctx.bundle.getNumFmt(id, col, row),
     images: floatLists.get(id) ?? [],
-    imageData: (object: FloatObject): SheetImagePayload | undefined =>
-      decodeDataUrlImage(object.src),
+    imageData: (object: FloatObject): ImagePayload | undefined =>
+      ctx.bundle.sheet.decodeImage(object.src),
   })
 
   const exportBook = async (): Promise<Uint8Array> => {
     const ids = ctx.bundle.ids()
-    const activeId = ctx.bundle.book.activeId
-    return writeBookXlsx(ids.map(toExportSource), Math.max(0, ids.indexOf(activeId ?? '')))
+    const activeId = ctx.bundle.sheet.activeId
+    return writeBookXlsx(
+      ctx.bundle.sheet,
+      ids.map(toExportSource),
+      Math.max(0, ids.indexOf(activeId ?? '')),
+    )
   }
 
   return {
@@ -325,15 +342,18 @@ export function createXlsx(ctx: {
     async importBuffer(buffer) {
       let parsed: ImportedBook
       try {
-        parsed = await readBookXlsx(buffer)
+        parsed = await readBookXlsx(ctx.bundle.sheet, buffer)
       } catch (error) {
         ctx.notify(`导入失败：${error instanceof Error ? error.message : String(error)}`, 'warn')
         return
       }
-      // 重建 SheetBook：注册全部新表 → 切到源活跃表 → 移除旧表（活跃表需先切走才能删）
+      // 重建工作簿：注册全部新表 → 切到源活跃表 → 移除旧表（活跃表需先切走才能删）
       const oldIds = ctx.bundle.ids()
-      const newIds = parsed.sheets.map((sheet) =>
-        ctx.bundle.registerSheet(sheet.store, { name: sheet.name, numFmt: sheet.numFmt }),
+      const newIds = parsed.sheets.map((imported) =>
+        ctx.bundle.registerSheet(imported.store, {
+          name: imported.name,
+          numFmt: imported.numFmt,
+        }),
       )
       ctx.bundle.switchTo(newIds[parsed.activeIndex] ?? newIds[0]!)
       for (const id of oldIds) {

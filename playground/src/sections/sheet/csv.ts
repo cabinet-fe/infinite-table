@@ -4,7 +4,7 @@
 
 import type { ListTable } from '@infinitable/core'
 
-import type { SheetStore } from '@infinitable/plugins'
+import type { SheetStore } from './book'
 
 /** 值矩阵 → CSV 字符串 */
 function toCSV(store: SheetStore): string {

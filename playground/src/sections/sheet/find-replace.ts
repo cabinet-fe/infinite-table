@@ -4,11 +4,12 @@
 
 import type { ListTable } from '@infinitable/core'
 
-import type { SheetStore, UndoStack } from '@infinitable/plugins'
+import type { SheetPluginHandle } from '@infinitable/plugins'
 
 import { icon } from './icons'
 import { openAnchoredPopup, type PopupHandle } from './popup'
-import { applyValueWrites } from './undo-writes'
+
+import type { SheetStore } from './book'
 
 interface Hit {
   col: number
@@ -31,8 +32,8 @@ export interface FindReplaceHandle {
 export function createFindReplace(ctx: {
   table: () => ListTable
   store: () => SheetStore
-  /** 撤销栈：替换写值经 applyValueWrites 落栈（值命令口径） */
-  stack: UndoStack
+  /** sheet 插件 handle：替换写值经 writeValues 落撤销栈（值命令口径） */
+  sheet: SheetPluginHandle
   notify: (text: string, kind?: 'info' | 'warn') => void
 }): FindReplaceHandle {
   const state = {
@@ -228,7 +229,7 @@ export function createFindReplace(ctx: {
         step(1)
         return
       }
-      applyValueWrites(ctx.store(), ctx.stack, [
+      ctx.sheet.writeValues(ctx.store(), [
         {
           col: hit.col,
           row: hit.row,
@@ -297,9 +298,8 @@ export function createFindReplace(ctx: {
       }
     }
     ctx.table().batchUpdate(() => {
-      applyValueWrites(
+      ctx.sheet.writeValues(
         store,
-        ctx.stack,
         targets.map((hit) => ({
           col: hit.col,
           row: hit.row,

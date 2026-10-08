@@ -6,7 +6,6 @@
 // 结果写 window.__SMOKE__ 与 document.title。
 
 import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinitable/core'
-import { snapshot } from '@infinitable/plugins'
 
 import type { DemoHandles } from './main'
 import {
@@ -823,7 +822,7 @@ async function checkSheet(checker: Checker): Promise<void> {
   const table = handle.getTable()
   const store = handle.getStore()
   const activeContainer = (): HTMLElement => {
-    const id = handle.book.activeId ?? ''
+    const id = handle.sheet.activeId ?? ''
     const viewport = document.querySelector<HTMLElement>(`.sheet-viewport`)!
     const target = viewport.querySelector<HTMLElement>(`[data-sheet-id="${id}"]`)
     assert(target, `缺少活跃容器 ${id}`)
@@ -1092,7 +1091,7 @@ async function checkSheet(checker: Checker): Promise<void> {
     handle.switchTo('sheet-2')
     await frames(2)
     const t2 = handle.getTable()
-    assert(handle.book.activeId === 'sheet-2', '未切换到 sheet-2')
+    assert(handle.sheet.activeId === 'sheet-2', '未切换到 sheet-2')
     assert(t2.getCellText(0, 0) === '0', `sheet-2 (0,0) 值 ${t2.getCellText(0, 0)}`)
     assert(handle.getStore().getValue(3, 2) !== '=D1+D2', 'sheet-2 不应带 sheet-1 公式')
     handle.switchTo('sheet-1')
@@ -1737,7 +1736,7 @@ async function checkReport(checker: Checker): Promise<void> {
 
   await checker.step('report 快照灌入：九字段全量落模型，重采集等价（restore 往返）', () => {
     const fixture = handle.buildSnapshot()
-    const roundTrip = snapshot(store)
+    const roundTrip = handle.saveSnapshot()
     // 值：条目数一致 + 抽样（标题/表头带/数据行/合计行）
     assert(
       roundTrip.cells.length === fixture.cells.length,
