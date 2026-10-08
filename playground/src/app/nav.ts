@@ -1,5 +1,5 @@
 // 侧栏导航配置：14 个入口的 key 与既有 Vue 壳完全一致（hash 路由契约），bench 为独立页外链。
-// 图标一律 lucide-react 矢量图标（替换旧 emoji 菜单）。
+// 分组按演示内容的能力域组织（渲染显示 / 数据交互 / 插件场景 / 性能工程）；图标一律 lucide-react 矢量图标。
 
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -61,23 +61,26 @@ export type NavItem = NavRouteItem | NavLinkItem
 
 export interface NavGroup {
   title: string
+  /** 组的一句话能力域描述（总览页分组导航处展示） */
+  desc?: string
   items: NavItem[]
 }
 
 export const NAV_GROUPS: readonly NavGroup[] = [
   {
-    title: '开始',
+    title: '总览',
     items: [
       {
         key: 'home',
         label: '总览',
         icon: Home,
-        desc: '项目名片 · 关键指标 · 示例导航',
+        desc: '引擎概览 · 实测指标 · 全部入口',
       },
     ],
   },
   {
-    title: '功能示例',
+    title: '渲染与显示',
+    desc: '视口内 O(1) 渲染：虚拟滚动与冻结合并、图片与浮动对象、格内图表共用分层管线',
     items: [
       {
         key: 'display',
@@ -85,18 +88,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: Palette,
         badge: '10万行',
         desc: '虚拟滚动 · 冻结 · 合并 · 逐边边框 · 自定义渲染',
-      },
-      {
-        key: 'data-forms',
-        label: '数据供给三形态',
-        icon: Database,
-        desc: 'records / 模型直挂 / rowCount + 钩子',
-      },
-      {
-        key: 'interaction',
-        label: '交互能力',
-        icon: MousePointerClick,
-        desc: '拖选 · resize · 键盘 · 右键菜单 · 批量更新',
       },
       {
         key: 'media',
@@ -111,6 +102,43 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         badge: 'Chart.js',
         desc: '格内声明图表 · 离屏出图 · 无闪回滚',
       },
+    ],
+  },
+  {
+    title: '数据与交互',
+    desc: 'records / 模型直挂 / rowCount 钩子三种供数形态，选区、键盘与编辑管线',
+    items: [
+      {
+        key: 'data-forms',
+        label: '数据供给三形态',
+        icon: Database,
+        desc: 'records / 模型直挂 / rowCount + 钩子',
+      },
+      {
+        key: 'interaction',
+        label: '交互能力',
+        icon: MousePointerClick,
+        desc: '拖选 · resize · 键盘 · 右键菜单 · 批量更新',
+      },
+      {
+        key: 'editing',
+        label: '单元格编辑',
+        icon: Pencil,
+        desc: 'SheetModel · 双击编辑 · 滚出提交',
+      },
+    ],
+  },
+  {
+    title: '插件与场景',
+    desc: 'TablePlugin 契约下的完整形态示例：sheet 书、文字水印、打印分页与只读报表',
+    items: [
+      {
+        key: 'sheet',
+        label: 'sheet 电子表格',
+        icon: Table2,
+        badge: '完整形态',
+        desc: '工具栏 · 公式栏 · tabs · 查找替换 · CSV',
+      },
       {
         key: 'watermark',
         label: '文字水印',
@@ -124,19 +152,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         desc: 'fitpage/fixrows 分页 · 重复表头 · 页脚占位符',
       },
       {
-        key: 'editing',
-        label: '单元格编辑',
-        icon: Pencil,
-        desc: 'SheetModel · 双击编辑 · 滚出提交',
-      },
-      {
-        key: 'sheet',
-        label: 'sheet 电子表格',
-        icon: Table2,
-        badge: '完整形态',
-        desc: '工具栏 · 公式栏 · tabs · 查找替换 · CSV',
-      },
-      {
         key: 'report',
         label: '报表只读快照',
         icon: FileText,
@@ -145,7 +160,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
-    title: '性能',
+    title: '性能与工程',
+    desc: '同口径页内对比、headless 量化基准与端到端冒烟自检',
     items: [
       {
         key: 'compare',
@@ -161,11 +177,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         desc: 'TTFF / 滚动 FPS / 失效面积（独立页）',
         href: 'bench.html',
       },
-    ],
-  },
-  {
-    title: '工程',
-    items: [
       {
         key: 'smoke',
         label: '冒烟自检',

@@ -1,5 +1,5 @@
-// 应用壳：深色侧栏分组导航 + 顶栏（面包屑 + 能力徽条）+ 内容区；hash 路由切换页面。
-// 设计基线为中性深灰 + 单一蓝色强调（shadcn tokens），矢量图标 lucide-react；P3 做质感终稿。
+// 应用壳：深色侧栏（能力域分组导航 + 活跃指示 + 外链区分 + 底部引擎实测指标）+ 顶栏（面包屑 + 当前页能力描述）+ 内容区。
+// 设计基线为中性深灰 + 单一蓝色强调（shadcn tokens），矢量图标 lucide-react。
 
 import { ArrowUpRight } from 'lucide-react'
 import type { ComponentType } from 'react'
@@ -93,10 +93,13 @@ function Sidebar({ active, onNavigate }: { active: PageKey; onNavigate: (key: Pa
                   type="button"
                   onClick={() => onNavigate(item.key)}
                   className={cn(
-                    'group flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5',
+                    'group relative flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5',
                     isActive && 'bg-white/[0.07] hover:bg-white/[0.07]',
                   )}
                 >
+                  {isActive && (
+                    <span className="absolute top-1/2 left-0 h-4.5 w-0.5 -translate-y-1/2 rounded-full bg-blue-400" />
+                  )}
                   <span
                     className={cn(
                       'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-zinc-400 group-hover:text-zinc-200',
@@ -134,9 +137,20 @@ function Sidebar({ active, onNavigate }: { active: PageKey; onNavigate: (key: Pa
         ))}
       </nav>
 
-      <div className="flex items-baseline gap-2 border-t border-zinc-900 px-4 py-3.5">
-        <span className="text-base font-bold text-blue-300 tabular-nums">27.3KB</span>
-        <span className="text-[11px] text-zinc-500">gzip · 零依赖</span>
+      {/* 底部引擎指标位：README / playground/results 实测口径 */}
+      <div className="space-y-1.5 border-t border-zinc-900 px-4 py-3">
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-zinc-500">最小渲染面 gzip</span>
+          <span className="font-semibold text-zinc-200 tabular-nums">27.3KB</span>
+        </div>
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-zinc-500">100 万行 TTFF P50</span>
+          <span className="text-zinc-400 tabular-nums">16.7ms</span>
+        </div>
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-zinc-500">稳态滚动 full 重绘</span>
+          <span className="text-zinc-400 tabular-nums">0 次</span>
+        </div>
       </div>
     </aside>
   )
@@ -151,23 +165,17 @@ export function AppShell() {
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <Sidebar active={active} onNavigate={navigate} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[52px] shrink-0 items-center justify-between border-b bg-background/80 px-7 backdrop-blur">
-          <div className="flex items-center gap-2 text-[13px]">
+        <header className="flex h-[52px] shrink-0 items-center justify-between gap-6 border-b bg-background/80 px-7 backdrop-blur">
+          <div className="flex min-w-0 items-center gap-2 text-[13px]">
             <span className="text-muted-foreground">playground</span>
             <span className="text-muted-foreground/60">/</span>
-            <span className="font-semibold">{activeItem.label}</span>
+            <span className="truncate font-semibold">{activeItem.label}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-full border bg-muted px-3 py-1 text-xs text-muted-foreground">
-              零 vrender 依赖
-            </span>
-            <span className="rounded-full border bg-muted px-3 py-1 text-xs text-muted-foreground">
-              Canvas 分层渲染
-            </span>
-            <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              100K 虚拟滚动
-            </span>
-          </div>
+          {activeItem.desc && (
+            <p className="hidden max-w-[46%] truncate text-xs text-muted-foreground lg:block">
+              {activeItem.desc}
+            </p>
+          )}
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto">
