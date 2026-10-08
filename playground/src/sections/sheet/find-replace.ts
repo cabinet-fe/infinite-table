@@ -1,13 +1,11 @@
-// 查找替换（工具栏弹层面板，对标 ultra-ui find-popup）：
-// 查找内容 + 计数 + 上/下一个 + 关闭；替换为 + 替换/全部替换；
+// 查找替换逻辑（查找面板 UI 由 React 层承担）：
+// 查找内容 + 计数 + 上/下一个；替换为 + 替换/全部替换；
 // 区分大小写 / 整格匹配 / 按显示值或公式查找。每次打开状态全新。
+// 查找/扫描/替换写值（经 sheet.writeValues 落撤销栈）的口径不变，供面板与冒烟 API 共用。
 
 import type { ListTable } from '@infinitable/core'
 
 import type { SheetPluginHandle } from '@infinitable/plugins'
-
-import { icon } from './icons'
-import { openAnchoredPopup, type PopupHandle } from './popup'
 
 import type { SheetStore } from './book'
 
@@ -18,15 +16,32 @@ interface Hit {
   raw: unknown
 }
 
-export interface FindReplaceHandle {
+/** 面板查询条件（React 面板控件变更时经 setQuery 同步进逻辑态） */
+export interface FindQuery {
+  keyword: string
+  replacement: string
+  caseSensitive: boolean
+  wholeCell: boolean
+  mode: 'value' | 'formula'
+}
+
+export interface FindReplaceController {
   /** 查找下一个（冒烟 API：默认按显示值、忽略大小写、非整格） */
   findNext(keyword?: string): { col: number; row: number } | null
   /** 全表替换（冒烟 API：字符串原值替换，返回次数） */
   replaceAll(keyword?: string, replacement?: string): number
-  /** 工具栏按钮 / Ctrl+F 切换面板 */
-  toggleAt(anchor: HTMLElement): void
-  close(): void
-  destroy(): void
+  /** 面板控件 → 逻辑态（每次变更重扫，定位复位） */
+  setQuery(query: FindQuery): void
+  /** 仅更新替换词（不影响命中定位，避免输入替换词时丢失当前命中） */
+  setReplacement(replacement: string): void
+  /** 上一个 / 下一个（面板按钮与回车驱动） */
+  stepBy(delta: 1 | -1): void
+  /** 替换当前命中格（非文本值跳过并前进） */
+  replaceOne(): void
+  /** 计数标签：`当前位置/命中总数` */
+  countLabel(): string
+  /** 每次打开状态全新（ultra-ui 语义） */
+  reset(): void
 }
 
 export function createFindReplace(ctx: {
@@ -35,7 +50,9 @@ export function createFindReplace(ctx: {
   /** sheet 插件 handle：替换写值经 writeValues 落撤销栈（值命令口径） */
   sheet: SheetPluginHandle
   notify: (text: string, kind?: 'info' | 'warn') => void
-}): FindReplaceHandle {
+  /** 计数/定位变化回调（面板重渲染用） */
+  onUpdate?: () => void
+}): FindReplaceController {
   const state = {
     keyword: '',
     replacement: '',
@@ -45,8 +62,6 @@ export function createFindReplace(ctx: {
     hits: [] as Hit[],
     index: -1,
   }
-  let keywordInput: HTMLInputElement | null = null
-  let countLabel: HTMLElement | null = null
 
   /** 单格匹配文本：按显示值（getCellText 走求值管线）或按公式（原始串） */
   const cellText = (col: number, row: number): string => {
@@ -83,25 +98,13 @@ export function createFindReplace(ctx: {
     return hits
   }
 
-  const renderCount = (): void => {
-    if (!countLabel) {
-      return
-    }
-    if (!state.keyword) {
-      countLabel.textContent = '0/0'
-      return
-    }
-    const position = state.hits.length === 0 ? 0 : state.index + 1
-    countLabel.textContent = `${position}/${state.hits.length}`
-  }
-
   const rescan = (): void => {
     state.hits = state.keyword ? scanAll(state.keyword) : []
     // index 保持不动（-1 表示尚未定位；超出新命中数时收回末位）
     if (state.index >= state.hits.length) {
       state.index = state.hits.length - 1
     }
-    renderCount()
+    ctx.onUpdate?.()
   }
 
   const gotoHit = (hit: Hit): void => {
@@ -118,133 +121,7 @@ export function createFindReplace(ctx: {
     }
     state.index = (state.index + delta + state.hits.length) % state.hits.length
     gotoHit(state.hits[state.index]!)
-    renderCount()
-  }
-
-  /** 面板 DOM 构建（每次打开重建，状态全新） */
-  const buildPanel = (el: HTMLElement, close: () => void): void => {
-    el.className = 'sheet-popup-layer sheet-find'
-    const row1 = document.createElement('div')
-    row1.className = 'sheet-find__row'
-    keywordInput = document.createElement('input')
-    keywordInput.type = 'text'
-    keywordInput.className = 'sheet-find__input'
-    keywordInput.placeholder = '查找内容'
-    countLabel = document.createElement('span')
-    countLabel.className = 'sheet-find__count'
-    countLabel.textContent = '0/0'
-    const prev = document.createElement('button')
-    prev.type = 'button'
-    prev.className = 'sheet-find__nav'
-    prev.title = '上一个（Shift+Enter）'
-    prev.innerHTML = icon('arrowLeft')
-    const next = document.createElement('button')
-    next.type = 'button'
-    next.className = 'sheet-find__nav'
-    next.title = '下一个（Enter）'
-    next.innerHTML = icon('arrowRight')
-    const closeBtn = document.createElement('button')
-    closeBtn.type = 'button'
-    closeBtn.className = 'sheet-find__close'
-    closeBtn.title = '关闭'
-    closeBtn.innerHTML = icon('close')
-    row1.append(keywordInput, countLabel, prev, next, closeBtn)
-
-    const row2 = document.createElement('div')
-    row2.className = 'sheet-find__row'
-    const replaceInput = document.createElement('input')
-    replaceInput.type = 'text'
-    replaceInput.className = 'sheet-find__input'
-    replaceInput.placeholder = '替换为'
-    const replaceOne = document.createElement('button')
-    replaceOne.type = 'button'
-    replaceOne.className = 'sheet-find__action'
-    replaceOne.textContent = '替换'
-    const replaceAllBtn = document.createElement('button')
-    replaceAllBtn.type = 'button'
-    replaceAllBtn.className = 'sheet-find__action'
-    replaceAllBtn.textContent = '全部替换'
-    row2.append(replaceInput, replaceOne, replaceAllBtn)
-
-    const row3 = document.createElement('div')
-    row3.className = 'sheet-find__row'
-    const caseBox = document.createElement('label')
-    caseBox.className = 'sheet-find__check'
-    const caseInput = document.createElement('input')
-    caseInput.type = 'checkbox'
-    caseBox.append(caseInput, document.createTextNode('区分大小写'))
-    const wholeBox = document.createElement('label')
-    wholeBox.className = 'sheet-find__check'
-    const wholeInput = document.createElement('input')
-    wholeInput.type = 'checkbox'
-    wholeBox.append(wholeInput, document.createTextNode('整格匹配'))
-    const modeSelect = document.createElement('select')
-    modeSelect.className = 'sheet-find__select'
-    for (const [value, label] of [
-      ['value', '按显示值'],
-      ['formula', '按公式'],
-    ] as const) {
-      const option = document.createElement('option')
-      option.value = value
-      option.textContent = label
-      modeSelect.appendChild(option)
-    }
-    row3.append(caseBox, wholeBox, modeSelect)
-    el.append(row1, row2, row3)
-
-    const syncState = (): void => {
-      state.keyword = keywordInput?.value ?? ''
-      state.replacement = replaceInput.value
-      state.caseSensitive = caseInput.checked
-      state.wholeCell = wholeInput.checked
-      state.mode = modeSelect.value === 'formula' ? 'formula' : 'value'
-      state.index = -1
-      rescan()
-    }
-    keywordInput.addEventListener('input', syncState)
-    replaceInput.addEventListener('input', () => {
-      state.replacement = replaceInput.value
-    })
-    caseInput.addEventListener('change', syncState)
-    wholeInput.addEventListener('change', syncState)
-    modeSelect.addEventListener('change', syncState)
-    keywordInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        step(event.shiftKey ? -1 : 1)
-      }
-    })
-    prev.addEventListener('click', () => step(-1))
-    next.addEventListener('click', () => step(1))
-    closeBtn.addEventListener('click', close)
-
-    replaceOne.addEventListener('click', () => {
-      if (state.index < 0 || !state.hits[state.index]) {
-        step(1)
-        return
-      }
-      const hit = state.hits[state.index]!
-      if (typeof hit.raw !== 'string' || hit.raw === '') {
-        ctx.notify('该格非文本值，跳过替换', 'warn')
-        step(1)
-        return
-      }
-      ctx.sheet.writeValues(ctx.store(), [
-        {
-          col: hit.col,
-          row: hit.row,
-          value: applyReplace(hit.raw, state.keyword, state.replacement),
-        },
-      ])
-      ctx.table().refreshCell(hit.col, hit.row)
-      rescan()
-      step(1)
-    })
-    replaceAllBtn.addEventListener('click', () => {
-      const count = replaceAll(state.keyword, state.replacement)
-      ctx.notify(count > 0 ? `已替换 ${count} 处` : '无匹配内容', count > 0 ? 'info' : 'warn')
-      rescan()
-    })
+    ctx.onUpdate?.()
   }
 
   function applyReplace(raw: string, keyword: string, replacement: string): string {
@@ -266,7 +143,30 @@ export function createFindReplace(ctx: {
     return result + raw.slice(index)
   }
 
-  // ---- 编程式 API（冒烟驱动） ----
+  const replaceOne = (): void => {
+    if (state.index < 0 || !state.hits[state.index]) {
+      step(1)
+      return
+    }
+    const hit = state.hits[state.index]!
+    if (typeof hit.raw !== 'string' || hit.raw === '') {
+      ctx.notify('该格非文本值，跳过替换', 'warn')
+      step(1)
+      return
+    }
+    ctx.sheet.writeValues(ctx.store(), [
+      {
+        col: hit.col,
+        row: hit.row,
+        value: applyReplace(hit.raw, state.keyword, state.replacement),
+      },
+    ])
+    ctx.table().refreshCell(hit.col, hit.row)
+    rescan()
+    step(1)
+  }
+
+  // ---- 编程式 API（冒烟驱动 / 面板共用） ----
 
   const findNext = (keyword?: string): { col: number; row: number } | null => {
     if (keyword != null && keyword !== state.keyword) {
@@ -310,44 +210,45 @@ export function createFindReplace(ctx: {
         ctx.table().refreshCell(hit.col, hit.row)
       }
     })
-    if (popupHandle != null) {
-      rescan()
-    }
+    rescan()
     return targets.length
-  }
-
-  let popupHandle: PopupHandle | null = null
-  const toggleAt = (anchor: HTMLElement): void => {
-    if (popupHandle != null) {
-      popupHandle.close()
-      return
-    }
-    // 每次打开状态全新（ultra-ui 语义）
-    Object.assign(state, {
-      keyword: '',
-      replacement: '',
-      caseSensitive: false,
-      wholeCell: false,
-      mode: 'value',
-      hits: [],
-      index: -1,
-    })
-    popupHandle = openAnchoredPopup(anchor, {
-      build: buildPanel,
-      onOpened: () => keywordInput?.focus(),
-      onClosed: () => {
-        popupHandle = null
-        keywordInput = null
-        countLabel = null
-      },
-    })
   }
 
   return {
     findNext,
     replaceAll,
-    toggleAt,
-    close: () => popupHandle?.close(),
-    destroy: () => popupHandle?.close(),
+    setQuery(query) {
+      state.keyword = query.keyword
+      state.replacement = query.replacement
+      state.caseSensitive = query.caseSensitive
+      state.wholeCell = query.wholeCell
+      state.mode = query.mode
+      state.index = -1
+      rescan()
+    },
+    setReplacement(replacement) {
+      state.replacement = replacement
+    },
+    stepBy: step,
+    replaceOne,
+    countLabel() {
+      if (!state.keyword) {
+        return '0/0'
+      }
+      const position = state.hits.length === 0 ? 0 : state.index + 1
+      return `${position}/${state.hits.length}`
+    },
+    reset() {
+      Object.assign(state, {
+        keyword: '',
+        replacement: '',
+        caseSensitive: false,
+        wholeCell: false,
+        mode: 'value',
+        hits: [],
+        index: -1,
+      })
+      ctx.onUpdate?.()
+    },
   }
 }

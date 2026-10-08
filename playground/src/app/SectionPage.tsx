@@ -15,7 +15,7 @@ interface SectionPageProps<D> {
   mount: (root: HTMLElement) => D
   /** 卸载收尾（如 sheet 的 destroy 与调试句柄回收）；缺省仅随容器移除 DOM */
   unmount?: (demo: D) => void
-  /** 挂载区附加类名（如 sheet-mount-area） */
+  /** 挂载区附加类名（如 smoke-staging 离屏挂载） */
   mountClassName?: string
 }
 

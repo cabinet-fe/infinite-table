@@ -1,7 +1,7 @@
-// 公式栏（对标 ultra-ui formula-bar）：名称框（A1/B3:D5，可输入跳转）+ fx 标识（函数面板）
-// + 输入区（多行自适应增高、Enter 提交 / Esc 取消）+ 编辑态 ✓/✗ + 函数建议列表 + 参数提示 calltip。
+// 公式栏组合会话控制器（mountFormulaBar 的接线原样迁移；DOM 元素由 React 公式栏渲染）：
+// 名称框跳转、输入区编辑会话（bar/engine 两种）、画布点选引用拾取、容器键入路由、
+// 引擎编辑器镜像、函数建议/参数提示、引用染色框（sky 浮层）。
 // 补全/提示数据单一来源：@infinitable/formulas 注册表元数据。
-// 引擎编辑会话镜像：编辑器元素 input 事件逐字镜像（demo 级实现）。
 
 import { normalizeRange, type HighlightRange, type ListTable } from '@infinitable/core'
 
@@ -13,18 +13,11 @@ import {
   scanFormulaReferences,
   type FormulaFunctionInfo,
 } from '@infinitable/formulas'
-import type { SheetStore } from './book'
 
-import { closeActivePopup, isPopupAnchoredTo, openAnchoredPopup } from './popup'
-import type { SheetBookBundle } from './book'
+import type { SheetBookBundle, SheetStore } from '../../../sections/sheet/book'
 
-interface FormulaBarHandle {
-  /** 选区/值变化后刷新显示 */
-  refresh(): void
-  /** 函数面板/建议确认的插入落点：以 `=NAME()` 形态写入，光标落括号内 */
-  insertSnippet(name: string): void
-  destroy(): void
-}
+/** 函数面板分类（常用/全部 + 注册表分类）；签名为元数据单一来源 */
+export const FORMULA_PANEL_CATEGORIES = ['常用', '全部', ...FORMULA_FUNCTION_CATEGORIES.slice(1)]
 
 export { colLetters }
 
@@ -33,7 +26,7 @@ export function formatCellAddress(col: number, row: number): string {
   return `${colLetters(col)}${row + 1}`
 }
 
-/** 解析 A1 / B3:D5；非法返回 null */
+/** 解析 A1 / B3:D5 的单地址段；非法返回 null */
 function parseCellAddress(text: string): { col: number; row: number } | null {
   const single = /^([A-Za-z]+)([0-9]+)$/.exec(text.trim())
   if (!single) {
@@ -58,7 +51,7 @@ const SUGGEST_TRIGGER_CHARS = new Set(['=', '(', ',', '+', '-', '*', '/', '^', '
 /** 空前缀时「常用」分类的固定展示顺序（纯字典序会把 SUM 挤出前 10） */
 const COMMON_ORDER = ['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN', 'IF', 'ROUND', 'ABS', 'AND', 'OR']
 
-interface SuggestContext {
+export interface SuggestContext {
   /** 当前前缀（可能为空：紧跟触发字符后） */
   prefix: string
   /** 前缀在文本中的起始下标（含） */
@@ -177,51 +170,49 @@ function getCallContext(text: string, cursor: number): { name: string; paramInde
   return null
 }
 
-export function mountFormulaBar(
-  area: HTMLElement,
+/** 参数提示渲染模型（React 层按 span 渲染并高亮当前参数） */
+export interface CalltipModel {
+  name: string
+  params: Array<{ text: string; active: boolean }>
+}
+
+/** React 公式栏的视图回调（控制器把建议/提示/编辑态推给 React 渲染） */
+export interface FormulaBarView {
+  /** 编辑态（引擎会话/组合会话/输入区聚焦）控制 ✓/✗ 按钮显隐 */
+  setEditing(editing: boolean): void
+  showSuggest(items: FormulaFunctionInfo[]): void
+  moveSuggest(index: number): void
+  hideSuggest(): void
+  showCalltip(model: CalltipModel): void
+  hideCalltip(): void
+}
+
+export interface FormulaSessionHandle {
+  /** 选区/值变化后刷新显示 */
+  refresh(): void
+  /** 函数面板/建议确认的插入落点：以 `=NAME()` 形态写入，光标落括号内 */
+  insertSnippet(name: string): void
+  /** 建议列表项确认（鼠标点选） */
+  applySuggestion(name: string): void
+  /** 提交（✓ 按钮 / Enter） */
+  commit(): void
+  /** 取消（✗ 按钮 / Esc） */
+  cancel(): void
+  destroy(): void
+}
+
+/** 公式栏会话接线（元素由 React 渲染并经 refs 传入；接线逻辑与命令式版一致） */
+export function attachFormulaSession(
+  els: { nameBox: HTMLInputElement; input: HTMLInputElement },
   ctx: {
     table: () => ListTable
     store: () => SheetStore
     notify: (text: string, kind?: 'info' | 'warn') => void
     bundle: SheetBookBundle
   },
-): FormulaBarHandle {
-  const bar = document.createElement('div')
-  bar.className = 'sheet-app__formula-bar'
-
-  const nameBox = document.createElement('input')
-  nameBox.type = 'text'
-  nameBox.className = 'sheet-name-box'
-  nameBox.title = '单元格地址或区域（如 B3 或 B3:D5），回车跳转'
-  nameBox.setAttribute('aria-label', '单元格地址')
-
-  const fxButton = document.createElement('button')
-  fxButton.type = 'button'
-  fxButton.className = 'sheet-fx-label'
-  fxButton.textContent = 'fx'
-  fxButton.title = '插入函数'
-
-  const editor = document.createElement('div')
-  editor.className = 'sheet-fx-editor'
-  const input = document.createElement('textarea')
-  input.className = 'sheet-fx-input'
-  input.rows = 1
-  input.title = "活动单元格内容（'=' 开头为公式）；Enter 提交，Esc 取消"
-  input.setAttribute('aria-label', '公式输入')
-  editor.appendChild(input)
-
-  const confirmButton = document.createElement('button')
-  confirmButton.type = 'button'
-  confirmButton.className = 'sheet-fx-btn'
-  confirmButton.title = '提交（Enter）'
-  confirmButton.textContent = '✓'
-  const cancelButton = document.createElement('button')
-  cancelButton.type = 'button'
-  cancelButton.className = 'sheet-fx-btn'
-  cancelButton.title = '取消（Esc）'
-  cancelButton.textContent = '✗'
-  bar.append(nameBox, fxButton, editor, confirmButton, cancelButton)
-  area.appendChild(bar)
+  view: FormulaBarView,
+): FormulaSessionHandle {
+  const { nameBox, input } = els
 
   let mirroredEditor: HTMLTextAreaElement | HTMLInputElement | null = null
   let suspended = false
@@ -234,10 +225,6 @@ export function mountFormulaBar(
   let suggestIndex = -1
   let suggestItems: FormulaFunctionInfo[] = []
   let suggestContext: SuggestContext | null = null
-  const suggestions = document.createElement('div')
-  suggestions.className = 'sheet-fx-suggest'
-  const calltip = document.createElement('div')
-  calltip.className = 'sheet-fx-calltip'
 
   /** 当前焦点格（选区首段锚点；无选区 null） */
   const focusCell = (): { col: number; row: number } | null => {
@@ -250,27 +237,19 @@ export function mountFormulaBar(
   }
 
   const refreshEditorChrome = (): void => {
-    // 编辑态（引擎会话/组合会话/输入区聚焦）显示 ✓/✗；输入区按内容自适应增高（上限 8 行）
-    const editing = suspended || composing !== null || document.activeElement === input
-    confirmButton.classList.toggle('is-visible', editing)
-    cancelButton.classList.toggle('is-visible', editing)
-    input.style.height = ''
-    if (input.value.includes('\n') || editing) {
-      input.style.height = `${Math.min(input.scrollHeight, 24 * 8)}px`
-    }
+    // 编辑态（引擎会话/组合会话/输入区聚焦）显示 ✓/✗
+    view.setEditing(suspended || composing !== null || document.activeElement === input)
   }
 
   const hideSuggestions = (): void => {
-    suggestions.textContent = ''
-    suggestions.remove()
     suggestItems = []
     suggestIndex = -1
     suggestContext = null
+    view.hideSuggest()
   }
 
   const hideCalltip = (): void => {
-    calltip.textContent = ''
-    calltip.remove()
+    view.hideCalltip()
   }
 
   /** 参数提示：光标处于函数调用括号内时，输入区下方浮条显示签名并高亮当前参数 */
@@ -291,24 +270,15 @@ export function mountFormulaBar(
     if (!info) {
       return
     }
-    calltip.append(`${info.name}(`)
     // 可变参数尾巴（'...'）：光标越过后续参数恒落在尾巴上
     const active = Math.min(call.paramIndex, info.params.length - 1)
-    info.params.forEach((param, index) => {
-      if (index > 0) {
-        calltip.append(', ')
-      }
-      const span = document.createElement('span')
-      span.className = 'sheet-fx-calltip__param'
-      span.textContent =
-        param.name === '...' ? '...' : param.optional ? `[${param.name}]` : param.name
-      if (index === active) {
-        span.classList.add('is-active')
-      }
-      calltip.append(span)
+    view.showCalltip({
+      name: info.name,
+      params: info.params.map((param, index) => ({
+        text: param.name === '...' ? '...' : param.optional ? `[${param.name}]` : param.name,
+        active: index === active,
+      })),
     })
-    calltip.append(')')
-    editor.appendChild(calltip)
   }
 
   /** 确认建议：替换尾部函数名 token 为 `NAME()`，光标落括号内 */
@@ -328,45 +298,23 @@ export function mountFormulaBar(
   }
 
   const renderSuggestions = (): void => {
-    hideSuggestions()
     suggestContext = getSuggestContext(input.value, input.selectionStart ?? input.value.length)
     if (!suggestContext) {
+      hideSuggestions()
       return
     }
     suggestItems = filterSuggestions(suggestContext.prefix)
     if (suggestItems.length === 0) {
       suggestContext = null
+      view.hideSuggest()
       return
     }
     suggestIndex = 0
-    for (const info of suggestItems) {
-      const item = document.createElement('button')
-      item.type = 'button'
-      item.className = 'sheet-fx-suggest__item'
-      const signature = document.createElement('div')
-      signature.className = 'sheet-fx-suggest__signature'
-      signature.textContent = info.signature
-      const description = document.createElement('div')
-      description.className = 'sheet-fx-suggest__description'
-      description.textContent = info.description
-      item.append(signature, description)
-      item.addEventListener('mousedown', (event) => {
-        event.preventDefault()
-        applySuggestion(info.name)
-      })
-      suggestions.appendChild(item)
-    }
-    suggestions.children[suggestIndex]?.classList.add('is-active')
-    editor.appendChild(suggestions)
+    view.showSuggest(suggestItems)
   }
 
   const refreshSuggestActive = (): void => {
-    for (let index = 0; index < suggestions.children.length; index++) {
-      suggestions.children[index]?.classList.toggle('is-active', index === suggestIndex)
-    }
-    ;(suggestions.children[suggestIndex] as HTMLElement | undefined)?.scrollIntoView({
-      block: 'nearest',
-    })
+    view.moveSuggest(suggestIndex)
   }
 
   const refresh = (): void => {
@@ -730,70 +678,6 @@ export function mountFormulaBar(
       hideCalltip()
     }, 120)
   })
-  confirmButton.addEventListener('click', commit)
-  cancelButton.addEventListener('click', cancel)
-
-  // fx 按钮：下方弹函数面板（精简版：分类 + 列表；插入落点为本输入区）
-  // 分类与数据来自 formulas 注册表：常用/全部 + 注册表分类
-  const PANEL_CATEGORIES = ['常用', '全部', ...FORMULA_FUNCTION_CATEGORIES.slice(1)]
-  fxButton.addEventListener('click', () => {
-    if (isPopupAnchoredTo(fxButton)) {
-      closeActivePopup()
-      return
-    }
-    openAnchoredPopup(fxButton, {
-      build(el, close) {
-        el.classList.add('sheet-popup', 'sheet-popup--functions')
-        const nav = document.createElement('div')
-        nav.className = 'sheet-functions__nav'
-        const list = document.createElement('div')
-        list.className = 'sheet-functions__list'
-        let category: string = PANEL_CATEGORIES[0]!
-        const render = (): void => {
-          list.textContent = ''
-          const items = listFormulaFunctions().filter(
-            (info) => category === '全部' || info.category === category,
-          )
-          for (const info of items) {
-            const item = document.createElement('button')
-            item.type = 'button'
-            item.className = 'sheet-functions__item'
-            const signature = document.createElement('div')
-            signature.className = 'sheet-functions__signature'
-            signature.textContent = info.signature
-            const description = document.createElement('div')
-            description.className = 'sheet-functions__description'
-            description.textContent = info.description
-            item.append(signature, description)
-            item.addEventListener('click', () => {
-              insertSnippet(info.name)
-              close()
-            })
-            list.appendChild(item)
-          }
-        }
-        for (const name of PANEL_CATEGORIES) {
-          const item = document.createElement('button')
-          item.type = 'button'
-          item.className = 'sheet-functions__nav-item'
-          item.textContent = name
-          if (name === category) {
-            item.classList.add('is-active')
-          }
-          item.addEventListener('click', () => {
-            category = name
-            for (const child of nav.children) {
-              child.classList.toggle('is-active', child === item)
-            }
-            render()
-          })
-          nav.appendChild(item)
-        }
-        el.append(nav, list)
-        render()
-      },
-    })
-  })
 
   const insertSnippet = (name: string): void => {
     input.value = `=${name}()`
@@ -987,6 +871,9 @@ export function mountFormulaBar(
   return {
     refresh,
     insertSnippet,
+    applySuggestion,
+    commit,
+    cancel,
     destroy() {
       offBookChange()
       for (const off of bindings) {
@@ -1001,7 +888,6 @@ export function mountFormulaBar(
       mirroredEditor?.removeEventListener('input', onEditorInput)
       hideSuggestions()
       hideCalltip()
-      bar.remove()
     },
   }
 }

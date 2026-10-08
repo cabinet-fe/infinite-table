@@ -1,9 +1,11 @@
 // ?smoke=1 冒烟自动化模式（对齐旧 App.vue 行为，dpr 锁 1 由 mount.ts 既有逻辑承担）：
 // 挂全量演示区（八区 + sheet + report），写 __DEMO__ / __SHEET_DEMO__ / __REPORT_DEMO__ 句柄，
 // runSmoke 写 window.__SMOKE__ 供 scripts/smoke.mjs 轮询（异常也写失败信号，裸 void 会让超时方无从分辨挂错与卡死）。
+// sheet 演示面为 React + shadcn（与正常页同一 SheetWorkspace，句柄行为一致）；
+// 其余演示区仍走 sections 的命令式裸挂路径，由后续阶段逐区迁移。
 
 import { FlaskConical } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { mountChart } from '../sections/chart'
 import { mountDataForms } from '../sections/data-forms'
@@ -13,13 +15,27 @@ import { mountInteraction } from '../sections/interaction'
 import { mountMedia } from '../sections/media'
 import { mountPrint } from '../sections/print'
 import { createReportHandle, mountReport } from '../sections/report'
-import { createSheetHandle, mountSheet } from '../sections/sheet'
+import { createSheetHandle, type SheetDemo } from '../sections/sheet'
 import { mountWatermark } from '../sections/watermark'
 import { runSmoke } from '../smoke'
+import { SheetWorkspace } from './views/sheet/SheetWorkspace'
 import type { DemoHandles } from './types'
 
 export function SmokeMode() {
   const mountRef = useRef<HTMLDivElement>(null)
+  const demosRef = useRef<DemoHandles | null>(null)
+  // sheet 面为 React 装配：就绪后再跑 runSmoke（checkSheet 断言 __SHEET_DEMO__ 与公式栏 DOM）
+  const [sheetReady, setSheetReady] = useState(false)
+
+  const onSheetDemo = useCallback((demo: SheetDemo | null) => {
+    if (demo) {
+      window.__SHEET_DEMO__ = createSheetHandle(demo)
+      setSheetReady(true)
+    } else {
+      delete window.__SHEET_DEMO__
+      setSheetReady(false)
+    }
+  }, [])
 
   useEffect(() => {
     const mountPoint = mountRef.current
@@ -35,14 +51,16 @@ export function SmokeMode() {
       print: mountPrint(mountPoint),
       editing: mountEditing(mountPoint),
     }
+    demosRef.current = demos
     window.__DEMO__ = demos
-    // sheet 区：插件之上的完整 sheet 面（句柄供 checkSheet 断言）
-    const sheetDemo = mountSheet(mountPoint)
-    window.__SHEET_DEMO__ = createSheetHandle(sheetDemo)
     // 报表区：快照灌入 + readonly 渲染（句柄供 checkReport 断言）
     const reportDemo = mountReport(mountPoint)
     window.__REPORT_DEMO__ = createReportHandle(reportDemo)
-    void runSmoke(demos).catch((error) => {
+  }, [])
+
+  useEffect(() => {
+    if (!sheetReady || !demosRef.current) return
+    void runSmoke(demosRef.current).catch((error) => {
       window.__SMOKE__ = {
         done: true,
         pass: false,
@@ -51,7 +69,7 @@ export function SmokeMode() {
       }
       document.title = 'SMOKE FAIL'
     })
-  }, [])
+  }, [sheetReady])
 
   return (
     <div className="smoke-mode-container h-screen overflow-y-auto p-6">
@@ -65,6 +83,8 @@ export function SmokeMode() {
         </p>
       </div>
       <div ref={mountRef} />
+      {/* sheet 区：插件之上的完整 sheet 面（句柄供 checkSheet 断言） */}
+      <SheetWorkspace onDemo={onSheetDemo} />
     </div>
   )
 }

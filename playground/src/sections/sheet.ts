@@ -1,13 +1,12 @@
 // sheet 电子表格演示区（对标 ultra-ui playground sheet 的组件形态还原）：
-// 工具栏（图标分组）→ 公式栏（名称框/fx/建议）→ 网格（flex 铺满）→ 底部 tabs，
-// 右键菜单三套（行号/列头/正文，正文含「设置数据格式」子菜单）、查找替换弹层、
-// CSV/xlsx 导入导出（hucre）、插入浮动图片、数据结构观察区；消息走顶部 toast（无状态栏，与 ultra-ui 一致）。
-// 数据面不变：Store 单一事实源 + createSheetPlugin 插件对象（书形态：实例池/键位/撤销栈/填充生成
-// 经 mount 装配）；numFmt 为 demo 级侧车通道（book.ts 按 sheet 持稀疏 Map，仅影响显示，Store 恒存原始值）。
+// 数据面装配束（Store 单一事实源 + createSheetPlugin 书形态：实例池/键位/撤销栈/填充生成），
+// UI 面（工具栏/公式栏/tabs/右键菜单/观察区/toast）由 app/views/sheet/** 的 React + shadcn 组件承担。
+// numFmt 为 demo 级侧车通道（book.ts 按 sheet 持稀疏 Map，仅影响显示，Store 恒存原始值）。
 
 import {
   EditorRegistry,
   normalizeRange,
+  type CellStyle,
   type ListTable,
   type ListTableOptions,
   type LoadedImage,
@@ -17,15 +16,12 @@ import {
 
 import type { SheetPluginHandle } from '@infinitable/plugins'
 
-import { createSection, demoLoadImage } from '../mount'
+import { demoLoadImage } from '../mount'
 
 import { createDemoBook, type SheetBookBundle, type SheetStore } from './sheet/book'
 import { createCSV } from './sheet/csv'
-import { mountContextMenu } from './sheet/context-menu'
-import { mountFormulaBar } from './sheet/formula-bar'
 import type { EvaluatedValue } from './sheet/evaluator'
 import type { NumFmt } from './sheet/format'
-import { mountInspector } from './sheet/inspector'
 import {
   deleteRow as deleteRowOp,
   insertRow as insertRowOp,
@@ -33,11 +29,29 @@ import {
   syncMergesToTable,
 } from './sheet/ops'
 import { bindResizePersistence } from './sheet/persist'
-import { mountToolbar } from './sheet/toolbar'
-import { mountTabs, type TabsHandle } from './sheet/tabs'
-import { createToaster } from './sheet/toast'
 import { createXlsx, type XlsxHandle } from './sheet/xlsx'
 import { SHEET_COL_COUNT, SHEET_IMAGE_CELL } from './sheet/constants'
+
+/** 顶部 toast 消息回调（React 层注入；引擎侧接线只调它） */
+export type SheetNotify = (text: string, kind?: 'info' | 'warn') => void
+
+/** 工具栏驱动面（React 工具栏挂载后回填；冒烟 applyFragment 断言走这里） */
+export interface SheetToolbarApi {
+  /** 编程式样式应用（冒烟驱动用）：对当前选区逐格套用片段 */
+  applyFragment(fragment: CellStyle, mode: 'toggle' | 'set'): void
+  /** 清除当前选区格式 */
+  clearFormat(): void
+  /** 刷新按钮态（选区/值变化后由监听方调用） */
+  refreshStates(): void
+}
+
+/** 查找替换驱动面（面板逻辑句柄；冒烟 findNext/replaceAll 断言走这里） */
+export interface SheetFindApi {
+  /** 查找下一个（默认按显示值、忽略大小写、非整格） */
+  findNext(keyword?: string): { col: number; row: number } | null
+  /** 全表替换（字符串原值替换，返回次数） */
+  replaceAll(keyword?: string, replacement?: string): number
+}
 
 /**
  * 网格主题（对标 ultra-ui vtable-theme 实际生效值）：表头/行号 #F5F5F5 非粗体 12px 居中、
@@ -111,8 +125,8 @@ function formatBounds(bounds: RangeBounds): string {
 
 /** 冒烟/控制台驱动面（全部经公开 API 组合） */
 interface SheetDemoControls {
-  toolbar: ReturnType<typeof mountToolbar>
-  find: ReturnType<typeof mountToolbar>['find']
+  toolbar: SheetToolbarApi
+  find: SheetFindApi
   csv: ReturnType<typeof createCSV>
   /** xlsx 整本导入导出（hucre） */
   xlsx: XlsxHandle
@@ -183,44 +197,31 @@ export interface SheetDemo {
   getBundle: () => SheetBookBundle
   /** UI 驱动面 */
   getControls: () => SheetDemoControls
+  /** React 工具栏/查找面板挂载后回填冒烟驱动面（toolbar 与 find 槽位） */
+  registerUi(ui: { toolbar?: SheetToolbarApi; find?: SheetFindApi }): void
+  /** 顶部 toast 消息（React toast 层注入；引擎侧事件与结构操作共用） */
+  readonly notify: SheetNotify
   /** 资源释放（卸载时调用） */
   destroy: () => void
 }
 
-export function mountSheet(root: HTMLElement): SheetDemo {
-  const section = createSection(
-    root,
-    'sheet 电子表格',
-    '对标 ultra-ui playground sheet：工具栏/公式栏/底部 tabs/三套右键菜单（含数据格式）/查找替换/CSV/xlsx/插入图片/数据结构观察。' +
-      'SheetStore 单一事实源 + sheet 插件族；样式矩阵 / \\n 多行合并 / 填充柄 / 格内图演示保留。',
-  )
-
-  // ---- 组件卡片（u-sheet 形态）：工具栏 → 公式栏 → 网格 → 底部 tabs ----
-  const app = document.createElement('div')
-  app.className = 'sheet-app'
-  const toolbarArea = document.createElement('div')
-  toolbarArea.className = 'sheet-app__toolbar-wrap'
-  const formulaArea = document.createElement('div')
-  formulaArea.className = 'sheet-app__formula-wrap'
-  const gridArea = document.createElement('div')
-  gridArea.className = 'sheet-app__grid sheet-viewport'
-  const tabsArea = document.createElement('div')
-  tabsArea.className = 'sheet-app__tabs-wrap'
-  app.append(toolbarArea, formulaArea, gridArea, tabsArea)
-  section.appendChild(app)
-
-  const toaster = createToaster()
-  const notify = (text: string, kind: 'info' | 'warn' = 'info'): void => {
-    toaster.notify(text, kind)
-  }
+/**
+ * sheet 引擎装配：网格视口（.sheet-viewport）内建书形态实例池；
+ * 工具栏/公式栏/tabs 等由 React 层渲染并经 registerUi 回填驱动面。
+ */
+export function mountSheet(
+  viewport: HTMLElement,
+  opts: { notify: SheetNotify; onBookRebuilt?: () => void },
+): SheetDemo {
+  const notify = opts.notify
 
   // ---- sheet 插件装配（书形态；容器铺满网格区，尺寸以测量值为准） ----
   const registry = new EditorRegistry()
   registry.registerEditor('text', {})
-  const gridWidth = gridArea.clientWidth || 960
-  const gridHeight = gridArea.clientHeight || 420
+  const gridWidth = viewport.clientWidth || 960
+  const gridHeight = viewport.clientHeight || 420
   let bundleRef: SheetBookBundle | null = null
-  const bundle = createDemoBook(gridArea, {
+  const bundle = createDemoBook(viewport, {
     width: gridWidth,
     height: gridHeight,
     columns: Array.from({ length: SHEET_COL_COUNT }, (_, col) => ({
@@ -294,8 +295,7 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     teardowns.set(id, [bindResizePersistence(created, store)])
   })
 
-  // ---- UI 面：公式栏 → 工具栏（含查找/CSV/xlsx 弹层）→ tabs → 右键菜单 ----
-  // 首次切换（惰性创建 sheet-1 实例）先行：后续 UI 均依赖活跃实例存在
+  // ---- 首次切换（惰性创建 sheet-1 实例）先行：后续 UI 均依赖活跃实例存在 ----
   bundle.switchTo('sheet-1')
   const table = (): ListTable => {
     const active = bundle.activeTable()
@@ -326,15 +326,12 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     },
   }
 
-  // xlsx 导入重建 book 后的 UI 联动（函数声明提升：tabs 在其后定义，运行期才被回调）
+  // xlsx 导入重建 book 后的 UI 联动（React 层刷新 tabs/公式栏/按钮态，此处补引擎侧全表刷新）
   const onBookRebuilt = (): void => {
-    tabs.refresh()
-    formulaBar.refresh()
-    toolbar.refreshStates()
+    opts.onBookRebuilt?.()
     refreshAllGrid(table(), store())
   }
 
-  const formulaBar = mountFormulaBar(formulaArea, { table, store, notify, bundle })
   const xlsx = createXlsx({ bundle, notify, onImported: onBookRebuilt })
   const csv = createCSV({
     table,
@@ -344,47 +341,38 @@ export function mountSheet(root: HTMLElement): SheetDemo {
       void file.arrayBuffer().then((buffer) => xlsx.importBuffer(buffer))
     },
   })
-  const toolbar = mountToolbar(toolbarArea, {
-    table,
-    store,
-    notify,
-    sheet,
-    bundle,
-    csv,
-    xlsx,
-    formulaBar,
-  })
-  const tabs: TabsHandle = mountTabs(tabsArea, {
-    bundle,
-    notify,
-    onSwitched: () => {
-      formulaBar.refresh()
-      toolbar.refreshStates()
-    },
-  })
-  const contextMenu = mountContextMenu({
-    table,
-    store,
-    sheet,
-    notify,
-    setNumFmt: numFmtControl.set,
-  })
-  const inspector = mountInspector(section, {
-    bundle,
-    table,
-    store,
-    sheet,
-    labelOf: tabs.labelOf,
-  })
+
+  /** 工具栏/查找面板槽位（React 层 registerUi 回填；未回填时调用即显式失败） */
+  const notMounted = (): never => {
+    throw new Error('sheet UI 面未挂载（工具栏/查找面板尚未注册）')
+  }
+  const toolbarApi: SheetToolbarApi = {
+    applyFragment: notMounted,
+    clearFormat: notMounted,
+    refreshStates: () => {},
+  }
+  const findApi: SheetFindApi = {
+    findNext: notMounted,
+    replaceAll: notMounted,
+  }
+
+  /** 结构操作：在第 at 行上方插入行（0 基） */
+  const insertRowAt = (at: number): void => {
+    insertRowOp(store(), at)
+    syncMergesToTable(table(), store(), (error) => {
+      notify(`合并区同步被拒绝：${error.message}`, 'warn')
+    })
+    refreshAllGrid(table(), store())
+    notify(`已在行 ${at + 1} 上插入行`)
+  }
 
   /** 冒烟/控制台驱动面（全部经公开 API 组合） */
   const controls: SheetDemoControls = {
-    toolbar,
-    find: toolbar.find,
+    toolbar: toolbarApi,
+    find: findApi,
     csv,
     xlsx,
     numFmt: numFmtControl,
-    /** 结构操作：在第 at 行上方插入行（0 基） */
     insertRow: (at: number): void => {
       insertRowAt(at)
     },
@@ -400,48 +388,6 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     /** 当前活跃 sheet 求值（公式引擎，按格缓存） */
     evaluate: (formula: string): EvaluatedValue => bundle.evaluateActive(formula),
   }
-  const insertRowAt = (at: number): void => {
-    insertRowOp(store(), at)
-    syncMergesToTable(table(), store(), (error) => {
-      notify(`合并区同步被拒绝：${error.message}`, 'warn')
-    })
-    refreshAllGrid(table(), store())
-    notify(`已在行 ${at + 1} 上插入行`)
-  }
-
-  // ---- 全局快捷键（Ctrl/Cmd+Z 撤销、Shift+Z/Y 重做、F 查找；输入控件内与编辑会话中不接管撤销/重做） ----
-  /** 撤销/重做接管条件：网格聚焦（焦点不在输入控件，见下方 target 过滤）且活跃表不在编辑会话 */
-  const canUndoRedo = (): boolean => {
-    const active = bundle.activeTable()
-    return active != null && !active.isEditing()
-  }
-  const onKeydown = (event: KeyboardEvent): void => {
-    if (!app.isConnected || !(event.ctrlKey || event.metaKey)) {
-      return
-    }
-    const target = event.target
-    if (target instanceof HTMLElement && target.closest('input, textarea, select')) {
-      return
-    }
-    const key = event.key.toLowerCase()
-    if (key === 'f') {
-      event.preventDefault()
-      toolbar.toggleFind()
-    } else if (key === 'z' && !event.shiftKey && canUndoRedo()) {
-      event.preventDefault()
-      sheet.undo()
-      notify('已撤销')
-      toolbar.refreshStates()
-      inspector.refresh()
-    } else if ((key === 'z' || key === 'y') && canUndoRedo()) {
-      event.preventDefault()
-      sheet.redo()
-      notify('已重做')
-      toolbar.refreshStates()
-      inspector.refresh()
-    }
-  }
-  document.addEventListener('keydown', onKeydown)
 
   return {
     get table() {
@@ -451,20 +397,18 @@ export function mountSheet(root: HTMLElement): SheetDemo {
     getSheet: () => sheet,
     getBundle: () => bundle,
     getControls: () => controls,
+    registerUi: (ui) => {
+      Object.assign(toolbarApi, ui.toolbar)
+      Object.assign(findApi, ui.find)
+    },
+    notify,
     destroy: () => {
-      document.removeEventListener('keydown', onKeydown)
-      toolbar.destroy()
-      contextMenu.destroy()
-      formulaBar.destroy()
-      tabs.destroy()
-      inspector.destroy()
       csv.destroy()
       for (const offs of teardowns.values()) {
         for (const off of offs) {
           off()
         }
       }
-      toaster.destroy()
       bundle.dispose()
     },
   }
