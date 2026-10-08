@@ -85,6 +85,41 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* 中文优先的系统字体栈（覆盖 Tailwind 默认 --font-sans，preflight 落到 html） */
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Segoe UI', Roboto,
+    sans-serif;
+}
+
+/* ---- sections 命令式演示区（引擎装配 DOM 的容器样式；类名由 src/mount.ts 与 sections/* 引用） ---- */
+@layer components {
+  /* 演示区挂载容器：React 页面的挂载点，直接子元素 section 即一张演示卡 */
+  .demo-mount-area {
+    @apply flex flex-col gap-4;
+  }
+
+  .demo-mount-area section {
+    @apply rounded-xl border bg-card px-5 py-4 shadow-sm;
+  }
+
+  /* section 内子场景标题（chart / data-forms 的 h3） */
+  .demo-mount-area section h3 {
+    @apply mt-4 mb-2 text-sm font-semibold text-foreground first:mt-0;
+  }
+
+  /* 表格容器：mountTable 建的相对定位容器，承载四层 canvas */
+  .table-mount {
+    @apply relative touch-none overflow-hidden rounded-md border bg-card shadow-sm select-none;
+  }
+
+  /* sheet 网格实例容器（sections/sheet/book.ts 创建）：clip 而非 hidden——hidden 下编辑器聚焦
+     仍可被程序滚动（canvas 高于容器时整块错位），clip 完全禁止滚动位移 */
+  .sheet-grid-instance {
+    @apply absolute inset-0 touch-none overflow-clip bg-white select-none;
   }
 }

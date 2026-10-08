@@ -11,7 +11,7 @@ import {
   type ChartType,
 } from '@infinitable/plugins'
 
-import { createSection, createSubSection, mountTable, type DemoMount } from '../mount'
+import { mountTable, type DemoMount } from '../mount'
 
 /** 静态场景行数：2 行 × 4 个图表列（柱状/折线/面积/饼各一格以上） */
 export const CHART_STATIC_ROW_COUNT = 2
@@ -110,16 +110,17 @@ export interface ChartDemo {
 }
 
 export function mountChart(root: HTMLElement): ChartDemo {
-  const section = createSection(
-    root,
-    '单元格图表',
-    '单元格声明图表（类型 + 数据），chart 插件经构造 plugins 启用：Chart.js 在插件侧离屏出图，' +
-      '位图落 L2 media cell 级缓存 blit 上屏。上方静态表覆盖柱状/折线/面积/饼四类；' +
-      '下方 400 行长列表滚动滚回命中缓存直接回贴（无闪），声明按行取模共享 6 组。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
+  /** 组内子场景标题（样式由 global.css 的 section h3 规则承担） */
+  const addHeading = (text: string): void => {
+    const heading = document.createElement('h3')
+    heading.textContent = text
+    section.appendChild(heading)
+  }
 
   // ---- 静态渲染场景：四类基线图表 ----
-  createSubSection(section, '静态渲染（柱状 / 折线 / 面积 / 饼）')
+  addHeading('静态渲染（柱状 / 折线 / 面积 / 饼）')
   let lineRevision = 0
   const staticPlugin = createChartPlugin({
     resolveCellChart: (col, row) => {
@@ -145,7 +146,7 @@ export function mountChart(root: HTMLElement): ChartDemo {
   })
 
   // ---- 滚动场景：长列表图表格（滚回无闪 + 缓存命中） ----
-  createSubSection(section, '长列表滚动（滚回无闪 / 缓存命中）')
+  addHeading('长列表滚动（滚回无闪 / 缓存命中）')
   const scrollPlugin = createChartPlugin({
     resolveCellChart: (col, row) => {
       if (col === 1) {

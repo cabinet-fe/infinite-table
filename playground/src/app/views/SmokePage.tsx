@@ -110,8 +110,11 @@ export function SmokePage() {
         )}
       </div>
 
-      {/* 冒烟执行时的测试挂载区（离屏暂存） */}
-      <div ref={stagingRef} className="smoke-staging" />
+      {/* 冒烟执行时的测试挂载区（离屏暂存，canvas 仍正常绘制供像素断言） */}
+      <div
+        ref={stagingRef}
+        className="pointer-events-none absolute -top-[9999px] -left-[9999px] opacity-0"
+      />
     </div>
   )
 }

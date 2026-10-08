@@ -10,7 +10,7 @@
 import type { CellStyle, ListTable, ListTableOptions } from '@infinitable/core'
 import { createSheetPlugin, type SheetPluginHandle } from '@infinitable/plugins'
 
-import { createSection, demoLoadImage, mountTable, type DemoMount } from '../mount'
+import { demoLoadImage, mountTable, type DemoMount } from '../mount'
 
 /** 演示层 Store 类型（sheet 插件 handle 的 store 面） */
 type SheetStore = NonNullable<SheetPluginHandle['store']>
@@ -319,13 +319,8 @@ declare global {
 }
 
 export function mountReport(root: HTMLElement): ReportDemo {
-  const section = createSection(
-    root,
-    '报表式只读快照渲染',
-    '报表快照（九字段）全量灌入 sheet 插件 Store → readonly 渲染：禁编辑（resolveEditable 全 false）、' +
-      '禁行列尺寸拖改（canResizeCol/Row 全 false）、不接填充/撤销写路径；浮动图与选区随快照经 wiring 接线。' +
-      '行列头关闭——报表自身的标题/表头带就是数据。meta 迁移时照搬「快照 → 灌回 → 只读渲染」三段即可。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
 
   // sheet 插件单表只读形态：持有唯一 Store（报表事实源），不装配写路径接线
   const sheet = createSheetPlugin({

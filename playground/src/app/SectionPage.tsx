@@ -1,11 +1,10 @@
 // 演示区通用薄壳：标题/标签/描述头卡 + useEffect 挂载区。
-// 挂载复用 src/sections/** 的 mountXXX（命令式 DOM 落在 .demo-mount-area 内，沿用 style.css 卡片化）；
-// sheet 等需要清理的演示经 unmount 回调在卸载时收尾。后续各阶段逐页改造，不动本壳的路由配置。
+// 挂载复用 src/sections/** 的 mountXXX（命令式 DOM 落在 .demo-mount-area 内，由 global.css 组件类卡片化）；
+// sheet 等需要清理的演示经 unmount 回调在卸载时收尾。
 
 import { useEffect, useRef } from 'react'
 
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 
 interface SectionPageProps<D> {
   title: string
@@ -15,18 +14,9 @@ interface SectionPageProps<D> {
   mount: (root: HTMLElement) => D
   /** 卸载收尾（如 sheet 的 destroy 与调试句柄回收）；缺省仅随容器移除 DOM */
   unmount?: (demo: D) => void
-  /** 挂载区附加类名（如 smoke-staging 离屏挂载） */
-  mountClassName?: string
 }
 
-export function SectionPage<D>({
-  title,
-  tags,
-  desc,
-  mount,
-  unmount,
-  mountClassName,
-}: SectionPageProps<D>) {
+export function SectionPage<D>({ title, tags, desc, mount, unmount }: SectionPageProps<D>) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -49,7 +39,7 @@ export function SectionPage<D>({
         </div>
         <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">{desc}</p>
       </div>
-      <div ref={containerRef} className={cn('demo-mount-area', mountClassName)} />
+      <div ref={containerRef} className="demo-mount-area" />
     </div>
   )
 }

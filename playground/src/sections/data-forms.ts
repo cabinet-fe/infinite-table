@@ -3,7 +3,7 @@
 
 import type { CellChangeEvent, TableModel } from '@infinitable/core'
 
-import { createSection, createSubSection, mountTable, type DemoMount } from '../mount'
+import { mountTable, type DemoMount } from '../mount'
 
 /** 演示用外部数据模型：Map 存储 + 变更事件订阅 + 回写入口 */
 export class DemoModel implements TableModel {
@@ -40,13 +40,16 @@ export interface DataFormsDemo {
 }
 
 export function mountDataForms(root: HTMLElement): DataFormsDemo {
-  const section = createSection(
-    root,
-    '数据供给三形态',
-    'records/columns 数组、按格 hook（纯函数同步 O(1)）、模型事件订阅驱动局部刷新（含回驱防回环）。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
+  /** 供数形态子标题（样式由 global.css 的 section h3 规则承担） */
+  const addHeading = (text: string): void => {
+    const heading = document.createElement('h3')
+    heading.textContent = text
+    section.appendChild(heading)
+  }
 
-  createSubSection(section, 'records/columns 数组')
+  addHeading('records/columns 数组')
   const records: DemoMount = mountTable(section, {
     width: 720,
     height: 220,
@@ -64,7 +67,7 @@ export function mountDataForms(root: HTMLElement): DataFormsDemo {
     })),
   })
 
-  createSubSection(section, '按格 hook（resolveDisplayValue / resolveCellStyle）')
+  addHeading('按格 hook（resolveDisplayValue / resolveCellStyle）')
   const hooks: DemoMount = mountTable(section, {
     width: 720,
     height: 220,
@@ -74,7 +77,7 @@ export function mountDataForms(root: HTMLElement): DataFormsDemo {
     resolveCellStyle: (_col, row) => (row % 5 === 0 ? { background: '#eef2ff' } : null),
   })
 
-  createSubSection(section, '模型事件订阅（外部变更 → 局部刷新；updateCell → 回驱防回环）')
+  addHeading('模型事件订阅（外部变更 → 局部刷新；updateCell → 回驱防回环）')
   const model = new DemoModel()
   const modelMount: DemoMount = mountTable(section, {
     width: 720,

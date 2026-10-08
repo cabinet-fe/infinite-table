@@ -7,7 +7,7 @@
 
 import { createWatermarkPlugin, type WatermarkHandle } from '@infinitable/plugins'
 
-import { createSection, mountTable, type DemoMount } from '../mount'
+import { mountTable, type DemoMount } from '../mount'
 
 /** 演示表数据行数（足够滚动） */
 const WATERMARK_ROW_COUNT = 400
@@ -19,13 +19,8 @@ export interface WatermarkDemo {
 }
 
 export function mountWatermark(root: HTMLElement): WatermarkDemo {
-  const section = createSection(
-    root,
-    '文字水印',
-    '水印插件经构造 plugins 挂载：平铺文字绘制在顶层 overlay 预留位（四层 canvas 最上层的' +
-      ' sky 层最顶，覆盖在表格内容之上），默认主题零配置即可见。滚动表格观察水印锚定视口不随内容' +
-      '移动；右侧开关与滑杆即时生效（updateConfig 一帧内重绘）。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
 
   const handle = createWatermarkPlugin({ enabled: true, text: 'infinitable 内部资料' })
   const mount = mountTable(section, {

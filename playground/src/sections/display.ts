@@ -4,7 +4,7 @@
 
 import type { CellRenderer } from '@infinitable/core'
 
-import { createSection, mountTable, type DemoMount } from '../mount'
+import { mountTable, type DemoMount } from '../mount'
 
 /** 列宽：id 80 / name 140 / qty 80 / price 100 / rating 120 / done 80 / note 160（冻结第 0 列） */
 const DISPLAY_COL_WIDTHS = [80, 140, 80, 100, 120, 80, 160] as const
@@ -50,12 +50,8 @@ export interface DisplayDemo {
 }
 
 export function mountDisplay(root: HTMLElement): DisplayDemo {
-  const section = createSection(
-    root,
-    '显示能力（10 万行）',
-    '虚拟滚动窗口 + 行列头（含行号列）+ 冻结首列首行 + 合并 (2,2)~(3,3) + 逐边边框 (2,4) + ' +
-      'rating 列自定义渲染 + done 列 checkbox + 主题 extends（列头底色）。滚轮/触控滚动，拖行列头边缘 resize。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
 
   const records: DisplayRecord[] = Array.from({ length: DISPLAY_ROW_COUNT }, (_, row) => ({
     id: `ID-${row}`,

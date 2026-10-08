@@ -16,7 +16,7 @@ import {
   type PrintSource,
 } from '@infinitable/plugins'
 
-import { createSection, mountTable, type DemoMount } from '../mount'
+import { mountTable, type DemoMount } from '../mount'
 
 // ---- 示例数据维度（确定性生成，无随机） ----
 
@@ -124,14 +124,8 @@ export interface PrintDemo {
 }
 
 export function mountPrint(root: HTMLElement): PrintDemo {
-  const section = createSection(
-    root,
-    '打印预览与输出',
-    'print 插件（handle 形态）：分页（fitpage 按页高 / fixrows 固定行数补空行）、每页重复两行' +
-      '表头、页眉页脚占位符（{title}/{date}/{page}/{pageCount} 与页级聚合 {pageSum:4}）。示例表超过' +
-      '一页，右侧配置参数后打开预览弹层（缩略列表 + 当前页放大）；window.print 已替换为计数桩，' +
-      '点打印按钮后状态行与 window.__DEMO__.print 可读取调用计数与最近配置。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
 
   // ---- 数据面：PrintSource 由本区数据函数适配（屏上表格与打印共用的单一事实源） ----
   const source: PrintSource = {

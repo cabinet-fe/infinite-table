@@ -5,7 +5,7 @@
 // Shift 等比/15° 吸附，初始 45°）：变换结束经 onTransformEnd 写回示例模型。
 // 用户可见控件（浮动对象开关、图片加载/变换状态行）由 MediaPage 以 shadcn 组件承担。
 
-import { createSection, demoLoadImage, mountTable, type DemoMount } from '../mount'
+import { demoLoadImage, mountTable, type DemoMount } from '../mount'
 
 const MEDIA_COL_COUNT = 6
 const MEDIA_ROW_COUNT = 500
@@ -36,13 +36,8 @@ export interface MediaDemo {
 }
 
 export function mountMedia(root: HTMLElement): MediaDemo {
-  const section = createSection(
-    root,
-    '图片与浮动对象',
-    '第 1 列偶数行为格内图片（L2 media 层 + 窗口化加载 + 位图 LRU，滚动来回无闪）；' +
-      '一个浮动图片对象锚在 (2,1)~(4,3) 随滚动跟随；' +
-      '另一个 45° 浮动图片可选中后拖角/边手柄缩放（Shift 等比）、拖顶部手柄旋转（Shift 吸附 15°）。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
 
   const mount: DemoMount = mountTable(section, {
     width: 720,

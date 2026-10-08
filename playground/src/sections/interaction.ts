@@ -2,7 +2,7 @@
 // 键盘导航、触控滚动（容器 touch-action:none）、批量更新、contextmenu、onScrollFrame。
 // 订阅事件可见化（状态行）与批量更新/全选/清空按钮由 React 页面（InteractionPage）驱动句柄承担。
 
-import { createSection, mountTable, type DemoMount } from '../mount'
+import { mountTable, type DemoMount } from '../mount'
 
 const INTERACTION_COL_COUNT = 8
 const INTERACTION_ROW_COUNT = 2000
@@ -13,13 +13,8 @@ export interface InteractionDemo {
 }
 
 export function mountInteraction(root: HTMLElement): InteractionDemo {
-  const section = createSection(
-    root,
-    '交互能力',
-    '拖选 / 点行号整行 / 点列头整列 / 点左上角全选；shift+方向键扩展选区；' +
-      '拖行列头边缘 resize（边缘悬停光标变 col-resize/row-resize；第 0 行/列被 canResize 禁用）；' +
-      '方向键导航；触控惯性滚动；右键触发 contextmenu 事件；onScrollFrame 实时回显滚动位置。',
-  )
+  const section = document.createElement('section')
+  root.appendChild(section)
 
   const records: Array<Record<string, string>> = Array.from(
     { length: INTERACTION_ROW_COUNT },

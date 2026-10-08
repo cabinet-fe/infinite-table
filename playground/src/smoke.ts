@@ -657,7 +657,7 @@ async function checkChart(checker: Checker, demos: DemoHandles): Promise<void> {
 
 async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void> {
   const { table, container } = demos.editing.mount
-  const { model, status } = demos.editing
+  const { model } = demos.editing
 
   await checker.step('编辑：双击可编格出现浮层，初值为基础值且聚焦', () => {
     doubleTapCell(container, table, 0, 0)
@@ -710,25 +710,22 @@ async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void>
     assert(!table.startEdit(DISPLAY_COL, 0), '纯展示列 startEdit 未返回 false')
   })
 
-  await checker.step('编辑：API 按钮 startEdit/commitEdit/cancelEdit', () => {
-    const section = container.parentElement
-    assert(section, '编辑区容器不在 section 内')
-    const buttons = section.querySelectorAll<HTMLButtonElement>('.toolbar button')
-    assert(buttons.length >= 3, `API 按钮数 ${buttons.length}`)
-    buttons[0]!.click()
+  await checker.step('编辑：API startEdit/commitEdit/cancelEdit', () => {
+    const { api, status } = demos.editing
+    api.startEdit()
     const input = container.querySelector<HTMLInputElement>('input')
-    assert(input, 'startEdit 按钮未打开浮层')
+    assert(input, 'startEdit 未打开浮层')
     assert(input.value === '名称-3', `API 编辑初值 ${input.value}，期望 名称-3`)
     input.value = 'API-改'
-    buttons[1]!.click()
+    api.commitEdit()
     assert(model.getCellValue(0, 3) === 'API-改', `commitEdit 未回写：${model.getCellValue(0, 3)}`)
-    assert(status.textContent?.includes('已提交 (0,3)') === true, `状态行：${status.textContent}`)
-    buttons[0]!.click()
+    assert(status.text.includes('已提交 (0,3)') === true, `状态回执：${status.text}`)
+    api.startEdit()
     assert(container.querySelector('input'), '再次 startEdit 未打开浮层')
-    buttons[2]!.click()
+    api.cancelEdit()
     assert(!container.querySelector('input'), 'cancelEdit 未关闭浮层')
     assert(model.getCellValue(0, 3) === 'API-改', 'cancelEdit 改动了数据')
-    assert(status.textContent?.includes('已取消') === true, `状态行：${status.textContent}`)
+    assert(status.text.includes('已取消') === true, `状态回执：${status.text}`)
   })
 
   await checker.step('编辑滚动跟随：滚动帧上浮层逐帧对齐锚定格', async () => {
