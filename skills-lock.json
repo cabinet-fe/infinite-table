@@ -1,11 +1,29 @@
 {
   "version": 1,
   "skills": {
+    "docs-gen": {
+      "source": "cabinet-fe/prompt-engineering",
+      "sourceType": "github",
+      "skillPath": "skills/tools/docs-gen/SKILL.md",
+      "computedHash": "b7e335a63236f70803932c1cc16f020c76da7bf49254864d367eb0e38a0d8d57"
+    },
     "docs-search": {
       "source": "cabinet-fe/prompt-engineering",
       "sourceType": "github",
       "skillPath": "skills/tools/docs-search/SKILL.md",
       "computedHash": "d994fd7c9b3b94b5e3c89e9514ba818d21da0ffdbd356334873347e5a924a698"
+    },
+    "frontend-expert": {
+      "source": "cabinet-fe/prompt-engineering",
+      "sourceType": "github",
+      "skillPath": "skills/roles/frontend-expert/SKILL.md",
+      "computedHash": "9b211878834fc0e430a83cfad2941291d092df5572880e453f2744234906df24"
+    },
+    "typescript": {
+      "source": "cabinet-fe/prompt-engineering",
+      "sourceType": "github",
+      "skillPath": "skills/langs/typescript/SKILL.md",
+      "computedHash": "c648bcb9223f0c3b5ebbea6bbb753cab68cd83c7d4aa6c0c7d628b5297eb73f4"
     }
   }
 }
