@@ -2,7 +2,7 @@
 
 ## 命名
 
-- 包名：`@infinitable/<name>`；目录 `packages/<name>`（render、core、formulas、plugins）
+- 包名：`@infinitable/<name>`；目录 `packages/<name>`（render、core、formulas、plugins、sheet）
 - 文件 kebab-case；类型/类 PascalCase；变量/函数 camelCase
 - 测试文件 `*.test.ts`，统一放包内 `tests/` 目录（与 `src/` 平级、子目录结构镜像），禁止与源码混放
 

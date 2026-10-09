@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// 统一发布包类型装配：把四个内部包的 dist/types 树复制为 dist/types/<pkg>/，
+// 统一发布包类型装配：把五个内部包的 dist/types 树复制为 dist/types/<pkg>/，
 // 跨包 '@infinitable/*' 裸说明符改写为相对路径（指向 <pkg>/index.js，TS 按 .js→.d.ts 解析），
-// 最后生成根 index.d.ts re-export 垫片。前置：四内部包与本体 vp build 已完成。
+// 最后生成根 index.d.ts（主入口 re-export 四层）与 sheet.d.ts（./sheet 子路径）垫片。
+// 前置：五内部包与本体 vp build 已完成。
 
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -9,7 +10,10 @@ import { fileURLToPath } from 'node:url'
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(pkgRoot, '../..')
-const INTERNAL = ['render', 'core', 'formulas', 'plugins']
+const INTERNAL = ['render', 'core', 'formulas', 'plugins', 'sheet']
+// 主入口（src/index.ts）只 re-export 四层，sheet 走 ./sheet 子路径（src/sheet.ts）——
+// 垫片与运行时产物保持同口径。
+const ROOT_REEXPORT = ['render', 'core', 'formulas', 'plugins']
 const typesDir = path.join(pkgRoot, 'dist', 'types')
 
 function walkDts(dir) {
@@ -37,7 +41,7 @@ for (const name of INTERNAL) {
 for (const file of walkDts(typesDir)) {
   const source = readFileSync(file, 'utf8')
   const rewritten = source.replace(
-    /(['"])@infinitable\/(core|render|plugins|formulas)\1/g,
+    /(['"])@infinitable\/(core|render|plugins|formulas|sheet)\1/g,
     (match, quote, name) => {
       let rel = path
         .relative(path.dirname(file), path.join(typesDir, name, 'index.js'))
@@ -51,6 +55,7 @@ for (const file of walkDts(typesDir)) {
 
 writeFileSync(
   path.join(typesDir, 'index.d.ts'),
-  `${INTERNAL.map((name) => `export * from './${name}/index.js'`).join('\n')}\n`,
+  `${ROOT_REEXPORT.map((name) => `export * from './${name}/index.js'`).join('\n')}\n`,
 )
-console.log(`✓ 类型装配完成：dist/types（${INTERNAL.join(' + ')} + index 垫片）`)
+writeFileSync(path.join(typesDir, 'sheet.d.ts'), `export * from './sheet/index.js'\n`)
+console.log(`✓ 类型装配完成：dist/types（${INTERNAL.join(' + ')} + index/sheet 垫片）`)

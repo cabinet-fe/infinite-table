@@ -1,8 +1,8 @@
 ---
 title: infinitable 总览
-description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。含四层模块（render/core/formulas/plugins）与全部公共导出到文档路径的速查表；plugins 层四插件（sheet/chart/watermark/print）均为 createXxxPlugin 工厂对象形态。
+description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。含四层模块（render/core/formulas/plugins）与全部公共导出到文档路径的速查表；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、经 infinitable 的 ./sheet 子路径转出。
 aliases: [infinitable, infinite-table, InfiniTable, 表格引擎, canvas 表格]
-keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, createSheetPlugin, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, EditorRegistry, CellChartMedia, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件]
+keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, @infinitable/sheet, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, EditorRegistry, CellChartMedia, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件]
 ---
 
 # infinitable 总览
@@ -54,10 +54,10 @@ bun add infinitable @cat-kit/core
 | `collectAstReferences` / `astHasVolatileCall` | AST 静态引用收集 | `apis/formula-engine.md` |
 | `DependencyGraph` / `FormulaRefCoord` / `SheetCellCoord` | 公式依赖图（增量重算标脏；formulasOf/affectedBySheet 按表查询） | `apis/formula-engine.md` |
 | `scanFormulaReferences` | 容错引用扫描（编辑染色框） | `apis/formula-engine.md` |
-| `shiftFormulaText` / `FormulaShiftResult` / `tokenText` | 公式引用平移（行列插删改写公式文本）与 token 文本 | `apis/formula-engine.md` |
+| `shiftFormulaText` / `shiftFormulaRefs` / `FormulaShiftResult` / `tokenText` | 公式引用平移（行列插删改写公式文本；`shiftFormulaRefs` 填充柄按行列增量平移）与 token 文本 | `apis/formula-engine.md` |
 | `evaluate` / `FormulaResolver` / `FormulaEvalContext` / `ScalarValue` | 求值器与宿主取值接口（含自定义函数求值上下文） | `apis/formula-engine.md` |
 | `FORMULA_FUNCTION_CATEGORIES` / `registerFormulaFunction` / `getFormulaFunction` / `getFormulaFunctionInfo` / `listFormulaFunctions` / `FormulaFunction` / `FormulaFunctionInfo` / `FormulaFunctionCategory` | 函数注册表读写（49 内置函数元数据 + 自定义函数注册） | `apis/formula-engine.md` |
-| `createSheetPlugin` / `SheetPluginOptions` / `SheetPluginHandle` | sheet 插件（Store 参考模型 + 多 sheet 实例池 + 撤销栈 + 填充生成 + 选区同步 + 公式显示 + Excel 键位 + 边框预设 + xlsx 导出映射，收拢为插件对象与 handle 操作面） | `apis/sheet-plugin.md` |
+| `@infinitable/sheet`（经 `infinitable` 的 `./sheet` 子路径转出：地址系统 / 单元格与元数据存储 / 命令族 / xlsx·csv 导入导出 / `SheetGrid` 适配） | 电子表格核心（原 plugins 的 sheet 插件族整体迁入，`createSheetPlugin` 已删） | `apis/sheet-plugin.md` |
 | `createChartPlugin` / `ChartPluginOptions` / `ChartPluginHandle` | 图表插件工厂与句柄 | `apis/chart-watermark-plugin.md` |
 | `ChartCellDeclaration` / `ChartDatasetDeclaration` / `ChartDatasetSpec` / `ChartSpec` / `ChartSpecType` / `ChartType` | 单元格图表声明与规范化类型 | `apis/chart-watermark-plugin.md` |
 | `createWatermarkPlugin` / `WatermarkHandle` / `WatermarkTextConfig` | 水印插件工厂、句柄与配置 | `apis/chart-watermark-plugin.md` |

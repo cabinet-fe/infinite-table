@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 空项目消费冒烟：以外部消费者姿态（无 dev 条件 → import → dist）验证各包可消费。
-// 校验三条件产物文件齐备 + bun 动态 import core/render dist 产物无头建表跑一帧。
+// 校验产物文件齐备 + bun 动态 import dist 产物无头跑一帧（含 infinitable ./sheet 子路径）。
 // 用法：node scripts/check-package-exports.mjs（先 bun run build）
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -10,6 +10,7 @@ const PACKAGES = [
   { name: '@infinitable/core', dir: 'packages/core', bundle: 'dist/core.js' },
   { name: '@infinitable/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
   { name: '@infinitable/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
+  { name: '@infinitable/sheet', dir: 'packages/sheet', bundle: 'dist/sheet.js' },
   { name: 'infinitable', dir: 'packages/infinitable', bundle: 'dist/infinitable.js' },
 ]
 
@@ -78,17 +79,15 @@ if (text !== 'r0') fail(`dist 产物取值异常：getCellText(0,0) = ${text}`)
 else ok('dist 建表 + 取值 + 帧调度 flush 正常')
 table.destroy()
 
-// 3) plugins dist 可导入（插件对象形态：四个插件工厂；P1 起散装能力不再导出）
+// 3) plugins dist 可导入（插件对象形态：chart/print/watermark 三插件工厂；
+//    sheet 能力已整体迁入 @infinitable/sheet，createSheetPlugin 不再存在）
 const pluginsModule = await import(new URL('../packages/plugins/dist/plugins.js', import.meta.url))
-const pluginFactories = [
-  'createSheetPlugin',
-  'createChartPlugin',
-  'createWatermarkPlugin',
-  'createPrintPlugin',
-]
+const pluginFactories = ['createChartPlugin', 'createWatermarkPlugin', 'createPrintPlugin']
 for (const key of pluginFactories) {
   if (typeof pluginsModule[key] !== 'function') fail(`plugins dist 缺 ${key}`)
 }
+if (typeof pluginsModule.createSheetPlugin === 'function')
+  fail('plugins dist 不应再有 createSheetPlugin')
 if (!failed) ok('plugins dist 插件工厂可导入')
 
 // 4) formulas dist 可导入并无头求值（含 @cat-kit/core 精确计算）
@@ -104,12 +103,13 @@ if (typeof formulasModule.evaluate !== 'function') {
   else if (formulasModule.listFormulaFunctions().length < 47) fail('formulas 内置函数缺失')
   else ok('formulas dist 求值正常（0.1+0.2=0.3）')
 }
-// 5) 统一发布包 dist 可导入（四层 re-export 单包）且 JS/类型产物均无 @infinitable 裸依赖残留
+// 5) 统一发布包 dist 可导入（四层 re-export 单包 + ./sheet 子路径）且 JS/类型产物
+//    均无 @infinitable 裸依赖残留（口径：真实模块说明符，JSDoc 注释提及不算）
 console.log('[check-exports] 统一发布包 dist 冒烟')
 const unifiedModule = await import(
   new URL('../packages/infinitable/dist/infinitable.js', import.meta.url)
 )
-for (const key of ['ListTable', 'createRenderHost', 'createSheetPlugin', 'evaluate']) {
+for (const key of ['ListTable', 'createRenderHost', 'evaluate']) {
   if (typeof unifiedModule[key] !== 'function') fail(`infinitable dist 缺 ${key}`)
 }
 const unifiedJs = readFileSync(
@@ -119,10 +119,24 @@ const unifiedJs = readFileSync(
 if (/@infinitable\//.test(unifiedJs))
   fail('infinitable dist JS 残留 @infinitable/* 裸导入（未整体打包）')
 const typesDir = new URL('../packages/infinitable/dist/types/', import.meta.url)
+// 裸导入口径：from/import 后跟 '@infinitable/...' 的说明符；注释文字命中不算
+const BARE_SPECIFIER = /(?:from|import)\s*\(?\s*['"]@infinitable\//
 const leakedTypes = readdirSync(typesDir, { recursive: true })
   .filter((entry) => String(entry).endsWith('.d.ts'))
-  .filter((entry) => readFileSync(new URL(`${entry}`, typesDir), 'utf8').includes('@infinitable/'))
+  .filter((entry) => BARE_SPECIFIER.test(readFileSync(new URL(`${entry}`, typesDir), 'utf8')))
 if (leakedTypes.length) fail(`infinitable 类型残留裸导入：${leakedTypes.join('、')}`)
 if (!failed) ok('infinitable dist 四层 re-export 齐备且自包含（JS + 类型）')
+
+// 6) ./sheet 子路径：dist/sheet.js 无头建簿设值求值（捆绑的 core/formulas 一并过电）
+const sheetDts = new URL('../packages/infinitable/dist/types/sheet.d.ts', import.meta.url)
+if (!existsSync(sheetDts)) fail('infinitable 缺 ./sheet 子路径类型垫片 dist/types/sheet.d.ts')
+const sheetModule = await import(new URL('../packages/infinitable/dist/sheet.js', import.meta.url))
+const workbook = new sheetModule.Workbook()
+const active = workbook.activeSheet
+active.setCellValue({ row: 0, col: 0 }, 21)
+active.setCellFormula({ row: 0, col: 1 }, '=A1*2')
+const cell = active.getCellData({ row: 0, col: 1 })
+if (cell?.v !== 42) fail(`infinitable/sheet 求值异常：=A1*2 → ${JSON.stringify(cell)}`)
+else ok('infinitable/sheet 子路径可导入且无头求值正常（=A1*2=42）')
 console.log(failed ? '[check-exports] FAIL' : '[check-exports] PASS')
 process.exit(failed ? 1 : 0)

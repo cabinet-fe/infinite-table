@@ -1,13 +1,13 @@
 ---
 title: formulas 公式引擎
-description: infinitable 公式引擎：A1 地址系统（parseCellRef/formatCellRef/colLetters/createRangeRef）、parseFormula Pratt 解析、evaluate 求值（FormulaResolver 宿主取值注入）、函数注册表读写（49 个内置函数元数据查询 + registerFormulaFunction 自定义函数注册）、7 种错误值（isFormulaErrorCode 错误码判定）、DependencyGraph 依赖图增量重算与按表查询（formulasOf/affectedBySheet）、shiftFormulaText 引用平移与 scanFormulaReferences 容错引用扫描。四则与 SUM/AVERAGE/ROUND/ABS 走 @cat-kit/core $n 精确计算。
+description: infinitable 公式引擎：A1 地址系统（parseCellRef/formatCellRef/colLetters/createRangeRef）、parseFormula Pratt 解析、evaluate 求值（FormulaResolver 宿主取值注入）、函数注册表读写（49 个内置函数元数据查询 + registerFormulaFunction 自定义函数注册）、7 种错误值（isFormulaErrorCode 错误码判定）、DependencyGraph 依赖图增量重算与按表查询（formulasOf/affectedBySheet）、shiftFormulaText/shiftFormulaRefs 引用平移（行列插删 + 填充柄增量）与 scanFormulaReferences 容错引用扫描。四则与 SUM/AVERAGE/ROUND/ABS 走 @cat-kit/core $n 精确计算。
 aliases: [Formula, 公式, 公式引擎, formula, evaluate, A1, registerFormulaFunction, tokenizeFormula]
-keywords: [evaluate, parseFormula, parseCellRef, formatCellRef, colLetters, formatRangeRef, createRangeRef, FormulaError, formulaError, isFormulaError, isFormulaErrorCode, FormulaParseError, "#DIV/0!", "#VALUE!", "#NAME?", DependencyGraph, affectedBy, affectedBySheet, formulasOf, scanFormulaReferences, collectAstReferences, listFormulaFunctions, getFormulaFunctionInfo, registerFormulaFunction, getFormulaFunction, FormulaFunction, FormulaEvalContext, FormulaResolver, shiftFormulaText, SUM, 依赖图, 求值, 跨表引用, 自定义函数, 引用平移]
+keywords: [evaluate, parseFormula, parseCellRef, formatCellRef, colLetters, formatRangeRef, createRangeRef, FormulaError, formulaError, isFormulaError, isFormulaErrorCode, FormulaParseError, "#DIV/0!", "#VALUE!", "#NAME?", DependencyGraph, affectedBy, affectedBySheet, formulasOf, scanFormulaReferences, collectAstReferences, listFormulaFunctions, getFormulaFunctionInfo, registerFormulaFunction, getFormulaFunction, FormulaFunction, FormulaEvalContext, FormulaResolver, shiftFormulaText, shiftFormulaRefs, SUM, 依赖图, 求值, 跨表引用, 自定义函数, 引用平移]
 ---
 
 # formulas 公式引擎
 
-`infinitable`（formulas 层）导出公式引擎：A1 地址系统（0 基坐标 + `$` 绝对标记 + 跨表名）、Pratt 解析器（`parseFormula`）、纯函数求值器（`evaluate`，单元格读取经 `FormulaResolver` 由宿主注入）、函数注册表（49 个内置函数元数据查询 + `registerFormulaFunction` 自定义函数注册，大小写不敏感、同名覆盖）、7 种错误值体系（`isFormulaErrorCode` 错误码判定）、依赖图（公式格 → 静态引用的反向索引，宿主驱动增量重算；`formulasOf`/`affectedBySheet` 按表查询）、引用平移（`shiftFormulaText`：行列插删时 token 级改写公式文本，`@infinitable/sheet` 模型消费）与容错引用扫描（编辑染色框用）。四则与 SUM/AVERAGE/ROUND/ABS 走 `@cat-kit/core` 的 `$n` 精确计算（结果仍 JS number）。分词/AST 细节/强制转换原语（原 `tokenizeFormula`/`evaluateAst`/`coerceTo*`，0.1.2 起不再导出）为包内深路径能力；注册表写入（`registerFormulaFunction` 族）与求值上下文类型（`FormulaEvalContext`）已随 `@infinitable/sheet` 模型层落地公共化。v1 不做：循环引用检测（`#CYCLE!` 枚举保留）、数组公式（区域作为最终结果求值为 `#VALUE!`）。
+`infinitable`（formulas 层）导出公式引擎：A1 地址系统（0 基坐标 + `$` 绝对标记 + 跨表名）、Pratt 解析器（`parseFormula`）、纯函数求值器（`evaluate`，单元格读取经 `FormulaResolver` 由宿主注入）、函数注册表（49 个内置函数元数据查询 + `registerFormulaFunction` 自定义函数注册，大小写不敏感、同名覆盖）、7 种错误值体系（`isFormulaErrorCode` 错误码判定）、依赖图（公式格 → 静态引用的反向索引，宿主驱动增量重算；`formulasOf`/`affectedBySheet` 按表查询）、引用平移（`shiftFormulaText`：行列插删时 token 级改写公式文本，`@infinitable/sheet` 模型消费；`shiftFormulaRefs`：填充柄按行列增量平移引用）与容错引用扫描（编辑染色框用）。四则与 SUM/AVERAGE/ROUND/ABS 走 `@cat-kit/core` 的 `$n` 精确计算（结果仍 JS number）。分词/AST 细节/强制转换原语（原 `tokenizeFormula`/`evaluateAst`/`coerceTo*`，0.1.2 起不再导出）为包内深路径能力；注册表写入（`registerFormulaFunction` 族）与求值上下文类型（`FormulaEvalContext`）已随 `@infinitable/sheet` 模型层落地公共化。v1 不做：循环引用检测（`#CYCLE!` 枚举保留）、数组公式（区域作为最终结果求值为 `#VALUE!`）。
 
 ## 快速上手
 
@@ -150,7 +150,7 @@ export function scanFormulaReferences(text: string): ReadonlyArray<{
   end: number
 }>
 
-// ---- 引用平移（行列插删） ----
+// ---- 引用平移（行列插删 / 填充柄增量；两者共用包内 token 改写骨架，深路径不导出） ----
 
 /** 平移结果：broken = 存在被删区间覆盖的引用（被删引用以 `#REF!` 占位，落库策略由调用方决定） */
 export interface FormulaShiftResult {
@@ -166,6 +166,9 @@ export function shiftFormulaText(
   count: number,
   mode: 'insert' | 'delete',
 ): FormulaShiftResult
+
+/** 按行列增量平移公式文本中的全部引用（填充柄复制语义）：`$` 绝对轴锁定，任一端出界整个引用转 `#REF!`；解析失败原样返回 */
+export function shiftFormulaRefs(formula: string, deltaRow: number, deltaCol: number): string
 
 // ---- 求值器 ----
 
@@ -328,7 +331,7 @@ export function listFormulaFunctions(): FormulaFunctionInfo[]
 
 `isFormulaErrorCode(value)` — 判定是否 7 种错误码字符串之一（错误码字符串反序列化校验用）。
 
-`shiftFormulaText(formula, axis, at, count, mode)` — 行列插删时 token 级平移全部引用（`at`/`count` 0 基）：插入 `start >= at` 整体后移、跨插入点的区域扩展；删除按保留量裁剪（区域收缩），保留 0 或单格被删 → `broken: true`（被删引用以 `#REF!` 占位，落库策略由调用方决定）；`A$1` 行绝对不随行平移、`$A1` 列绝对不随列平移（区域起点绝对时整区域不随该轴移动）；引用形态后紧跟 `(` 的函数名（如 `LOG10(`）不平移；解析失败原样返回（`broken: false`）。`tokenText(token)` — token → 文本（数字按原文保精度，字符串/引号表名补回转义）。
+`shiftFormulaText(formula, axis, at, count, mode)` — 行列插删时 token 级平移全部引用（`at`/`count` 0 基）：插入 `start >= at` 整体后移、跨插入点的区域扩展；删除按保留量裁剪（区域收缩），保留 0 或单格被删 → `broken: true`（被删引用以 `#REF!` 占位，落库策略由调用方决定）；`A$1` 行绝对不随行平移、`$A1` 列绝对不随列平移（区域起点绝对时整区域不随该轴移动）；引用形态后紧跟 `(` 的函数名（如 `LOG10(`）不平移；解析失败原样返回（`broken: false`）。`shiftFormulaRefs(formula, deltaRow, deltaCol)` — 填充柄复制语义的增量平移：`$` 绝对轴坐标锁定不动，非绝对轴整体加 delta；任一端出界（负坐标）整个引用以 `#REF!` 占位；delta 全 0 或解析失败时原样返回。与 `shiftFormulaText` 共用包内 token 改写骨架（`rewriteFormulaRefs`，深路径不导出）。`tokenText(token)` — token → 文本（数字按原文保精度，字符串/引号表名补回转义）。
 
 ## 典型示例
 

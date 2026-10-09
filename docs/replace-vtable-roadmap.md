@@ -11,11 +11,11 @@
 | 1 | 交互浮层主题 token（选区/hover/填充柄/resize 线/表头高亮）+ `underlayBackgroundColor` + `frameStyle` | ✅ S1 | `packages/core/src/theme.ts` `InteractionTokens/FrameStyle` |
 | 2 | `corner`/`rowHeader` 独立主题分区（缺省随 header 派生） | ✅ S1 | 同上 |
 | 3 | `onEditStart`/`onEditEnd` 编辑生命周期事件（公式栏镜像依赖） | ✅ S1 | `ListTable.onEditStart/onEditEnd` |
-| 4 | sheet 插件七件：SheetStore（asModel 模型适配）/generateFill 填充生成/bindSelectionSync 选区双向同步/createFormulaDisplay 公式显示/excelKeymapPreset 键位/SheetBook 实例池/UndoStack 撤销栈 | ✅ S3 | `packages/plugins/src/sheet/`，导出面见 `packages/plugins/src/index.ts` |
+| 4 | sheet 插件七件：SheetStore（asModel 模型适配）/generateFill 填充生成/bindSelectionSync 选区双向同步/createFormulaDisplay 公式显示/excelKeymapPreset 键位/SheetBook 实例池/UndoStack 撤销栈 | ✅ S3 | `packages/sheet/src/`，导出面见 `packages/sheet/src/index.ts` |
 | 5 | demo sheet 功能对照全绿（对标 playground sheet） | ✅ S4 | `apps/demo` sheet 区 + `?smoke=1` 41/41（含 sheet 段 9 项） |
 | 6 | 包可被外部消费（exports 三条件 types/dev/import→dist） | ✅ S5 | `bun run check:exports` |
 | 7 | bench sheet 口径基线与防回归阈值 | ✅ S5 | `apps/bench/results/`、`src/thresholds.ts`（切换/逐格写/粘贴/冻结切换四场景） |
-| 8 | happy-dom 挂载安全（下游测试环境前提） | ✅ S5 | `packages/core/tests/happy-dom/`、`packages/plugins/tests/sheet/happy-dom-mount.test.ts` |
+| 8 | happy-dom 挂载安全（下游测试环境前提） | ✅ S5 | `packages/core/tests/happy-dom/`、`packages/sheet/tests/grid/`（happy-dom 环境挂载） |
 
 替换红线：**grid/ 重写只允许 import `@infinitable/core` 与 `@infinitable/plugins` 两个公共入口的导出**（`hucre` 仅限 xlsx 导入导出的映射与装配用途，同清单红线修订）；清单与本文的映射表即允许面全集。发现缺口时先在本仓立项补公开面，不得绕行内部 API。
 
@@ -133,7 +133,7 @@ ultra-ui 侧测试对 VTable 实例的依赖集中在三类手法，逐类给等
 
 | 重灾区 | 现状手法 | infinitable 侧等价做法 | 先例 |
 | --- | --- | --- | --- |
-| grid 层 11 个 vitest 的 `getTable()` 直调 | 测试拿 VTable 实例直调内部方法断言 | 改持 `ListTable` 公开面（本表第二节的同名/等价方法）；维度/合并等状态断言改走 SheetStore | `packages/plugins/tests/sheet/`（注入 StubHost 构造实例、公开 API 断言） |
+| grid 层 11 个 vitest 的 `getTable()` 直调 | 测试拿 VTable 实例直调内部方法断言 | 改持 `ListTable` 公开面（本表第二节的同名/等价方法）；维度/合并等状态断言改走 SheetStore | `packages/sheet/tests/grid/`（挂载实例 + canvas mock、公开 API 断言） |
 | `fireListeners(EVENT_TYPE.X, payload)` 事件模拟 | 手工向 VTable 派发内部事件 | ① 状态类：直接调公开 API（`selectCells/setFrozenColCount/...`）后断言订阅回调；② 指针类：合成 DOM 事件驱动（`dispatchPointer` 模式）；③ 编辑类：`startEdit/commitEdit` API + 假文档 | `apps/demo/src/smoke.ts`（合成事件全先例）、`packages/core/tests/list-table-interaction.test.ts`、`tests/editing/edit-manager.test.ts`（FakeDoc） |
 | 无 canvas 环境挂载 | ultra-ui 已踩「element 未挂载」坑，测试侧绕行 | happy-dom 直接挂载（引擎容忍 null 2d 上下文） | `packages/core/tests/happy-dom/mount.test.ts` |
 | formula-bar 组件测试（镜像引擎编辑态） | mock VTable 实例事件 | `onEditStart/onEditEnd` 真实事件驱动；编辑器元素经容器 DOM 查询（demo formula-bar.ts 先例） | `apps/demo/src/sections/sheet/formula-bar.ts` |

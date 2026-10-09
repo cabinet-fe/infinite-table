@@ -32,6 +32,7 @@
         "@infinitable/formulas": "workspace:*",
         "@infinitable/plugins": "workspace:*",
         "@infinitable/render": "workspace:*",
+        "@infinitable/sheet": "workspace:*",
       },
       "peerDependencies": {
         "@cat-kit/core": "^1.2.1",

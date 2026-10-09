@@ -59,7 +59,9 @@ function unionBounds(a: RangeBounds, b: RangeBounds): RangeBounds {
  *   引用选择拦截命中时不落模型，把模型选区经 `applyExternalSelection` 回推画布
  *   （引擎侧不广播，天然断开回环），不滚动视口——点选远处参数格不应把视口拉回目标格；
  * - 模型 → 表格：`selection-change` → `applyExternalSelection` + 不可见目标滚动可见
- *   （错误面板定位等模型驱动选区）；引擎外部回写不广播，无回环；
+ *   （错误面板定位等模型驱动选区）；画布选区回写引发的回推（echoing 期）不滚动
+ *   ——canvas 侧选区来自可视交互或宿主 canvas API，程序化整行/列选区焦点落段末，
+ *   回推滚动会把视口拉走；引擎外部回写不广播，无回环；
  * - 填充柄：内核画柄抛事件（`onFillHandleDown`/`onFillDragEnd`），生成算法用
  *   sheet 包自有 `generateFill`（公式相对引用位移 + tile，写经 `setCells` 单 undo 单元），
  *   只读格不被填充覆盖（从只读格向外复制仍允许，只拦截写入目标）。
@@ -75,6 +77,11 @@ export class GridSelectionController {
   private picking = false
   /** 手势期最新拦截范围（引擎连续发射，抬手取末值） */
   private gestureRange: CellRange | null = null
+  /** 画布选区回写模型的自传播期：由此引发的 selection-change 回推不滚动视口
+   *  （画布侧选区本就来自可视交互/宿主 canvas API，焦点可见性由引擎原生路径
+   *  自理；程序化整列选区的焦点落段末，回推若滚动会把视口拉走——右键列头
+   *  设列宽后视口跳到底部即此路径。滚动跟随只保留给模型驱动选区） */
+  private echoing = false
 
   constructor(sheet: Sheet, table: ListTable, options: GridSelectionControllerOptions = {}) {
     this.sheet = sheet
@@ -119,7 +126,12 @@ export class GridSelectionController {
           this.restoreInterceptedSelection()
           return
         }
-        this.sheet.selectRange(range, this.resolveSelectionActive(snapshot, range))
+        this.echoing = true
+        try {
+          this.sheet.selectRange(range, this.resolveSelectionActive(snapshot, range))
+        } finally {
+          this.echoing = false
+        }
       }),
     )
 
@@ -133,7 +145,8 @@ export class GridSelectionController {
 
     disposers.push(
       this.sheet.on('selection-change', (state) => {
-        this.pushSelectionToTable(state)
+        // 画布回写引发的回推不滚动（echoing 期）；模型驱动选区保留滚动跟随
+        this.pushSelectionToTable(state, { scroll: !this.echoing })
       }),
     )
 

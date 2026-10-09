@@ -141,7 +141,11 @@ function dispatchPointer(
 }
 
 function dispatchKey(container: HTMLElement, key: string, shiftKey = false, ctrlKey = false): void {
-  container.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key, shiftKey, ctrlKey }))
+  // cancelable 对齐真实 keydown（可取消）：非可取消事件上 preventDefault 是空操作，
+  // grid 消费后 document 级兜底监听读不到 defaultPrevented 会重复撤销/重做
+  container.dispatchEvent(
+    new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, shiftKey, ctrlKey }),
+  )
 }
 
 function dispatchTouch(
@@ -1200,6 +1204,10 @@ async function checkSheet(checker: Checker): Promise<void> {
   await checker.step('sheet 填充柄双击：按左邻数据块末行自动向下填充并扩选区', async () => {
     const container = activeContainer()
     const live = handle.getTable()
+    // 视口高 ~354（React 壳层占用后）：滚动使参考块与柄所在行完整入画——柄贴段末行
+    // 右下角，行底缘越出画布时引擎不可命中（真实用户同样点不到被裁剪的柄）
+    live.scrollTo(0, 100)
+    await frames(2)
     // H 列(7) 行 10..14 连续数据作参考块；I 列(8) 行 10,11 为数字源 10,20（步长 10）
     for (let row = 10; row <= 14; row++) {
       store.setCellValue({ row: row, col: 7 }, `m${row}`)
@@ -1237,6 +1245,9 @@ async function checkSheet(checker: Checker): Promise<void> {
       store.setCellValue({ row: row, col: 7 }, null)
       store.setCellValue({ row: row, col: 8 }, null)
     }
+    // 回滚视口，后续染色框等步骤按页首布局断言
+    live.scrollTo(0, 0)
+    await frames(2)
   })
 
   await checker.step('sheet 公式引用染色框：编辑公式画同色框（循环色板），清空即撤', async () => {
@@ -1400,11 +1411,12 @@ async function checkSheet(checker: Checker): Promise<void> {
       const shiftZ = (): void => dispatchKey(container, 'z', true, true)
       const y = (): void => dispatchKey(container, 'y', false, true)
 
-      // 空栈：按键为空操作且不报错（哨兵值保持不变）
-      handle.history.clear()
-      assert(!handle.history.canUndo() && !handle.history.canRedo(), '清空后撤销栈应空')
+      // 空栈：按键为空操作且不报错（哨兵值保持不变）。命令系统下直写 Store 也是
+      // 可撤销命令，先播基线再清栈才是真空栈（清栈后写入会立即重新入栈）
       store.setCellValue({ row: 11, col: 0 }, '键盘基线')
       live.refreshCell(0, 11)
+      handle.history.clear()
+      assert(!handle.history.canUndo() && !handle.history.canRedo(), '清空后撤销栈应空')
       z()
       assert(store.getCellData({ row: 11, col: 0 })?.v === '键盘基线', '空栈 Ctrl+Z 不应改值')
 
@@ -1569,16 +1581,18 @@ async function checkSheet(checker: Checker): Promise<void> {
 
   await checker.step('sheet 冻结分隔线：sky 浮层画冻结行/列边界线', async () => {
     const container = activeContainer()
-    table.clearSelection()
-    table.setFrozenColCount(1)
-    table.setFrozenRowCount(1)
+    // 结构操作步骤已就地重建实例：从句柄重取当前表，旧引用随重建失效
+    const live = handle.getTable()
+    live.clearSelection()
+    live.setFrozenColCount(1)
+    live.setFrozenRowCount(1)
     await frames(2)
     const sky = layerCanvas(container, 'sky')
     // 竖线：冻结列右缘 x = 46 + 80 = 126（线体贴边界 [125,126)）；横线：冻结行下缘 y = 28 + 28 = 56（[55,56)）
     expectColor(sky, 125, 100, '#B6BABF', '冻结列分隔线')
     expectColor(sky, 200, 55, '#B6BABF', '冻结行分隔线')
-    table.setFrozenColCount(0)
-    table.setFrozenRowCount(0)
+    live.setFrozenColCount(0)
+    live.setFrozenRowCount(0)
     await frames(2)
     // 冻结数归零后分隔线消失（sky 重绘后该处无像素）
     const [r, g, b, a] = readPixel(sky, 125, 100)
@@ -1589,7 +1603,8 @@ async function checkSheet(checker: Checker): Promise<void> {
     'sheet 浮动图上 shift+wheel 横滚：滚轮穿浮动对象落容器接线（替换下游 image-layer capture 补丁）',
     async () => {
       const container = activeContainer()
-      table.scrollTo(0, 0)
+      const live = handle.getTable()
+      live.scrollTo(0, 0)
       await frames(2)
       // 预置浮动图锚 (5,1)~(6,2)：区域 x≈448..526、y≈30..84 内取 (500,60)
       const rect = container.getBoundingClientRect()
@@ -1605,19 +1620,20 @@ async function checkSheet(checker: Checker): Promise<void> {
         }),
       )
       await frames(2)
-      assert(table.getScrollState().left === 120, '浮动图上 shift+wheel 未驱动横向滚动')
-      table.scrollTo(0, 0)
+      assert(live.getScrollState().left === 120, '浮动图上 shift+wheel 未驱动横向滚动')
+      live.scrollTo(0, 0)
       await frames(2)
     },
   )
 
   await checker.step('sheet numFmt：右键菜单设千分位 → 显示格式化；清除恢复', async () => {
     const container = activeContainer()
-    table.scrollTo(0, 0)
+    const live = handle.getTable()
+    live.scrollTo(0, 0)
     store.setCellValue({ row: 9, col: 8 }, 1234.5)
-    table.refreshCell(8, 9)
+    live.refreshCell(8, 9)
     await frames(2)
-    assert(table.getCellText(8, 9) === '1234.5', `裸值显示 ${table.getCellText(8, 9)}`)
+    assert(live.getCellText(8, 9) === '1234.5', `裸值显示 ${live.getCellText(8, 9)}`)
     // 右键 (8,9)：x = 46 + 8×80 + 40 = 726；y = 28(列头) + 9×28 + 16(行3加高) + 14 = 310
     const openMenu = (): void => {
       const rect = container.getBoundingClientRect()
@@ -1640,9 +1656,10 @@ async function checkSheet(checker: Checker): Promise<void> {
     menuItem('设置数据格式').click()
     menuItem('千分位金额').click()
     await frames(2)
+    // thousands 口径（模型定稿 + format.test 钉死）：整数部分三位分隔，小数部分原样保留
     assert(
-      table.getCellText(8, 9) === '1,234.50',
-      `千分位显示 ${table.getCellText(8, 9)}（期望 1,234.50）`,
+      live.getCellText(8, 9) === '1,234.5',
+      `千分位显示 ${live.getCellText(8, 9)}（期望 1,234.5）`,
     )
     assert(handle.controls.numFmt.get(8, 9)?.type === 'thousands', 'numFmt 侧车未写入')
     assert(store.getCellData({ row: 9, col: 8 })?.v === 1234.5, 'numFmt 不应改动原始值')
@@ -1651,10 +1668,10 @@ async function checkSheet(checker: Checker): Promise<void> {
     menuItem('设置数据格式').click()
     menuItem('清除格式').click()
     await frames(2)
-    assert(table.getCellText(8, 9) === '1234.5', `清除后显示 ${table.getCellText(8, 9)}`)
+    assert(live.getCellText(8, 9) === '1234.5', `清除后显示 ${live.getCellText(8, 9)}`)
     assert(handle.controls.numFmt.get(8, 9) === undefined, 'numFmt 侧车未清除')
     store.setCellValue({ row: 9, col: 8 }, null)
-    table.refreshCell(8, 9)
+    live.refreshCell(8, 9)
   })
 
   await checker.step(

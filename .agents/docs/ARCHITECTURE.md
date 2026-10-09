@@ -27,7 +27,7 @@
 | 层 | 选型 | 备注 |
 | --- | --- | --- |
 | 语言 / runtime | TypeScript 7（tsgo 原生编译器）、ESM only、浏览器 + bun | tsconfig strict: true |
-| 构建 / 包管理 | bun 1.4.2 workspaces + vite-plus 0.3.2（vp CLI，内含 rolldown-vite / oxlint / oxfmt / vitest 4.1.11） | 零 vrender 系列依赖；包发布构建用 vite-plus |
+| 构建 / 包管理 | bun 1.4.2 workspaces + vite-plus 1.1.0（vp CLI，内含 rolldown-vite / oxlint / oxfmt / vitest 5.0.3） | 零 vrender 系列依赖；包发布构建用 vite-plus |
 | 渲染 | 自研 `@infinitable/render`（canvas 2d，多 region 失效） | 替代 @visactor/vrender 全家 |
 | 工具库 | `@cat-kit/core`（cabinet-fe 核心工具包） | 替代 @visactor/vutils |
 | 测试 | vitest（vite-plus 内置） | 浏览器行为用浏览器模式冒烟 |

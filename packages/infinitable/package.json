@@ -28,6 +28,10 @@
     ".": {
       "types": "./dist/types/index.d.ts",
       "import": "./dist/infinitable.js"
+    },
+    "./sheet": {
+      "types": "./dist/types/sheet.d.ts",
+      "import": "./dist/sheet.js"
     }
   },
   "scripts": {
@@ -37,7 +41,8 @@
     "@infinitable/core": "workspace:*",
     "@infinitable/formulas": "workspace:*",
     "@infinitable/plugins": "workspace:*",
-    "@infinitable/render": "workspace:*"
+    "@infinitable/render": "workspace:*",
+    "@infinitable/sheet": "workspace:*"
   },
   "peerDependencies": {
     "@cat-kit/core": "^1.2.1"

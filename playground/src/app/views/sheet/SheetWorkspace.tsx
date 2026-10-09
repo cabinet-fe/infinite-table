@@ -73,12 +73,19 @@ export function SheetWorkspace({ onDemo }: { onDemo?: (demo: SheetDemo | null) =
         return
       }
       const sheet = () => sheetDemo.getStore()
-      if (key === 'z' && !event.shiftKey && sheet().undo()) {
+      // Ctrl/Cmd+Z 只撤销，撤销栈空即为空操作——不得回退到 redo（否则空栈 Ctrl+Z
+      // 会把 redo 栈弹出一步，与 grid 消费路径叠加时表现为一次按键撤销又重做）
+      if (key === 'z' && !event.shiftKey) {
+        if (!sheet().undo()) {
+          return
+        }
         event.preventDefault()
         sheetDemo.notify('已撤销')
         ui.refreshToolbar()
         ui.refreshInspector()
-      } else if ((key === 'z' || key === 'y') && sheet().redo()) {
+        return
+      }
+      if ((key === 'z' || key === 'y') && sheet().redo()) {
         event.preventDefault()
         sheetDemo.notify('已重做')
         ui.refreshToolbar()
