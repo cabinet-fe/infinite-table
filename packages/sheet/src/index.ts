@@ -1,8 +1,9 @@
-// 聚合导出为公开 API 白名单（迁移自 sheet-core 主入口，随阶段迁入增补）：
+// 聚合导出为公开 API 白名单（迁移自 sheet-core 主入口，P9 定稿）：
 // 仅测试引用的内部符号（如 rangeContainsRange、formatByNumFmt、mergeCellStyle、
 // TypedEventEmitter）不在此导出，测试一律深导入 src 子路径。
 // 公式引擎 API 不从本包转售——sheet 模型消费 @infinitable/formulas（FormulaEngine
 // 为组合门面），下游直接 import '@infinitable/formulas'。
+// grid 适配层（SheetGrid）随本包主入口一并具名导出（spec 口径：完整 sheet API 单入口）。
 
 export {
   cellKey,
@@ -177,3 +178,17 @@ export {
 export { exportWorkbookXlsx, exportSheetXlsx, exportSheetCsv } from './core/io/export'
 
 export { importXlsx, importCsv } from './core/io/import'
+
+// ---- grid 适配层（SheetGrid 装配：与 src/grid/index.ts 同一公共面） ----
+
+export type { CellRenderer, CellRenderTarget } from './grid/index'
+export { SheetGrid, type ResolveCellRenderer, type SheetGridOptions } from './grid/sheet-grid'
+export type { ResolveCellStyleHook, ResolveDisplayValue } from './grid/grid-model'
+export type { SheetGridContextMenuInfo, SheetGridContextMenuKind } from './grid/grid-coords'
+export type { SheetGridHeaderOptions } from './grid/grid-header'
+export type {
+  GridCellEditor,
+  GridEditorRect,
+  GridEditorSession,
+  SheetGridEditorsOptions,
+} from './grid/grid-editors'

@@ -1,11 +1,8 @@
-import type { SelectionSnapshot } from '@infinitable/core'
+import type { ListTable, SelectionSnapshot } from '@infinitable/core'
 
+import { Sheet } from '../../src/core/sheet'
 import { SHEET_HEADER_HEIGHT, SHEET_ROW_HEADER_WIDTH } from '../../src/grid/grid-theme'
-
-// TODO(P9)：SheetGrid 装配层（src/grid/sheet-grid.ts）随 P9 迁入后，回补挂载助手
-// `createGrid`（容器入 DOM + 显式视口尺寸，返回 { grid, table, container, sheet }）
-// 与 `CreatedGrid` 接口——二者依赖 SheetGrid 构造与 getTable()，本阶段仅迁入与其
-// 无关的几何/事件/微任务工具。
+import { SheetGrid, type SheetGridOptions } from '../../src/grid/sheet-grid'
 
 /** 测试视口尺寸（显式给定，绕开 happy-dom 无布局测量） */
 export const VIEW_W = 800
@@ -14,6 +11,30 @@ export const VIEW_H = 600
 /** 数据格 (col, row) 的层坐标（几何：行号列 46、列头 28、列宽 80、行高 28） */
 export const cellX = (col: number) => SHEET_ROW_HEADER_WIDTH + col * 80 + 5
 export const cellY = (row: number) => SHEET_HEADER_HEIGHT + row * 28 + 5
+
+export interface CreatedGrid {
+  grid: SheetGrid
+  table: ListTable
+  container: HTMLElement
+  sheet: Sheet
+}
+
+/** 挂载 SheetGrid（容器入 DOM + 显式视口尺寸）；rows/cols 缺省 20×6 */
+export function createGrid(options: Partial<SheetGridOptions> = {}): CreatedGrid {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const sheet = options.sheet ?? new Sheet()
+  const grid = new SheetGrid({
+    container,
+    sheet,
+    rows: options.rows ?? 20,
+    cols: options.cols ?? 6,
+    width: VIEW_W,
+    height: VIEW_H,
+    ...options,
+  })
+  return { grid, table: grid.getTable(), container, sheet }
+}
 
 /** 向容器派发 DOM 指针类事件（引擎 EventSystem 归一化为场景事件） */
 export function fire(

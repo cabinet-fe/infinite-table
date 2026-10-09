@@ -1,28 +1,34 @@
-// wrap 行高引擎：构造期估算 / 短路 / 候选行扫描（模型侧口径）
-// （迁移自 sheet-core grid/__test__/grid-row-height.test.ts。原测试经 SheetGrid
-// 挂载驱动——本阶段 SheetGrid 装配层（P9）未迁入，构造期各例改为直接驱动
-// GridRowHeightEngine.applyWrapEstimates，仅保留模型侧行高断言；引擎侧落地
-// （table.getRowHeight 同步）与动态写入 / 显式换行符两例（依赖 SheetGrid
-// cell-change 接线）随 P9 迁入 sheet-grid.ts 后回补）
+// @vitest-environment happy-dom
+// wrap 行高引擎：构造期估算 / 动态写入重估 / 短路 / 候选行扫描
+// （迁移自 sheet-core grid/__test__/grid-row-height.test.ts；P8 暂缓的
+// SheetGrid 挂载驱动用例与引擎侧 table.getRowHeight 断言随 P9 回补）
+
+import './setup'
 
 import { describe, expect, it, vi } from 'vitest'
 
 import { Sheet } from '../../src/core/sheet'
 import { GridRowHeightEngine } from '../../src/grid/grid-row-height-engine'
 import { SHEET_DEFAULT_COL_WIDTH, SHEET_DEFAULT_ROW_HEIGHT } from '../../src/grid/grid-theme'
+import { createGrid, flushMicrotasks } from './grid-test-utils'
 
 describe('wrap 行高引擎', () => {
-  it('构造期估算：wrap 长文本行高按估算升高', () => {
+  it('构造期估算：wrap 长文本行高按估算升高并落到引擎', () => {
     const sheet = new Sheet()
     sheet.setCellStyle(
       { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } },
       { align: { wrap: true } },
     )
     sheet.setCellValue({ row: 0, col: 0 }, 'x'.repeat(200))
-    new GridRowHeightEngine(sheet, 20, 6).applyWrapEstimates(SHEET_DEFAULT_COL_WIDTH)
-    const height = sheet.getRowHeight(0)
-    expect(height).not.toBeUndefined()
-    expect(height!).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
+    const { grid, table } = createGrid({ sheet })
+    try {
+      const height = sheet.getRowHeight(0)
+      expect(height).not.toBeUndefined()
+      expect(height!).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
+      expect(table.getRowHeight(0)).toBe(height!)
+    } finally {
+      grid.release()
+    }
   })
 
   it('只升不降：高于估算的人工/导入行高保留', () => {
@@ -33,8 +39,41 @@ describe('wrap 行高引擎', () => {
       { align: { wrap: true } },
     )
     sheet.setCellValue({ row: 0, col: 0 }, 'x'.repeat(200))
-    new GridRowHeightEngine(sheet, 20, 6).applyWrapEstimates(SHEET_DEFAULT_COL_WIDTH)
-    expect(sheet.getRowHeight(0)).toBe(600)
+    const { grid, table } = createGrid({ sheet })
+    try {
+      expect(sheet.getRowHeight(0)).toBe(600)
+      expect(table.getRowHeight(0)).toBe(600)
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('显式换行符（\\n）触发估算撑开多行行高', async () => {
+    const { grid, table, sheet } = createGrid()
+    try {
+      sheet.setCellValue({ row: 0, col: 0 }, 'a\nb\nc\nd')
+      await flushMicrotasks()
+      expect(sheet.getRowHeight(0)!).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
+      expect(table.getRowHeight(0)).toBe(sheet.getRowHeight(0)!)
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('动态写入：wrap 格后写长文本 → cell-change 即期重估行高', async () => {
+    const { grid, table, sheet } = createGrid()
+    try {
+      sheet.setCellStyle(
+        { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+        { align: { wrap: true } },
+      )
+      sheet.setCellValue({ row: 1, col: 1 }, 'x'.repeat(200))
+      await flushMicrotasks()
+      expect(sheet.getRowHeight(1)).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
+      expect(table.getRowHeight(1)).toBe(sheet.getRowHeight(1)!)
+    } finally {
+      grid.release()
+    }
   })
 
   it('合并格跨列 wrap：按合并总宽度估算', () => {
@@ -45,11 +84,15 @@ describe('wrap 行高引擎', () => {
       { start: { row: 0, col: 0 }, end: { row: 0, col: 2 } },
       { align: { wrap: true } },
     )
-    new GridRowHeightEngine(sheet, 20, 6).applyWrapEstimates(SHEET_DEFAULT_COL_WIDTH)
-    // 单列（80px）估算约 5+ 行，3 列（240px）合并宽估算约 2 行——合并后明显更矮
-    const merged = sheet.getRowHeight(0)!
-    expect(merged).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
-    expect(merged).toBeLessThan(200)
+    const { grid } = createGrid({ sheet })
+    try {
+      // 单列（80px）估算约 5+ 行，3 列（240px）合并宽估算约 2 行——合并后明显更矮
+      const merged = sheet.getRowHeight(0)!
+      expect(merged).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
+      expect(merged).toBeLessThan(200)
+    } finally {
+      grid.release()
+    }
   })
 
   it('只扫有数据格：wrap 样式的空列不撑行高', () => {
@@ -58,9 +101,13 @@ describe('wrap 行高引擎', () => {
       { start: { row: 0, col: 0 }, end: { row: 9, col: 0 } },
       { align: { wrap: true } },
     )
-    new GridRowHeightEngine(sheet, 20, 6).applyWrapEstimates(SHEET_DEFAULT_COL_WIDTH)
-    // 无文本内容：估算不高于默认行高（宽表空列不参与扫描的性能口径）
-    expect(sheet.getRowHeight(0) ?? SHEET_DEFAULT_ROW_HEIGHT).toBe(SHEET_DEFAULT_ROW_HEIGHT)
+    const { grid } = createGrid({ sheet })
+    try {
+      // 无文本内容：估算不高于默认行高（宽表空列不参与扫描的性能口径）
+      expect(sheet.getRowHeight(0) ?? SHEET_DEFAULT_ROW_HEIGHT).toBe(SHEET_DEFAULT_ROW_HEIGHT)
+    } finally {
+      grid.release()
+    }
   })
 
   it('短路：样式池无 wrap 样式时 applyWrapEstimates 零全格遍历直接返回', () => {
