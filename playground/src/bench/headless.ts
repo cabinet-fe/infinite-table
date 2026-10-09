@@ -165,7 +165,7 @@ export function createHeadlessEnv(): BenchEnv {
       const constructorMs = performance.now() - t0
       return benchTableBridge(table, meter, constructorMs, scheduled, eventsTarget, host)
     },
-    createSheetTable(store) {
+    createSheetTable(model) {
       const { host, scheduled, eventsTarget } = createHeadlessHost()
       const meter = new InvalidationMeter(VIEWPORT_AREA)
       const t0 = performance.now()
@@ -173,7 +173,7 @@ export function createHeadlessEnv(): BenchEnv {
         width: VIEWPORT_WIDTH,
         height: VIEWPORT_HEIGHT,
         columns: createSheetColumns(),
-        model: store.asModel(),
+        model,
         host: meter.wrap(host),
       })
       const constructorMs = performance.now() - t0

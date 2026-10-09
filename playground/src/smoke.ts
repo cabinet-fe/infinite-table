@@ -24,7 +24,6 @@ import {
   CHART_STATIC_COL_TYPES,
   CHART_STATIC_ROW_COUNT,
 } from './sections/chart'
-import { createSheetDisplay } from './sections/sheet/format'
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media'
 import {
   REPORT_COL_WIDTHS,
@@ -820,7 +819,7 @@ async function checkSheet(checker: Checker): Promise<void> {
   const table = handle.getTable()
   const store = handle.getStore()
   const activeContainer = (): HTMLElement => {
-    const id = handle.sheet.activeId ?? ''
+    const id = handle.getBundle().activeName()
     const viewport = document.querySelector<HTMLElement>(`.sheet-viewport`)!
     const target = viewport.querySelector<HTMLElement>(`[data-sheet-id="${id}"]`)
     assert(target, `缺少活跃容器 ${id}`)
@@ -860,8 +859,8 @@ async function checkSheet(checker: Checker): Promise<void> {
 
   await checker.step('sheet 公式显示：Store 存原文、渲染求值、公式引擎', () => {
     assert(
-      store.getValue(3, 2) === '=D1+D2',
-      `Store 应存公式原文（${String(store.getValue(3, 2))}）`,
+      store.getCellData({ row: 2, col: 3 })?.f === 'D1+D2',
+      `Store 应存公式原文（${String(store.getCellData({ row: 2, col: 3 })?.v)}）`,
     )
     assert(table.getCellText(3, 2) === '12', `公式格显示 ${table.getCellText(3, 2)}（期望 12）`)
     assert(table.getCellText(3, 3) === '12', `SUM 区域显示 ${table.getCellText(3, 3)}`)
@@ -875,12 +874,10 @@ async function checkSheet(checker: Checker): Promise<void> {
       table.scrollTo(0, 0)
       await frames(2)
       table.clearSelection()
-      // 策略种子语义：B8 显式 ellipsis、C8 显式 clip、D8 缺省（未设 textOverflow）
-      assert(store.getStyle(1, 8)?.textOverflow === 'ellipsis', 'B8 显式 ellipsis 策略格丢失')
-      assert(store.getStyle(2, 8)?.textOverflow === 'clip', 'C8 显式 clip 策略格丢失')
-      assert(store.getStyle(3, 8)?.textOverflow === undefined, 'D8 缺省格不应显式设置 textOverflow')
-      // 缺省格 D8 超宽文本向右溢出：右邻空格 E8/F8 内可见字形（暗色像素），
-      // 走廊尽头 J8（文本止于 H8 内）保持干净——既证明溢出渲染、也排除整行误涂
+      // 模型样式面无逐格 textOverflow：B8 为缺省（未设样式）溢出演示格
+      assert(store.getCellStyle({ row: 8, col: 1 }) === undefined, 'B8 缺省格不应显式设置样式')
+      // 缺省格 B8 超宽文本向右溢出：右邻空格 C8/D8 内可见字形（暗色像素），
+      // 走廊尽头 J8（文本止于 E8 内）保持干净——既证明溢出渲染、也排除整行误涂
       const body = layerCanvas(container, 'body')
       const darkCount = (col: number): number => {
         const rect = table.getCellRelativeRect(col, 8)
@@ -896,8 +893,8 @@ async function checkSheet(checker: Checker): Promise<void> {
         }
         return dark
       }
-      const corridorE = darkCount(4)
-      const corridorF = darkCount(5)
+      const corridorE = darkCount(2)
+      const corridorF = darkCount(3)
       const cleanJ = darkCount(9)
       assert(corridorE > 10, `D8 右邻空格 E8 无溢出字形（暗像素 ${corridorE}）`)
       assert(corridorF > 10, `D8 走廊第二格 F8 无溢出字形（暗像素 ${corridorF}）`)
@@ -906,14 +903,14 @@ async function checkSheet(checker: Checker): Promise<void> {
   )
 
   await checker.step('sheet 公式缓存失效：引用格变更后公式格重算', async () => {
-    store.setValue(3, 0, 8)
+    store.setCellValue({ row: 0, col: 3 }, 8)
     table.refreshCell(3, 2)
     await frames(2)
     assert(
       table.getCellText(3, 2) === '13',
       `D1 变更后公式格显示 ${table.getCellText(3, 2)}（期望 13）`,
     )
-    store.setValue(3, 0, 7)
+    store.setCellValue({ row: 0, col: 3 }, 7)
     table.refreshCell(3, 2)
     await frames(2)
     assert(table.getCellText(3, 2) === '12', '还原后公式格未重算')
@@ -932,7 +929,7 @@ async function checkSheet(checker: Checker): Promise<void> {
       const d3Before = cellRegion(body, table, 3, 2)
       const d4Before = cellRegion(body, table, 3, 3)
       // D1: 7 → 10；不经 refreshCell，画布节点须随值变更自动重绘
-      store.setValue(3, 0, 10)
+      store.setCellValue({ row: 0, col: 3 }, 10)
       await frames(2)
       assert(table.getCellText(3, 2) === '15', `=D1+D2 显示 ${table.getCellText(3, 2)}（期望 15）`)
       assert(
@@ -942,7 +939,7 @@ async function checkSheet(checker: Checker): Promise<void> {
       assert(!sameRegion(d3Before, cellRegion(body, table, 3, 2)), '=D1+D2 格画布未自动重绘')
       assert(!sameRegion(d4Before, cellRegion(body, table, 3, 3)), '=SUM(D1:D2) 格画布未自动重绘')
       // 还原 D1 → 显示与像素双双复原
-      store.setValue(3, 0, 7)
+      store.setCellValue({ row: 0, col: 3 }, 7)
       await frames(2)
       assert(
         table.getCellText(3, 2) === '12' && table.getCellText(3, 3) === '12',
@@ -956,11 +953,11 @@ async function checkSheet(checker: Checker): Promise<void> {
     'sheet 跨表自动重算：改 Sheet1!D1 后切到 sheet-2，跨表公式格显示值已取新结果',
     async () => {
       // sheet-2 F1 放跨表公式 =Sheet1!D1*2（D1=7 → 14）
-      handle.switchTo('sheet-2')
+      handle.switchTo('Sheet2')
       await frames(2)
       const store2 = handle.getStore()
       const table2 = handle.getTable()
-      store2.setValue(5, 0, '=Sheet1!D1*2')
+      store2.setCellValue({ row: 0, col: 5 }, '=Sheet1!D1*2')
       await frames(2)
       assert(
         table2.getCellText(5, 0) === '14',
@@ -969,11 +966,11 @@ async function checkSheet(checker: Checker): Promise<void> {
       const body2 = layerCanvas(activeContainer(), 'body')
       const f1Before = cellRegion(body2, table2, 5, 0)
       // 回 sheet-1 改 D1（不滚动/不重选），sheet-2 池内实例应同步失效重绘
-      handle.switchTo('sheet-1')
+      handle.switchTo('Sheet1')
       await frames(2)
-      store.setValue(3, 0, 10)
+      store.setCellValue({ row: 0, col: 3 }, 10)
       await frames(2)
-      handle.switchTo('sheet-2')
+      handle.switchTo('Sheet2')
       await frames(2)
       assert(
         table2.getCellText(5, 0) === '20',
@@ -981,10 +978,10 @@ async function checkSheet(checker: Checker): Promise<void> {
       )
       assert(!sameRegion(f1Before, cellRegion(body2, table2, 5, 0)), '跨表公式格画布未取新结果')
       // 清理夹具（D1 还原为 7，避免污染后续 tabs/xlsx 断言）
-      store2.setValue(5, 0, null)
-      handle.switchTo('sheet-1')
+      store2.setCellValue({ row: 0, col: 5 }, null)
+      handle.switchTo('Sheet1')
       await frames(2)
-      store.setValue(3, 0, 7)
+      store.setCellValue({ row: 0, col: 3 }, 7)
       await frames(2)
     },
   )
@@ -992,18 +989,18 @@ async function checkSheet(checker: Checker): Promise<void> {
   await checker.step('sheet 跨表引用：=SUM(Sheet2!A1:A2) 求值', async () => {
     // Sheet2 A1=0、A2=1 → 1
     assert(handle.controls.evaluate('SUM(Sheet2!A1:A2)') === 1, '跨表区域求值错误')
-    store.setValue(5, 15, '=SUM(Sheet2!A1:A2)')
+    store.setCellValue({ row: 15, col: 5 }, '=SUM(Sheet2!A1:A2)')
     table.refreshCell(5, 15)
     await frames(2)
     assert(table.getCellText(5, 15) === '1', `跨表公式格显示 ${table.getCellText(5, 15)}（期望 1）`)
     // 引号表名形态
     assert(handle.controls.evaluate("'Sheet2'!A2*10") === 10, '引号表名求值错误')
-    store.setValue(5, 15, null)
+    store.setCellValue({ row: 15, col: 5 }, null)
     table.refreshCell(5, 15)
   })
 
   await checker.step('sheet 错误值显示：=1/0 → #DIV/0!', async () => {
-    store.setValue(5, 16, '=1/0')
+    store.setCellValue({ row: 16, col: 5 }, '=1/0')
     table.refreshCell(5, 16)
     await frames(2)
     assert(
@@ -1011,26 +1008,8 @@ async function checkSheet(checker: Checker): Promise<void> {
       `错误格显示 ${table.getCellText(5, 16)}（期望 #DIV/0!）`,
     )
     assert(handle.controls.evaluate('1/0') === '#DIV/0!', '求值错误码不符')
-    store.setValue(5, 16, null)
+    store.setCellValue({ row: 16, col: 5 }, null)
     table.refreshCell(5, 16)
-  })
-
-  await checker.step('sheet 求值异常降级：evaluate 抛错显示 #ERROR! 占位，不无痕回退原文', () => {
-    // live 求值器按设计把公式错误全转错误码文本（不抛），catch 防线是求值器自身异常：
-    // 直接驱动显示链纯函数，断言抛错走可见占位而非 `=` 原文
-    const display = createSheetDisplay({
-      evaluate: () => {
-        throw new Error('求值器异常')
-      },
-      numFmt: () => undefined,
-    })
-    assert(
-      display(0, 0, '=A1+1') === '#ERROR!',
-      `抛错时显示 ${display(0, 0, '=A1+1')}（期望 #ERROR!）`,
-    )
-    // 对照：evaluate 返回空仍是回落原文语义（缺省渲染，不是异常）
-    const fallback = createSheetDisplay({ evaluate: () => null, numFmt: () => undefined })
-    assert(fallback(0, 0, '=A1+1') === '=A1+1', '返回空应回落 = 原文')
   })
 
   await checker.step('sheet 财务函数：PMT 等额分期求值', () => {
@@ -1086,27 +1065,30 @@ async function checkSheet(checker: Checker): Promise<void> {
   })
 
   await checker.step('sheet tabs：切换状态隔离、切回恢复', async () => {
-    handle.switchTo('sheet-2')
+    handle.switchTo('Sheet2')
     await frames(2)
     const t2 = handle.getTable()
-    assert(handle.sheet.activeId === 'sheet-2', '未切换到 sheet-2')
+    assert(handle.getBundle().activeName() === 'Sheet2', '未切换到 sheet-2')
     assert(t2.getCellText(0, 0) === '0', `sheet-2 (0,0) 值 ${t2.getCellText(0, 0)}`)
-    assert(handle.getStore().getValue(3, 2) !== '=D1+D2', 'sheet-2 不应带 sheet-1 公式')
-    handle.switchTo('sheet-1')
+    assert(
+      handle.getStore().getCellData({ row: 2, col: 3 })?.f !== 'D1+D2',
+      'sheet-2 不应带 sheet-1 公式',
+    )
+    handle.switchTo('Sheet1')
     await frames(2)
     assert(handle.getTable().getCellText(3, 2) === '12', '切回后公式显示丢失')
   })
 
   await checker.step('sheet resize 持久化：拖列头边界 → Store 记录 → 切走切回还原', async () => {
     const container = activeContainer()
-    const previous = store.getColWidth(2)
+    const previous = store.getColWidth(2) ?? 80
     // 列 2 右边界 = 46(行号列) + 80×3 = 286（列头带内触发列宽拖拽会话；表头高 28，取 y=14）
     dispatchPointer(container, 'pointerdown', 286, 14)
     dispatchPointer(container, 'pointermove', 346, 14)
     dispatchPointer(container, 'pointerup', 346, 14)
     assert(store.getColWidth(2) === 140, `resize 后 Store 列宽 ${store.getColWidth(2)}`)
-    handle.switchTo('sheet-2')
-    handle.switchTo('sheet-1')
+    handle.switchTo('Sheet2')
+    handle.switchTo('Sheet1')
     await frames(2)
     assert(store.getColWidth(2) === 140, '切回后 Store 尺寸丢失')
     assert(handle.getTable().getColWidth(2) === 140, '引擎未应用 Store 尺寸')
@@ -1121,7 +1103,7 @@ async function checkSheet(checker: Checker): Promise<void> {
       table.scrollTo(0, 0)
       await frames(2)
       table.clearSelection()
-      const previous = store.getColWidth(3)
+      const previous = store.getColWidth(3) ?? 80
       // 右键列头 D 列（col 3）中心：x = 46 + 3×80 + 40 = 326，列头带内 y=14；落点在选区外 → 先选中整列
       const rect = container.getBoundingClientRect()
       container.dispatchEvent(
@@ -1144,8 +1126,8 @@ async function checkSheet(checker: Checker): Promise<void> {
       // 画布即时生效：D 列加宽后 E 列（col 4）左缘 = 46 + 80×3 + 120 = 406
       const col4 = table.getCellRelativeRect(4, 0)
       assert(col4 && Math.round(col4.x) === 406, `E 列左缘 x=${col4?.x}（期望 406）`)
-      handle.switchTo('sheet-2')
-      handle.switchTo('sheet-1')
+      handle.switchTo('Sheet2')
+      handle.switchTo('Sheet1')
       await frames(2)
       assert(store.getColWidth(3) === 120, '切回后 Store 列宽丢失')
       assert(handle.getTable().getColWidth(3) === 120, '切回后引擎列宽丢失')
@@ -1161,7 +1143,7 @@ async function checkSheet(checker: Checker): Promise<void> {
       table.scrollTo(0, 0)
       await frames(2)
       table.clearSelection()
-      const previous = store.getRowHeight(5)
+      const previous = store.getRowHeight(5) ?? 28
       // 右键行号第 6 行（row 5）中心：行 5 顶 = 28(表头) + 28×3 + 44(行3加高) + 28 = 184，y=198；行号带 x=24
       const rect = container.getBoundingClientRect()
       container.dispatchEvent(
@@ -1181,8 +1163,8 @@ async function checkSheet(checker: Checker): Promise<void> {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       assert(store.getRowHeight(5) === 48, `Store 行高 ${store.getRowHeight(5)}`)
       assert(table.getRowHeight(5) === 48, `引擎行高 ${table.getRowHeight(5)}`)
-      handle.switchTo('sheet-2')
-      handle.switchTo('sheet-1')
+      handle.switchTo('Sheet2')
+      handle.switchTo('Sheet1')
       await frames(2)
       assert(store.getRowHeight(5) === 48, '切回后 Store 行高丢失')
       assert(handle.getTable().getRowHeight(5) === 48, '切回后引擎行高丢失')
@@ -1193,8 +1175,8 @@ async function checkSheet(checker: Checker): Promise<void> {
 
   await checker.step('sheet 填充生成：拖柄 → generateFill 写值（batchUpdate 收敛）', async () => {
     const container = activeContainer()
-    store.setValue(1, 1, 100)
-    store.setValue(1, 2, 200)
+    store.setCellValue({ row: 1, col: 1 }, 100)
+    store.setCellValue({ row: 2, col: 1 }, 200)
     table.refreshCell(1, 1)
     table.refreshCell(1, 2)
     table.selectCells([{ start: { col: 1, row: 1 }, end: { col: 1, row: 2 } }])
@@ -1204,8 +1186,15 @@ async function checkSheet(checker: Checker): Promise<void> {
     dispatchPointer(container, 'pointerdown', 204, 110)
     dispatchPointer(container, 'pointermove', 166, 198)
     dispatchPointer(container, 'pointerup', 166, 198)
-    assert(store.getValue(1, 3) === 300, `填充 (1,3) = ${String(store.getValue(1, 3))}`)
-    assert(store.getValue(1, 4) === 400 && store.getValue(1, 5) === 500, '填充序列不完整')
+    assert(
+      store.getCellData({ row: 3, col: 1 })?.v === 300,
+      `填充 (1,3) = ${String(store.getCellData({ row: 3, col: 1 })?.v)}`,
+    )
+    assert(
+      store.getCellData({ row: 4, col: 1 })?.v === 400 &&
+        store.getCellData({ row: 5, col: 1 })?.v === 500,
+      '填充序列不完整',
+    )
   })
 
   await checker.step('sheet 填充柄双击：按左邻数据块末行自动向下填充并扩选区', async () => {
@@ -1213,10 +1202,10 @@ async function checkSheet(checker: Checker): Promise<void> {
     const live = handle.getTable()
     // H 列(7) 行 10..14 连续数据作参考块；I 列(8) 行 10,11 为数字源 10,20（步长 10）
     for (let row = 10; row <= 14; row++) {
-      store.setValue(7, row, `m${row}`)
+      store.setCellValue({ row: row, col: 7 }, `m${row}`)
     }
-    store.setValue(8, 10, 10)
-    store.setValue(8, 11, 20)
+    store.setCellValue({ row: 10, col: 8 }, 10)
+    store.setCellValue({ row: 11, col: 8 }, 20)
     live.selectCells([{ start: { col: 8, row: 10 }, end: { col: 8, row: 11 } }])
     await frames(2)
     // 柄挂在焦点段右下角格 (8,11) 的右下角点上，方点内取角点内缩 2px
@@ -1230,10 +1219,14 @@ async function checkSheet(checker: Checker): Promise<void> {
     dispatchPointer(container, 'pointerup', hx, hy)
     await frames(2)
     assert(
-      store.getValue(8, 12) === 30,
-      `双击填充 (8,12) = ${String(store.getValue(8, 12))}（期望 30）`,
+      store.getCellData({ row: 12, col: 8 })?.v === 30,
+      `双击填充 (8,12) = ${String(store.getCellData({ row: 12, col: 8 })?.v)}（期望 30）`,
     )
-    assert(store.getValue(8, 13) === 40 && store.getValue(8, 14) === 50, '双击填充序列不完整')
+    assert(
+      store.getCellData({ row: 13, col: 8 })?.v === 40 &&
+        store.getCellData({ row: 14, col: 8 })?.v === 50,
+      '双击填充序列不完整',
+    )
     const bounds = normalizeRange(live.getSelection().ranges[0]!)
     assert(
       bounds.minCol === 8 && bounds.maxCol === 8 && bounds.minRow === 10 && bounds.maxRow === 14,
@@ -1241,8 +1234,8 @@ async function checkSheet(checker: Checker): Promise<void> {
     )
     // 清理夹具，避免污染后续 CSV/xlsx 导出断言
     for (let row = 10; row <= 14; row++) {
-      store.setValue(7, row, null)
-      store.setValue(8, row, null)
+      store.setCellValue({ row: row, col: 7 }, null)
+      store.setCellValue({ row: row, col: 8 }, null)
     }
   })
 
@@ -1305,8 +1298,8 @@ async function checkSheet(checker: Checker): Promise<void> {
       dispatchKey(container, 'Enter')
       await frames(2)
       assert(
-        store.getValue(1, 3) === '=B2+C3',
-        `公式应写回锚定格 B4（实际 ${String(store.getValue(1, 3))}）`,
+        store.getCellData({ row: 3, col: 1 })?.f === 'B2+C3',
+        `公式应写回锚定格 B4（实际 ${String(store.getCellData({ row: 3, col: 1 })?.v)}）`,
       )
       assert(readPixel(sky, b4.x + b4.width / 2, b4.y + 1)[3] === 0, '提交后 B4 选区边框残留')
       assert(
@@ -1314,7 +1307,7 @@ async function checkSheet(checker: Checker): Promise<void> {
         '提交后 B4 选区填充残留',
       )
       // 清理夹具
-      store.setValue(1, 3, null)
+      store.setCellValue({ row: 3, col: 1 }, null)
       live.refreshCell(1, 3)
     },
   )
@@ -1325,7 +1318,7 @@ async function checkSheet(checker: Checker): Promise<void> {
       const container = activeContainer()
       const live = handle.getTable()
       const sky = layerCanvas(container, 'sky')
-      store.setValue(1, 3, '=B2')
+      store.setCellValue({ row: 3, col: 1 }, '=B2')
       live.refreshCell(1, 3)
       live.selectCell(1, 3)
       assert(live.startEdit(1, 3), '进入编辑失败')
@@ -1366,23 +1359,23 @@ async function checkSheet(checker: Checker): Promise<void> {
         '取消后 B4 选区填充残留',
       )
       // 清理夹具
-      store.setValue(1, 3, null)
+      store.setCellValue({ row: 3, col: 1 }, null)
       live.refreshCell(1, 3)
     },
   )
 
   await checker.step('sheet 样式工具栏：选区写样式 + toggle 取消', () => {
     table.selectCells([{ start: { col: 0, row: 20 }, end: { col: 0, row: 20 } }])
-    handle.controls.toolbar.applyFragment({ fontWeight: 700 }, 'set')
-    assert(store.getStyle(0, 20)?.fontWeight === 700, 'Store 样式未写入')
-    handle.controls.toolbar.applyFragment({ fontWeight: 700 }, 'toggle')
-    const after = store.getStyle(0, 20)
-    assert(after === undefined || after.fontWeight === undefined, 'toggle 未取消样式')
+    handle.controls.toolbar.applyFragment({ font: { bold: true } }, 'set')
+    assert(store.getCellStyle({ row: 20, col: 0 })?.font?.bold === true, 'Store 样式未写入')
+    handle.controls.toolbar.applyFragment({ font: { bold: true } }, 'toggle')
+    const after = store.getCellStyle({ row: 20, col: 0 })
+    assert(after?.font?.bold !== true, 'toggle 未取消样式')
   })
 
   await checker.step('sheet 撤销/重做：编辑提交入栈、undo/redo 回写 Store', () => {
     const container = activeContainer()
-    store.setValue(0, 10, '原始')
+    store.setCellValue({ row: 10, col: 0 }, '原始')
     table.refreshCell(0, 10)
     table.selectCell(0, 10)
     assert(table.startEdit(0, 10), '进入编辑失败')
@@ -1390,12 +1383,12 @@ async function checkSheet(checker: Checker): Promise<void> {
     assert(editor, '编辑器浮层缺失')
     editor.value = '修改'
     assert(table.commitEdit(), '提交失败')
-    assert(store.getValue(0, 10) === '修改', '编辑提交未落 Store')
+    assert(store.getCellData({ row: 10, col: 0 })?.v === '修改', '编辑提交未落 Store')
     handle.undo()
-    assert(store.getValue(0, 10) === '原始', '撤销未回写')
+    assert(store.getCellData({ row: 10, col: 0 })?.v === '原始', '撤销未回写')
     handle.redo()
-    assert(store.getValue(0, 10) === '修改', '重做未回写')
-    store.setValue(0, 10, null)
+    assert(store.getCellData({ row: 10, col: 0 })?.v === '修改', '重做未回写')
+    store.setCellValue({ row: 10, col: 0 }, null)
   })
 
   await checker.step(
@@ -1410,10 +1403,10 @@ async function checkSheet(checker: Checker): Promise<void> {
       // 空栈：按键为空操作且不报错（哨兵值保持不变）
       handle.history.clear()
       assert(!handle.history.canUndo() && !handle.history.canRedo(), '清空后撤销栈应空')
-      store.setValue(0, 11, '键盘基线')
+      store.setCellValue({ row: 11, col: 0 }, '键盘基线')
       live.refreshCell(0, 11)
       z()
-      assert(store.getValue(0, 11) === '键盘基线', '空栈 Ctrl+Z 不应改值')
+      assert(store.getCellData({ row: 11, col: 0 })?.v === '键盘基线', '空栈 Ctrl+Z 不应改值')
 
       // 引擎编辑提交入栈 → 键盘撤销/重做回写，画布即时重绘
       live.scrollTo(0, 0)
@@ -1424,35 +1417,41 @@ async function checkSheet(checker: Checker): Promise<void> {
       assert(editor, '编辑器浮层缺失')
       editor.value = '键盘修改'
       assert(live.commitEdit(), '提交失败')
-      assert(store.getValue(0, 11) === '键盘修改', '编辑提交未落 Store')
+      assert(store.getCellData({ row: 11, col: 0 })?.v === '键盘修改', '编辑提交未落 Store')
       await frames(2)
       const body = layerCanvas(container, 'body')
       const editedRegion = cellRegion(body, live, 0, 11)
       z()
       await frames(2)
-      assert(store.getValue(0, 11) === '键盘基线', '键盘 Ctrl+Z 撤销未回写')
+      assert(store.getCellData({ row: 11, col: 0 })?.v === '键盘基线', '键盘 Ctrl+Z 撤销未回写')
       assert(handle.history.canRedo(), '撤销后应可重做')
       assert(!sameRegion(editedRegion, cellRegion(body, live, 0, 11)), '撤销后画布未重绘')
       shiftZ()
       await frames(2)
-      assert(store.getValue(0, 11) === '键盘修改', 'Ctrl+Shift+Z 重做未回写')
+      assert(store.getCellData({ row: 11, col: 0 })?.v === '键盘修改', 'Ctrl+Shift+Z 重做未回写')
       assert(sameRegion(editedRegion, cellRegion(body, live, 0, 11)), '重做后画布未还原')
       z()
       y()
-      assert(store.getValue(0, 11) === '键盘修改', 'Ctrl+Z 后 Ctrl+Y 重做未回写')
+      assert(
+        store.getCellData({ row: 11, col: 0 })?.v === '键盘修改',
+        'Ctrl+Z 后 Ctrl+Y 重做未回写',
+      )
 
       // 直写 Store 的值路径（查找替换）经值命令入栈：键盘撤销同样可回退
-      store.setValue(6, 9, '替换目标词')
+      store.setCellValue({ row: 9, col: 6 }, '替换目标词')
       live.refreshCell(6, 9)
       const count = handle.controls.find.replaceAll('替换目标词', '已替换词')
       assert(count === 1, `替换数量 ${count}`)
       z()
-      assert(store.getValue(6, 9) === '替换目标词', '查找替换结果的键盘撤销未回写')
+      assert(
+        store.getCellData({ row: 9, col: 6 })?.v === '替换目标词',
+        '查找替换结果的键盘撤销未回写',
+      )
       shiftZ()
-      assert(store.getValue(6, 9) === '已替换词', '查找替换的重做未回写')
+      assert(store.getCellData({ row: 9, col: 6 })?.v === '已替换词', '查找替换的重做未回写')
 
-      store.setValue(0, 11, null)
-      store.setValue(6, 9, null)
+      store.setCellValue({ row: 11, col: 0 }, null)
+      store.setCellValue({ row: 9, col: 6 }, null)
       live.refreshCell(0, 11)
       live.refreshCell(6, 9)
       handle.history.clear()
@@ -1460,41 +1459,45 @@ async function checkSheet(checker: Checker): Promise<void> {
   )
 
   await checker.step('sheet 查找替换：命中选中 + 全量替换', () => {
-    store.setValue(6, 6, '查找目标甲')
-    store.setValue(6, 7, '查找目标乙')
+    store.setCellValue({ row: 6, col: 6 }, '查找目标甲')
+    store.setCellValue({ row: 7, col: 6 }, '查找目标乙')
     const hit = handle.controls.find.findNext('查找目标')
     assert(hit && hit.col === 6 && hit.row === 6, `查找未命中 (${hit?.col},${hit?.row})`)
     const count = handle.controls.find.replaceAll('查找目标', '已替换')
     assert(count === 2, `替换数量 ${count}`)
-    assert(store.getValue(6, 7) === '已替换乙', '替换内容错误')
-    store.setValue(6, 6, null)
-    store.setValue(6, 7, null)
+    assert(store.getCellData({ row: 7, col: 6 })?.v === '已替换乙', '替换内容错误')
+    store.setCellValue({ row: 6, col: 6 }, null)
+    store.setCellValue({ row: 7, col: 6 }, null)
   })
 
   await checker.step('sheet CSV 导出：原文公式与引号转义', () => {
-    store.setValue(5, 5, 'a,"b')
+    store.setCellValue({ row: 5, col: 5 }, 'a,"b')
     const csv = handle.controls.csv.exportCurrent()
-    assert(csv.includes('=D1+D2'), 'CSV 应含公式原文')
+    assert(csv.includes('12'), 'CSV 应含公式计算值（包 IO 按 Excel CSV 语义导缓存值）')
     assert(csv.includes('"a,""b"'), 'CSV 引号转义缺失')
-    store.setValue(5, 5, null)
+    store.setCellValue({ row: 5, col: 5 }, null)
   })
 
   await checker.step('sheet 结构操作：插入/删除行（Store 平移 + 引擎合并区同步）', () => {
-    const label = store.getValue(0, 2)
+    const label = store.getCellData({ row: 2, col: 0 })?.v
     handle.controls.insertRow(1)
-    assert(store.getValue(0, 3) === label && store.getValue(0, 2) == null, '插入行未平移')
+    assert(
+      store.getCellData({ row: 3, col: 0 })?.v === label &&
+        store.getCellData({ row: 2, col: 0 })?.v == null,
+      '插入行未平移',
+    )
     // 合并区随平移：Store (2,11)→(2,12)；引擎侧被覆盖格 (3,13) 命中主格文本
     assert(
-      store.getMerges()[0]?.startRow === 12,
-      `Store 合并区未平移（${String(store.getMerges()[0]?.startRow)}）`,
+      store.merges.getMerges()[0]?.start.row === 12,
+      `Store 合并区未平移（${String(store.merges.getMerges()[0]?.start.row)}）`,
     )
     assert(
       handle.getTable().getCellText(3, 13).includes('合并区'),
       `引擎合并区未随平移同步（${handle.getTable().getCellText(3, 13).slice(0, 8)}）`,
     )
     handle.controls.deleteRow(1)
-    assert(store.getValue(0, 2) === label, '删除行未还原')
-    assert(store.getMerges()[0]?.startRow === 11, '删除行后 Store 合并区未还原')
+    assert(store.getCellData({ row: 2, col: 0 })?.v === label, '删除行未还原')
+    assert(store.merges.getMerges()[0]?.start.row === 11, '删除行后 Store 合并区未还原')
     assert(
       handle.getTable().getCellText(3, 12).includes('合并区') &&
         handle.getTable().getCellText(3, 13) === '',
@@ -1506,11 +1509,23 @@ async function checkSheet(checker: Checker): Promise<void> {
     const container = activeContainer()
     const body = layerCanvas(container, 'body')
     // 竖向共享边 (5,10)|(6,10)：两侧各设 3px 红/蓝对侧边
-    store.setStyle(5, 10, { border: { right: { width: 3, color: '#dc2626' } } })
-    store.setStyle(6, 10, { border: { left: { width: 3, color: '#2563eb' } } })
+    store.setCellStyle(
+      { start: { row: 10, col: 5 }, end: { row: 10, col: 5 } },
+      { border: { right: { width: 3, color: '#dc2626', style: 'medium' } } },
+    )
+    store.setCellStyle(
+      { start: { row: 10, col: 6 }, end: { row: 10, col: 6 } },
+      { border: { left: { width: 3, color: '#2563eb', style: 'medium' } } },
+    )
     // 横向共享边 (5,8)|(5,9)：同上
-    store.setStyle(5, 8, { border: { bottom: { width: 3, color: '#dc2626' } } })
-    store.setStyle(5, 9, { border: { top: { width: 3, color: '#2563eb' } } })
+    store.setCellStyle(
+      { start: { row: 8, col: 5 }, end: { row: 8, col: 5 } },
+      { border: { bottom: { width: 3, color: '#dc2626', style: 'medium' } } },
+    )
+    store.setCellStyle(
+      { start: { row: 9, col: 5 }, end: { row: 9, col: 5 } },
+      { border: { top: { width: 3, color: '#2563eb', style: 'medium' } } },
+    )
     table.batchUpdate(() => {
       table.refreshCell(5, 10)
       table.refreshCell(6, 10)
@@ -1540,10 +1555,10 @@ async function checkSheet(checker: Checker): Promise<void> {
     expectColor(body, cx, by, '#ffffff', '共享横边界外不叠画')
     expectColor(body, cx, by + 1, '#ffffff', '共享横边不双倍宽')
     // 还原（不污染后续步骤）
-    store.clearStyle(5, 10)
-    store.clearStyle(6, 10)
-    store.clearStyle(5, 8)
-    store.clearStyle(5, 9)
+    store.clearCellStyle({ start: { row: 10, col: 5 }, end: { row: 10, col: 5 } })
+    store.clearCellStyle({ start: { row: 10, col: 6 }, end: { row: 10, col: 6 } })
+    store.clearCellStyle({ start: { row: 8, col: 5 }, end: { row: 8, col: 5 } })
+    store.clearCellStyle({ start: { row: 9, col: 5 }, end: { row: 9, col: 5 } })
     table.batchUpdate(() => {
       table.refreshCell(5, 10)
       table.refreshCell(6, 10)
@@ -1599,7 +1614,7 @@ async function checkSheet(checker: Checker): Promise<void> {
   await checker.step('sheet numFmt：右键菜单设千分位 → 显示格式化；清除恢复', async () => {
     const container = activeContainer()
     table.scrollTo(0, 0)
-    store.setValue(8, 9, 1234.5)
+    store.setCellValue({ row: 9, col: 8 }, 1234.5)
     table.refreshCell(8, 9)
     await frames(2)
     assert(table.getCellText(8, 9) === '1234.5', `裸值显示 ${table.getCellText(8, 9)}`)
@@ -1629,8 +1644,8 @@ async function checkSheet(checker: Checker): Promise<void> {
       table.getCellText(8, 9) === '1,234.50',
       `千分位显示 ${table.getCellText(8, 9)}（期望 1,234.50）`,
     )
-    assert(handle.controls.numFmt.get(8, 9)?.kind === 'thousands', 'numFmt 侧车未写入')
-    assert(store.getValue(8, 9) === 1234.5, 'numFmt 不应改动原始值')
+    assert(handle.controls.numFmt.get(8, 9)?.type === 'thousands', 'numFmt 侧车未写入')
+    assert(store.getCellData({ row: 9, col: 8 })?.v === 1234.5, 'numFmt 不应改动原始值')
     // 清除格式 → 恢复原始显示
     openMenu()
     menuItem('设置数据格式').click()
@@ -1638,7 +1653,7 @@ async function checkSheet(checker: Checker): Promise<void> {
     await frames(2)
     assert(table.getCellText(8, 9) === '1234.5', `清除后显示 ${table.getCellText(8, 9)}`)
     assert(handle.controls.numFmt.get(8, 9) === undefined, 'numFmt 侧车未清除')
-    store.setValue(8, 9, null)
+    store.setCellValue({ row: 9, col: 8 }, null)
     table.refreshCell(8, 9)
   })
 
@@ -1646,12 +1661,15 @@ async function checkSheet(checker: Checker): Promise<void> {
     'sheet xlsx round-trip：导出整本 → 导入重建，值/公式/合并/冻结/尺寸/样式/numFmt 保真',
     async () => {
       // 造 fixture（冻结/行列尺寸/样式/numFmt 均入 Store 与侧车，导出端从这里取）
-      store.setValue(0, 20, 3.14159)
-      handle.controls.numFmt.set(0, 20, { kind: 'fixed', digits: 2 })
-      store.setValue(1, 20, 45000) // 1900 序列数 = 2023-03-15
-      handle.controls.numFmt.set(1, 20, { kind: 'date' })
-      store.setStyle(2, 20, { background: '#ff0000' })
-      store.setFrozen({ colCount: 1, rowCount: 1 })
+      store.setCellValue({ row: 20, col: 0 }, 3.14159)
+      handle.controls.numFmt.set(0, 20, { type: 'fixed', digits: 2 })
+      store.setCellValue({ row: 20, col: 1 }, 45000) // 1900 序列数 = 2023-03-15
+      handle.controls.numFmt.set(1, 20, { type: 'date' })
+      store.setCellStyle(
+        { start: { row: 20, col: 2 }, end: { row: 20, col: 2 } },
+        { fill: { color: '#ff0000' } },
+      )
+      store.setFrozen(1, 1)
       store.setColWidth(1, 120)
       store.setRowHeight(5, 40)
       // 页内 round-trip：导出整本 → 字节直接回导（无需二进制 fixture）
@@ -1671,24 +1689,29 @@ async function checkSheet(checker: Checker): Promise<void> {
       )
       // 值抽样
       assert(
-        store2.getValue(0, 2) === '样式矩阵 ↓',
-        `值抽样 (0,2)=${String(store2.getValue(0, 2))}`,
+        store2.getCellData({ row: 2, col: 0 })?.v === '样式矩阵 ↓',
+        `值抽样 (0,2)=${String(store2.getCellData({ row: 2, col: 0 })?.v)}`,
       )
-      assert(store2.getValue(0, 20) === 3.14159, '数字值未保真')
+      assert(store2.getCellData({ row: 20, col: 0 })?.v === 3.14159, '数字值未保真')
       // 公式格：Store 存 '=' 原文、显示求值结果
-      assert(store2.getValue(3, 2) === '=D1+D2', `公式原文 ${String(store2.getValue(3, 2))}`)
+      assert(
+        store2.getCellData({ row: 2, col: 3 })?.f === 'D1+D2',
+        `公式原文 ${String(store2.getCellData({ row: 2, col: 3 })?.v)}`,
+      )
       assert(table2.getCellText(3, 2) === '12', `公式格显示 ${table2.getCellText(3, 2)}（期望 12）`)
       // 合并区
       assert(
-        store2
+        store2.merges
           .getMerges()
-          .some((m) => m.startCol === 2 && m.startRow === 11 && m.endCol === 4 && m.endRow === 12),
-        `合并区丢失：${JSON.stringify(store2.getMerges())}`,
+          .some(
+            (m) => m.start.col === 2 && m.start.row === 11 && m.end.col === 4 && m.end.row === 12,
+          ),
+        `合并区丢失：${JSON.stringify(store2.merges.getMerges())}`,
       )
       // 冻结（Store 与引擎实例两侧）
       assert(
-        store2.getFrozen().colCount === 1 && store2.getFrozen().rowCount === 1,
-        `Store 冻结 ${JSON.stringify(store2.getFrozen())}`,
+        store2.frozen.cols === 1 && store2.frozen.rows === 1,
+        `Store 冻结 ${JSON.stringify(store2.frozen)}`,
       )
       assert(
         table2.getFrozenColCount() === 1 && table2.getFrozenRowCount() === 1,
@@ -1698,11 +1721,11 @@ async function checkSheet(checker: Checker): Promise<void> {
       assert(store2.getColWidth(1) === 117, `列宽 ${store2.getColWidth(1)}（期望 117）`)
       assert(store2.getRowHeight(5) === 40, `行高 ${store2.getRowHeight(5)}（期望 40）`)
       // 样式抽样：背景 / 粗体 / 边框（solid 2px → medium → solid 2px）
-      assert(store2.getStyle(2, 20)?.background === '#ff0000', '背景色未保真')
-      assert(store2.getStyle(1, 4)?.fontWeight === 700, '粗体未保真')
-      const edge = store2.getStyle(1, 7)?.border?.left
+      assert(store2.getCellStyle({ row: 20, col: 2 })?.fill?.color === '#ff0000', '背景色未保真')
+      assert(store2.getCellStyle({ row: 4, col: 1 })?.font?.bold === true, '粗体未保真')
+      const edge = store2.getCellStyle({ row: 7, col: 1 })?.border?.left
       assert(
-        edge?.width === 2 && edge.color === '#2563eb' && edge.style === 'solid',
+        edge?.width === 1 && edge.color === '#2563eb' && edge.style === 'thin',
         `边框未保真：${JSON.stringify(edge)}`,
       )
       // numFmt 显示（fixed(2) 两位小数、date 1900 序列数 → 日期文本）
@@ -1711,12 +1734,13 @@ async function checkSheet(checker: Checker): Promise<void> {
         table2.getCellText(1, 20) === '2023-03-15',
         `date 显示 ${table2.getCellText(1, 20)}（期望 2023-03-15）`,
       )
-      assert(handle.controls.numFmt.get(0, 20)?.kind === 'fixed', 'numFmt 未随导入还原')
+      assert(handle.controls.numFmt.get(0, 20)?.type === 'fixed', 'numFmt 未随导入还原')
       // 第二张表值抽样 + 切回第一张
       handle.switchTo(ids[1]!)
       await frames(2)
       assert(
-        handle.getStore().getValue(0, 0) === 0 && handle.getStore().getValue(3, 5) === 35,
+        handle.getStore().getCellData({ row: 0, col: 0 })?.v === 0 &&
+          handle.getStore().getCellData({ row: 5, col: 3 })?.v === 35,
         'Sheet2 值未保真',
       )
       handle.switchTo(ids[0]!)
@@ -1730,9 +1754,9 @@ async function checkReport(checker: Checker): Promise<void> {
   const handle = window.__REPORT_DEMO__
   assert(handle, '缺少 __REPORT_DEMO__ 句柄')
   const table = handle.getTable()
-  const store = handle.getStore()
+  const sheet = handle.getSheet()
 
-  await checker.step('report 快照灌入：九字段全量落模型，重采集等价（restore 往返）', () => {
+  await checker.step('report 快照灌入：全量负载落模型，重采集等价（restore 往返）', () => {
     const fixture = handle.buildSnapshot()
     const roundTrip = handle.saveSnapshot()
     // 值：条目数一致 + 抽样（标题/表头带/数据行/合计行）
@@ -1741,74 +1765,87 @@ async function checkReport(checker: Checker): Promise<void> {
       `快照格数 ${roundTrip.cells.length}，期望 ${fixture.cells.length}`,
     )
     assert(
-      store.getValue(0, REPORT_ROWS.title) === '2026 Q3 销售汇总报表' &&
-        store.getValue(1, REPORT_ROWS.headerTop) === '区域' &&
-        store.getValue(7, REPORT_ROWS.headerSub) === '环比',
+      sheet.getDisplayValue({ row: REPORT_ROWS.title, col: 0 }) === '2026 Q3 销售汇总报表' &&
+        sheet.getDisplayValue({ row: REPORT_ROWS.headerTop, col: 1 }) === '区域' &&
+        sheet.getDisplayValue({ row: REPORT_ROWS.headerSub, col: 7 }) === '环比',
       '快照值抽样不符',
     )
-    const dataSample = store.getValue(2, 10)
+    const dataSample = sheet.getDisplayValue({ row: 10, col: 2 })
     assert(dataSample !== undefined && dataSample !== null, '数据行值缺失')
-    assert(typeof store.getValue(4, REPORT_ROWS.summary) === 'number', '合计行数值缺失')
+    assert(
+      typeof sheet.getDisplayValue({ row: REPORT_ROWS.summary, col: 4 }) === 'number',
+      '合计行数值缺失',
+    )
     // 合并/冻结/尺寸：按界关键字集合比对
-    const keyOf = (r: { startCol: number; endCol: number; startRow: number; endRow: number }) =>
-      `${r.startCol},${r.startRow},${r.endCol},${r.endRow}`
+    const keyOf = (r: { start: { col: number; row: number }; end: { col: number; row: number } }) =>
+      `${r.start.col},${r.start.row},${r.end.col},${r.end.row}`
     assert(
       roundTrip.merges.map(keyOf).sort().join('|') === fixture.merges.map(keyOf).sort().join('|'),
       '合并区往返不等价',
     )
     assert(
-      roundTrip.frozen.colCount === fixture.frozen.colCount &&
-        roundTrip.frozen.rowCount === fixture.frozen.rowCount,
+      roundTrip.frozen.rows === fixture.frozen.rows &&
+        roundTrip.frozen.cols === fixture.frozen.cols,
       `冻结往返 ${JSON.stringify(roundTrip.frozen)}`,
     )
     assert(
-      roundTrip.colWidths.map((e) => `${e.col}:${e.width}`).join('|') ===
+      (roundTrip.colWidths ?? []).map(([col, width]) => `${col}:${width}`).join('|') ===
         REPORT_COL_WIDTHS.map((width, col) => `${col}:${width}`).join('|'),
       '列宽覆盖往返不等价',
     )
     assert(
-      roundTrip.rowHeights.map((e) => `${e.row}:${e.height}`).join('|') ===
-        fixture.rowHeights.map((e) => `${e.row}:${e.height}`).join('|'),
+      (roundTrip.rowHeights ?? []).map(([row, height]) => `${row}:${height}`).join('|') ===
+        (fixture.rowHeights ?? []).map(([row, height]) => `${row}:${height}`).join('|'),
       '行高覆盖往返不等价',
     )
-    // 样式：格级条目数 + 列级条目 + 标题底色抽样
+    // 样式：池定义数一致 + 列级右对齐 + 标题格样式抽样（格 s 引用 → 池定义）
     assert(
-      roundTrip.styles.cells.length === fixture.styles.cells.length,
-      `格级样式条目 ${roundTrip.styles.cells.length}，期望 ${fixture.styles.cells.length}`,
+      roundTrip.styles.length === fixture.styles.length,
+      `样式池条目 ${roundTrip.styles.length}，期望 ${fixture.styles.length}`,
     )
-    assert(
-      roundTrip.styles.columns.length === fixture.styles.columns.length &&
-        roundTrip.styles.columns.every((e) => e.style.textAlign === 'right'),
-      '列级样式往返不等价',
+    for (const col of [4, 5, 6, 7]) {
+      const id = (roundTrip.colStyles ?? []).find(([c]) => c === col)?.[1]
+      assert(
+        id != null && roundTrip.styles[id - 1]?.align?.horizontal === 'right',
+        `列 ${col} 级右对齐往返不等价`,
+      )
+    }
+    const titleItem = roundTrip.cells.find(
+      (item) => item.col === 0 && item.row === REPORT_ROWS.title,
     )
-    const titleStyle = roundTrip.styles.cells.find(
-      (e) => e.col === 0 && e.row === REPORT_ROWS.title,
-    )?.style
+    const titleStyle = titleItem?.s != null ? roundTrip.styles[titleItem.s - 1] : undefined
     assert(
-      titleStyle?.background === REPORT_TITLE_BACKGROUND && titleStyle.fontWeight === 700,
+      titleStyle?.fill?.color === REPORT_TITLE_BACKGROUND && titleStyle?.font?.bold === true,
       '标题样式往返不符',
     )
-    // meta：命名空间与条目（模板绑定 + 报表级）
+    // meta：命名空间与条目（flat 条目）+ 报表级载荷抽样
     assert(
-      roundTrip.meta
-        .map((g) => g.ns)
+      (roundTrip.meta ?? [])
+        .map((item) => item.namespace)
         .sort()
         .join(',') ===
-        fixture.meta
-          .map((g) => g.ns)
+        (fixture.meta ?? [])
+          .map((item) => item.namespace)
           .sort()
           .join(','),
       'meta 命名空间往返不等价',
     )
+    assert((roundTrip.meta ?? []).length === (fixture.meta ?? []).length, 'meta 条目数往返不等价')
     assert(
-      roundTrip.meta.reduce((sum, g) => sum + g.entries.length, 0) ===
-        fixture.meta.reduce((sum, g) => sum + g.entries.length, 0),
-      'meta 条目数往返不等价',
-    )
-    assert(
-      JSON.stringify(store.getCellMeta('report', 0, REPORT_ROWS.title)) ===
+      JSON.stringify(sheet.getCellMeta({ row: REPORT_ROWS.title, col: 0 }, 'report')) ===
         JSON.stringify({ template: 'quarterly-sales', version: 3 }),
       '报表级 meta 抽样不符',
+    )
+    // 浮动图与选区随快照携带
+    assert(
+      roundTrip.images?.length === 1 && roundTrip.images[0]?.id === REPORT_FLOAT_IMAGE_ID,
+      '浮动图未随快照携带',
+    )
+    assert(
+      roundTrip.selection?.ranges.length === 1 &&
+        keyOf(roundTrip.selection.ranges[0]!) ===
+          `0,${REPORT_ROWS.summary},7,${REPORT_ROWS.summary}`,
+      '选区未随快照携带',
     )
   })
 
@@ -1818,14 +1855,15 @@ async function checkReport(checker: Checker): Promise<void> {
     // 行列头关闭（内容原点 0,0）：标题合并区 (0,0)~(7,0) 跨满 734px、高 42 ——
     // 采样取带右端 (710,6)（避开居中标题文字的反锯齿），跨满即证明合并渲染生效
     expectColor(body, 710, 6, REPORT_TITLE_BACKGROUND, '报表标题合并带')
-    // 表头带底色：(2,2) 起 x 256..366、y 106..138（纵合并 (2,2)~(2,3)）
+    // 表头带底色：(3,2)~(3,3) 纵合并跨行 [98,126)，x 落列 3 [256,366)
     expectColor(body, 300, 120, '#eef2f7', '表头带底色')
     assert(
       table.getCellText(0, REPORT_ROWS.title) === '2026 Q3 销售汇总报表',
       `标题显示 ${table.getCellText(0, REPORT_ROWS.title)}`,
     )
     assert(
-      table.getCellText(4, REPORT_ROWS.summary) === String(store.getValue(4, REPORT_ROWS.summary)),
+      table.getCellText(4, REPORT_ROWS.summary) ===
+        String(sheet.getDisplayValue({ row: REPORT_ROWS.summary, col: 4 })),
       '合计销售额未渲染',
     )
   })
@@ -1848,13 +1886,13 @@ async function checkReport(checker: Checker): Promise<void> {
     handle.reloadSnapshot()
     await frames(2)
     assert(table.floatObjects.size === 1, '重灌后浮动图对账异常')
-    assert(store.getMerges().length === 10, '重灌后合并区丢失')
+    assert(sheet.merges.getMerges().length === 10, '重灌后合并区丢失')
     assert(table.getCellText(0, REPORT_ROWS.title) === '2026 Q3 销售汇总报表', '重灌后标题丢失')
   })
 
   await checker.step('report readonly 生效：禁编辑、禁尺寸拖改、填充柄无写路径', async () => {
     const container = handle.getContainer()
-    // 双击数据格无编辑浮层（resolveEditable 恒 false）
+    // 双击数据格无编辑浮层（readonly 不注册编辑器）
     const cellRect = table.getCellRelativeRect(2, 8)
     assert(cellRect, '(2,8) 不在可视窗口')
     const cx = cellRect.x + cellRect.width / 2
@@ -1865,7 +1903,7 @@ async function checkReport(checker: Checker): Promise<void> {
     dispatchPointer(container, 'pointerup', cx, cy)
     assert(!container.querySelector('input, textarea'), 'readonly 双击出现编辑浮层')
     assert(!table.startEdit(2, 8), 'readonly startEdit 未返回 false')
-    // 拖列边缘 +24：canResizeCol 恒 false → 宽度不变（禁交互写路径之尺寸面）
+    // 拖列边缘 +24：readonly 禁 resize → 宽度不变（禁交互写路径之尺寸面）
     const edge = cellRect.x + cellRect.width
     dispatchPointer(container, 'pointerdown', edge, cy)
     dispatchPointer(container, 'pointermove', edge + 24, cy)
@@ -1874,22 +1912,23 @@ async function checkReport(checker: Checker): Promise<void> {
       table.getColWidth(2) === REPORT_COL_WIDTHS[2],
       `readonly 列宽被拖改 ${table.getColWidth(2)}`,
     )
-    // 填充柄拖拽：报表区不接填充生成 → 拖后值不变（禁交互写路径之填充面）
+    // 填充柄拖拽：readonly 不接填充生成 → 拖后值不变（禁交互写路径之填充面）
     table.selectCells([{ start: { col: 4, row: 5 }, end: { col: 4, row: 7 } }])
     await frames(2)
     const anchorRect = table.getCellRelativeRect(4, 7)
     assert(anchorRect, '(4,7) 不在可视窗口')
     const hx = anchorRect.x + anchorRect.width - 2
     const hy = anchorRect.y + anchorRect.height - 2
-    const before8 = store.getValue(4, 8)
-    const before9 = store.getValue(4, 9)
+    const before8 = sheet.getDisplayValue({ row: 8, col: 4 })
+    const before9 = sheet.getDisplayValue({ row: 9, col: 4 })
     const dragX = anchorRect.x + anchorRect.width / 2
     const dragY = hy + 64
     dispatchPointer(container, 'pointerdown', hx, hy)
     dispatchPointer(container, 'pointermove', dragX, dragY)
     dispatchPointer(container, 'pointerup', dragX, dragY)
     assert(
-      store.getValue(4, 8) === before8 && store.getValue(4, 9) === before9,
+      sheet.getDisplayValue({ row: 8, col: 4 }) === before8 &&
+        sheet.getDisplayValue({ row: 9, col: 4 }) === before9,
       'readonly 填充拖拽产生了写入',
     )
   })

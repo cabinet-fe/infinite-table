@@ -1,7 +1,7 @@
 // 基准运行环境抽象：headless（bun，注入假画布 + 手动帧泵）与浏览器（真实 canvas + rAF）
 // 共用同一套场景逻辑，保证两处测的是同一份代码路径
 
-import type { ListTable } from '@infinitable/core'
+import type { ListTable, TableModel } from '@infinitable/core'
 
 import type { InvalidationMeter } from './invalidation-meter'
 
@@ -22,15 +22,8 @@ export interface BenchTable {
 export interface BenchEnv {
   readonly name: string
   createTable(): BenchTable
-  /** sheet 口径建表：store.asModel() 挂模型形态（sheet 场景用；S5） */
-  createSheetTable(store: SheetStoreLike): BenchTable
+  /** sheet 口径建表：Sheet 模型绑定挂模型形态（sheet 场景用；S5）；模型适配由 sheet-scenarios 提供 */
+  createSheetTable(model: TableModel): BenchTable
   /** chart 口径建表：图表格场景用（chart-support P5；表口径与声明解析在 chart-scenarios.ts） */
   createChartTable(): BenchTable
-}
-
-/** SheetStore 结构子集（避免 bench 对 plugins 的类型级硬绑定；运行时传插件实例） */
-interface SheetStoreLike {
-  asModel(): import('@infinitable/core').TableModel
-  getRowCount(): number
-  getColCount(): number
 }

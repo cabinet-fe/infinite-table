@@ -1,26 +1,22 @@
 // 报表式只读快照渲染场景（meta 报表迁移参考形态）：
-// 手写报表快照（九字段结构）→ sheet 插件（单表只读形态）handle 全量灌入 Store（模型侧唯一事实源）→
-// readonly 渲染（resolveEditable 全禁编 + canResizeCol/Row 全禁改尺寸 + 插件 readonly 不接填充/撤销写路径）。
-// images/selection 随快照携带，经灌回 wiring 由宿主接线引擎 floatObjects / applyExternalSelection——
-// 与 meta 迁移时「服务端快照 → 灌模型 → 只读渲染」的形态一致，可整段照搬。
+// 手写报表快照（SheetSnapshot）→ Sheet.restore 全量灌入模型（模型侧唯一事实源）→
+// SheetGrid readonly 渲染（不注册编辑器 + 行列尺寸拖改全禁 + 不接填充/撤销写路径）。
+// images/selection 随快照携带：浮动图由 SheetGrid 浮动图桥对齐模型、选区由选区控制器
+// 初始同步落画布——与 meta 迁移时「服务端快照 → 灌模型 → 只读渲染」的形态一致，可整段照搬。
 // 行列头关闭（showColHeader/showRowHeader false）：报表的表头带/标题行本身就是快照数据，
 // 引擎级行列头对纯报表形态是多余的 Chrome。控件面（重灌按钮与状态行）由 ReportPage
 // 以 shadcn 渲染，经 demo.reloadSnapshot 驱动。
 
-import type { CellStyle, ListTable, ListTableOptions } from '@infinitable/core'
-import { createSheetPlugin, type SheetPluginHandle } from '@infinitable/plugins'
-
-import { demoLoadImage, mountTable, type DemoMount } from '../mount'
-
-/** 演示层 Store 类型（sheet 插件 handle 的 store 面） */
-type SheetStore = NonNullable<SheetPluginHandle['store']>
-/** 快照类型（插件 handle 的采集产物形态；fixture 构建与往返断言共用） */
-type SheetSnapshot = ReturnType<SheetPluginHandle['saveSnapshot']>
+import type { ListTable } from '@infinitable/core'
+import { Sheet, SheetGrid, type SheetSnapshot } from '@infinitable/sheet'
 
 // ---- 报表维度与口径常量（smoke 断言与快照 fixture 共用） ----
 
 const REPORT_ROW_COUNT = 36
 const REPORT_COL_COUNT = 8
+/** 演示视口尺寸（全表 734px 列宽 + 余量） */
+const REPORT_VIEW_WIDTH = 760
+const REPORT_VIEW_HEIGHT = 360
 /** 标题行 / 元信息行 / 表头带上 / 表头带下 / 数据首行 / 数据末行 / 合计行 */
 export const REPORT_ROWS = {
   title: 0,
@@ -37,8 +33,23 @@ export const REPORT_COL_WIDTHS = [56, 90, 110, 110, 96, 96, 88, 88] as const
 export const REPORT_TITLE_BACKGROUND = '#dbeafe'
 /** 报表浮动图（锚定 from→to、无显式像素尺寸：随行列尺寸伸缩的口径示例） */
 export const REPORT_FLOAT_IMAGE_ID = 'report-chart'
+/**
+ * 浮动图源（内联 SVG data URL）：SheetGrid 浮动图走引擎默认图片加载，
+ * data URL 可直接命中，无需宿主注入自定义 loader。
+ */
+const REPORT_FLOAT_CHART_SRC = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="108" viewBox="0 0 180 108">' +
+    '<rect width="180" height="108" fill="#f8fafc" stroke="#cbd5e1"/>' +
+    '<rect x="16" y="62" width="20" height="34" fill="#60a5fa"/>' +
+    '<rect x="46" y="46" width="20" height="50" fill="#3b82f6"/>' +
+    '<rect x="76" y="54" width="20" height="42" fill="#60a5fa"/>' +
+    '<rect x="106" y="30" width="20" height="66" fill="#2563eb"/>' +
+    '<rect x="136" y="40" width="20" height="56" fill="#3b82f6"/>' +
+    '<polyline points="26,52 56,38 86,44 116,22 146,32" fill="none" stroke="#dc2626" stroke-width="2"/>' +
+    '</svg>',
+)}`
 
-// ---- 快照 fixture：确定性生成，九字段全覆盖 ----
+// ---- 快照 fixture：确定性生成（经 Sheet API 装配后采集，九类负载全覆盖） ----
 
 /** 区域 → 城市轮转表（30 行数据用） */
 const REGION_CITIES: ReadonlyArray<{ region: string; city: string }> = [
@@ -92,20 +103,24 @@ function summaryRowCells(): unknown[] {
   ]
 }
 
-/** 构造报表快照（九字段：cells/styles/merges/frozen/rowHeights/colWidths/images/meta/selection） */
+/**
+ * 构造报表快照（cells/styles/merges/frozen/rowHeights/colWidths/colStyles/images/meta/selection）：
+ * 经 Sheet 公共 API 装配后 snapshot() 采集——fixture 与 restore 往返共用同一序列化口径。
+ */
 function createReportSnapshot(): SheetSnapshot {
-  const cells: SheetSnapshot['cells'] = []
+  const sheet = new Sheet('report')
+
+  // ① 值：标题/元信息/表头带/数据行/合计行（先写值，合并命令按「保留首个有值格」清覆盖格）
+  const values: Array<{ row: number; col: number; value: unknown }> = []
   const push = (col: number, row: number, value: unknown): void => {
     if (value !== null && value !== undefined) {
-      cells.push({ col, row, value })
+      values.push({ row, col, value })
     }
   }
-  // 标题行 + 元信息行（合并区）
   push(0, REPORT_ROWS.title, '2026 Q3 销售汇总报表')
   push(0, REPORT_ROWS.meta, '报表编号：RPT-2026-Q3')
   push(2, REPORT_ROWS.meta, '生成时间：2026-09-30 08:00')
   push(5, REPORT_ROWS.meta, '单位：万元（销售额 / 目标）')
-  // 表头带（上：整列字段 + 「指标」横跨；下：指标细分）
   const headersTop: Array<[number, string]> = [
     [0, '序号'],
     [1, '区域'],
@@ -125,188 +140,166 @@ function createReportSnapshot(): SheetSnapshot {
   for (const [col, text] of headersSub) {
     push(col, REPORT_ROWS.headerSub, text)
   }
-  // 数据行 + 合计行
   for (let row = REPORT_ROWS.dataFirst; row <= REPORT_ROWS.dataLast; row++) {
     dataRowCells(row).forEach((value, col) => push(col, row, value))
   }
   summaryRowCells().forEach((value, col) => push(col, REPORT_ROWS.summary, value))
+  sheet.setCells(
+    values.map(({ row, col, value }) => ({
+      addr: { row, col },
+      data: {
+        v: value as number | string,
+        t: typeof value === 'number' ? ('n' as const) : ('s' as const),
+      },
+    })),
+  )
 
+  // ② 合并：标题横跨全表 + 元信息三段 + 表头带整列字段纵合并与「指标」横跨 + 合计行
+  sheet.mergeCellsBatch([
+    { start: { row: REPORT_ROWS.title, col: 0 }, end: { row: REPORT_ROWS.title, col: 7 } },
+    { start: { row: REPORT_ROWS.meta, col: 0 }, end: { row: REPORT_ROWS.meta, col: 1 } },
+    { start: { row: REPORT_ROWS.meta, col: 2 }, end: { row: REPORT_ROWS.meta, col: 4 } },
+    { start: { row: REPORT_ROWS.meta, col: 5 }, end: { row: REPORT_ROWS.meta, col: 7 } },
+    { start: { row: REPORT_ROWS.headerTop, col: 0 }, end: { row: REPORT_ROWS.headerSub, col: 0 } },
+    { start: { row: REPORT_ROWS.headerTop, col: 1 }, end: { row: REPORT_ROWS.headerSub, col: 1 } },
+    { start: { row: REPORT_ROWS.headerTop, col: 2 }, end: { row: REPORT_ROWS.headerSub, col: 2 } },
+    { start: { row: REPORT_ROWS.headerTop, col: 3 }, end: { row: REPORT_ROWS.headerSub, col: 3 } },
+    { start: { row: REPORT_ROWS.headerTop, col: 4 }, end: { row: REPORT_ROWS.headerTop, col: 7 } },
+    { start: { row: REPORT_ROWS.summary, col: 0 }, end: { row: REPORT_ROWS.summary, col: 3 } },
+  ])
+
+  // ③ 样式：格级（标题/元信息/表头带/负环比/合计行）+ 数值列右对齐（colStyles 列级）
+  const metaStyle = { font: { italic: true, color: '#64748b' }, fill: { color: '#f8fafc' } }
+  const summaryStyle = {
+    font: { bold: true },
+    fill: { color: '#f1f5f9' },
+    border: { top: { style: 'medium' as const, width: 2, color: '#334155' } },
+  }
+  const styleItems = [
+    // 标题：加粗居中大字（12pt = 16px）+ 浅蓝底
+    {
+      addr: { row: REPORT_ROWS.title, col: 0 },
+      partial: {
+        fill: { color: REPORT_TITLE_BACKGROUND },
+        font: { bold: true, size: 12, color: '#1d4ed8' },
+        align: { horizontal: 'center' as const },
+      },
+    },
+    // 元信息行：斜体灰字 + 浅灰底
+    { addr: { row: REPORT_ROWS.meta, col: 0 }, partial: metaStyle },
+    { addr: { row: REPORT_ROWS.meta, col: 2 }, partial: metaStyle },
+    { addr: { row: REPORT_ROWS.meta, col: 5 }, partial: metaStyle },
+    // 表头带：居中加粗 + 底部粗分隔线
+    ...[0, 1, 2, 3, 4].map((col) => ({
+      addr: { row: REPORT_ROWS.headerTop, col },
+      partial: headerBandStyle(),
+    })),
+    ...[4, 5, 6, 7].map((col) => ({
+      addr: { row: REPORT_ROWS.headerSub, col },
+      partial: headerBandStyle(),
+    })),
+    // 负环比格红字（环比值为负号开头的格）
+    ...negativeQoqRows().map((row) => ({
+      addr: { row, col: 7 },
+      partial: { font: { color: '#dc2626' } },
+    })),
+    // 合计行：加粗 + 顶部粗边 + 浅灰底
+    ...Array.from({ length: REPORT_COL_COUNT }, (_, col) => ({
+      addr: { row: REPORT_ROWS.summary, col },
+      partial: summaryStyle,
+    })),
+  ]
+  sheet.setCellStyles(styleItems)
+  for (const col of [4, 5, 6, 7]) {
+    sheet.setColStyle(col, { align: { horizontal: 'right' } })
+  }
+
+  // ④ 冻结报表头四行（标题/元信息/表头带两行）；不冻结列：全表 734px 无横向滚动
+  sheet.setFrozen(4, 0)
+  sheet.setRowHeight(REPORT_ROWS.title, 42)
+  sheet.setRowHeight(REPORT_ROWS.summary, 36)
+  REPORT_COL_WIDTHS.forEach((width, col) => sheet.setColWidth(col, width))
+
+  // ⑤ Cell Meta：模板绑定（模板字段 → 引擎格位）与报表级（模板标识与版本）
+  const bindingFields: Array<[number, number, string]> = [
+    [1, REPORT_ROWS.headerTop, 'region'],
+    [2, REPORT_ROWS.headerTop, 'city'],
+    [3, REPORT_ROWS.headerTop, 'category'],
+    [4, REPORT_ROWS.headerSub, 'sales'],
+    [5, REPORT_ROWS.headerSub, 'target'],
+    [6, REPORT_ROWS.headerSub, 'completion'],
+    [7, REPORT_ROWS.headerSub, 'qoq'],
+  ]
+  for (const [col, row, field] of bindingFields) {
+    sheet.setCellMeta({ row, col }, 'binding', { field })
+  }
+  sheet.setCellMeta({ row: REPORT_ROWS.title, col: 0 }, 'report', {
+    template: 'quarterly-sales',
+    version: 3,
+  })
+
+  // ⑥ 浮动图（锚定 from→to、无显式像素尺寸：随行列尺寸伸缩）
+  sheet.insertImage({
+    id: REPORT_FLOAT_IMAGE_ID,
+    data: new Uint8Array(0),
+    type: 'svg',
+    anchor: {
+      from: { col: 5, row: REPORT_ROWS.dataFirst + 12, offsetX: 4, offsetY: 4 },
+      to: { col: 7, row: REPORT_ROWS.summary - 2 },
+    },
+    src: REPORT_FLOAT_CHART_SRC,
+    title: 'Q3 销售趋势（示意）',
+  })
+
+  // ⑦ 选区：合计行为当前查看焦点（readonly 报表的「查看位置」随快照恢复）
+  sheet.selectRange({
+    start: { row: REPORT_ROWS.summary, col: 0 },
+    end: { row: REPORT_ROWS.summary, col: 7 },
+  })
+
+  return sheet.snapshot()
+}
+
+function headerBandStyle() {
   return {
-    cells,
-    styles: {
-      cells: [
-        // 标题：加粗居中大字 + 浅蓝底
-        {
-          col: 0,
-          row: REPORT_ROWS.title,
-          style: {
-            fontWeight: 700,
-            fontSize: 16,
-            textAlign: 'center',
-            background: REPORT_TITLE_BACKGROUND,
-            color: '#1d4ed8',
-          },
-        },
-        // 元信息行：斜体灰字 + 浅灰底
-        {
-          col: 0,
-          row: REPORT_ROWS.meta,
-          style: { fontStyle: 'italic', color: '#64748b', background: '#f8fafc' },
-        },
-        {
-          col: 2,
-          row: REPORT_ROWS.meta,
-          style: { fontStyle: 'italic', color: '#64748b', background: '#f8fafc' },
-        },
-        {
-          col: 5,
-          row: REPORT_ROWS.meta,
-          style: { fontStyle: 'italic', color: '#64748b', background: '#f8fafc' },
-        },
-        // 表头带：居中加粗 + 底部粗分隔线
-        {
-          col: 0,
-          row: REPORT_ROWS.headerTop,
-          style: headerBandStyle(),
-        },
-        { col: 1, row: REPORT_ROWS.headerTop, style: headerBandStyle() },
-        { col: 2, row: REPORT_ROWS.headerTop, style: headerBandStyle() },
-        { col: 3, row: REPORT_ROWS.headerTop, style: headerBandStyle() },
-        { col: 4, row: REPORT_ROWS.headerTop, style: headerBandStyle() },
-        { col: 4, row: REPORT_ROWS.headerSub, style: headerBandStyle() },
-        { col: 5, row: REPORT_ROWS.headerSub, style: headerBandStyle() },
-        { col: 6, row: REPORT_ROWS.headerSub, style: headerBandStyle() },
-        { col: 7, row: REPORT_ROWS.headerSub, style: headerBandStyle() },
-        // 负环比红字（格级覆盖列级右对齐之外的色）
-        ...negativeQoqStyles(),
-        // 合计行：加粗 + 顶部粗边 + 浅灰底
-        {
-          col: 0,
-          row: REPORT_ROWS.summary,
-          style: {
-            fontWeight: 700,
-            background: '#f1f5f9',
-            border: { top: { width: 2, color: '#334155' } },
-          },
-        },
-        ...Array.from({ length: REPORT_COL_COUNT - 1 }, (_, i) => ({
-          col: i + 1,
-          row: REPORT_ROWS.summary,
-          style: {
-            fontWeight: 700,
-            background: '#f1f5f9',
-            border: { top: { width: 2, color: '#334155' } },
-          },
-        })),
-      ],
-      // 列级：数值列右对齐（快照 styles.columns 字段）
-      columns: [4, 5, 6, 7].map((col) => ({ col, style: { textAlign: 'right' } })),
-    },
-    merges: [
-      // 标题横跨全表 + 元信息三段 + 表头带整列字段纵合并与「指标」横跨
-      { startCol: 0, endCol: 7, startRow: REPORT_ROWS.title, endRow: REPORT_ROWS.title },
-      { startCol: 0, endCol: 1, startRow: REPORT_ROWS.meta, endRow: REPORT_ROWS.meta },
-      { startCol: 2, endCol: 4, startRow: REPORT_ROWS.meta, endRow: REPORT_ROWS.meta },
-      { startCol: 5, endCol: 7, startRow: REPORT_ROWS.meta, endRow: REPORT_ROWS.meta },
-      { startCol: 0, endCol: 0, startRow: REPORT_ROWS.headerTop, endRow: REPORT_ROWS.headerSub },
-      { startCol: 1, endCol: 1, startRow: REPORT_ROWS.headerTop, endRow: REPORT_ROWS.headerSub },
-      { startCol: 2, endCol: 2, startRow: REPORT_ROWS.headerTop, endRow: REPORT_ROWS.headerSub },
-      { startCol: 3, endCol: 3, startRow: REPORT_ROWS.headerTop, endRow: REPORT_ROWS.headerSub },
-      { startCol: 4, endCol: 7, startRow: REPORT_ROWS.headerTop, endRow: REPORT_ROWS.headerTop },
-      { startCol: 0, endCol: 3, startRow: REPORT_ROWS.summary, endRow: REPORT_ROWS.summary },
-    ],
-    // 冻结报表头四行（标题/元信息/表头带两行）；不冻结列：全表 734px 无横向滚动
-    frozen: { colCount: 0, rowCount: 4 },
-    rowHeights: [
-      { row: REPORT_ROWS.title, height: 42 },
-      { row: REPORT_ROWS.summary, height: 36 },
-    ],
-    colWidths: REPORT_COL_WIDTHS.map((width, col) => ({ col, width })),
-    images: [
-      {
-        id: REPORT_FLOAT_IMAGE_ID,
-        kind: 'image',
-        anchor: {
-          from: { col: 5, row: REPORT_ROWS.dataFirst + 12 },
-          to: { col: 7, row: REPORT_ROWS.summary - 2 },
-          offsetX: 4,
-          offsetY: 4,
-        },
-        src: 'demo://report/chart',
-        title: 'Q3 销售趋势（示意）',
-      },
-    ],
-    meta: [
-      // 模板绑定 meta（meta 报表：模板字段 → 引擎格位）
-      {
-        ns: 'binding',
-        entries: [
-          { col: 1, row: REPORT_ROWS.headerTop, value: { field: 'region' } },
-          { col: 2, row: REPORT_ROWS.headerTop, value: { field: 'city' } },
-          { col: 3, row: REPORT_ROWS.headerTop, value: { field: 'category' } },
-          { col: 4, row: REPORT_ROWS.headerSub, value: { field: 'sales' } },
-          { col: 5, row: REPORT_ROWS.headerSub, value: { field: 'target' } },
-          { col: 6, row: REPORT_ROWS.headerSub, value: { field: 'completion' } },
-          { col: 7, row: REPORT_ROWS.headerSub, value: { field: 'qoq' } },
-        ],
-      },
-      // 报表级 meta（模板标识与版本）
-      {
-        ns: 'report',
-        entries: [
-          { col: 0, row: REPORT_ROWS.title, value: { template: 'quarterly-sales', version: 3 } },
-        ],
-      },
-    ],
-    // 选区快照：合计行为当前查看焦点（readonly 报表的「查看位置」随快照恢复）
-    selection: {
-      ranges: [
-        { start: { col: 0, row: REPORT_ROWS.summary }, end: { col: 7, row: REPORT_ROWS.summary } },
-      ],
-      focus: null,
-    },
+    font: { bold: true },
+    align: { horizontal: 'center' as const },
+    fill: { color: '#eef2f7' },
+    border: { bottom: { style: 'medium' as const, width: 2, color: '#64748b' } },
   }
 }
 
-function headerBandStyle(): CellStyle {
-  return {
-    fontWeight: 700,
-    textAlign: 'center',
-    background: '#eef2f7',
-    border: { bottom: { width: 2, color: '#64748b' } },
-  }
-}
-
-/** 负环比格红字（环比值为负号开头的格） */
-function negativeQoqStyles(): Array<{ col: number; row: number; style: { color: string } }> {
-  const entries: Array<{ col: number; row: number; style: { color: string } }> = []
+/** 负环比行（环比值为负号开头的格） */
+function negativeQoqRows(): number[] {
+  const rows: number[] = []
   for (let row = REPORT_ROWS.dataFirst; row <= REPORT_ROWS.dataLast; row++) {
     const qoq = dataRowCells(row)[7] as string
     if (qoq.startsWith('-')) {
-      entries.push({ col: 7, row, style: { color: '#dc2626' } })
+      rows.push(row)
     }
   }
-  return entries
+  return rows
 }
 
 // ---- 演示区装配 ----
 
 export interface ReportDemo {
-  mount: DemoMount
-  store: SheetStore
-  /** 重灌快照（替换语义：对账后一切如初，验证灌回幂等） */
+  container: HTMLElement
+  grid: SheetGrid
+  sheet: Sheet
+  /** 重灌快照（替换语义：静默全量还原，对账后一切如初，验证灌回幂等） */
   reloadSnapshot: () => void
-  /** 当前 Store 全量快照采集（smoke 往返等价断言用） */
+  /** 当前模型全量快照采集（smoke 往返等价断言用） */
   saveSnapshot: () => SheetSnapshot
 }
 
 /** 冒烟/控制台驱动句柄（SmokeMode 冒烟路径写入 window.__REPORT_DEMO__） */
 interface ReportDemoHandle {
   getTable: () => ListTable
-  getStore: () => SheetStore
+  getSheet: () => Sheet
   getContainer: () => HTMLElement
   reloadSnapshot: () => void
-  /** 当前 Store 全量快照采集（smoke 往返等价断言用） */
+  /** 当前模型全量快照采集（smoke 往返等价断言用） */
   saveSnapshot: () => SheetSnapshot
   /** 快照 fixture 重建（smoke 往返等价断言的对照源） */
   buildSnapshot: () => SheetSnapshot
@@ -321,103 +314,45 @@ declare global {
 export function mountReport(root: HTMLElement): ReportDemo {
   const section = document.createElement('section')
   root.appendChild(section)
+  const container = document.createElement('div')
+  container.className = 'table-mount'
+  container.style.width = `${REPORT_VIEW_WIDTH}px`
+  container.style.height = `${REPORT_VIEW_HEIGHT}px`
+  section.appendChild(container)
 
-  // sheet 插件单表只读形态：持有唯一 Store（报表事实源），不装配写路径接线
-  const sheet = createSheetPlugin({
-    store: {
-      rowCount: REPORT_ROW_COUNT,
-      colCount: REPORT_COL_COUNT,
-      defaultColWidth: 96,
-      defaultRowHeight: 32,
-    },
+  // 快照先行灌入模型（冻结/合并/列宽在 SheetGrid 构造期一次读取），readonly 形态渲染：
+  // 不注册编辑器、行列尺寸拖改全禁、不接填充/撤销写路径（SheetGrid readonly 口径）
+  const sheet = new Sheet('report')
+  sheet.restore(createReportSnapshot())
+  const grid = new SheetGrid({
+    container,
+    sheet,
+    rows: REPORT_ROW_COUNT,
+    cols: REPORT_COL_COUNT,
+    width: REPORT_VIEW_WIDTH,
+    height: REPORT_VIEW_HEIGHT,
     readonly: true,
-  })
-  const store = sheet.store!
-
-  // readonly 渲染口径：可编判定恒 false、行列尺寸拖改恒禁止；不注册编辑器、插件 readonly 不接写路径
-  const readonlyOptions: Partial<ListTableOptions> = {
-    resolveEditable: () => false,
-    canResizeCol: () => false,
-    canResizeRow: () => false,
-  }
-  const mount = mountTable(section, {
-    width: 760,
-    height: 360,
-    columns: Array.from({ length: REPORT_COL_COUNT }, (_, col) => ({
-      title: `R${col}`,
-      width: REPORT_COL_WIDTHS[col],
-    })),
-    model: store.asModel(),
-    plugins: [sheet],
-    // 有效样式走模型侧读取 API（基础→列级→格级合成），样式面与快照单一事实源一致
-    resolveCellStyle: (col, row) => store.getEffectiveStyle(col, row) ?? null,
     showColHeader: false,
     showRowHeader: false,
-    rowHeight: 32,
-    imageServiceOptions: { loadImage: demoLoadImage },
-    ...readonlyOptions,
-  })
-  const table = mount.table
-
-  // Store rebuild 汇总 → 全量应用引擎侧（冻结/合并/尺寸）+ 全表刷新（样式为拉取式）
-  const applySnapshotToTable = (): void => {
-    const frozen = store.getFrozen()
-    table.setFrozenColCount(frozen.colCount)
-    table.setFrozenRowCount(frozen.rowCount)
-    table.setMergeCells([...store.getMerges()])
-    table.batchUpdate(() => {
-      for (const [col, width] of store.getColWidthOverrides()) {
-        table.setColWidth(col, width)
-      }
-      for (const [row, height] of store.getRowHeightOverrides()) {
-        table.setRowHeight(row, height)
-      }
-      for (let col = 0; col < store.getColCount(); col++) {
-        for (let row = 0; row < store.getRowCount(); row++) {
-          table.refreshCell(col, row)
-        }
-      }
-    })
-  }
-  store.onChange((event) => {
-    if (event.type === 'rebuild') {
-      applySnapshotToTable()
-    }
   })
 
-  // 浮动图对账：先移除上一轮灌入的，再按快照全量加（灌回 wiring 的宿主侧实现）
-  let appliedImageIds: string[] = []
-  const reloadSnapshot = (): void => {
-    sheet.restoreSnapshot(store, createReportSnapshot(), {
-      images: (images) => {
-        for (const id of appliedImageIds) {
-          table.floatObjects.remove(id)
-        }
-        appliedImageIds = images.map((image) => image.id)
-        for (const image of images) {
-          table.floatObjects.add(image)
-        }
-      },
-      selection: (selection) => {
-        if (selection) {
-          table.applyExternalSelection(selection)
-        } else {
-          table.clearSelection()
-        }
-      },
-    })
+  return {
+    container,
+    grid,
+    sheet,
+    reloadSnapshot: () => {
+      sheet.restore(createReportSnapshot())
+    },
+    saveSnapshot: () => sheet.snapshot(),
   }
-  reloadSnapshot()
-
-  return { mount, store, reloadSnapshot, saveSnapshot: () => sheet.saveSnapshot(store) }
 }
 
 /** 调试句柄装配（SmokeMode 冒烟路径共用） */
 export function createReportHandle(demo: ReportDemo): ReportDemoHandle {
   return {
-    getTable: () => demo.mount.table,
-    getStore: () => demo.store,
-    getContainer: () => demo.mount.container,
+    getTable: () => demo.grid.getTable(),
+    getSheet: () => demo.sheet,
+    getContainer: () => demo.container,
     reloadSnapshot: demo.reloadSnapshot,
     saveSnapshot: demo.saveSnapshot,
     buildSnapshot: createReportSnapshot,

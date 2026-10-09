@@ -1,4 +1,4 @@
-// 报表式只读快照渲染（meta 迁移参考形态）：九字段快照灌入 SheetStore，readonly 渲染。
+// 报表式只读快照渲染（meta 迁移参考形态）：SheetSnapshot 灌入 Sheet 模型，readonly 渲染。
 // 控制条（重灌按钮 + 快照状态行）为 shadcn 控件，经 demo.reloadSnapshot 驱动。
 
 import { RefreshCw } from 'lucide-react'
@@ -11,7 +11,7 @@ import { mountReport, type ReportDemo } from '../../sections/report'
 export function ReportPage() {
   const mountRef = useRef<HTMLDivElement>(null)
   const [demo, setDemo] = useState<ReportDemo | null>(null)
-  const [statusText, setStatusText] = useState('快照已灌入（九字段全量灌回）')
+  const [statusText, setStatusText] = useState('快照已灌入（全量负载灌回）')
 
   useEffect(() => {
     const el = mountRef.current
@@ -24,15 +24,15 @@ export function ReportPage() {
       <div className="rounded-xl border bg-card px-6 py-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 className="text-xl font-semibold tracking-tight">报表式只读快照渲染</h2>
-          <Badge variant="secondary">九字段快照 restore</Badge>
+          <Badge variant="secondary">SheetSnapshot restore</Badge>
           <Badge variant="secondary">readonly 渲染</Badge>
           <Badge variant="secondary">行列头关闭</Badge>
           <Badge variant="secondary">浮动图随快照接线</Badge>
         </div>
         <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
-          报表快照（cells/styles/merges/frozen/rowHeights/colWidths/images/meta/selection） 全量灌入
-          SheetStore，readonly 渲染：禁编辑、禁尺寸拖改、不接填充/撤销写路径； meta 迁移时照搬「快照
-          → restore → 只读渲染」三段。
+          报表快照（cells/styles/merges/frozen/rowHeights/colWidths/colStyles/images/meta/selection）
+          全量灌入 Sheet 模型，readonly 渲染：禁编辑、禁尺寸拖改、不接填充/撤销写路径； meta
+          迁移时照搬「快照 → restore → 只读渲染」三段。
         </p>
       </div>
 

@@ -86,11 +86,12 @@ graph TD
     playground --> render
     playground --> plugins
     playground --> formulas
+    playground --> sheet
 ```
 
 - render 与 core 只经 RenderHost 窄接口耦合；formulas 与 core 互不依赖，求值接线在宿主侧（playground 装配与 packages/sheet 的 FormulaEngine 适配层）
 - infinitable 为发布层：devDependencies 挂五内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
-- 不入图的外部依赖：@cat-kit/core（formulas，$n）、hucre（sheet xlsx 导出 + playground 装配）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
+- 不入图的外部依赖：@cat-kit/core（formulas，$n）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码
 
 ## 关键路径

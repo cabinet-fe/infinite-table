@@ -82,7 +82,7 @@ function createBrowserEnv(container: HTMLElement): BenchEnv {
       const constructorMs = performance.now() - t0
       return browserBenchTable(table, meter, constructorMs, host, container)
     },
-    createSheetTable(store) {
+    createSheetTable(model) {
       const meter = new InvalidationMeter(VIEWPORT_AREA)
       const host = createRenderHost({
         width: VIEWPORT_WIDTH,
@@ -94,7 +94,7 @@ function createBrowserEnv(container: HTMLElement): BenchEnv {
         width: VIEWPORT_WIDTH,
         height: VIEWPORT_HEIGHT,
         columns: createSheetColumns(),
-        model: store.asModel(),
+        model,
         host: meter.wrap(host),
       })
       const constructorMs = performance.now() - t0
