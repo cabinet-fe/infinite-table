@@ -53,6 +53,18 @@
       "name": "@infinitable/render",
       "version": "0.0.0",
     },
+    "packages/sheet": {
+      "name": "@infinitable/sheet",
+      "version": "0.0.0",
+      "dependencies": {
+        "@infinitable/core": "workspace:*",
+        "@infinitable/formulas": "workspace:*",
+        "hucre": "^1.2.0",
+      },
+      "peerDependencies": {
+        "@cat-kit/core": "^1.2.1",
+      },
+    },
     "playground": {
       "name": "@infinitable/playground",
       "version": "0.0.0",
@@ -169,6 +181,8 @@
     "@infinitable/plugins": ["@infinitable/plugins@workspace:packages/plugins"],
 
     "@infinitable/render": ["@infinitable/render@workspace:packages/render"],
+
+    "@infinitable/sheet": ["@infinitable/sheet@workspace:packages/sheet"],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
