@@ -3,10 +3,12 @@
 > 定位：本清单是「以插件化形态把 infinitable 做到可替换 ultra-ui 底层引擎」的**验收红线文档**。
 > S3（sheet 插件）、S4（demo sheet）、S5（工程化收口）以此为准逐条对照；S6（替换路线图）以它为输入。
 > 映射来源：`.agents/analysis/ultra-ui-sheet-gap.md` 第二节（ultra-ui `sheet-core/src/grid/` 逐文件提取的 VTable 依赖面）。
+>
+> **口径更新（migrate-sheet-core P12）**：S3 落地的 sheet 插件族（`packages/plugins/src/sheet`，`createSheetPlugin`）已整体迁入 `@infinitable/sheet` 并从插件包删除——下文表格中标注「S3 已落地」的 sheet 插件落点，现均由 `@infinitable/sheet`（sheet 模型 / 命令 / IO / SheetGrid 装配）承载，`hucre` 依赖随之归属 sheet 包。插件包接口面口径更新为剩余插件：**chart / print / watermark**。
 
 ## 红线：零引擎内部 API
 
-**sheet 能力（packages/plugins 的 sheet 插件与 playground 的 sheet 区）只允许依赖 `@infinitable/core` 与 `@infinitable/plugins` 两个公共入口（`src/index.ts`）显式导出的 API，外加 `hucre`（xlsx 读写引擎，仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）；禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。**（红线 = core 公开入口 + hucre（xlsx 导出），S7 P8 修订）
+**插件包（`@infinitable/plugins`，现承载 chart/print/watermark）只允许依赖 `@infinitable/core` 公共入口（`src/index.ts`）显式导出的 API，禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。电子表格能力自 migrate-sheet-core 起由 `@infinitable/sheet` 公共入口承载（其 `hucre` 依赖仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）。**（红线 = 各包公开入口 + hucre（xlsx IO，随 sheet 包），S7 P8 修订、migrate-sheet-core P12 更新）
 
 - review 把关：S3/S4 每阶段对照本清单与两包 `src/index.ts` 导出面核查 import 语句。
 - 引擎若确需新增公开面，必须在对应阶段的 spec「影响文件」中显式列出 `packages/core/src/index.ts` 并说明新增符号（S1 的 `onEditStart/onEditEnd` 即按此先例）。
@@ -101,9 +103,9 @@
 
 ## 六、与后续阶段的衔接
 
-- **S3 sheet 插件**（`packages/plugins/src/sheet`）：已全部落地，形态为「插件对象 + options 类型」——`createSheetPlugin(options)` 返回 TablePlugin 契约对象（name/mount/unmount + 运行时 handle），`SheetPluginOptions` 为唯一配置面、`SheetPluginHandle` 为操作面；既有散装能力（Store、快照、填充生成、选区同步、公式显示、键位、多 sheet 实例池、撤销栈、边框预设、xlsx 导出）全部收拢为插件内置装配或 handle 方法，实现细节保留包内深路径。能力对应：Store 参考模型（值/样式/合并/行列尺寸/冻结 + asModel 模型适配 + cell meta 命名空间 setCellMeta/getCellMeta/entriesCellMeta/clearCellMeta（ns×格坐标稀疏存储、越界守卫）与独立 `onMetaChange` 事件面、模型侧读取 `getEffectiveStyle`（基础→列级→格级逐字段合成）/ `getDisplayValue`（可注入 SheetDisplayResolver））经 handle `store`/`createStore`/`activeStore` 与书形态实例池（`registerSheet`/`switchTo`/`onSheetChange` 等）达成；填充生成（拖拽 + 双击自动填充）由 mount 装配（`readonly` 可整体关写路径）；选区双向同步经 `selectionSync` 选项 + `syncSelectionFromExternal`；公式显示经 `evaluate` 选项；Excel 键位经 `excelKeys` 选项；撤销栈经 handle `undo`/`redo`/`writeValues`（撤销化批量写）；快照经 handle `saveSnapshot`/`restoreSnapshot`；边框预设经 handle `borderEdge`/`borderCells`（8 预设 × 5 线型 → 逐格 border 片段，纯函数；不做邻居共享边回写，core 共享边裁决保证单侧设置即正确显示。既有取舍：共享边所有者滚出可视窗口时邻居对侧边暂不显示——`packages/core/src/shared-edges.ts` 既有取舍，非缺陷）；xlsx 导出经 handle `exportSheet`（SheetExportSource（name/store/numFmt 查询/images FloatObject[]/imageData 字节解析）→ hucre WriteSheet 纯映射，值/样式经 Store 读取面 getDisplayValue/getEffectiveStyle 取数）与 `decodeImage`（内部 `decodeDataUrlImage`、`numFmtToXlsxCode`，不再公开）。依赖面：core 公开入口 + hucre（仅 xlsx 导出映射，纯类型与格式码映射；测试基础设施除外，见包内说明）。
-- **S4 demo sheet**：在插件 API 之上复现 ultra-ui playground sheet 功能，产出功能对照表；UI 归下游，不碰引擎内部。
+- **S3 sheet 插件**：已落地并完结——sheet 插件族（`packages/plugins/src/sheet` 的 `createSheetPlugin` 及其 handle 操作面）在 migrate-sheet-core 整体迁入 `packages/sheet` 后删除（P12）。上述能力（Store 参考模型、多 sheet 实例池、撤销栈、填充生成、选区同步、公式显示、Excel 键位、边框预设、xlsx 导出映射）现由 `@infinitable/sheet` 公共入口承载：模型/命令/IO 见 `packages/sheet/src/core`，装配层见 `packages/sheet/src/grid`（SheetGrid；键位等旧插件选项有逐字段等价的显式接线，见 `sheet-grid.ts` 注释）。`hucre` 依赖随迁至 sheet 包，仅限 xlsx IO 映射。
+- **S4 demo sheet**：复现 ultra-ui playground sheet 功能，产出功能对照表；已随 migrate-sheet-core 改建在 `@infinitable/sheet` 之上（UI 归下游，不碰引擎内部）。
 - **S5 工程化收口**：已落地——包 `exports` 三条件（types/dev/import→dist，仓内 apps 走 dev 条件）、`scripts/check-package-exports.mjs` 消费冒烟、bench sheet 四场景口径与阈值、happy-dom 挂载安全单测。消费面以本清单允许面为准。
 - **S6 替换路线图**：`docs/replace-vtable-roadmap.md` 直接引用本清单作为 VTable 接口面 → infinitable 接口面的映射基准，并补测试改写与灰度顺序。
 
-**红线重申**：S3/S4 每阶段 review 核对 import 面——sheet 能力零引擎内部 API；违反即评审不通过。
+**红线重申**：每阶段 review 核对 import 面——剩余插件（chart/print/watermark）与 `@infinitable/sheet` 消费面零引擎内部 API；违反即评审不通过。

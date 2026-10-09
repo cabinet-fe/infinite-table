@@ -1,11 +1,7 @@
-// 插件包公共入口：官方插件（首批为 sheet 插件，见 docs/plugin-interface-map.md）。
+// 插件包公共入口：官方插件（chart/print/watermark，见 docs/plugin-interface-map.md）。
 // 只做具名导出：插件契约类型自 core 转出，后续插件能力经此入口对外提供（禁止 export *）。
+// 电子表格能力已整体迁入 @infinitable/sheet，不再由插件包承载。
 export type { TablePlugin } from '@infinitable/core'
-
-// ---- sheet 插件（电子表格能力族：Store 参考模型 + 多 sheet 实例池 + 撤销栈 + 填充生成 + 选区同步
-// + 公式显示 + Excel 键位 + 边框预设 + xlsx 导出映射，统一收拢为插件对象与 handle 操作面） ----
-export { createSheetPlugin } from './sheet/sheet-plugin'
-export type { SheetPluginHandle, SheetPluginOptions } from './sheet/sheet-plugin'
 
 // ---- chart 插件（单元格图表：声明解析 + Chart.js 按需加载 + 离屏出图，落 L2 media 位图管线） ----
 // 只导出插件工厂与参数类型；chart-loader/parse/render 为包内实现，深路径可测但不对外
