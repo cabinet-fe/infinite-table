@@ -84,6 +84,23 @@ export {
 
 export { SelectionModel, type SelectionState } from './core/selection'
 
+export {
+  computeFillTargetRange,
+  generateFill,
+  type FillDirection,
+  type GenerateFillOptions,
+} from './core/fill'
+
+export {
+  findAll,
+  findNext,
+  findNextFrom,
+  findPrev,
+  findPrevFrom,
+  type FindOptions,
+  type FindMatch,
+} from './core/find'
+
 export { Sheet, type FrozenState, type SheetSnapshot, type SheetEvents } from './core/sheet'
 
 export {

@@ -2,7 +2,7 @@
 //
 // 公式引擎 v1：A1 地址 / Pratt 解析 / 求值 / 49 个内置函数 / 7 种错误值 / 函数注册表
 // 元数据查询 / 依赖图（DependencyGraph，宿主驱动增量重算）/ 容错引用扫描（编辑染色框用）/
-// 引用平移（行列插删时改写公式文本，sheet 模型消费；tokenText 随引用级文本改出一并公共化）。
+// 引用平移（行列插删时改写公式文本，sheet 模型消费；填充柄增量平移同源；tokenText 随引用级文本改出一并公共化）。
 // 四则与 SUM/AVERAGE/ROUND/ABS 走 @cat-kit/core 的 $n 精确计算（结果仍 JS number）。
 // 导出判据同 core：仓内非测试消费（playground / 跨包公共入口）或红线文档面；分词 /
 // AST 细节 / 强制转换原语为包内深路径能力，不占公共面。函数注册表写入
@@ -35,7 +35,7 @@ export type { FormulaRefCoord, SheetCellCoord } from './dependency-graph'
 
 export { scanFormulaReferences } from './scan-refs'
 
-export { shiftFormulaText } from './shift'
+export { shiftFormulaText, shiftFormulaRefs } from './shift'
 export type { FormulaShiftResult } from './shift'
 
 export { evaluate } from './evaluator'

@@ -102,24 +102,24 @@ function formatShifted(ref: CellRef, addr: CellCoord): string {
   })
 }
 
-/** 平移公式文本中的全部引用；解析失败时原样返回（broken=false） */
-export function shiftFormulaText(
+/**
+ * token 级引用改写骨架（shiftFormulaText / shiftFormulaRefs 共用）：跨表前缀原样保留、
+ * 引用形态后紧跟 '(' 的函数名保护、`A1:B2` 区域终点识别；每个引用经 rewrite 改写后
+ * 按原绝对标记格式化，broken 以 #REF! 占位。解析失败返回 null（调用方原样返回原文）。
+ */
+function rewriteFormulaRefs(
   formula: string,
-  axis: 'rows' | 'cols',
-  at: number,
-  count: number,
-  mode: 'insert' | 'delete',
-): FormulaShiftResult {
+  rewrite: (start: CellRef, end: CellRef) => ShiftedRange,
+): string | null {
   let tokens: FormulaToken[]
   try {
     tokens = tokenizeFormula(formula)
   } catch (error) {
-    if (error instanceof FormulaParseError) return { text: formula, broken: false }
+    if (error instanceof FormulaParseError) return null
     throw error
   }
 
   const out: string[] = []
-  let broken = false
   let i = 0
   while (i < tokens.length) {
     const tok = tokens[i]!
@@ -158,8 +158,7 @@ export function shiftFormulaText(
       endRef = parseCellRef(endTok.name)
       if (endRef) k += 2
     }
-    const shifted = shiftRange(startRef, endRef ?? startRef, axis, at, count, mode, startRef)
-    if (shifted.broken) broken = true
+    const shifted = rewrite(startRef, endRef ?? startRef)
     if (sheet !== null) out.push(formatSheetName(sheet), '!')
     if (shifted.broken) {
       out.push('#REF!')
@@ -169,5 +168,50 @@ export function shiftFormulaText(
     }
     i = k
   }
-  return { text: out.join(''), broken }
+  return out.join('')
+}
+
+/** 平移公式文本中的全部引用；解析失败时原样返回（broken=false） */
+export function shiftFormulaText(
+  formula: string,
+  axis: 'rows' | 'cols',
+  at: number,
+  count: number,
+  mode: 'insert' | 'delete',
+): FormulaShiftResult {
+  let broken = false
+  const text =
+    rewriteFormulaRefs(formula, (start, end) => {
+      const shifted = shiftRange(start, end, axis, at, count, mode, start)
+      if (shifted.broken) broken = true
+      return shifted
+    }) ?? formula
+  return { text, broken }
+}
+
+/** 引用按 delta 平移（非绝对轴）；出界（负坐标）返回 null */
+function shiftRefByDelta(ref: CellRef, deltaRow: number, deltaCol: number): CellRef | null {
+  const col = ref.colAbsolute ? ref.col : ref.col + deltaCol
+  const row = ref.rowAbsolute ? ref.row : ref.row + deltaRow
+  if (col < 0 || row < 0) return null
+  return { ...ref, col, row }
+}
+
+/**
+ * 按行列增量平移公式文本中的全部引用（填充柄复制语义）：`$` 绝对轴锁定，
+ * 任一端出界整个引用转 #REF!，其余 token 原样保留。解析失败时原样返回。
+ */
+export function shiftFormulaRefs(formula: string, deltaRow: number, deltaCol: number): string {
+  if (deltaRow === 0 && deltaCol === 0) return formula
+  return (
+    rewriteFormulaRefs(formula, (start, end) => {
+      const shiftedStart = shiftRefByDelta(start, deltaRow, deltaCol)
+      const shiftedEnd = shiftRefByDelta(end, deltaRow, deltaCol)
+      return {
+        start: shiftedStart ?? start,
+        end: shiftedEnd ?? end,
+        broken: shiftedStart === null || shiftedEnd === null,
+      }
+    }) ?? formula
+  )
 }

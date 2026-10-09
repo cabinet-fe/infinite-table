@@ -1,9 +1,10 @@
 // shiftFormulaText：行列插删时公式引用平移（口径迁移自 sheet-core formula-shift）
+// shiftFormulaRefs：填充柄增量平移（口径迁移自 sheet-core fill.ts）
 // ——单格/区域/绝对引用/跨表前缀/函数名保护/解析失败原样返回
 
 import { describe, expect, it } from 'vitest'
 
-import { shiftFormulaText } from '../src/index'
+import { shiftFormulaRefs, shiftFormulaText } from '../src/index'
 
 describe('shiftFormulaText 行插入', () => {
   it('插入点之后的单格引用下移', () => {
@@ -105,5 +106,31 @@ describe('shiftFormulaText 行删除', () => {
     expect(shiftFormulaText('LOG10(A5)', 'rows', 2, 2, 'delete').text).toBe('LOG10(A3)')
     // 无括号的同名标识仍是合法单元格引用，照常平移
     expect(shiftFormulaText('LOG10+1', 'rows', 2, 3, 'insert').text).toBe('LOG13+1')
+  })
+})
+
+describe('shiftFormulaRefs 填充柄增量平移', () => {
+  it('相对引用随行列位移', () => {
+    expect(shiftFormulaRefs('A1+B2', 1, 0)).toBe('A2+B3')
+    expect(shiftFormulaRefs('A1+B2', 0, 1)).toBe('B1+C2')
+    expect(shiftFormulaRefs('SUM(A1:B2)', 2, 1)).toBe('SUM(B3:C4)')
+  })
+
+  it('尊重 $ 绝对行列', () => {
+    expect(shiftFormulaRefs('$A$1+A1', 1, 1)).toBe('$A$1+B2')
+    expect(shiftFormulaRefs('$A1+A$1', 2, 3)).toBe('$A3+D$1')
+    expect(shiftFormulaRefs('Sheet2!$B2+C$3', 1, 1)).toBe('Sheet2!$B3+D$3')
+  })
+
+  it('出界变为 #REF!；不改写字符串字面量', () => {
+    expect(shiftFormulaRefs('A1', 0, -1)).toBe('#REF!')
+    expect(shiftFormulaRefs('A1', -1, 0)).toBe('#REF!')
+    expect(shiftFormulaRefs('"A1"&B1', 1, 0)).toBe('"A1"&B2')
+    expect(shiftFormulaRefs('LOG10(A1)', 1, 0)).toBe('LOG10(A2)')
+  })
+
+  it('零位移与解析失败原样返回', () => {
+    expect(shiftFormulaRefs('A1+B2', 0, 0)).toBe('A1+B2')
+    expect(shiftFormulaRefs('SUM(', 1, 0)).toBe('SUM(')
   })
 })
