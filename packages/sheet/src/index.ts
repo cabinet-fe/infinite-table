@@ -1,6 +1,8 @@
 // 聚合导出为公开 API 白名单（迁移自 sheet-core 主入口，随阶段迁入增补）：
-// 仅测试引用的内部符号（如 rangeContainsRange、formatByNumFmt、TypedEventEmitter）
-// 不在此导出，测试一律深导入 src 子路径。
+// 仅测试引用的内部符号（如 rangeContainsRange、formatByNumFmt、mergeCellStyle、
+// TypedEventEmitter）不在此导出，测试一律深导入 src 子路径。
+// 公式引擎 API 不从本包转售——sheet 模型消费 @infinitable/formulas（FormulaEngine
+// 为组合门面），下游直接 import '@infinitable/formulas'。
 
 export {
   cellKey,
@@ -81,6 +83,69 @@ export {
 } from './core/merge-manager'
 
 export { SelectionModel, type SelectionState } from './core/selection'
+
+export { Sheet, type FrozenState, type SheetSnapshot, type SheetEvents } from './core/sheet'
+
+export {
+  Workbook,
+  type WorkbookEvents,
+  type AddSheetOptions,
+  type AddSheetCellInput,
+} from './core/workbook'
+
+/** 公式引擎门面（组合 @infinitable/formulas；图簿联动/重算编排） */
+export { FormulaEngine } from './core/formula-engine'
+
+export {
+  HistoryManager,
+  type HistoryState,
+  type PatchDirection,
+  type CellPatch,
+  type MergePatch,
+  type StructureChange,
+  type StructurePatch,
+  type SnapshotPatch,
+  type ImagePatch,
+  type CellMetaPatch,
+  type AxisStylePatch,
+  type Patch,
+  type Mutation,
+  type CommandResult,
+  type CommandContext,
+  type Command,
+  type SetCellValueItem,
+  type SetCellValueParams,
+  SetCellValueCommand,
+  type SetCellFormulaParams,
+  SetCellFormulaCommand,
+  type SetCellStyleItem,
+  type SetCellStyleParams,
+  SetCellStyleCommand,
+  type SetAxisStyleItem,
+  type SetAxisStyleParams,
+  SetAxisStyleCommand,
+  type InsertCellsParams,
+  InsertCellsCommand,
+  type MergeCellsParams,
+  MergeCellsCommand,
+  type UnmergeCellsParams,
+  UnmergeCellsCommand,
+  type MergeCellsBatchParams,
+  MergeCellsBatchCommand,
+  type InsertImageParams,
+  InsertImageCommand,
+  type RemoveImageParams,
+  RemoveImageCommand,
+  type ImageUpdateFields,
+  type UpdateImageParams,
+  UpdateImageCommand,
+  type SetCellMetaParams,
+  SetCellMetaCommand,
+  type ClearCellMetaParams,
+  ClearCellMetaCommand,
+  defaultCommandRegistry,
+  CommandRegistry,
+} from './core/command'
 
 export {
   createImageId,

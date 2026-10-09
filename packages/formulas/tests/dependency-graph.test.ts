@@ -188,3 +188,34 @@ describe('DependencyGraph：易失集', () => {
     expect(graph.volatileCells()).toEqual([cell('S2', 0, 0)])
   })
 })
+
+describe('DependencyGraph：按表查询（宿主删表/改名编排用）', () => {
+  it('formulasOf 枚举该表全部公式格（跨表公式不计）', () => {
+    const graph = new DependencyGraph()
+    graph.setFormula(cell('S1', 0, 0), [cellRef('S2', 0, 0)])
+    graph.setFormula(cell('S1', 1, 1), [rangeRef('S1', 0, 0, 2, 2)])
+    graph.setFormula(cell('S2', 0, 0), [])
+    expect(sorted(graph.formulasOf('S1'))).toEqual(['S1!0,0', 'S1!1,1'])
+    expect(sorted(graph.formulasOf('S2'))).toEqual(['S2!0,0'])
+    expect(graph.formulasOf('Nope')).toEqual([])
+  })
+
+  it('affectedBySheet 收集单格/区域引用该表的公式格（去重，含自引用）', () => {
+    const graph = new DependencyGraph()
+    // S1!A1 引用 S2 单格；S1!C3 引用 S2 区域；S2!B2 自引用本表
+    graph.setFormula(cell('S1', 0, 0), [cellRef('S2', 0, 0)])
+    graph.setFormula(cell('S1', 2, 2), [rangeRef('S2', 0, 0, 1, 1)])
+    graph.setFormula(cell('S2', 1, 1), [cellRef('S2', 0, 0)])
+    // 同格重复引用同表去重
+    graph.setFormula(cell('S1', 0, 3), [cellRef('S2', 1, 1), rangeRef('S2', 5, 5, 6, 6)])
+    expect(sorted(graph.affectedBySheet('S2'))).toEqual(['S1!0,0', 'S1!0,3', 'S1!2,2', 'S2!1,1'])
+    expect(graph.affectedBySheet('S1')).toEqual([])
+  })
+
+  it('remove 后 affectedBySheet 不再命中', () => {
+    const graph = new DependencyGraph()
+    graph.setFormula(cell('S1', 0, 0), [cellRef('S2', 0, 0)])
+    graph.remove(cell('S1', 0, 0))
+    expect(graph.affectedBySheet('S2')).toEqual([])
+  })
+})

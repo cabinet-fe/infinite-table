@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { cellKey, parseRange } from '../../../src/core/address'
+import { Sheet } from '../../../src/core/sheet'
 import {
   buildBorderPresetItems,
   type BorderPreset,
@@ -8,9 +9,8 @@ import {
 } from '../../../src/core/style/border-presets'
 import type { BorderEdge, CellStyle, CellStylePatch } from '../../../src/core/style/types'
 
-// 纯函数部分：选区内补丁与邻居同步。
-// 「边框预设 × SetCellStyleCommand（Sheet 集成）」describe 依赖 sheet.ts 模型
-// （setCellStyle/setCellStyles/undo/redo），随 P4 模型层迁入后补回。
+// 纯函数部分（选区内补丁与邻居同步）+ 边框预设 × SetCellStyleCommand 的 Sheet 集成
+// （集成 describe P3 迁入时暂缓，随 P4 模型层落地回补）。
 
 const EDGE: BorderEdge = { style: 'thin', width: 1, color: '#000000' }
 
@@ -293,5 +293,145 @@ describe('buildBorderPresetItems：邻居同步（共享边置空）', () => {
     expect(map.size).toBe(5)
     expect(map.get(cellKey({ row: 1, col: 0 }))).toEqual({ top: null })
     expect(map.get(cellKey({ row: 0, col: 2 }))).toEqual({ left: null })
+  })
+})
+
+describe('边框预设 × SetCellStyleCommand（Sheet 集成）', () => {
+  function applyPreset(sheet: Sheet, rangeText: string, preset: BorderPreset, edge = EDGE) {
+    const items = buildBorderPresetItems(parseRange(rangeText)!, preset, edge, (addr) =>
+      sheet.getCellStyle(addr),
+    ).map(({ addr, patch }) => ({ addr, partial: patch }))
+    sheet.setCellStyles(items)
+  }
+
+  it('外边框：邻居残留对侧边被置空（其余边保留），一次应用 = 单 undo 单元', () => {
+    const sheet = new Sheet()
+    // 右缘邻居 D2 预置 left + top 边（left 与选区共享）
+    sheet.setCellStyle(parseRange('D2')!, {
+      border: {
+        top: { style: 'medium', width: 2, color: '#FF0000' },
+        left: { style: 'thick', width: 3, color: '#00FF00' },
+      },
+    })
+    const depth = sheet.history.undoSize
+
+    applyPreset(sheet, 'B2:C3', 'outer')
+    expect(sheet.history.undoSize).toBe(depth + 1)
+    // 选区边缘格写入对应边
+    expect(sheet.getCellStyle({ row: 1, col: 2 })?.border?.right).toEqual(EDGE)
+    // 邻居 D2 的共享边 left 被删除，非共享边 top 保留
+    expect(sheet.getCellStyle({ row: 1, col: 3 })?.border?.left).toBeUndefined()
+    expect(sheet.getCellStyle({ row: 1, col: 3 })?.border?.top).toEqual({
+      style: 'medium',
+      width: 2,
+      color: '#FF0000',
+    })
+
+    // undo 还原邻居格（共享边恢复）
+    sheet.undo()
+    expect(sheet.getCellStyle({ row: 1, col: 3 })?.border?.left).toEqual({
+      style: 'thick',
+      width: 3,
+      color: '#00FF00',
+    })
+    expect(sheet.getCellStyle({ row: 1, col: 2 })).toBeUndefined()
+    // redo 再次应用
+    sheet.redo()
+    expect(sheet.getCellStyle({ row: 1, col: 3 })?.border?.left).toBeUndefined()
+  })
+
+  it('连续设置：外边框改色再设 → 最近设置生效（共享边无新旧叠加）', () => {
+    const sheet = new Sheet()
+    applyPreset(sheet, 'B2:C3', 'outer')
+    const red: BorderEdge = { style: 'thin', width: 1, color: '#FF0000' }
+    applyPreset(sheet, 'B2:C3', 'outer', red)
+    // 边缘格四边均为最近一次颜色
+    expect(sheet.getCellStyle({ row: 1, col: 1 })?.border).toEqual({ top: red, left: red })
+    expect(sheet.getCellStyle({ row: 2, col: 2 })?.border).toEqual({ bottom: red, right: red })
+  })
+
+  it('无边框：选区与邻居残留边全部清除，undo 还原双方', () => {
+    const sheet = new Sheet()
+    applyPreset(sheet, 'B2:C3', 'all')
+    // 选区外邻居 D2 也带上共享边（模拟先前操作残留）
+    sheet.setCellStyle(parseRange('D2:D3')!, { border: { left: { ...EDGE } } })
+    const depth = sheet.history.undoSize
+
+    applyPreset(sheet, 'B2:C3', 'none')
+    expect(sheet.history.undoSize).toBe(depth + 1)
+    expect(sheet.getCellStyle({ row: 1, col: 1 })).toBeUndefined()
+    expect(sheet.getCellStyle({ row: 2, col: 2 })).toBeUndefined()
+    // 右缘邻居的共享边 left 被清除（D2:D3 仅存 left → 纯样式格整体删除）
+    expect(sheet.getCellStyle({ row: 1, col: 3 })).toBeUndefined()
+
+    sheet.undo()
+    expect(sheet.getCellStyle({ row: 1, col: 1 })?.border).toEqual({
+      top: EDGE,
+      right: EDGE,
+      bottom: EDGE,
+      left: EDGE,
+    })
+    expect(sheet.getCellStyle({ row: 1, col: 3 })?.border?.left).toEqual(EDGE)
+  })
+
+  it('外边框不清除选区内部边（与 Excel 外侧框线语义一致）', () => {
+    const sheet = new Sheet()
+    applyPreset(sheet, 'B2:C3', 'all')
+    applyPreset(sheet, 'B2:C3', 'outer')
+    // 内部共享边保留（B2.right / C2.left 等仍为 all 写入的边）
+    expect(sheet.getCellStyle({ row: 1, col: 1 })?.border?.right).toEqual(EDGE)
+    expect(sheet.getCellStyle({ row: 1, col: 2 })?.border?.left).toEqual(EDGE)
+  })
+
+  it('下边框：底行写入 bottom，下一行邻居 top 置空', () => {
+    const sheet = new Sheet()
+    sheet.setCellStyle(parseRange('B4')!, { border: { top: { ...EDGE } } })
+    applyPreset(sheet, 'B2:C3', 'bottom')
+    expect(sheet.getCellStyle({ row: 2, col: 1 })?.border).toEqual({ bottom: EDGE })
+    expect(sheet.getCellStyle({ row: 2, col: 2 })?.border).toEqual({ bottom: EDGE })
+    // 非底行不写
+    expect(sheet.getCellStyle({ row: 1, col: 1 })).toBeUndefined()
+    // 底行下一行邻居 B4 的 top 被清除
+    expect(sheet.getCellStyle({ row: 3, col: 1 })).toBeUndefined()
+  })
+
+  it('上边框：顶行写入 top，上一行邻居 bottom 置空', () => {
+    const sheet = new Sheet()
+    sheet.setCellStyle(parseRange('B1')!, { border: { bottom: { ...EDGE } } })
+    applyPreset(sheet, 'B2:C3', 'top')
+    expect(sheet.getCellStyle({ row: 1, col: 1 })?.border).toEqual({ top: EDGE })
+    expect(sheet.getCellStyle({ row: 1, col: 2 })?.border).toEqual({ top: EDGE })
+    expect(sheet.getCellStyle({ row: 2, col: 1 })).toBeUndefined()
+    expect(sheet.getCellStyle({ row: 0, col: 1 })).toBeUndefined()
+  })
+
+  it('左边框：左列写入 left，左侧邻居 right 置空', () => {
+    const sheet = new Sheet()
+    sheet.setCellStyle(parseRange('A2')!, { border: { right: { ...EDGE } } })
+    applyPreset(sheet, 'B2:C3', 'left')
+    expect(sheet.getCellStyle({ row: 1, col: 1 })?.border).toEqual({ left: EDGE })
+    expect(sheet.getCellStyle({ row: 2, col: 1 })?.border).toEqual({ left: EDGE })
+    expect(sheet.getCellStyle({ row: 1, col: 2 })).toBeUndefined()
+    expect(sheet.getCellStyle({ row: 1, col: 0 })).toBeUndefined()
+  })
+
+  it('右边框：右列写入 right，右侧邻居 left 置空', () => {
+    const sheet = new Sheet()
+    sheet.setCellStyle(parseRange('D2')!, { border: { left: { ...EDGE } } })
+    applyPreset(sheet, 'B2:C3', 'right')
+    expect(sheet.getCellStyle({ row: 1, col: 2 })?.border).toEqual({ right: EDGE })
+    expect(sheet.getCellStyle({ row: 2, col: 2 })?.border).toEqual({ right: EDGE })
+    expect(sheet.getCellStyle({ row: 1, col: 1 })).toBeUndefined()
+    expect(sheet.getCellStyle({ row: 1, col: 3 })).toBeUndefined()
+  })
+
+  it('内边框：只写内部共享边，不触邻居', () => {
+    const sheet = new Sheet()
+    sheet.setCellStyle(parseRange('D2')!, { border: { left: { ...EDGE } } })
+    applyPreset(sheet, 'B2:C3', 'inner')
+    expect(sheet.getCellStyle({ row: 1, col: 1 })?.border).toEqual({ right: EDGE, bottom: EDGE })
+    expect(sheet.getCellStyle({ row: 1, col: 2 })?.border).toEqual({ left: EDGE, bottom: EDGE })
+    // 邻居残留边保留
+    expect(sheet.getCellStyle({ row: 1, col: 3 })?.border?.left).toEqual(EDGE)
   })
 })

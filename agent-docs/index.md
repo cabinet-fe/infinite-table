@@ -49,13 +49,14 @@ bun add infinitable @cat-kit/core
 | `LayerHandle` / `LayerKind` / `LayerOpts` / `Invalidation` / `FrameTask` | 层句柄与三档失效 | `apis/render-engine.md` |
 | `Region` / `Size` / `RenderContext` / `RenderCanvas` / `RenderImageSource` | 渲染基础类型（render 层导出，core 层亦转出 `RenderContext`/`Size`） | `apis/render-engine.md` |
 | `parseCellRef` / `formatCellRef` / `colLetters` / `formatRangeRef` / `createRangeRef` / `CellRef` | A1 地址系统（0 基坐标） | `apis/formula-engine.md` |
-| `FormulaError` / `formulaError` / `isFormulaError` / `FormulaParseError` | 公式错误值体系（7 种错误码） | `apis/formula-engine.md` |
+| `FormulaError` / `formulaError` / `isFormulaError` / `isFormulaErrorCode` / `FormulaParseError` | 公式错误值体系（7 种错误码） | `apis/formula-engine.md` |
 | `parseFormula` / `AstNode` | Pratt 解析器与 AST | `apis/formula-engine.md` |
 | `collectAstReferences` / `astHasVolatileCall` | AST 静态引用收集 | `apis/formula-engine.md` |
-| `DependencyGraph` / `FormulaRefCoord` / `SheetCellCoord` | 公式依赖图（增量重算标脏） | `apis/formula-engine.md` |
+| `DependencyGraph` / `FormulaRefCoord` / `SheetCellCoord` | 公式依赖图（增量重算标脏；formulasOf/affectedBySheet 按表查询） | `apis/formula-engine.md` |
 | `scanFormulaReferences` | 容错引用扫描（编辑染色框） | `apis/formula-engine.md` |
-| `evaluate` / `FormulaResolver` / `ScalarValue` | 求值器与宿主取值接口 | `apis/formula-engine.md` |
-| `FORMULA_FUNCTION_CATEGORIES` / `getFormulaFunctionInfo` / `listFormulaFunctions` / `FormulaFunctionInfo` | 函数注册表元数据查询（49 内置函数） | `apis/formula-engine.md` |
+| `shiftFormulaText` / `FormulaShiftResult` / `tokenText` | 公式引用平移（行列插删改写公式文本）与 token 文本 | `apis/formula-engine.md` |
+| `evaluate` / `FormulaResolver` / `FormulaEvalContext` / `ScalarValue` | 求值器与宿主取值接口（含自定义函数求值上下文） | `apis/formula-engine.md` |
+| `FORMULA_FUNCTION_CATEGORIES` / `registerFormulaFunction` / `getFormulaFunction` / `getFormulaFunctionInfo` / `listFormulaFunctions` / `FormulaFunction` / `FormulaFunctionInfo` / `FormulaFunctionCategory` | 函数注册表读写（49 内置函数元数据 + 自定义函数注册） | `apis/formula-engine.md` |
 | `createSheetPlugin` / `SheetPluginOptions` / `SheetPluginHandle` | sheet 插件（Store 参考模型 + 多 sheet 实例池 + 撤销栈 + 填充生成 + 选区同步 + 公式显示 + Excel 键位 + 边框预设 + xlsx 导出映射，收拢为插件对象与 handle 操作面） | `apis/sheet-plugin.md` |
 | `createChartPlugin` / `ChartPluginOptions` / `ChartPluginHandle` | 图表插件工厂与句柄 | `apis/chart-watermark-plugin.md` |
 | `ChartCellDeclaration` / `ChartDatasetDeclaration` / `ChartDatasetSpec` / `ChartSpec` / `ChartSpecType` / `ChartType` | 单元格图表声明与规范化类型 | `apis/chart-watermark-plugin.md` |
@@ -66,6 +67,6 @@ bun add infinitable @cat-kit/core
 指南：`guide/quick-start.md`（快速上手）、`guide/performance-virtual-scroll.md`（大数据量性能与虚拟滚动）、`guide/plugin-integration.md`（插件接入：图表/水印/表格插件契约）。
 
 > [!WARNING]
-> - 0.1.2（未发布）起公共导出面大幅收敛：core 的 `ScrollManager`/`ModelBinding`/`CellValuePipeline`/`SelectionState`/`InteractionOverlay`/`EditManager`/`createTextEditor`/`ImageService`/`MediaCache`/`FloatObjectLayer`/`CellNode`/网格布局纯函数族、formulas 的 `tokenizeFormula`/`evaluateAst`/`coerceTo*`/`registerFormulaFunction` 族、plugins 的 `SheetStore`/`SheetBook`/`snapshot`/`restore`/`excelKeymapPreset`/`bindFillGeneration`/`UndoStack`/`paginate`/`printPages`/`openPrintPreview` 等散装符号不再从 `infinitable` 导出——滚动/选区/编辑/媒体/布局等内部原语经引擎内置接线消费，插件能力改经 `createXxxPlugin` 工厂的 handle 方法消费（逐篇见各 API 文档「注意事项」的破坏性变更条目）。
+> - 0.1.2（未发布）起公共导出面大幅收敛：core 的 `ScrollManager`/`ModelBinding`/`CellValuePipeline`/`SelectionState`/`InteractionOverlay`/`EditManager`/`createTextEditor`/`ImageService`/`MediaCache`/`FloatObjectLayer`/`CellNode`/网格布局纯函数族、formulas 的 `tokenizeFormula`/`evaluateAst`/`coerceTo*` 族（注册表写入 `registerFormulaFunction` 族后随 `@infinitable/sheet` 模型层公共化）、plugins 的 `SheetStore`/`SheetBook`/`snapshot`/`restore`/`excelKeymapPreset`/`bindFillGeneration`/`UndoStack`/`paginate`/`printPages`/`openPrintPreview` 等散装符号不再从 `infinitable` 导出——滚动/选区/编辑/媒体/布局等内部原语经引擎内置接线消费，插件能力改经 `createXxxPlugin` 工厂的 handle 方法消费（逐篇见各 API 文档「注意事项」的破坏性变更条目）。
 > - `defaultTheme` 不再导出：默认主题值经 `extendsTheme()` 派生结果或 `table.getTheme()` 读取。
 > - `scrollbar` 选项类型从 `boolean` 变为 `boolean | ScrollbarOptions`（`true`/缺省语义不变）。

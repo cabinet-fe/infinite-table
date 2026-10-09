@@ -242,6 +242,47 @@ export class DependencyGraph {
     return cells
   }
 
+  /** 指定表的全部公式格坐标（副本；宿主 rebuildSheet / 改名重排用） */
+  formulasOf(sheet: string): SheetCellCoord[] {
+    const cells: SheetCellCoord[] = []
+    for (const coord of this.formulas.values()) {
+      if (coord.sheet === sheet) {
+        cells.push({ ...coord })
+      }
+    }
+    return cells
+  }
+
+  /**
+   * 反向边查询：直接或经区域引用指定表的全部公式格（去重，含该表上自引用本表的公式）。
+   * 宿主在删除/改名整表时先取引用者，再 removeSheet / 重排索引。
+   */
+  affectedBySheet(sheet: string): SheetCellCoord[] {
+    const owners = new Set<string>()
+    const cellMap = this.cellIndex.get(sheet)
+    if (cellMap) {
+      for (const set of cellMap.values()) {
+        for (const key of set) {
+          owners.add(key)
+        }
+      }
+    }
+    const entries = this.rangeIndex.get(sheet)
+    if (entries) {
+      for (const entry of entries) {
+        owners.add(entry.owner)
+      }
+    }
+    const cells: SheetCellCoord[] = []
+    for (const key of owners) {
+      const coord = this.formulas.get(key)
+      if (coord) {
+        cells.push({ ...coord })
+      }
+    }
+    return cells
+  }
+
   has(cell: SheetCellCoord): boolean {
     return this.formulas.has(keyOf(cell))
   }

@@ -88,7 +88,7 @@ graph TD
     playground --> formulas
 ```
 
-- render 与 core 只经 RenderHost 窄接口耦合；formulas 与 core 互不依赖，求值接线在 playground 宿主侧
+- render 与 core 只经 RenderHost 窄接口耦合；formulas 与 core 互不依赖，求值接线在宿主侧（playground 装配与 packages/sheet 的 FormulaEngine 适配层）
 - infinitable 为发布层：devDependencies 挂五内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
 - 不入图的外部依赖：@cat-kit/core（formulas，$n）、hucre（sheet xlsx 导出 + playground 装配）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码
@@ -101,5 +101,6 @@ graph TD
 - core 滚动窗口：ScrollManager 唯一滚动源 → ListTable 增量维护可视窗口场景 → band 失效进 render 主循环
 - chart 出图：plugins 离屏出图 → 注入 core `chartMediaResolver` → cell 级 MediaCache blit 上屏，与格内图片同一管线
 - 水印上屏：plugins 平铺 painter → 注入 core `setOverlayPainter`（ground 层 `setUnderlayPainter` 同构）→ 对应层整层失效，锚定视口不随滚动平移
-- formulas 求值：宿主（playground 装配）经 FormulaResolver 驱动求值；依赖图标脏由宿主消费
+- formulas 求值：宿主经 FormulaResolver 驱动求值（playground 装配与 packages/sheet 的 FormulaEngine 适配层）；依赖图标脏由宿主消费
+- sheet 公式重算：模型命令 → FormulaEngine（sheet 包内图簿联动/改名别名/易失编排）→ formulas 依赖图标脏 + evaluate 逐格求值；#CYCLE! 由适配层递归护栏产出，第二套图/求值不存在
 - sheet 装配：playground + `@infinitable/sheet`（电子表格核心：模型/命令/IO/SheetGrid 适配）+ core + formulas 接成电子表格示例
