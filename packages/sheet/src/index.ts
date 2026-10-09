@@ -44,3 +44,50 @@ export {
 export { CellMetaStore } from './core/cell-meta-store'
 
 export { CELL_READONLY_META_NAMESPACE } from './core/cell-readonly'
+
+export {
+  BORDER_SIDES,
+  BORDER_STYLE_WIDTH,
+  BORDER_EDGE_DEFAULTS,
+  FONT_STYLE_KEYS,
+  ALIGN_STYLE_KEYS,
+  type BorderLineStyle,
+  type BorderSide,
+  type BorderEdge,
+  type HorizontalAlign,
+  type VerticalAlign,
+  type CellFont,
+  type CellAlign,
+  type CellStyle,
+  type StyleId,
+  type CellStylePatch,
+} from './core/style/types'
+
+export { StylePool } from './core/style/style-pool'
+
+export { composeCellStyles } from './core/style/compose'
+
+export {
+  buildBorderPresetItems,
+  type BorderPreset,
+  type BorderPresetItem,
+} from './core/style/border-presets'
+
+export {
+  MergeManager,
+  type MergedCellKind,
+  type CellInfo,
+  type MergeResult,
+} from './core/merge-manager'
+
+export { SelectionModel, type SelectionState } from './core/selection'
+
+export {
+  createImageId,
+  cloneImageAnchor,
+  cloneSheetImage,
+  type SheetImageType,
+  type SheetImageAnchor,
+  type SheetImage,
+  type ImageInput,
+} from './core/image'
