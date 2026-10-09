@@ -194,3 +194,21 @@ export function tokenizeFormula(text: string): FormulaToken[] {
   }
   return tokens
 }
+
+/** token → 文本：数字按原文（保精度），字符串 / 引号表名补回转义，错误字面量按规范码 */
+export function tokenText(token: FormulaToken): string {
+  switch (token.type) {
+    case 'number':
+      return token.raw
+    case 'string':
+      return `"${token.value.replaceAll('"', '""')}"`
+    case 'ident':
+      return token.name
+    case 'quoted-name':
+      return `'${token.name.replaceAll("'", "''")}'`
+    case 'error':
+      return token.code
+    case 'op':
+      return token.op
+  }
+}
