@@ -62,9 +62,8 @@ function hashCode(text: string): number {
   return Math.abs(hash)
 }
 
-/** 本地图片加载器（演示区共享）：按 URL 生成确定色的 canvas 位图，40ms 人工延迟模拟异步加载 */
-export async function demoLoadImage(url: string): Promise<LoadedImage> {
-  await new Promise((resolve) => setTimeout(resolve, 40))
+/** 本地生成位图（演示区共享）：按 URL 生成确定色 canvas（sheet 演示图片字节与此同源） */
+function demoImageCanvas(url: string): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = IMAGE_WIDTH
   canvas.height = IMAGE_HEIGHT
@@ -76,5 +75,23 @@ export async function demoLoadImage(url: string): Promise<LoadedImage> {
     ctx.font = '11px sans-serif'
     ctx.fillText(url.split('/').pop() ?? url, 6, 18)
   }
-  return { source: canvas, width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
+  return canvas
+}
+
+/** 本地图片加载器（演示区共享）：按 URL 生成确定色的 canvas 位图，40ms 人工延迟模拟异步加载 */
+export async function demoLoadImage(url: string): Promise<LoadedImage> {
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  const canvas = demoImageCanvas(url)
+  return { source: canvas, width: canvas.width, height: canvas.height }
+}
+
+/** 本地生成位图 → PNG 字节（sheet 浮动图模型字节载荷；与 demoLoadImage 同一绘制源） */
+export function demoImagePngBytes(url: string): Uint8Array {
+  const encoded = demoImageCanvas(url).toDataURL('image/png')
+  const raw = atob(encoded.slice(encoded.indexOf(',') + 1))
+  const bytes = new Uint8Array(raw.length)
+  for (let index = 0; index < raw.length; index++) {
+    bytes[index] = raw.charCodeAt(index)
+  }
+  return bytes
 }

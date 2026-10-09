@@ -38,6 +38,8 @@ import type { ListTable } from '@infinitable/core'
 
 import { listFormulaFunctions, type FormulaFunctionInfo } from '@infinitable/formulas'
 
+import type { BorderPreset } from '@infinitable/sheet'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -59,9 +61,10 @@ import {
   FONT_SIZES,
   LINE_STYLES,
   PALETTE,
+  borderEdgeOf,
   createToolbarActions,
+  dataUrlToImage,
   fileToDataURL,
-  type BorderPreset,
   type ToolbarActions,
 } from './toolbar-actions'
 import { FORMULA_PANEL_CATEGORIES } from './formula-session'
@@ -83,19 +86,17 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
     const refresh = (): void => {
       refreshRender()
     }
-    const sheet = demo.getSheet()
+    const bundle = demo.getBundle()
     const notify = demo.notify
     const actions = createToolbarActions({
       table: () => demo.table,
       store: () => demo.getStore(),
       notify,
-      sheet,
       refreshStates: refresh,
     })
     const find = createFindReplace({
       table: () => demo.table,
-      store: () => demo.getStore(),
-      sheet,
+      sheet: () => demo.getStore(),
       notify,
       onUpdate: refresh,
     })
@@ -126,10 +127,8 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
       boundTable = table
     }
     bindTo(demo.table)
-    const offBookChange = sheet.onSheetChange((event) => {
-      if (event.table) {
-        bindTo(event.table)
-      }
+    const offBookChange = bundle.onBookChange(() => {
+      bindTo(demo.table)
     })
 
     // 装配完成后刷一帧（首渲染时动作集尚未就位，空闲页也要立即呈现按钮行）
@@ -154,7 +153,7 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
     return null
   }
 
-  const sheet = demo.getSheet()
+  const sheet = demo.getStore()
   const style = actions.focusCellStyle()
   const active = (on: boolean): string | undefined => (on ? 'bg-accent text-primary' : undefined)
 
@@ -208,13 +207,13 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
         <ToolPopover
           icon={<Frame />}
           label="设置单元格边框"
-          panel={(close) => <BorderPanel actions={actions} close={close} demo={demo} />}
+          panel={(close) => <BorderPanel actions={actions} close={close} />}
         />
         <ToolPopover
           icon={<PaintBucket />}
           label="设置单元格背景填充"
           panel={(close) => (
-            <FillColorPanel actions={actions} close={close} focusStyle={style?.background} />
+            <FillColorPanel actions={actions} close={close} focusStyle={style?.fill?.color} />
           )}
         />
         <ToolButton label="合并选中区域" onClick={() => actions.mergeSelection()}>
@@ -227,30 +226,30 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
         {/* 文本 */}
         <GroupDivider />
         <ToolButton
-          active={style?.fontWeight === 700 || style?.fontWeight === 'bold'}
+          active={style?.font?.bold === true}
           label="加粗"
-          onClick={() => actions.applyFragment({ fontWeight: 700 }, 'toggle')}
+          onClick={() => actions.applyFragment({ font: { bold: true } }, 'toggle')}
         >
           <Bold />
         </ToolButton>
         <ToolButton
-          active={style?.fontStyle === 'italic'}
+          active={style?.font?.italic === true}
           label="斜体"
-          onClick={() => actions.applyFragment({ fontStyle: 'italic' }, 'toggle')}
+          onClick={() => actions.applyFragment({ font: { italic: true } }, 'toggle')}
         >
           <Italic />
         </ToolButton>
         <ToolButton
-          active={style?.underline === true}
+          active={style?.font?.underline === true}
           label="下划线"
-          onClick={() => actions.applyFragment({ underline: true }, 'toggle')}
+          onClick={() => actions.applyFragment({ font: { underline: true } }, 'toggle')}
         >
           <Underline />
         </ToolButton>
         <ToolButton
-          active={style?.lineThrough === true}
+          active={style?.font?.strikethrough === true}
           label="删除线"
-          onClick={() => actions.applyFragment({ lineThrough: true }, 'toggle')}
+          onClick={() => actions.applyFragment({ font: { strikethrough: true } }, 'toggle')}
         >
           <Strikethrough />
         </ToolButton>
@@ -262,7 +261,7 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
             <FontColorPanel
               actions={actions}
               close={close}
-              focusColor={style?.color}
+              focusColor={style?.font?.color}
               onPicked={setFontColorBar}
             />
           )}
@@ -271,55 +270,55 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
           icon={<ALargeSmall />}
           label="设置字体大小"
           panel={(close) => (
-            <FontSizePanel actions={actions} close={close} focusSize={style?.fontSize} />
+            <FontSizePanel actions={actions} close={close} focusSize={style?.font?.size} />
           )}
         />
         <ToolButton
-          className={active((style?.textAlign ?? 'left') === 'left')}
+          className={active((style?.align?.horizontal ?? 'left') === 'left')}
           label="水平左对齐"
-          onClick={() => actions.applyFragment({ textAlign: 'left' }, 'set')}
+          onClick={() => actions.applyFragment({ align: { horizontal: 'left' } }, 'set')}
         >
           <TextAlignStart />
         </ToolButton>
         <ToolButton
-          className={active((style?.textAlign ?? 'left') === 'center')}
+          className={active((style?.align?.horizontal ?? 'left') === 'center')}
           label="水平居中"
-          onClick={() => actions.applyFragment({ textAlign: 'center' }, 'set')}
+          onClick={() => actions.applyFragment({ align: { horizontal: 'center' } }, 'set')}
         >
           <TextAlignCenter />
         </ToolButton>
         <ToolButton
-          className={active((style?.textAlign ?? 'left') === 'right')}
+          className={active((style?.align?.horizontal ?? 'left') === 'right')}
           label="水平右对齐"
-          onClick={() => actions.applyFragment({ textAlign: 'right' }, 'set')}
+          onClick={() => actions.applyFragment({ align: { horizontal: 'right' } }, 'set')}
         >
           <TextAlignEnd />
         </ToolButton>
         <ToolButton
-          className={active((style?.verticalAlign ?? 'middle') === 'top')}
+          className={active((style?.align?.vertical ?? 'middle') === 'top')}
           label="垂直顶端对齐"
-          onClick={() => actions.applyFragment({ verticalAlign: 'top' }, 'set')}
+          onClick={() => actions.applyFragment({ align: { vertical: 'top' } }, 'set')}
         >
           <AlignStartVertical />
         </ToolButton>
         <ToolButton
-          className={active((style?.verticalAlign ?? 'middle') === 'middle')}
+          className={active((style?.align?.vertical ?? 'middle') === 'middle')}
           label="垂直居中对齐"
-          onClick={() => actions.applyFragment({ verticalAlign: 'middle' }, 'set')}
+          onClick={() => actions.applyFragment({ align: { vertical: 'middle' } }, 'set')}
         >
           <AlignCenterVertical />
         </ToolButton>
         <ToolButton
-          className={active((style?.verticalAlign ?? 'middle') === 'bottom')}
+          className={active((style?.align?.vertical ?? 'middle') === 'bottom')}
           label="垂直底端对齐"
-          onClick={() => actions.applyFragment({ verticalAlign: 'bottom' }, 'set')}
+          onClick={() => actions.applyFragment({ align: { vertical: 'bottom' } }, 'set')}
         >
           <AlignEndVertical />
         </ToolButton>
         <ToolButton
-          active={style?.textWrap === true}
+          active={style?.align?.wrap === true}
           label="自动换行"
-          onClick={() => actions.applyFragment({ textWrap: true }, 'toggle')}
+          onClick={() => actions.applyFragment({ align: { wrap: true } }, 'toggle')}
         >
           <TextWrap />
         </ToolButton>
@@ -360,7 +359,9 @@ export function SheetToolbar({ demo, ui }: SheetToolbarProps) {
         <ToolPopover
           icon={<ImageIcon />}
           label="插入浮动图片"
-          panel={(close) => <InsertImagePanel actions={actions} close={close} />}
+          panel={(close) => (
+            <InsertImagePanel actions={actions} close={close} notify={demo.notify} />
+          )}
         />
 
         {/* 文件 */}
@@ -524,14 +525,14 @@ function FillColorPanel({
       <PaletteGrid
         activeColor={focusStyle ?? null}
         onPick={(color) => {
-          actions.applyFragment({ background: color }, 'set')
+          actions.applyFragment({ fill: { color } }, 'set')
           close()
         }}
       />
       <Button
         className="h-6 w-full text-xs"
         onClick={() => {
-          actions.applyRemoveKeys(['background'])
+          actions.applyRemoveKeys('fill')
           close()
         }}
         size="xs"
@@ -559,7 +560,7 @@ function FontColorPanel({
       <PaletteGrid
         activeColor={focusColor ?? null}
         onPick={(color) => {
-          actions.applyFragment({ color }, 'set')
+          actions.applyFragment({ font: { color } }, 'set')
           onPicked(color)
           close()
         }}
@@ -567,7 +568,7 @@ function FontColorPanel({
       <Button
         className="h-6 w-full text-xs"
         onClick={() => {
-          actions.applyRemoveKeys(['color'])
+          actions.applyRemoveKeys('color')
           close()
         }}
         size="xs"
@@ -598,7 +599,7 @@ function FontSizePanel({
           )}
           key={size}
           onClick={() => {
-            actions.applyFragment({ fontSize: size }, 'set')
+            actions.applyFragment({ font: { size } }, 'set')
             close()
           }}
           type="button"
@@ -614,20 +615,19 @@ function FontSizePanel({
 function BorderPanel({
   actions,
   close,
-  demo,
 }: {
   actions: ToolbarActions
   close: () => void
-  demo: SheetDemo
 }): ReactNode {
   const [lineId, setLineId] = useState<BorderLineStyleId>('thin')
   const [color, setColor] = useState('#000000')
-  const sheet = demo.getSheet()
 
-  /** 线型 + 颜色 → 边定义（plugins borderPresetLine），渲染线型按钮的预览色条 */
+  /** 线型 + 颜色 → 边定义（borderEdgeOf 组装模型边），渲染线型按钮的预览色条 */
   const swatchBorder = (id: BorderLineStyleId, swatchColor: string): string => {
-    const edge = sheet.borderEdge(id, swatchColor)
-    return `${edge.width}px ${edge.style ?? 'solid'} ${edge.color}`
+    const edge = borderEdgeOf(id, swatchColor)
+    // CSS border 只认 solid/dashed/dotted；模型 thin/medium/thick 均为实线分级
+    const css = edge.style === 'dashed' || edge.style === 'dotted' ? edge.style : 'solid'
+    return `${edge.width}px ${css} ${edge.color}`
   }
 
   return (
@@ -668,7 +668,7 @@ function BorderPanel({
               className="flex size-7 cursor-pointer items-center justify-center rounded-sm border border-border text-primary hover:bg-accent"
               key={preset}
               onClick={() => {
-                actions.applyBorderPreset(preset, sheet.borderEdge(lineId, color))
+                actions.applyBorderPreset(preset, borderEdgeOf(lineId, color))
                 close()
               }}
               title={title}
@@ -807,28 +807,73 @@ function FunctionRow({
   )
 }
 
-/** 插入浮动图片：本地文件（data: URL）或 URL */
+/** 插入浮动图片：本地文件（data: URL → 字节）或 URL（fetch → 字节；模型图带字节可入 xlsx 导出） */
 function InsertImagePanel({
   actions,
   close,
+  notify,
 }: {
   actions: ToolbarActions
   close: () => void
+  notify: (text: string, kind?: 'info' | 'warn') => void
 }): ReactNode {
   const fileRef = useRef<HTMLInputElement>(null)
   const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  /** URL → 模型图片字节（data: 本地解码；http(s) 拉取，失败 toast） */
+  const resolveUrlInput = async (
+    raw: string,
+  ): Promise<{ data: Uint8Array; type: 'png' | 'jpeg' | 'gif' | 'svg' | 'webp' }> => {
+    const local = dataUrlToImage(raw)
+    if (local) {
+      return local
+    }
+    const response = await fetch(raw)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    const mime = response.headers.get('content-type') ?? ''
+    const type = /png|jpeg|gif|svg|webp/i.exec(mime)?.[0]?.toLowerCase()
+    if (!type) {
+      throw new Error('不支持的图片类型')
+    }
+    return {
+      data: new Uint8Array(await response.arrayBuffer()),
+      type:
+        type === 'svg+xml' || type === 'svg' ? 'svg' : (type as 'png' | 'jpeg' | 'gif' | 'webp'),
+    }
+  }
+
+  const insertFrom = (task: Promise<void>): void => {
+    setBusy(true)
+    void task
+      .catch((error: unknown) =>
+        notify(`图片读取失败：${error instanceof Error ? error.message : String(error)}`, 'warn'),
+      )
+      .finally(() => setBusy(false))
+  }
+
   return (
     <div className="flex w-64 flex-col gap-2">
       <input
         accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
         className="hidden"
-        onChange={async (event) => {
+        onChange={(event) => {
           const file = event.target.files?.[0]
           if (!file) {
             return
           }
-          actions.insertFloatImage(await fileToDataURL(file))
           close()
+          insertFrom(
+            (async () => {
+              const input = dataUrlToImage(await fileToDataURL(file))
+              if (!input) {
+                throw new Error('无法解析图片文件')
+              }
+              actions.insertFloatImage(input)
+            })(),
+          )
         }}
         ref={fileRef}
         type="file"
@@ -852,10 +897,15 @@ function InsertImagePanel({
         />
         <Button
           className="h-7 text-xs"
-          disabled={!url.trim()}
+          disabled={!url.trim() || busy}
           onClick={() => {
-            actions.insertFloatImage(url.trim())
+            const target = url.trim()
             close()
+            insertFrom(
+              (async () => {
+                actions.insertFloatImage(await resolveUrlInput(target))
+              })(),
+            )
           }}
           size="xs"
         >

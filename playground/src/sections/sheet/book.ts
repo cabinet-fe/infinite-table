@@ -1,284 +1,325 @@
-// sheet 插件（书形态）装配：sheet 定义注册（Store + 每表 resolveCellStyle/显示链闭包）、
-// 容器 hostOptions 注入、活跃切换时的容器显隐与滚轮接线（DOM 呈现归宿主，
-// 即「切换全量重挂」的宿主侧：引擎实例池化复用，容器按活跃 id 显隐）。
-// 容器铺满网格区（absolute inset 0），尺寸由调用方测量网格区后经 tableOptions 传入。
-// numFmt 走 demo 级侧车（每 sheet 一张稀疏 Map，key 同格 `${col},${row}`）：
-// SheetStore 是插件 handle 面；显示链在注册定义时闭包绑定本表 numFmt Map。
-// 表名注册表（xlsx 导入沿用文件名；跨表引用解析按 id → 注册名 → 默认名匹配）。
+// 演示书装配束（@infinitable/sheet）：Workbook 多表模型 + 每表 SheetGrid 实例池。
+// 容器铺满网格区（absolute inset 0，见 global.css .sheet-grid-instance），按表名惰性建实例；
+// 切换 = 模型 activateSheet + 容器显隐 + grid.setVisible（LRU：隐藏只置脏，切回全量同步）。
+// 结构变更（行列插删）引擎维度构造期固定 → 监听 structure-change 就地重建实例（含 undo/redo 回放）。
+// xlsx 导入整本换书：adoptWorkbook 释放旧实例池后接管新 Workbook 并重挂事件。
 
-import type { ListTable, ListTableOptions } from '@infinitable/core'
+import type { ListTable } from '@infinitable/core'
 
-import { colLetters, type SheetCellCoord } from '@infinitable/formulas'
-import { createSheetPlugin, type SheetPluginHandle } from '@infinitable/plugins'
+import {
+  evaluate,
+  formulaError,
+  isFormulaError,
+  isFormulaErrorCode,
+  type FormulaError,
+  type FormulaResolver,
+  type ScalarValue,
+} from '@infinitable/formulas'
 
-import { attachWheel, resolveDpr } from '../../mount'
+import {
+  SheetGrid,
+  Workbook,
+  type CellRange,
+  type ResolveCellRenderer,
+  type Sheet,
+  type SheetGridContextMenuInfo,
+} from '@infinitable/sheet'
 
-import { createMainStore, createSecondaryStore } from './store'
-import { createSheetEvaluator } from './evaluator'
-import { createSheetDisplay, type NumFmt } from './format'
+import { bindSheetFillEvents } from './fill'
 import { SHEET_COL_COUNT, SHEET_ROW_COUNT } from './constants'
+import { createDemoWorkbook } from './workbook'
 
-/** 演示层 Store 类型（sheet 插件 handle 的 store 面；散装类型已从 plugins 公共入口收敛） */
-export type SheetStore = NonNullable<SheetPluginHandle['store']>
+/** 求值结果（错误已转错误码文本；冒烟/控制台驱动面用） */
+export type EvaluatedValue = number | string | boolean
 
-/** sheet id → 默认展示名：sheet-1 → Sheet1（tabs 未重命名/未注册名时的名字） */
-function defaultSheetName(id: string): string {
-  return id.replace(/^sheet-(\d+)$/, 'Sheet$1')
-}
-
-/** 注册附加项：导入表名 / 导入的 numFmt 侧车表 */
-interface RegisterSheetOptions {
-  /** 展示名（空则回落默认名；跨表引用按此名路由） */
-  name?: string
-  /** numFmt 侧车表（缺省新建空表；xlsx 导入传入解析结果） */
-  numFmt?: Map<string, NumFmt>
+/** 每实例接线钩子（mountSheet 注入：返回退订集合，随实例释放执行） */
+export interface SheetBookHooks {
+  /** 格内自定义渲染（sheet.ts 用：Sheet1 F1 示例图） */
+  resolveCellRenderer?: (sheet: Sheet) => ResolveCellRenderer | undefined
+  /** 右键菜单（SheetGrid 公共回调；React 菜单组件经 sheet.ts 转发注册） */
+  onContextMenu?: (name: string, info: SheetGridContextMenuInfo) => void
+  /** 实例创建后接线（编辑 toast 等）；返回退订函数 */
+  onGridCreated?: (name: string, grid: SheetGrid, sheet: Sheet) => void | (() => void)
+  /** 演示通知 */
+  notify: (text: string, kind?: 'info' | 'warn') => void
 }
 
 export interface SheetBookBundle {
-  /** sheet 插件 handle（书形态：注册/切换/事件/撤销/导出面） */
-  sheet: SheetPluginHandle
-  /** 当前活跃表（无活跃为 null） */
-  activeTable: () => ListTable | null
-  /** 当前活跃 Store */
-  activeStore: () => SheetStore | null
-  /** 切换 sheet（同时切换容器显隐） */
-  switchTo: (id: string) => void
-  /** 新建空白 sheet（id 自动编号）；返回新 id */
-  createSheet: () => string
-  /** 注册外部构建的 Store 为新 sheet（xlsx 导入用）；返回新 id */
-  registerSheet: (store: SheetStore, options?: RegisterSheetOptions) => string
+  /** 工作簿（表名即身份；改名/跨表引用由 Workbook 编排） */
+  workbook: Workbook
+  /** 活跃表名（无表为 null；演示区至少保有一表，仅类型完整起见） */
+  activeName(): string
+  /** 活跃表模型 */
+  activeSheet(): Sheet
+  /** 活跃引擎表实例（实例惰性创建，切表后可用） */
+  activeTable(): ListTable
+  /** 活跃 grid（同上） */
+  activeGrid(): SheetGrid
+  /** 按名取模型 */
+  sheetOf(name: string): Sheet | undefined
+  /** 按名取引擎表实例（不存在为 undefined） */
+  tableOf(name: string): ListTable | undefined
+  /** 按名取 grid 实例（未建为 undefined；行列尺寸同步等宿主写入用） */
+  gridOf(name: string): SheetGrid | undefined
+  /** 切换 sheet（建实例 + 容器显隐 + LRU 可见性） */
+  switchTo(name: string): void
+  /** 新建空白 sheet（名自动编号）；返回新表名 */
+  createSheet(): string
   /** 删除非活跃 sheet；返回是否删除成功 */
-  removeSheet: (id: string) => boolean
-  /** 全部 sheet id（tabs 渲染用） */
-  ids: () => string[]
-  /** id → 展示名（注册名优先，回落默认名） */
-  nameOf: (id: string) => string
-  /** 读格 numFmt（侧车；未设置 undefined） */
-  getNumFmt: (id: string, col: number, row: number) => NumFmt | undefined
-  /** 写/清格 numFmt（fmt undefined = 清除）。只写侧车表，格刷新由调用方触发（同 setStyle 模式） */
-  setNumFmt: (id: string, col: number, row: number, fmt: NumFmt | undefined) => void
-  /** id → 容器（宿主布局用） */
+  removeSheet(name: string): boolean
+  /** 重命名（Workbook 校验：空名/重名拒绝；跨表引用随改名保持有效） */
+  renameSheet(oldName: string, next: string): boolean
+  /** 全部表名（tabs 渲染用） */
+  ids(): string[]
+  /** 表名 → 展示名（Workbook 管理名即展示名） */
+  nameOf(name: string): string
+  /** 当前活跃 sheet 临时求值（公式引擎；错误 → 错误码文本，不进缓存） */
+  evaluateActive(formula: string): EvaluatedValue
+  /** id → 容器（宿主布局用；smoke 断言 data-sheet-id） */
   containers: Map<string, HTMLElement>
-  /** id → Store（调试句柄/冒烟用） */
-  stores: Map<string, SheetStore>
-  /** 当前活跃 sheet 求值（冒烟/控制台驱动面；错误 → 错误码文本） */
-  evaluateActive: (formula: string) => string | number | boolean
-  /** 公式缓存全量标脏（sheet 改名等跨表名解析面变化时用） */
-  invalidateFormulas: () => void
-  dispose: () => void
+  /** 书级变更事件（激活切换/增删/改名聚合；换书后自动重挂） */
+  onBookChange(listener: () => void): () => void
+  /** 整本接管（xlsx 导入重建）：释放实例池 → 接管新 Workbook → 切到活跃表 */
+  adoptWorkbook(next: Workbook): void
+  dispose(): void
 }
 
-export function createDemoBook(
-  viewport: HTMLElement,
-  tableOptions: Partial<ListTableOptions>,
-): SheetBookBundle {
+export function createSheetBook(viewport: HTMLElement, hooks: SheetBookHooks): SheetBookBundle {
+  let workbook = createDemoWorkbook()
   const containers = new Map<string, HTMLElement>()
-  const stores = new Map<string, SheetStore>()
-  const wheels = new Map<string, () => void>()
-  const storeWatchOffs = new Map<string, () => void>()
-  /** numFmt 侧车：id → 稀疏 Map（key `${col},${row}`） */
-  const numFmtMaps = new Map<string, Map<string, NumFmt>>()
-  /** 表名注册表：id → 展示名（xlsx 导入沿用文件名；tabs 手动重命名不写入，不跟随跨表引用） */
-  const names = new Map<string, string>()
-  let counter = 2
+  const grids = new Map<string, SheetGrid>()
+  const gridDisposers = new Map<string, Array<() => void>>()
+  const bookListeners = new Set<() => void>()
+  /** 当前 Workbook 的结构监听退订（换书时重挂） */
+  let offStructure: Array<() => void> = []
 
-  // 公式缓存失效走 evaluator 的依赖图脏标记（value 事件逐格通知），不再需要 book 级共享版本
-  const evaluator = createSheetEvaluator({
-    resolveSheet(name) {
-      // 大小写不敏感匹配 id / 注册名 / 默认展示名（demo 简化：tabs 手动重命名不跟随跨表引用）
-      const lower = name.toLowerCase()
-      for (const [id, store] of stores) {
-        if (
-          id.toLowerCase() === lower ||
-          defaultSheetName(id).toLowerCase() === lower ||
-          names.get(id)?.toLowerCase() === lower
-        ) {
-          return { id, store }
-        }
-      }
-      return null
-    },
-  })
-
-  const sheet = createSheetPlugin({
-    createHost: (def) => {
-      const container = document.createElement('div')
-      container.className = 'sheet-grid-instance'
-      container.dataset.sheetId = def.id
-      container.style.display = 'none'
-      viewport.appendChild(container)
-      containers.set(def.id, container)
-      return { hostOptions: { container, dpr: resolveDpr() } }
-    },
-    tableOptions,
-    undoLimit: 200,
-  })
-
-  // 实例首次创建后接滚轮（每实例一次；切换复用不重复接线）
-  sheet.onSheetChange((event) => {
-    if (!event.table || !event.activeId || !event.created || wheels.has(event.activeId)) {
-      return
-    }
-    const container = containers.get(event.activeId)
-    if (container) {
-      wheels.set(event.activeId, attachWheel(container, event.table))
-    }
-  })
-
-  /** 列定义按 Store 列数生成（导入表可超过演示默认 26 列；标题 A..Z/AA.. 取 formulas colLetters） */
-  const buildColumns = (store: SheetStore): NonNullable<ListTableOptions['columns']> =>
-    Array.from({ length: store.getColCount() }, (_, col) => ({
-      title: colLetters(col),
-      width: 80,
-      editor: 'text',
-    }))
-
-  /** 失效格 → 画布重绘：按所属 sheet 分组，在池内实例上批量局部刷新（批内失效合并一次提交；
-   *  未建实例的 sheet 切回时经全量首绘取新值；隐藏容器实例照常重绘位图，切回即见新值） */
-  const repaintInvalidated = (cells: readonly SheetCellCoord[]): void => {
-    const bySheet = new Map<string, SheetCellCoord[]>()
-    for (const cell of cells) {
-      const list = bySheet.get(cell.sheet)
-      if (list) {
-        list.push(cell)
-      } else {
-        bySheet.set(cell.sheet, [cell])
-      }
-    }
-    for (const [sheetId, list] of bySheet) {
-      const table = sheet.get(sheetId)
-      if (!table) {
-        continue
-      }
-      table.batchUpdate(() => {
-        for (const cell of list) {
-          table.refreshCell(cell.col, cell.row)
-        }
-      })
+  const fireBookChange = (): void => {
+    for (const listener of bookListeners) {
+      listener()
     }
   }
 
-  /** 注册定义：样式 hook 与显示链（公式求值 → numFmt 格式化）都闭包绑定自己的 Store；value 事件通知 evaluator 标脏 */
-  const registerWith = (id: string, store: SheetStore, options?: RegisterSheetOptions): void => {
-    stores.set(id, store)
-    const numFmt = options?.numFmt ?? new Map<string, NumFmt>()
-    numFmtMaps.set(id, numFmt)
-    if (options?.name && options.name.trim() !== '') {
-      names.set(id, options.name)
+  /** 每表结构变更监听：引擎维度构造期固定 → 就地重建实例（未建实例无需处理） */
+  const bindStructureWatch = (): void => {
+    for (const off of offStructure) {
+      off()
     }
-    storeWatchOffs.set(
-      id,
-      store.onChange((event) => {
-        // 只有值变更影响公式结果；样式/几何/冻结/合并不触碰公式缓存。
-        // 值写路径统一汇聚点：编辑提交（引擎回写）/填充/查找替换/清空内容全部经
-        // Store value 事件到达这里，依赖失效 + 画布重绘一次收口
-        if (event.type === 'value' && event.col !== undefined && event.row !== undefined) {
-          repaintInvalidated(evaluator.notifyValueChange(id, event.col, event.row))
+    offStructure = workbook.getSheets().map((sheet) =>
+      sheet.on('structure-change', () => {
+        if (grids.has(sheet.name)) {
+          rebuildGrid(sheet.name)
         }
       }),
     )
-    sheet.registerSheet({
-      id,
-      store,
-      options: {
-        columns: buildColumns(store),
-        resolveCellStyle: (col, row) => store.getStyle(col, row) ?? null,
-        resolveDisplayValue: createSheetDisplay({
-          evaluate: evaluator.forSheet(id, store),
-          numFmt: (col, row) => numFmt.get(`${col},${row}`),
-        }),
-      },
+  }
+
+  /** 绑定 Workbook 三事件到书级聚合事件 */
+  const bindWorkbookEvents = (): void => {
+    for (const type of ['active-sheet-change', 'sheets-change', 'sheet-rename'] as const) {
+      workbook.on(type, fireBookChange)
+    }
+  }
+  bindWorkbookEvents()
+  bindStructureWatch()
+
+  const activeName = (): string => workbook.activeSheet.name
+
+  /** 惰性建实例：容器 + SheetGrid（主题/滚轮/编辑/选区/填充拖拽均由 grid 内置）+ 演示层接线 */
+  const ensureGrid = (name: string): SheetGrid => {
+    const existing = grids.get(name)
+    if (existing) {
+      return existing
+    }
+    const sheet = workbook.getSheet(name)
+    if (!sheet) {
+      throw new Error(`sheet 不存在：${name}`)
+    }
+    const container = document.createElement('div')
+    container.className = 'sheet-grid-instance'
+    container.dataset.sheetId = name
+    container.style.display = 'none'
+    viewport.appendChild(container)
+    containers.set(name, container)
+    const grid = new SheetGrid({
+      container,
+      sheet,
+      // 声明尺寸随模型（导入表可超出演示默认）；未声明表回落演示口径
+      rows: sheet.rows > 0 ? sheet.rows : SHEET_ROW_COUNT,
+      cols: sheet.cols > 0 ? sheet.cols : SHEET_COL_COUNT,
+      width: viewport.clientWidth || 960,
+      height: viewport.clientHeight || 420,
+      resolveCellRenderer: hooks.resolveCellRenderer?.(sheet),
+      onContextMenu: (info) => hooks.onContextMenu?.(name, info),
     })
+    grids.set(name, grid)
+    const disposers = [bindSheetFillEvents(grid, sheet, hooks.notify)]
+    const external = hooks.onGridCreated?.(name, grid, sheet)
+    if (typeof external === 'function') {
+      disposers.push(external)
+    }
+    gridDisposers.set(name, disposers)
+    return grid
   }
 
-  registerWith('sheet-1', createMainStore(sheet))
-  registerWith('sheet-2', createSecondaryStore(sheet))
-
-  const registerSheet = (store: SheetStore, options?: RegisterSheetOptions): string => {
-    counter += 1
-    const id = `sheet-${counter}`
-    registerWith(id, store, options)
-    return id
+  const releaseGrid = (name: string): void => {
+    for (const off of gridDisposers.get(name) ?? []) {
+      off()
+    }
+    gridDisposers.delete(name)
+    grids.get(name)?.release()
+    grids.delete(name)
+    containers.get(name)?.remove()
+    containers.delete(name)
   }
+
+  /** 就地重建实例（结构变更后引擎维度同步；容器复用，滚动/选区按模型重驱） */
+  const rebuildGrid = (name: string): void => {
+    const wasActive = name === activeName()
+    releaseGrid(name)
+    const grid = ensureGrid(name)
+    if (wasActive) {
+      grid.setVisible(true)
+      containers.get(name)!.style.display = 'block'
+    }
+  }
+
+  // ---- 求值驱动面：formulas evaluate + 模型读格（公式格读计算缓存；错误格还原错误标记） ----
+
+  const readCellScalar = (
+    sheet: Sheet | undefined,
+    col: number,
+    row: number,
+  ): ScalarValue | FormulaError => {
+    if (!sheet) {
+      return formulaError('#REF!')
+    }
+    const data = sheet.getCellData({ row, col })
+    if (!data || data.v == null) {
+      return null
+    }
+    if (data.t === 'e') {
+      return formulaError(isFormulaErrorCode(data.v) ? data.v : '#ERROR!')
+    }
+    return data.v
+  }
+
+  const resolverFor = (sheet: Sheet): FormulaResolver => ({
+    cell: (ref) =>
+      readCellScalar(
+        ref.sheet === undefined ? sheet : workbook.getSheet(ref.sheet),
+        ref.col,
+        ref.row,
+      ),
+    range: (ref) => {
+      const target = ref.sheet === undefined ? sheet : workbook.getSheet(ref.sheet)
+      if (!target) {
+        return [formulaError('#REF!')]
+      }
+      const range: CellRange = {
+        start: { row: ref.startRow, col: ref.startCol },
+        end: { row: ref.endRow, col: ref.endCol },
+      }
+      // 只迭代稀疏存在的格（空格不进数组，聚合语义由函数层决定）
+      const values: unknown[] = []
+      for (const [, data] of target.store.entriesInRange(range)) {
+        values.push(
+          data.t === 'e'
+            ? formulaError(isFormulaErrorCode(data.v) ? data.v : '#ERROR!')
+            : (data.v ?? null),
+        )
+      }
+      return values
+    },
+  })
 
   return {
-    sheet,
-    activeTable: () => sheet.activeTable(),
-    activeStore: () => (sheet.activeId ? (stores.get(sheet.activeId) ?? null) : null),
-    switchTo(id: string) {
-      sheet.switchTo(id)
-      // 容器显隐：活跃 sheet 显示、其余隐藏
-      for (const [defId, container] of containers) {
-        container.style.display = defId === id ? 'block' : 'none'
+    get workbook(): Workbook {
+      return workbook
+    },
+    activeName,
+    activeSheet: () => workbook.activeSheet,
+    activeTable: (): ListTable => {
+      const grid = grids.get(activeName())
+      if (!grid) {
+        throw new Error('无活跃 sheet 实例（先 switchTo 建实例）')
+      }
+      return grid.getTable()
+    },
+    activeGrid: (): SheetGrid => {
+      const grid = grids.get(activeName())
+      if (!grid) {
+        throw new Error('无活跃 sheet 实例（先 switchTo 建实例）')
+      }
+      return grid
+    },
+    sheetOf: (name) => workbook.getSheet(name),
+    tableOf: (name) => grids.get(name)?.getTable(),
+    gridOf: (name) => grids.get(name),
+    switchTo(name: string) {
+      ensureGrid(name)
+      workbook.activateSheet(name)
+      for (const [sheetName, container] of containers) {
+        const active = sheetName === name
+        container.style.display = active ? 'block' : 'none'
+        grids.get(sheetName)?.setVisible(active)
       }
     },
-    createSheet() {
-      return registerSheet(
-        sheet.createStore({
-          rowCount: SHEET_ROW_COUNT,
-          colCount: SHEET_COL_COUNT,
-          defaultColWidth: 80,
-          defaultRowHeight: 28,
-        }),
-      )
+    createSheet(): string {
+      const sheet = workbook.addSheet(undefined, {
+        rows: SHEET_ROW_COUNT,
+        cols: SHEET_COL_COUNT,
+      })
+      return sheet.name
     },
-    registerSheet,
-    removeSheet(id: string) {
-      // 活跃 sheet 不允许删（tabs 语义：先切走再删，由 tabs 层保证）
-      if (id === sheet.activeId || !sheet.has(id)) {
+    removeSheet(name: string): boolean {
+      // 活跃表不允许删（tabs 语义：先切走再删，由 tabs 层保证）
+      if (name === activeName() || !workbook.getSheet(name)) {
         return false
       }
-      containers.get(id)?.remove()
-      containers.delete(id)
-      stores.delete(id)
-      numFmtMaps.delete(id)
-      names.delete(id)
-      storeWatchOffs.get(id)?.()
-      storeWatchOffs.delete(id)
-      wheels.get(id)?.()
-      wheels.delete(id)
-      evaluator.dropSheet(id) // 连带整表标脏其余表缓存（依赖方重算出 #REF!）
-      sheet.removeSheet(id)
-      return true
+      releaseGrid(name)
+      return workbook.removeSheet(name)
     },
-    ids: () => [...stores.keys()].filter((id) => sheet.has(id)),
-    nameOf: (id: string) => names.get(id) ?? defaultSheetName(id),
-    getNumFmt(id, col, row) {
-      return numFmtMaps.get(id)?.get(`${col},${row}`)
+    renameSheet(oldName, next) {
+      return workbook.renameSheet(oldName, next)
     },
-    setNumFmt(id, col, row, fmt) {
-      const map = numFmtMaps.get(id)
-      if (!map) {
-        return
-      }
-      const key = `${col},${row}`
-      if (fmt === undefined) {
-        map.delete(key)
-      } else {
-        map.set(key, fmt)
-      }
-    },
+    ids: () => workbook.getSheets().map((sheet) => sheet.name),
+    nameOf: (name) => name,
     containers,
-    stores,
-    evaluateActive(formula: string) {
-      const id = sheet.activeId
-      const store = id ? stores.get(id) : undefined
-      if (!id || !store) {
-        return '#REF!'
+    evaluateActive(formula: string): EvaluatedValue {
+      const body = formula.startsWith('=') ? formula.slice(1) : formula
+      // 临时求值不落模型（不进缓存）；错误 → 错误码文本
+      const result = evaluate(body, resolverFor(workbook.activeSheet))
+      if (isFormulaError(result)) {
+        return result.code
       }
-      return evaluator.evaluateIn(id, store, formula)
+      return result ?? 0
     },
-    invalidateFormulas() {
-      evaluator.invalidateAll()
+    onBookChange(listener) {
+      bookListeners.add(listener)
+      return () => {
+        bookListeners.delete(listener)
+      }
+    },
+    adoptWorkbook(next: Workbook) {
+      for (const name of Array.from(grids.keys())) {
+        releaseGrid(name)
+      }
+      workbook = next
+      bindWorkbookEvents()
+      bindStructureWatch()
+      // 切到导入活跃表（建实例）并广播一次（React 面板重读新表集）
+      this.switchTo(next.activeSheet.name)
+      fireBookChange()
     },
     dispose() {
-      for (const off of wheels.values()) {
+      for (const name of Array.from(grids.keys())) {
+        releaseGrid(name)
+      }
+      for (const off of offStructure) {
         off()
       }
-      for (const off of storeWatchOffs.values()) {
-        off()
-      }
-      sheet.dispose()
+      offStructure = []
+      bookListeners.clear()
     },
   }
 }

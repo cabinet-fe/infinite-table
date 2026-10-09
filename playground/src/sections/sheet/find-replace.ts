@@ -1,20 +1,10 @@
-// 查找替换逻辑（查找面板 UI 由 React 层承担）：
-// 查找内容 + 计数 + 上/下一个；替换为 + 替换/全部替换；
-// 区分大小写 / 整格匹配 / 按显示值或公式查找。每次打开状态全新。
-// 查找/扫描/替换写值（经 sheet.writeValues 落撤销栈）的口径不变，供面板与冒烟 API 共用。
+// 查找替换逻辑（查找面板 UI 由 React 层承担）：扫描/定位收敛到 @infinitable/sheet 的
+// findAll / findNextFrom / findPrevFrom（行主序、到边界循环），替换写值经 sheet.setCells
+// 落撤销栈（值命令口径）。每次打开状态全新。
 
 import type { ListTable } from '@infinitable/core'
 
-import type { SheetPluginHandle } from '@infinitable/plugins'
-
-import type { SheetStore } from './book'
-
-interface Hit {
-  col: number
-  row: number
-  /** 命中格的原始值（替换用；显示值命中但非字符串原始值时为 null） */
-  raw: unknown
-}
+import { findAll, type FindMatch, type FindOptions, type Sheet } from '@infinitable/sheet'
 
 /** 面板查询条件（React 面板控件变更时经 setQuery 同步进逻辑态） */
 export interface FindQuery {
@@ -44,11 +34,33 @@ export interface FindReplaceController {
   reset(): void
 }
 
+/** 忽略大小写替换：按降序定位避免偏移漂移 */
+function applyReplace(
+  raw: string,
+  keyword: string,
+  replacement: string,
+  caseSensitive: boolean,
+): string {
+  if (!keyword) {
+    return raw
+  }
+  if (caseSensitive) {
+    return raw.split(keyword).join(replacement)
+  }
+  const lower = raw.toLowerCase()
+  const needle = keyword.toLowerCase()
+  let result = ''
+  let index = 0
+  for (let at = lower.indexOf(needle); at !== -1; at = lower.indexOf(needle, index)) {
+    result += raw.slice(index, at) + replacement
+    index = at + needle.length
+  }
+  return result + raw.slice(index)
+}
+
 export function createFindReplace(ctx: {
   table: () => ListTable
-  store: () => SheetStore
-  /** sheet 插件 handle：替换写值经 writeValues 落撤销栈（值命令口径） */
-  sheet: SheetPluginHandle
+  sheet: () => Sheet
   notify: (text: string, kind?: 'info' | 'warn') => void
   /** 计数/定位变化回调（面板重渲染用） */
   onUpdate?: () => void
@@ -59,47 +71,18 @@ export function createFindReplace(ctx: {
     caseSensitive: false,
     wholeCell: false,
     mode: 'value' as 'value' | 'formula',
-    hits: [] as Hit[],
+    hits: [] as FindMatch[],
     index: -1,
   }
 
-  /** 单格匹配文本：按显示值（getCellText 走求值管线）或按公式（原始串） */
-  const cellText = (col: number, row: number): string => {
-    const raw = ctx.store().getValue(col, row)
-    if (state.mode === 'formula') {
-      return typeof raw === 'string' ? raw : raw == null ? '' : String(raw)
-    }
-    if (typeof raw === 'string' && raw.startsWith('=')) {
-      // 显示值命中：替换语义保留原值标记（公式格替换写回字面文本）
-      return ctx.table().getCellText(col, row)
-    }
-    return raw == null ? '' : String(raw)
-  }
-
-  const matches = (text: string, keyword: string): boolean => {
-    if (!keyword) {
-      return false
-    }
-    const hay = state.caseSensitive ? text : text.toLowerCase()
-    const needle = state.caseSensitive ? keyword : keyword.toLowerCase()
-    return state.wholeCell ? hay === needle : hay.includes(needle)
-  }
-
-  const scanAll = (keyword: string): Hit[] => {
-    const store = ctx.store()
-    const hits: Hit[] = []
-    for (let row = 0; row < store.getRowCount(); row++) {
-      for (let col = 0; col < store.getColCount(); col++) {
-        if (matches(cellText(col, row), keyword)) {
-          hits.push({ col, row, raw: store.getValue(col, row) })
-        }
-      }
-    }
-    return hits
-  }
+  const options = (): FindOptions => ({
+    caseSensitive: state.caseSensitive,
+    wholeCell: state.wholeCell,
+    searchIn: state.mode,
+  })
 
   const rescan = (): void => {
-    state.hits = state.keyword ? scanAll(state.keyword) : []
+    state.hits = state.keyword ? findAll(ctx.sheet(), state.keyword, options()) : []
     // index 保持不动（-1 表示尚未定位；超出新命中数时收回末位）
     if (state.index >= state.hits.length) {
       state.index = state.hits.length - 1
@@ -107,9 +90,9 @@ export function createFindReplace(ctx: {
     ctx.onUpdate?.()
   }
 
-  const gotoHit = (hit: Hit): void => {
-    ctx.table().selectCell(hit.col, hit.row)
-    ctx.table().scrollToCell(hit)
+  const gotoHit = (hit: FindMatch): void => {
+    // 模型选区驱动（grid 选区控制器推画布 + 不可见滚动）
+    ctx.sheet().selectCell(hit.addr)
   }
 
   const step = (delta: 1 | -1): void => {
@@ -124,44 +107,25 @@ export function createFindReplace(ctx: {
     ctx.onUpdate?.()
   }
 
-  function applyReplace(raw: string, keyword: string, replacement: string): string {
-    if (!keyword) {
-      return raw
-    }
-    if (state.caseSensitive) {
-      return raw.split(keyword).join(replacement)
-    }
-    // 忽略大小写替换：按降序定位避免偏移漂移
-    const lower = raw.toLowerCase()
-    const needle = keyword.toLowerCase()
-    let result = ''
-    let index = 0
-    for (let at = lower.indexOf(needle); at !== -1; at = lower.indexOf(needle, index)) {
-      result += raw.slice(index, at) + replacement
-      index = at + needle.length
-    }
-    return result + raw.slice(index)
-  }
-
   const replaceOne = (): void => {
     if (state.index < 0 || !state.hits[state.index]) {
       step(1)
       return
     }
     const hit = state.hits[state.index]!
-    if (typeof hit.raw !== 'string' || hit.raw === '') {
+    const sheet = ctx.sheet()
+    const raw = sheet.getCellData(hit.addr)?.v
+    if (typeof raw !== 'string' || raw === '') {
       ctx.notify('该格非文本值，跳过替换', 'warn')
       step(1)
       return
     }
-    ctx.sheet.writeValues(ctx.store(), [
+    sheet.setCells([
       {
-        col: hit.col,
-        row: hit.row,
-        value: applyReplace(hit.raw, state.keyword, state.replacement),
+        addr: hit.addr,
+        data: { v: applyReplace(raw, state.keyword, state.replacement, state.caseSensitive) },
       },
     ])
-    ctx.table().refreshCell(hit.col, hit.row)
     rescan()
     step(1)
   }
@@ -179,7 +143,7 @@ export function createFindReplace(ctx: {
     }
     step(1)
     const hit = state.hits[state.index]!
-    return { col: hit.col, row: hit.row }
+    return { col: hit.addr.col, row: hit.addr.row }
   }
 
   const replaceAll = (keyword?: string, replacement?: string): number => {
@@ -187,31 +151,32 @@ export function createFindReplace(ctx: {
     if (!kw) {
       return 0
     }
-    const store = ctx.store()
-    const targets: Hit[] = []
-    for (let row = 0; row < store.getRowCount(); row++) {
-      for (let col = 0; col < store.getColCount(); col++) {
-        const raw = store.getValue(col, row)
-        if (typeof raw === 'string' && matches(raw, kw)) {
-          targets.push({ col, row, raw })
-        }
+    const sheet = ctx.sheet()
+    // 替换口径与旧实现一致：按原始字符串值整格包含匹配（非显示值/公式面）
+    const lower = state.caseSensitive ? null : kw.toLowerCase()
+    const matches = (text: string): boolean => {
+      const hay = lower ? text.toLowerCase() : text
+      return state.wholeCell ? hay === (lower ?? kw) : hay.includes(lower ?? kw)
+    }
+    const items: Array<{ addr: { row: number; col: number }; data: { v: string } }> = []
+    for (const [addr, data] of sheet.store.entries()) {
+      if (typeof data.v !== 'string' || data.v === '') {
+        continue
+      }
+      if (matches(data.v)) {
+        items.push({
+          addr,
+          data: {
+            v: applyReplace(data.v, kw, replacement ?? state.replacement, state.caseSensitive),
+          },
+        })
       }
     }
-    ctx.table().batchUpdate(() => {
-      ctx.sheet.writeValues(
-        store,
-        targets.map((hit) => ({
-          col: hit.col,
-          row: hit.row,
-          value: applyReplace(hit.raw as string, kw, replacement ?? state.replacement),
-        })),
-      )
-      for (const hit of targets) {
-        ctx.table().refreshCell(hit.col, hit.row)
-      }
-    })
+    if (items.length > 0) {
+      sheet.setCells(items)
+    }
     rescan()
-    return targets.length
+    return items.length
   }
 
   return {

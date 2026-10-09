@@ -50,8 +50,8 @@ export function SheetPage() {
           公式栏（名称框/fx/建议）→ 网格（#F5F5F5 表头 / #E1E4E8 网格线 / #2170E7 选区）→ 底部 sheet
           tabs；右键菜单三套（行号/列头/正文，含插入数量与冻结）、查找替换弹层、CSV
           导入导出、插入浮动图片、数据结构观察区（快照 JSON + 复制/放大）；消息走顶部
-          toast。数据面为 sheet 插件族（SheetStore
-          单一事实源/填充生成/选区同步/公式显示/键位预设/实例池/撤销栈）。
+          toast。数据面为 @infinitable/sheet（Workbook 模型/命令系统/公式引擎适配/IO/SheetGrid
+          实例池，填充柄与撤销栈内置）。
         </p>
       </div>
       <SheetWorkspace onDemo={onDemo} />

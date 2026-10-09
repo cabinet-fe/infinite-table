@@ -16,8 +16,9 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
+import type { Sheet } from '@infinitable/sheet'
+
 import type { SheetDemo } from '../../../sections/sheet'
-import type { SheetStore } from '../../../sections/sheet/book'
 import { colLetters, formatCellAddress } from './formula-session'
 import type { SheetUiBridge } from './ui-bridge'
 
@@ -103,12 +104,12 @@ export function SheetInspector({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridg
     const bundle = demo.getBundle()
     const cells = collectCells(store)
     const styles = collectStyles(store)
-    const activeId = bundle.sheet.activeId
+    const activeName = bundle.activeName()
     const payload = {
-      sheets: bundle.ids().map((id) => buildSheetPayload(id, bundle.stores.get(id)!, labelOf)),
+      sheets: bundle.ids().map((name) => buildSheetPayload(name, bundle.sheetOf(name)!, labelOf)),
       activeIndex: Math.max(
         0,
-        bundle.ids().findIndex((id) => id === activeId),
+        bundle.ids().findIndex((name) => name === activeName),
       ),
     }
     setSnapshot({
@@ -116,23 +117,23 @@ export function SheetInspector({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridg
       styles,
       selection: table.getSelection(),
       meta: {
-        merges: store.getMerges().map(formatRange),
-        frozen: store.getFrozen(),
-        rowHeights: Object.fromEntries(store.getRowHeightOverrides()),
+        merges: store.merges.getMerges().map(formatRange),
+        frozen: store.frozen,
+        rowHeights: Object.fromEntries(store.getRowHeights()),
         colWidths: Object.fromEntries(
-          [...store.getColWidthOverrides()].map(([col, width]) => [colLetters(col), width]),
+          [...store.getColWidths()].map(([col, width]) => [colLetters(col), width]),
         ),
         images: {
           floatObjects: table.floatObjects.size,
-          cellImage: 'demo://sheet/cell-img（resolveCellImage 命中格）',
+          cellImage: 'demo://sheet/cell-img（resolveCellRenderer 命中格）',
         },
-        history: { canUndo: demo.getSheet().canUndo, canRedo: demo.getSheet().canRedo },
+        history: { canUndo: store.canUndo, canRedo: store.canRedo },
       },
       payload,
       storeCount: Object.keys(cells).length,
       styleCount: Object.keys(styles).length,
-      rowCount: store.getRowCount(),
-      colCount: store.getColCount(),
+      rowCount: store.rowCount,
+      colCount: store.colCount,
     })
   }
 
@@ -155,7 +156,7 @@ export function SheetInspector({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridg
   }
 
   const meta = snapshot
-    ? `活动表：${labelOf ? labelOf(demo.getSheet().activeId ?? '') : ''} · 存储 ${snapshot.storeCount} 格 ` +
+    ? `活动表：${labelOf ? labelOf(demo.getBundle().activeName()) : ''} · 存储 ${snapshot.storeCount} 格 ` +
       `/ 高水位 ${snapshot.rowCount}×${snapshot.colCount} · 样式 ${snapshot.styleCount} 条`
     : ''
 
@@ -397,58 +398,53 @@ function PayloadColumns({
   )
 }
 
-// ---- 快照收集 ----
+// ---- 快照收集（模型稀疏存储迭代；公式格展示 '=' 原文口径） ----
 
-function collectCells(store: SheetStore): Record<string, unknown> {
+function collectCells(store: Sheet): Record<string, unknown> {
   const cells: Record<string, unknown> = {}
-  for (let row = 0; row < store.getRowCount(); row++) {
-    for (let col = 0; col < store.getColCount(); col++) {
-      const value = store.getValue(col, row)
-      if (value != null) {
-        cells[formatCellAddress(col, row)] = value
-      }
+  for (const [addr, data] of store.store.entries()) {
+    if (data.f != null && data.f !== '') {
+      cells[formatCellAddress(addr.col, addr.row)] = `=${data.f}`
+    } else if (data.v != null) {
+      cells[formatCellAddress(addr.col, addr.row)] = data.v
     }
   }
   return cells
 }
 
-function collectStyles(store: SheetStore): Record<string, unknown> {
+function collectStyles(store: Sheet): Record<string, unknown> {
   const styles: Record<string, unknown> = {}
-  for (let row = 0; row < store.getRowCount(); row++) {
-    for (let col = 0; col < store.getColCount(); col++) {
-      const style = store.getStyle(col, row)
-      if (style) {
-        styles[formatCellAddress(col, row)] = style
-      }
+  for (const [addr] of store.store.entries()) {
+    const style = store.getCellStyle(addr)
+    if (style) {
+      styles[formatCellAddress(addr.col, addr.row)] = style
     }
   }
   return styles
 }
 
 function formatRange(range: {
-  startCol: number
-  startRow: number
-  endCol: number
-  endRow: number
+  start: { row: number; col: number }
+  end: { row: number; col: number }
 }): string {
-  return `${formatCellAddress(range.startCol, range.startRow)}:${formatCellAddress(range.endCol, range.endRow)}`
+  return `${formatCellAddress(range.start.col, range.start.row)}:${formatCellAddress(range.end.col, range.end.row)}`
 }
 
 function buildSheetPayload(
-  id: string,
-  store: SheetStore,
-  labelOf: ((id: string) => string) | undefined,
+  name: string,
+  store: Sheet,
+  labelOf: ((name: string) => string) | undefined,
 ): Record<string, unknown> {
   return {
-    name: labelOf ? labelOf(id) : id,
+    name: labelOf ? labelOf(name) : name,
     cells: collectCells(store),
     styles: collectStyles(store),
-    merges: store.getMerges().map(formatRange),
-    frozen: store.getFrozen(),
+    merges: store.merges.getMerges().map(formatRange),
+    frozen: store.frozen,
     colWidths: Object.fromEntries(
-      [...store.getColWidthOverrides()].map(([col, width]) => [colLetters(col), width]),
+      [...store.getColWidths()].map(([col, width]) => [colLetters(col), width]),
     ),
-    rowHeights: Object.fromEntries(store.getRowHeightOverrides()),
+    rowHeights: Object.fromEntries(store.getRowHeights()),
   }
 }
 

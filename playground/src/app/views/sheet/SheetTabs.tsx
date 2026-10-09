@@ -1,5 +1,6 @@
 // 底部 sheet tabs（对标 ultra-ui sheet-tabs，shadcn Tabs 承载）：激活白底蓝字、+ 新建、
 // 右键菜单重命名/删除（删除走危险确认 Dialog）、溢出滚轮横滚、激活 tab 自动滚入视野。
+// 表名由 Workbook 管理（重命名即模型改名，跨表引用随改名保持有效）；
 // 切换/新建/删除后的联动刷新（公式栏重挂等）经 ui 桥回调。
 
 import { Plus } from 'lucide-react'
@@ -23,20 +24,15 @@ import type { SheetUiBridge } from './ui-bridge'
 
 export function SheetTabs({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridge }) {
   const [, bump] = useReducer((count: number) => count + 1, 0)
-  /** 本地重命名（手动右键改名，不跟随跨表引用）；其次 book 注册名（xlsx 导入沿用的文件名） */
-  const labels = useRef(new Map<string, string>())
   const [renaming, setRenaming] = useState<string | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const bundle = demo.getBundle()
-  const activeId = demo.getSheet().activeId
+  const activeId = bundle.activeName()
   const ids = bundle.ids()
 
-  const labelOf = useCallback(
-    (id: string): string => labels.current.get(id) ?? bundle.nameOf(id),
-    [bundle],
-  )
+  const labelOf = useCallback((id: string): string => bundle.nameOf(id), [bundle])
 
   useEffect(() => {
     ui.labelOf = labelOf
@@ -45,16 +41,9 @@ export function SheetTabs({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridge }) 
     }
   }, [labelOf, ui])
 
-  // 外部切换（冒烟句柄 / xlsx 重建 / 删除联动）同样反映到 tabs；顺带清失效的重命名记录
+  // 外部切换（冒烟句柄 / xlsx 重建 / 删除联动）同样反映到 tabs
   useEffect(() => {
-    const off = bundle.sheet.onSheetChange(() => {
-      for (const id of labels.current.keys()) {
-        if (!bundle.ids().includes(id)) {
-          labels.current.delete(id)
-        }
-      }
-      bump()
-    })
+    const off = bundle.onBookChange(bump)
     return () => {
       off()
     }
@@ -116,12 +105,11 @@ export function SheetTabs({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridge }) 
       return
     }
     // 活跃表不可直接删：先切到相邻表
-    if (id === bundle.sheet.activeId) {
+    if (id === bundle.activeName()) {
       const neighbor = current.find((other) => other !== id)!
       bundle.switchTo(neighbor)
     }
     if (bundle.removeSheet(id)) {
-      labels.current.delete(id)
       bump()
       afterSwitched()
       demo.notify(`已删除 ${name}`)
@@ -132,7 +120,7 @@ export function SheetTabs({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridge }) 
     <div className="flex items-center gap-0.5 border-t border-border/70 bg-muted/40 px-1.5 py-1">
       <Tabs
         onValueChange={(id) => {
-          if (id === bundle.sheet.activeId) {
+          if (id === bundle.activeName()) {
             return
           }
           bundle.switchTo(id)
@@ -170,14 +158,11 @@ export function SheetTabs({ demo, ui }: { demo: SheetDemo; ui: SheetUiBridge }) 
                     if (!name || name === labelOf(id)) {
                       return
                     }
-                    const taken = bundle.ids().some((other) => labelOf(other) === name)
-                    if (taken) {
+                    // Workbook.renameSheet 校验空名/重名（跨表引用随改名保持有效）
+                    if (!bundle.renameSheet(id, name)) {
                       demo.notify(`无法重命名：名称“${name}”无效或已被占用`, 'warn')
                       return
                     }
-                    labels.current.set(id, name)
-                    // 改名可能改变跨表引用的名称解析面（当前 labels 不进 resolveSheet，此处为防御性全量标脏）
-                    bundle.invalidateFormulas()
                     bump()
                     demo.notify(`已重命名为 ${name}`)
                   }}

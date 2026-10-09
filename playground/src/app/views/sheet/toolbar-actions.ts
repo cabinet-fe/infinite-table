@@ -1,21 +1,20 @@
-// 工具栏写路径（mountToolbar 的操作语义原样迁移；按钮与弹层 UI 由 React 工具栏渲染）：
-// 写路径统一走 Store 格级样式 + resolveCellStyle hook + batchUpdate 收敛刷新。
+// 工具栏写路径（按钮与弹层 UI 由 React 工具栏渲染）：
+// 写路径统一走 @infinitable/sheet 模型命令（样式片段 setCellStyles / 合并 mergeCells /
+// 边框预设 buildBorderPresetItems，均为单命令 = 单 undo 单元），视图刷新由模型事件联动。
+
+import type { ListTable } from '@infinitable/core'
 
 import {
-  normalizeRange,
-  type CellBorderEdge,
+  buildBorderPresetItems,
+  type BorderEdge,
+  type BorderPreset,
   type CellStyle,
-  type ListTable,
-} from '@infinitable/core'
+  type CellStylePatch,
+  type Sheet,
+} from '@infinitable/sheet'
 
-import type { SheetPluginHandle } from '@infinitable/plugins'
-
-import { mergeBounds, unmergeAt } from '../../../sections/sheet/ops'
-import type { SheetStore } from '../../../sections/sheet/book'
-
-/** 边框线型 / 预设（sheet 插件 handle 边框方法的参数面） */
-export type BorderLineStyle = Parameters<SheetPluginHandle['borderEdge']>[0]
-export type BorderPreset = Parameters<SheetPluginHandle['borderCells']>[1]
+/** 边框线型 / 预设（模型五线型 + 八预设） */
+export type BorderLineStyle = 'thin' | 'medium' | 'thick' | 'dashed' | 'dotted'
 
 /** 填充/字色共用色板（7 列 × 5 行） */
 export const PALETTE: readonly string[] = [
@@ -56,10 +55,10 @@ export const PALETTE: readonly string[] = [
   '#264478',
 ]
 
-/** 字号档位（pt 标注语义，落 Store 为 fontSize 像素数值） */
+/** 字号档位（模型字号单位 pt；渲染 ×4/3 转 px） */
 export const FONT_SIZES = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32] as const
 
-/** 边框线型（边定义由 sheet 插件 handle.borderEdge 映射：thin/medium/thick→solid 1/2/3px，dashed/dotted 同名线型） */
+/** 边框线型（模型 BorderLineStyle 直用；BORDER_STYLE_WIDTH 定宽） */
 export const LINE_STYLES: ReadonlyArray<{ id: BorderLineStyle; label: string }> = [
   { id: 'thin', label: '细线' },
   { id: 'medium', label: '中粗线' },
@@ -68,27 +67,15 @@ export const LINE_STYLES: ReadonlyArray<{ id: BorderLineStyle; label: string }> 
   { id: 'dotted', label: '点线' },
 ]
 
-/** 样式 key → 工具栏提示用中文名 */
-const STYLE_LABELS: Record<string, string> = {
-  fontWeight: '加粗',
-  fontStyle: '斜体',
-  underline: '下划线',
-  lineThrough: '删除线',
-  textAlign: '对齐',
-  verticalAlign: '垂直对齐',
-  background: '填充色',
-  color: '字体颜色',
-  fontSize: '字号',
-  border: '边框',
-  textWrap: '自动换行',
+/** 线型 + 颜色 → 模型边定义（BORDER_STYLE_WIDTH 默认线宽） */
+export function borderEdgeOf(line: BorderLineStyle, color: string): BorderEdge {
+  return { style: line, width: line === 'thick' ? 3 : line === 'medium' ? 2 : 1, color }
 }
 
 export interface ToolbarActionsDeps {
   table: () => ListTable
-  store: () => SheetStore
+  store: () => Sheet
   notify: (text: string, kind?: 'info' | 'warn') => void
-  /** sheet 插件 handle（边框预设展开） */
-  sheet: SheetPluginHandle
   /** 按钮态刷新（写入完成后调用，React 工具栏重读焦点格样式） */
   refreshStates: () => void
 }
@@ -96,23 +83,31 @@ export interface ToolbarActionsDeps {
 export interface ToolbarActions {
   selectionBounds(): { minCol: number; maxCol: number; minRow: number; maxRow: number } | null
   focusCellStyle(): CellStyle | undefined
-  /** 对选区逐格套用片段：mode=toggle 时若选区内全部已含同值属性则移除 */
-  applyFragment(fragment: CellStyle, mode: 'toggle' | 'set'): void
+  /** 对选区逐格套用片段：mode=toggle 时若选区内全部已含同值属性则移除（null 字段删除） */
+  applyFragment(fragment: CellStylePatch, mode: 'toggle' | 'set'): void
   /** 移除选区样式的指定键（无填充/自动字色等「清除」语义） */
-  applyRemoveKeys(keys: string[]): void
+  applyRemoveKeys(keys: 'fill' | 'color'): void
   clearFormat(): void
   mergeSelection(): void
   unmergeSelection(): void
-  /** 浮动图片插入（锚定焦点格，跨 2×2 格） */
-  insertFloatImage(src: string): void
-  /** 边框预设写入选区（逐格片段由 sheet 插件 handle.borderCells 展开） */
-  applyBorderPreset(preset: BorderPreset, edge: CellBorderEdge): void
+  /** 浮动图片插入（锚定焦点格，跨 2×2 格；字节/类型由调用方解析） */
+  insertFloatImage(input: { data: Uint8Array; type: 'png' | 'jpeg' | 'gif' | 'svg' | 'webp' }): void
+  /** 边框预设写入选区（逐格补丁由 buildBorderPresetItems 展开，单命令落撤销栈） */
+  applyBorderPreset(preset: BorderPreset, edge: BorderEdge): void
 }
 
 export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
   const selectionBounds = () => {
     const range = deps.table().getSelectedCellRanges()[0]
-    return range ? normalizeRange(range) : null
+    if (!range) {
+      return null
+    }
+    return {
+      minCol: Math.min(range.start.col, range.end.col),
+      maxCol: Math.max(range.start.col, range.end.col),
+      minRow: Math.min(range.start.row, range.end.row),
+      maxRow: Math.max(range.start.row, range.end.row),
+    }
   }
 
   /** 当前焦点格（选区首段锚点） */
@@ -123,25 +118,10 @@ export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
 
   const focusCellStyle = (): CellStyle | undefined => {
     const focus = focusCell()
-    return focus ? deps.store().getStyle(focus.col, focus.row) : undefined
+    return focus ? deps.store().getCellStyle({ row: focus.row, col: focus.col }) : undefined
   }
 
-  const refreshSelection = (bounds: {
-    minCol: number
-    maxCol: number
-    minRow: number
-    maxRow: number
-  }): void => {
-    deps.table().batchUpdate(() => {
-      for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
-        for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-          deps.table().refreshCell(col, row)
-        }
-      }
-    })
-  }
-
-  /** 值相等判定：对象值（如 border）按结构比较（toggle 判定不依赖引用） */
+  /** 值相等判定：对象值按结构比较（toggle 判定不依赖引用） */
   const sameValue = (a: unknown, b: unknown): boolean => {
     if (a === b) {
       return true
@@ -152,101 +132,107 @@ export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
     return false
   }
 
-  /** 移除选区样式的指定键（无填充/自动字色等「清除」语义） */
-  const applyRemoveKeys = (keys: string[]): void => {
-    const bounds = selectionBounds()
-    if (!bounds) {
-      deps.notify('无选区', 'warn')
-      return
-    }
+  /** toggle 的「全命中」判定：逐字段比较（fill.color / font.* / align.* / numFmt） */
+  const allMatch = (
+    bounds: NonNullable<ReturnType<typeof selectionBounds>>,
+    fragment: CellStylePatch,
+  ): boolean => {
     const store = deps.store()
     for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
       for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-        const base = { ...store.getStyle(col, row) } as Record<string, unknown>
-        for (const key of keys) {
-          delete base[key]
+        const style = store.getCellStyle({ row, col })
+        if (fragment.fill !== undefined) {
+          if (!sameValue(style?.fill?.color, fragment.fill.color)) {
+            return false
+          }
         }
-        if (Object.keys(base).length === 0) {
-          store.clearStyle(col, row)
-        } else {
-          store.setStyle(col, row, base as CellStyle)
+        for (const [family, patch] of [
+          ['font', fragment.font],
+          ['align', fragment.align],
+        ] as const) {
+          if (patch === undefined) {
+            continue
+          }
+          for (const [field, value] of Object.entries(patch)) {
+            const current =
+              style?.[family]?.[field as keyof (CellStyle['font'] & CellStyle['align'])]
+            if (!sameValue(current, value)) {
+              return false
+            }
+          }
+        }
+        if (fragment.numFmt !== undefined && !sameValue(style?.numFmt, fragment.numFmt)) {
+          return false
         }
       }
     }
-    refreshSelection(bounds)
-    deps.refreshStates()
+    return true
+  }
+
+  /** 片段取反（toggle 全命中时）：对象族整体置空 / 未提供族忽略 */
+  const negateFragment = (fragment: CellStylePatch): CellStylePatch => {
+    const negated: CellStylePatch = {}
+    if (fragment.fill !== undefined) negated.fill = {}
+    if (fragment.font !== undefined) {
+      negated.font = Object.fromEntries(
+        Object.keys(fragment.font).map((key) => [key, null]),
+      ) as CellStylePatch['font']
+    }
+    if (fragment.align !== undefined) {
+      negated.align = Object.fromEntries(
+        Object.keys(fragment.align).map((key) => [key, null]),
+      ) as CellStylePatch['align']
+    }
+    if (fragment.numFmt !== undefined) negated.numFmt = null
+    return negated
   }
 
   /** 对选区逐格套用片段：mode=toggle 时若选区内全部已含同值属性则移除 */
-  const applyFragment = (fragment: CellStyle, mode: 'toggle' | 'set'): void => {
+  const applyFragment = (fragment: CellStylePatch, mode: 'toggle' | 'set'): void => {
     const bounds = selectionBounds()
     if (!bounds) {
       deps.notify('无选区', 'warn')
       return
     }
-    const key = Object.keys(fragment)[0]!
+    const removing = mode === 'toggle' && allMatch(bounds, fragment)
+    const patch = removing ? negateFragment(fragment) : fragment
     const store = deps.store()
-    let allMatch = mode === 'toggle'
-    if (mode === 'toggle') {
-      outer: for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
-        for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-          const style = store.getStyle(col, row) as Record<string, unknown> | undefined
-          if (!style || !sameValue(style[key], fragment[key as keyof CellStyle])) {
-            allMatch = false
-            break outer
-          }
-        }
-      }
+    store.setCellStyles(rangeAddrs(bounds).map((addr) => ({ addr, partial: patch })))
+    const label = STYLE_LABELS[styleLabelKey(fragment) ?? ''] ?? '样式'
+    deps.notify(`${removing ? '已取消' : '已应用'}${label}`)
+    deps.refreshStates()
+  }
+
+  /** 移除选区样式的指定键（无填充/自动字色等「清除」语义） */
+  const applyRemoveKeys = (keys: 'fill' | 'color'): void => {
+    const bounds = selectionBounds()
+    if (!bounds) {
+      deps.notify('无选区', 'warn')
+      return
     }
-    const removing = mode === 'toggle' && allMatch
-    for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
-      for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-        const base = { ...store.getStyle(col, row) } as Record<string, unknown>
-        if (removing) {
-          delete base[key]
-        } else {
-          Object.assign(base, fragment)
-        }
-        if (Object.keys(base).length === 0) {
-          store.clearStyle(col, row)
-        } else {
-          store.setStyle(col, row, base as CellStyle)
-        }
-      }
-    }
-    refreshSelection(bounds)
-    deps.notify(`${removing ? '已取消' : '已应用'}${STYLE_LABELS[key] ?? key}`)
+    const patch: CellStylePatch = keys === 'fill' ? { fill: {} } : { font: { color: null } }
+    const store = deps.store()
+    store.setCellStyles(rangeAddrs(bounds).map((addr) => ({ addr, partial: patch })))
     deps.refreshStates()
   }
 
   /**
-   * 边框预设写入选区：逐格片段由 sheet 插件 handle.borderCells 展开（8 预设语义对齐 ultra-ui），
-   * 写入按边级合并进既有 border（部分预设不丢其余边）；none 清除边框键。
-   * 不做邻居共享边回写——core 共享边裁决保证单侧设置即正确显示；左/上邻居刷新由
-   * refreshCell 联动覆盖（refreshSelection 只刷选区内）。
+   * 边框预设写入选区：逐格补丁由 buildBorderPresetItems 展开（8 预设语义对齐 ultra-ui，
+   * 共享边同步邻居），一次 setCellStyles = 单 undo 单元。
    */
-  const applyBorderPreset = (preset: BorderPreset, edge: CellBorderEdge): void => {
+  const applyBorderPreset = (preset: BorderPreset, edge: BorderEdge): void => {
     const bounds = selectionBounds()
     if (!bounds) {
       deps.notify('无选区', 'warn')
       return
     }
     const store = deps.store()
-    for (const item of deps.sheet.borderCells(bounds, preset, edge)) {
-      const base = { ...store.getStyle(item.col, item.row) } as Record<string, unknown>
-      if (item.border === null) {
-        delete base.border
-      } else {
-        const existing = base.border as Record<string, unknown> | undefined
-        base.border = { ...existing, ...item.border }
-      }
-      if (Object.keys(base).length === 0) {
-        store.clearStyle(item.col, item.row)
-      } else {
-        store.setStyle(item.col, item.row, base as CellStyle)
-      }
+    const range = {
+      start: { row: bounds.minRow, col: bounds.minCol },
+      end: { row: bounds.maxRow, col: bounds.maxCol },
     }
-    refreshSelection(bounds)
+    const items = buildBorderPresetItems(range, preset, edge, (addr) => store.getCellStyle(addr))
+    store.setCellStyles(items.map((item) => ({ addr: item.addr, partial: item.patch })))
     deps.notify(preset === 'none' ? '已清除边框' : '已应用边框')
   }
 
@@ -256,13 +242,10 @@ export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
       deps.notify('无选区', 'warn')
       return
     }
-    const store = deps.store()
-    for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
-      for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
-        store.clearStyle(col, row)
-      }
-    }
-    refreshSelection(bounds)
+    deps.store().clearCellStyle({
+      start: { row: bounds.minRow, col: bounds.minCol },
+      end: { row: bounds.maxRow, col: bounds.maxCol },
+    })
     deps.notify('已清除选区格式')
     deps.refreshStates()
   }
@@ -273,14 +256,11 @@ export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
       deps.notify('请先选择多格区域', 'warn')
       return
     }
-    const table = deps.table()
-    try {
-      table.setMergeCells([...deps.store().getMerges(), mergeBounds(bounds)])
-      deps.store().setMerges([...deps.store().getMerges(), mergeBounds(bounds)])
-      deps.notify('已合并选区')
-    } catch (error) {
-      deps.notify(`已拒绝：${(error as Error).message}`, 'warn')
-    }
+    deps.store().mergeCells({
+      start: { row: bounds.minRow, col: bounds.minCol },
+      end: { row: bounds.maxRow, col: bounds.maxCol },
+    })
+    deps.notify('已合并选区')
   }
 
   const unmergeSelection = (): void => {
@@ -288,22 +268,27 @@ export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
     if (!bounds) {
       return
     }
-    const kept = unmergeAt(deps.store(), bounds)
-    deps.table().setMergeCells([...kept])
+    deps.store().unmergeCells({
+      start: { row: bounds.minRow, col: bounds.minCol },
+      end: { row: bounds.maxRow, col: bounds.maxCol },
+    })
     deps.notify('已取消合并')
   }
 
-  let floatSeq = 0
-  const insertFloatImage = (src: string): void => {
+  const insertFloatImage = (input: {
+    data: Uint8Array
+    type: 'png' | 'jpeg' | 'gif' | 'svg' | 'webp'
+  }): void => {
     const focus = focusCell()
     const col = focus?.col ?? 0
     const row = focus?.row ?? 0
-    floatSeq += 1
-    deps.table().floatObjects.add({
-      id: `sheet-float-${floatSeq}`,
-      kind: 'image',
-      anchor: { from: { col, row }, to: { col: col + 2, row: row + 2 }, offsetX: 2, offsetY: 2 },
-      src,
+    deps.store().insertImage({
+      data: input.data,
+      type: input.type,
+      anchor: {
+        from: { row, col, offsetX: 2, offsetY: 2 },
+        to: { row: row + 2, col: col + 2 },
+      },
       title: '插入图片',
     })
     deps.notify('已插入图片')
@@ -322,7 +307,57 @@ export function createToolbarActions(deps: ToolbarActionsDeps): ToolbarActions {
   }
 }
 
-/** 图片文件 → data: URL（插入浮动图片用） */
+/** 选区边界 → 逐格地址清单 */
+function rangeAddrs(bounds: {
+  minCol: number
+  maxCol: number
+  minRow: number
+  maxRow: number
+}): Array<{ row: number; col: number }> {
+  const addrs: Array<{ row: number; col: number }> = []
+  for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
+    for (let col = bounds.minCol; col <= bounds.maxCol; col++) {
+      addrs.push({ row, col })
+    }
+  }
+  return addrs
+}
+
+/** 单字段片段 → 提示用中文名（toggle/set 通知文案） */
+const STYLE_LABELS: Record<string, string> = {
+  'fill.color': '填充色',
+  'font.color': '字体颜色',
+  'font.bold': '加粗',
+  'font.italic': '斜体',
+  'font.underline': '下划线',
+  'font.strikethrough': '删除线',
+  'font.size': '字号',
+  'align.horizontal': '对齐',
+  'align.vertical': '垂直对齐',
+  'align.wrap': '自动换行',
+}
+
+/** 片段 → 标签键（取首个设置族的首个字段） */
+function styleLabelKey(fragment: CellStylePatch): string | undefined {
+  if (fragment.fill?.color !== undefined) {
+    return 'fill.color'
+  }
+  for (const [family, patch] of [
+    ['font', fragment.font],
+    ['align', fragment.align],
+  ] as const) {
+    if (patch === undefined) {
+      continue
+    }
+    const field = Object.keys(patch)[0]
+    if (field) {
+      return `${family}.${field}`
+    }
+  }
+  return undefined
+}
+
+/** 图片文件 → data: URL（插入浮动图片的文件读取段） */
 export function fileToDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -330,4 +365,26 @@ export function fileToDataURL(file: File): Promise<string> {
     reader.addEventListener('error', () => reject(reader.error ?? new Error('读取文件失败')))
     reader.readAsDataURL(file)
   })
+}
+
+/** 图片文件（data: URL）→ 模型图片字节（非 data: URL 返回 null） */
+export function dataUrlToImage(
+  url: string,
+): { data: Uint8Array; type: 'png' | 'jpeg' | 'gif' | 'svg' | 'webp' } | null {
+  const match = /^data:image\/(png|jpeg|gif|svg\+xml|webp);base64,(.+)$/i.exec(url)
+  if (!match) {
+    return null
+  }
+  const raw = atob(match[2]!)
+  const data = new Uint8Array(raw.length)
+  for (let index = 0; index < raw.length; index++) {
+    data[index] = raw.charCodeAt(index)
+  }
+  return {
+    data,
+    type:
+      match[1]!.toLowerCase() === 'svg+xml'
+        ? 'svg'
+        : (match[1]!.toLowerCase() as 'png' | 'jpeg' | 'gif' | 'webp'),
+  }
 }

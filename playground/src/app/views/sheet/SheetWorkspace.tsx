@@ -52,12 +52,8 @@ export function SheetWorkspace({ onDemo }: { onDemo?: (demo: SheetDemo | null) =
     setDemo(sheetDemo)
     onDemoRef.current?.(sheetDemo)
 
-    // ---- 全局快捷键（Ctrl/Cmd+Z 撤销、Shift+Z/Y 重做、F 查找；输入控件内与编辑会话中不接管撤销/重做） ----
-    /** 撤销/重做接管条件：网格聚焦（焦点不在输入控件，见下方 target 过滤）且活跃表不在编辑会话 */
-    const canUndoRedo = (): boolean => {
-      const active = sheetDemo.getBundle().activeTable()
-      return active != null && !active.isEditing()
-    }
+    // ---- 全局快捷键（Ctrl/Cmd+F 查找；撤销/重做由 SheetGrid 容器级监听接管，
+    // 此处只在网格未消费时兜底——defaultPrevented 即 grid 已处理，避免双次撤销） ----
     const onKeydown = (event: KeyboardEvent): void => {
       if (!viewport.isConnected || !(event.ctrlKey || event.metaKey)) {
         return
@@ -70,15 +66,20 @@ export function SheetWorkspace({ onDemo }: { onDemo?: (demo: SheetDemo | null) =
       if (key === 'f') {
         event.preventDefault()
         ui.toggleFind()
-      } else if (key === 'z' && !event.shiftKey && canUndoRedo()) {
+        return
+      }
+      // 网格聚焦时 Ctrl/Cmd+Z / +Y 已被 grid 消费（模型命令栈 + preventDefault）
+      if (event.defaultPrevented) {
+        return
+      }
+      const sheet = () => sheetDemo.getStore()
+      if (key === 'z' && !event.shiftKey && sheet().undo()) {
         event.preventDefault()
-        sheetDemo.getSheet().undo()
         sheetDemo.notify('已撤销')
         ui.refreshToolbar()
         ui.refreshInspector()
-      } else if ((key === 'z' || key === 'y') && canUndoRedo()) {
+      } else if ((key === 'z' || key === 'y') && sheet().redo()) {
         event.preventDefault()
-        sheetDemo.getSheet().redo()
         sheetDemo.notify('已重做')
         ui.refreshToolbar()
         ui.refreshInspector()

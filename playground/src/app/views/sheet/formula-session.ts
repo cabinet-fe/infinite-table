@@ -1,7 +1,8 @@
 // 公式栏组合会话控制器（mountFormulaBar 的接线原样迁移；DOM 元素由 React 公式栏渲染）：
 // 名称框跳转、输入区编辑会话（bar/engine 两种）、画布点选引用拾取、容器键入路由、
 // 引擎编辑器镜像、函数建议/参数提示、引用染色框（sky 浮层）。
-// 补全/提示数据单一来源：@infinitable/formulas 注册表元数据。
+// 补全/提示数据单一来源：@infinitable/formulas 注册表元数据；取值为模型编辑口径
+// （公式格 '=' 原文，其余存储值）。
 
 import { normalizeRange, type HighlightRange, type ListTable } from '@infinitable/core'
 
@@ -14,7 +15,9 @@ import {
   type FormulaFunctionInfo,
 } from '@infinitable/formulas'
 
-import type { SheetBookBundle, SheetStore } from '../../../sections/sheet/book'
+import type { CellValue, Sheet } from '@infinitable/sheet'
+
+import type { SheetBookBundle } from '../../../sections/sheet/book'
 
 /** 函数面板分类（常用/全部 + 注册表分类）；签名为元数据单一来源 */
 export const FORMULA_PANEL_CATEGORIES = ['常用', '全部', ...FORMULA_FUNCTION_CATEGORIES.slice(1)]
@@ -24,6 +27,15 @@ export { colLetters }
 /** 0 基坐标 → A1 形态地址 */
 export function formatCellAddress(col: number, row: number): string {
   return `${colLetters(col)}${row + 1}`
+}
+
+/** 模型编辑口径读值：公式格 '=' 原文（所见即所编），其余存储值 */
+function readEditValue(sheet: Sheet, col: number, row: number): string {
+  const data = sheet.getCellData({ row, col })
+  if (data?.f != null && data.f !== '') {
+    return `=${data.f}`
+  }
+  return data?.v == null ? '' : String(data.v)
 }
 
 /** 解析 A1 / B3:D5 的单地址段；非法返回 null */
@@ -206,7 +218,7 @@ export function attachFormulaSession(
   els: { nameBox: HTMLInputElement; input: HTMLInputElement },
   ctx: {
     table: () => ListTable
-    store: () => SheetStore
+    store: () => Sheet
     notify: (text: string, kind?: 'info' | 'warn') => void
     bundle: SheetBookBundle
   },
@@ -340,8 +352,7 @@ export function attachFormulaSession(
     if (document.activeElement === input) {
       return
     }
-    const raw = ctx.store().getValue(cell.col, cell.row)
-    input.value = raw == null ? '' : String(raw)
+    input.value = readEditValue(ctx.store(), cell.col, cell.row)
     hideSuggestions()
     refreshEditorChrome()
   }
@@ -420,7 +431,7 @@ export function attachFormulaSession(
     boundTable?.setSelectionAnchor(cell)
   }
 
-  /** 提交：写回 Store + 局部刷新（写回组合会话锚定格，非当前选区） */
+  /** 提交：写回模型 + 局部刷新（写回组合会话锚定格，非当前选区；值命令入撤销栈） */
   const commit = (): void => {
     const cell = composeCell ?? focusCell()
     if (!cell) {
@@ -430,8 +441,7 @@ export function attachFormulaSession(
     composeCell = null
     syncSelectionAnchor(null)
     suspended = true
-    ctx.store().setValue(cell.col, cell.row, input.value === '' ? null : input.value)
-    ctx.table().refreshCell(cell.col, cell.row)
+    ctx.store().setCellValue(cell, input.value === '' ? null : (input.value as CellValue))
     suspended = false
     ctx.notify(`${nameBox.value} 已更新`)
     hideSuggestions()
@@ -734,17 +744,17 @@ export function attachFormulaSession(
       table.setHighlightRanges([])
       return
     }
-    const activeId = ctx.bundle.sheet.activeId
+    const activeName = ctx.bundle.activeName()
     const highlights: HighlightRange[] = []
     const seen = new Set<string>()
     for (const { ref } of scanFormulaReferences(text.slice(1))) {
-      // 跨表引用只画活跃表的（其余表无对应画布；表名按 id/展示名大小写不敏感匹配）
+      // 跨表引用只画活跃表的（其余表无对应画布；表名与 Workbook 管理名大小写不敏感匹配）
       if (ref.sheet !== undefined) {
         const lower = ref.sheet.toLowerCase()
-        const onActive =
-          activeId !== null &&
-          (activeId.toLowerCase() === lower || ctx.bundle.nameOf(activeId).toLowerCase() === lower)
-        if (!onActive) {
+        if (
+          activeName.toLowerCase() !== lower &&
+          ctx.bundle.nameOf(activeName).toLowerCase() !== lower
+        ) {
           continue
         }
       }
@@ -857,12 +867,9 @@ export function attachFormulaSession(
     boundTable = table
   }
   bindTo(ctx.table())
-  const offBookChange = ctx.bundle.sheet.onSheetChange((event) => {
-    if (!event.table) {
-      return
-    }
+  const offBookChange = ctx.bundle.onBookChange(() => {
     suspended = false
-    bindTo(event.table)
+    bindTo(ctx.table())
     refresh()
   })
 
