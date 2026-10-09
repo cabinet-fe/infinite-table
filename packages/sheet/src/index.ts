@@ -156,3 +156,7 @@ export {
   type SheetImage,
   type ImageInput,
 } from './core/image'
+
+export { exportWorkbookXlsx, exportSheetXlsx, exportSheetCsv } from './core/io/export'
+
+export { importXlsx, importCsv } from './core/io/import'
