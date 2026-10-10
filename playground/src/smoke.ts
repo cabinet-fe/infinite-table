@@ -2,7 +2,8 @@
 // 层结构、取值管线、像素级显示能力（冻结/合并/逐边边框/自定义渲染/checkbox/主题）、
 // 合成事件驱动的交互（拖选/整行整列/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
 // 图片加载与无闪回滚、浮动对象跟随、图表格（四类声明解析/离屏出图上屏/缓存命中/滚回无闪）、
-// 编辑闭环（双击/键盘/API/滚动跟随与滚出提交）。
+// 编辑闭环（双击/键盘/API/滚动跟随与滚出提交）、原生滚动条档真实传播路径交互
+// （指针单击/拖选/Ctrl 加选、双击进编辑提交、焦点契约键盘导航、滚轮无双滚）。
 // 结果写 window.__SMOKE__ 与 document.title。
 
 import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinitable/core'
@@ -26,6 +27,7 @@ import {
 } from './sections/chart'
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media'
 import {
+  NATIVE_LIST_FROZEN_COLS,
   NATIVE_LIST_VIEW_HEIGHT,
   NATIVE_LIST_VIEW_WIDTH,
   NATIVE_SCROLL_WRAPPER_SELECTOR,
@@ -864,6 +866,61 @@ function nativeScrollWrapper(container: HTMLElement): HTMLElement {
   return wrapper
 }
 
+/** 原生装配的 sticky 视口（wrapper→spacer→viewport 第三层）：引擎坐标换算基准
+ *  （EventSystem 的 getBoundingClientRect 转发目标）与层 canvas 锚定点 */
+function nativeViewport(wrapper: HTMLElement): HTMLElement {
+  const viewport = wrapper.firstElementChild?.firstElementChild
+  assert(viewport instanceof HTMLElement, '原生装配缺少 sticky 视口节点')
+  return viewport
+}
+
+/** 格中心（sticky 视口基准 CSS 像素）：getCellRelativeRect 即画布坐标同口径 */
+function nativeCellCenter(table: ListTable, col: number, row: number): { x: number; y: number } {
+  const rect = table.getCellRelativeRect(col, row)
+  assert(rect, `(${col},${row}) 不在原生实例可视窗口内`)
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+}
+
+/**
+ * 原生档合成指针事件：派发在真实 hit-test 命中的 wrapper 上（spacer 关闭
+ * pointer-events 后内容区真实点击命中的就是它），冒泡到达宿主容器上的引擎监听——
+ * 与真实浏览器传播路径同构，不直投引擎监听元素。坐标基准贴 sticky 视口：
+ * clientX/Y − 视口 rect 左上即画布 CSS 像素坐标（引擎 EventSystem 同口径）。
+ */
+function dispatchNativePointer(
+  wrapper: HTMLElement,
+  viewport: HTMLElement,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  x: number,
+  y: number,
+  modifiers: { ctrlKey?: boolean; metaKey?: boolean } = {},
+): void {
+  const rect = viewport.getBoundingClientRect()
+  wrapper.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      clientX: rect.left + x,
+      clientY: rect.top + y,
+      ...modifiers,
+    }),
+  )
+}
+
+/** 原生档双击进编辑：同一格两次落点（时长/位移在双击阈值内），派发在真实命中元素上 */
+function doubleTapNativeCell(
+  wrapper: HTMLElement,
+  viewport: HTMLElement,
+  table: ListTable,
+  col: number,
+  row: number,
+): void {
+  const { x, y } = nativeCellCenter(table, col, row)
+  dispatchNativePointer(wrapper, viewport, 'pointerdown', x, y)
+  dispatchNativePointer(wrapper, viewport, 'pointerup', x, y)
+  dispatchNativePointer(wrapper, viewport, 'pointerdown', x, y)
+  dispatchNativePointer(wrapper, viewport, 'pointerup', x, y)
+}
+
 async function checkNativeScroll(checker: Checker, demos: DemoHandles): Promise<void> {
   const { list, sheet } = demos.nativeScroll
   const listTable = list.table
@@ -1080,6 +1137,245 @@ async function checkNativeScroll(checker: Checker, demos: DemoHandles): Promise<
         sheetTable.getScrollTop() === wrapper.scrollTop,
         `扩容滚动后引擎 top=${sheetTable.getScrollTop()} ≠ 容器 ${wrapper.scrollTop}`,
       )
+    },
+  )
+
+  // ---- 原生档交互断言（⑨–⑫）：合成事件走修复后装配的真实传播路径 ----
+  // 锚点口径复用 native-scroll.ts 导出常量：滚动容器选择器（nativeScrollWrapper）、
+  // 冻结数（ListTable 交互基准列）、视口尺寸（⑫ 滚轮落点）；格几何经 getCellRelativeRect
+  // 按引擎口径求值，不另立列宽/行高魔法数。
+
+  await checker.step(
+    '原生滚动条⑨：真实传播路径指针交互（单击选择/拖选区间/Ctrl+单击追加）双实例',
+    async () => {
+      // 断言夹具（经引擎公共面运行时开启，不改演示装配）：Ctrl/Cmd 加选开关——引擎
+      // 缺省关且两实例装配均未开启，本步要断言追加语义
+      for (const { table } of instances) {
+        table.options.ctrlMultiSelect = true
+      }
+      for (const { label, container, table } of instances) {
+        // 滚动复位（⑥⑧步后两轴有残留偏移），交互目标取可视窗口内格
+        const wrapper = nativeScrollWrapper(container)
+        wrapper.scrollLeft = 0
+        wrapper.scrollTop = 0
+        await frames(2)
+        const viewport = nativeViewport(wrapper)
+        // 交互基准列：ListTable 取冻结数口径（NATIVE_LIST_FROZEN_COLS，首个非冻结数据列），
+        // SheetGrid 无冻结列取同位；+1..+4 偏移目标均在两实例可视宽度内
+        const base = label === 'ListTable' ? NATIVE_LIST_FROZEN_COLS : 1
+        table.clearSelection()
+
+        // 单击选择：选区变为该格（单格区间 + 焦点同格）
+        const click = nativeCellCenter(table, base, 1)
+        dispatchNativePointer(wrapper, viewport, 'pointerdown', click.x, click.y)
+        dispatchNativePointer(wrapper, viewport, 'pointerup', click.x, click.y)
+        let snapshot = table.getSelection()
+        let b = normalizeRange(snapshot.ranges[0]!)
+        assert(
+          snapshot.ranges.length === 1 &&
+            b.minCol === base &&
+            b.maxCol === base &&
+            b.minRow === 1 &&
+            b.maxRow === 1,
+          `${label} 单击选区 (${b.minCol},${b.minRow})~(${b.maxCol},${b.maxRow})，期望单格 (${base},1)`,
+        )
+        assert(
+          snapshot.focus?.col === base && snapshot.focus?.row === 1,
+          `${label} 单击焦点未落被点格`,
+        )
+
+        // 拖选区间：按下并拖到另一格，产生含两格的矩形选区
+        const dragFrom = nativeCellCenter(table, base + 1, 1)
+        const dragTo = nativeCellCenter(table, base + 3, 3)
+        dispatchNativePointer(wrapper, viewport, 'pointerdown', dragFrom.x, dragFrom.y)
+        dispatchNativePointer(wrapper, viewport, 'pointermove', dragTo.x, dragTo.y)
+        dispatchNativePointer(wrapper, viewport, 'pointerup', dragTo.x, dragTo.y)
+        snapshot = table.getSelection()
+        b = normalizeRange(snapshot.ranges[0]!)
+        assert(
+          snapshot.ranges.length === 1 &&
+            b.minCol === base + 1 &&
+            b.maxCol === base + 3 &&
+            b.minRow === 1 &&
+            b.maxRow === 3,
+          `${label} 拖选区间 (${b.minCol},${b.minRow})~(${b.maxCol},${b.maxRow})，期望 (${base + 1},1)~(${base + 3},3)`,
+        )
+
+        // Ctrl+单击追加选区段（macOS 真实手势为 Cmd，引擎两修饰键等价）：
+        // - ListTable：选区保持多段，ranges 数 ≥ 2
+        // - SheetGrid：画布多段选区经 onSelectionChange 回灌模型（selectRange 单段
+        //   语义）后回推画布，收敛为追加格单段——断言回灌终态，焦点仍落追加格
+        const append = nativeCellCenter(table, base + 4, 2)
+        dispatchNativePointer(wrapper, viewport, 'pointerdown', append.x, append.y, {
+          ctrlKey: true,
+        })
+        dispatchNativePointer(wrapper, viewport, 'pointerup', append.x, append.y)
+        snapshot = table.getSelection()
+        if (label === 'ListTable') {
+          assert(
+            snapshot.ranges.length >= 2,
+            `${label} Ctrl+单击后选区段数 ${snapshot.ranges.length}（期望 ≥ 2）`,
+          )
+        } else {
+          const ab = normalizeRange(snapshot.ranges[0]!)
+          assert(
+            snapshot.ranges.length === 1 &&
+              ab.minCol === base + 4 &&
+              ab.maxCol === base + 4 &&
+              ab.minRow === 2 &&
+              ab.maxRow === 2,
+            `${label} Ctrl+单击回灌终态 (${ab.minCol},${ab.minRow})~(${ab.maxCol},${ab.maxRow})，期望单格 (${base + 4},2)`,
+          )
+        }
+        assert(
+          snapshot.focus?.col === base + 4 && snapshot.focus?.row === 2,
+          `${label} Ctrl+单击焦点未落追加格`,
+        )
+      }
+    },
+  )
+
+  await checker.step(
+    '原生滚动条⑩：宿主焦点契约与键盘导航（焦点元素上方向键移动/Shift 扩展）双实例',
+    async () => {
+      for (const { label, container, table } of instances) {
+        const wrapper = nativeScrollWrapper(container)
+        const viewport = nativeViewport(wrapper)
+        const base = label === 'ListTable' ? NATIVE_LIST_FROZEN_COLS : 1
+        // 焦点就位（真实 keydown 在焦点元素上触发、沿祖先链传播到引擎监听）：
+        // - SheetGrid：真实宿主接线——wrapper（真实命中元素）上按下经冒泡触发 bindFocus
+        //   聚焦宿主容器（tabIndex=-1）
+        // - ListTable：宿主未接焦点（演示容器无 tabIndex）——按同一宿主契约补齐
+        //   tabIndex=-1 + 编程聚焦（与 SheetGrid bindFocus 同形态）
+        if (label === 'ListTable') {
+          container.tabIndex = -1
+          container.focus({ preventScroll: true })
+        } else {
+          const press = nativeCellCenter(table, base, 1)
+          dispatchNativePointer(wrapper, viewport, 'pointerdown', press.x, press.y)
+          dispatchNativePointer(wrapper, viewport, 'pointerup', press.x, press.y)
+        }
+        assert(
+          document.activeElement === container,
+          `${label} 焦点未落在宿主容器（键盘传播路径断链）`,
+        )
+
+        // 方向键移动活动格：焦点格下移一格
+        table.selectCell(base, 2)
+        dispatchKey(container, 'ArrowDown')
+        let focus = table.getSelection().focus
+        assert(
+          focus?.col === base && focus?.row === 3,
+          `${label} ArrowDown 后活动格 (${focus?.col},${focus?.row})，期望 (${base},3)`,
+        )
+        // Shift+方向键扩展选区：区间含两格。焦点两实例口径不同——ListTable 同步到
+        // 扩展目标；SheetGrid 扩展选区回灌模型后活动格定在段首（锚点语义），画布
+        // 焦点随模型回推，断言各自真实终态
+        dispatchKey(container, 'ArrowRight', true)
+        const b = normalizeRange(table.getSelection().ranges[0]!)
+        focus = table.getSelection().focus
+        assert(
+          b.minCol === base && b.maxCol === base + 1 && b.minRow === 3 && b.maxRow === 3,
+          `${label} shift+ArrowRight 后选区 (${b.minCol},${b.minRow})~(${b.maxCol},${b.maxRow})`,
+        )
+        const expectFocusCol = label === 'ListTable' ? base + 1 : base
+        assert(
+          focus?.col === expectFocusCol && focus?.row === 3,
+          `${label} shift+ArrowRight 后焦点 (${focus?.col},${focus?.row})，期望 (${expectFocusCol},3)`,
+        )
+      }
+    },
+  )
+
+  await checker.step('原生滚动条⑪：双击进编辑并提交回写（真实传播路径双击）双实例', async () => {
+    // ListTable 演示列缺省无 editor 声明（可编三级判定的第一级未接）：经公共面接通——
+    // editorRegistry 注册 text 编辑器 + 列定义声明 editor（columns 与 options.columns
+    // 同一数组引用，运行时可变）。SheetGrid 演示已接编辑器路由（sheet-text），无需补线。
+    listTable.editorRegistry.registerEditor('text', {})
+    listTable.columns[NATIVE_LIST_FROZEN_COLS]!.editor = 'text'
+    const editCases = [
+      {
+        label: 'ListTable',
+        container: list.container,
+        table: listTable,
+        col: NATIVE_LIST_FROZEN_COLS,
+        row: 1,
+        next: '格 1-1 冒烟改',
+      },
+      {
+        label: 'SheetGrid',
+        container: sheet.container,
+        table: sheetTable,
+        col: 1,
+        row: 1,
+        next: '365',
+      },
+    ] as const
+    for (const { label, container, table, col, row, next } of editCases) {
+      const wrapper = nativeScrollWrapper(container)
+      const viewport = nativeViewport(wrapper)
+      const before = table.getCellText(col, row)
+      doubleTapNativeCell(wrapper, viewport, table, col, row)
+      assert(table.isEditing(), `${label} 双击未进入编辑`)
+      const input = container.querySelector<HTMLInputElement>('input')
+      assert(input, `${label} 编辑浮层未出现`)
+      assert(input.value === before, `${label} 编辑初值 ${input.value}，期望 ${before}`)
+      input.value = next
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      assert(!table.isEditing(), `${label} Enter 未提交编辑`)
+      assert(!container.querySelector('input'), `${label} 提交后浮层未关闭`)
+      assert(
+        table.getCellText(col, row) === next,
+        `${label} 提交未回写：${table.getCellText(col, row)}`,
+      )
+      // 焦点回落宿主容器（原生档焦点契约）：提交后键盘续可达
+      assert(document.activeElement === container, `${label} 提交后焦点未回落宿主容器`)
+    }
+  })
+
+  await checker.step(
+    '原生滚动条⑫：交互后滚轮无双滚（引擎与容器恒等推进、宿主滚轮接线让位）双实例',
+    async () => {
+      for (const { label, container, table } of instances) {
+        const wrapper = nativeScrollWrapper(container)
+        // 原生滚动等价事件流（滚轮/触控板由浏览器滚动 wrapper → scroll 事件回灌引擎）：
+        // 直写推进两步，每步引擎状态与 wrapper.scrollTop 恒等（等量位移、无双滚）
+        wrapper.scrollTop += 120
+        await frames(2)
+        assert(
+          wrapper.scrollTop === table.getScrollTop(),
+          `${label} 推进后引擎 top=${table.getScrollTop()} ≠ 容器 ${wrapper.scrollTop}`,
+        )
+        wrapper.scrollTop += 100
+        await frames(2)
+        assert(
+          wrapper.scrollTop === table.getScrollTop(),
+          `${label} 再推进后引擎 top=${table.getScrollTop()} ≠ 容器 ${wrapper.scrollTop}（恒等推进破坏）`,
+        )
+        // 宿主滚轮接线让位（口径同④步）：wheel 不被 preventDefault、引擎不自行滚动
+        const [viewWidth, viewHeight] =
+          label === 'ListTable'
+            ? [NATIVE_LIST_VIEW_WIDTH, NATIVE_LIST_VIEW_HEIGHT]
+            : [NATIVE_SHEET_VIEW_WIDTH, NATIVE_SHEET_VIEW_HEIGHT]
+        const rect = container.getBoundingClientRect()
+        const event = new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaY: 120,
+          clientX: rect.left + viewWidth / 2,
+          clientY: rect.top + viewHeight / 2,
+        })
+        container.dispatchEvent(event)
+        await frames(2)
+        assert(
+          event.defaultPrevented === false,
+          `${label} 宿主滚轮接线未让位（preventDefault 拦截原生滚动）`,
+        )
+        assert(
+          table.getScrollTop() === wrapper.scrollTop,
+          `${label} 滚轮派发后引擎自行滚动（双滚）`,
+        )
+      }
     },
   )
 }
