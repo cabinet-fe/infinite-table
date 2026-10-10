@@ -928,9 +928,9 @@ function scrollbarGeometry(
   )
 }
 
-/** 浮层滚动条视图：显隐门控 + hover/active 态（关闭或静止隐藏两轴皆 null） */
+/** 浮层滚动条视图：显隐门控 + hover/active 态（关闭/静止隐藏两轴皆 null）；原生模式恒空（滚动条由浏览器渲染） */
 function scrollbarViews(table: ListTable): OverlayContent['scrollbars'] {
-  if (!table.scrollbarConfig.enabled || !table.scrollbarVisible) {
+  if (!table.scrollbarConfig.enabled || table.nativeScrollbar || !table.scrollbarVisible) {
     return { vertical: null, horizontal: null }
   }
   const view = (axis: 'vertical' | 'horizontal') => {
@@ -947,7 +947,8 @@ function scrollbarViews(table: ListTable): OverlayContent['scrollbars'] {
 }
 
 function scrollbarHit(table: ListTable, x: number, y: number): ScrollbarHit | null {
-  if (!table.scrollbarConfig.enabled) return null
+  // 原生模式右/下缘条带不拦截指针（无画布滚动条，指针归原生滚动条与格交互）
+  if (!table.scrollbarConfig.enabled || table.nativeScrollbar) return null
   const size = table.getTheme().interaction.scrollbarSize
   return hitScrollbar(
     table.width,

@@ -96,6 +96,7 @@ import type { ImageCellNode } from './media/image-cell-node'
 import { ImageService, type LoadedImage } from './media/image-service'
 import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
+import { NativeScrollbarHost } from './native-scrollbar'
 import type { TablePlugin } from './plugin'
 import {
   MIN_COL_WIDTH,
@@ -324,6 +325,8 @@ export class ListTable {
   scrollbarDrag: ScrollbarDragSession | null = null
   /** @internal 滚动条开关与显隐策略（options.scrollbar 构造期归一化） */
   readonly scrollbarConfig: ScrollbarConfig
+  /** @internal 原生滚动条装配（scrollbar.mode === 'native' 时非 null；canvas 档不创建） */
+  readonly nativeScrollbar: NativeScrollbarHost | null
   /** @internal 滚动条当前可见（'always' 档恒 true；'scrolling'/'hover' 档由活动状态机维护） */
   scrollbarVisible: boolean
   /** @internal 滚动条 hover 轴（非拖拽指针悬停滑块；null 无 hover） */
@@ -445,6 +448,17 @@ export class ListTable {
     // 滚动条配置归一化：'always' 档常驻可见，'scrolling'/'hover' 档初始静止隐藏（滚动/悬停显示）
     this.scrollbarConfig = resolveScrollbarConfig(options.scrollbar)
     this.scrollbarVisible = this.scrollbarConfig.visibility === 'always'
+    // 原生滚动条装配（mode 'native'）：宿主容器内建真实 DOM 滚动容器，滚动状态与
+    // ScrollManager 双向同步；注入 host 时层挂载自管（RenderHost 接口不变），不装配
+    this.nativeScrollbar =
+      this.scrollbarConfig.mode === 'native'
+        ? new NativeScrollbarHost({
+            parent: options.host ? undefined : options.hostOptions?.container,
+            width: this.width,
+            height: this.height,
+            scroll: this.scroll,
+          })
+        : null
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
     // 行列头开关（showRowHeader/showColHeader）构造期归一化为零宽/零高：
     // 几何（视口/内容原点/冻结偏移/命中/编辑浮层定位）全部经既有 headerHeight/
@@ -479,6 +493,8 @@ export class ListTable {
         // 缺省透传宿主环境 dpr（hostOptions.dpr 显式注入优先）：Retina 下不再 1× 被放大上屏
         dpr: resolveHostDpr(),
         ...options.hostOptions,
+        // 原生模式层 canvas（与缺省事件源）挂滚动容器的 sticky 视口：坐标口径与画布层对齐
+        container: this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container,
       })
     // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先，缺省取宿主环境值（resize 随宿主刷新）
     this.hostDpr = options.hostOptions?.dpr ?? resolveHostDpr()
@@ -512,6 +528,8 @@ export class ListTable {
       this.contentWidth - this.frozenColsWidth,
       this.contentHeight - this.frozenRowsHeight,
     )
+    // 原生容器滚动范围与初始滚动边界对齐（spacer 撑出 maxLeft/maxTop 同构范围）
+    this.nativeScrollbar?.updateScrollRange()
     this.scroll.onScroll((_state, delta) => this.onScroll(delta))
     // 图片加载窗口先就位：首帧窗口外请求不发起
     updateImageWindow(this)
@@ -521,7 +539,8 @@ export class ListTable {
       )
       this.binding.attach()
     }
-    this.container = options.hostOptions?.container
+    // 原生模式编辑浮层/光标/指针换算容器随层挂载点（sticky 视口，坐标与画布层对齐）
+    this.container = this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container
     this.editorRegistry = options.editorRegistry ?? new EditorRegistry()
     this.editManager = new EditManager({
       columns: options.columns,
@@ -731,6 +750,16 @@ export class ListTable {
 
   getScrollState(): ScrollState {
     return this.scroll.state
+  }
+
+  /**
+   * 当前滚动条是否为原生模式（options.scrollbar 配置 mode: 'native' 启用，只读判定）。
+   * 宿主既有滚轮接线（playground attachWheel、SheetGrid bindWheel 等自行把 wheel
+   * 转 scrollBy 的路径）据此跳过：原生模式下滚轮/触控板由滚动容器原生处理，
+   * 双接线会造成双滚。
+   */
+  get usesNativeScrollbar(): boolean {
+    return this.nativeScrollbar !== null
   }
 
   /** 当前可视窗口（[start, end) 行列区间，不含冻结区——冻结行列始终可见） */
@@ -1295,6 +1324,8 @@ export class ListTable {
     // 透传当前宿主环境 dpr：core 侧几何变更路径与运行期 DPR 保持一致
     this.hostDpr = resolveHostDpr()
     this.host.resize(nextWidth, nextHeight, resolveHostDpr())
+    // 原生滚动容器 CSS 尺寸随视口原地调整（滚动范围随后的几何变更重算）
+    this.nativeScrollbar?.resize(nextWidth, nextHeight)
     // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
     this.overlay.resize()
     if (this.underlayPainterNode) {
@@ -1586,15 +1617,18 @@ export class ListTable {
     if (this.ownHost) {
       this.host.destroy()
     }
+    // 原生滚动容器解绑与摘除（层 canvas 已由宿主清理，幂等）
+    this.nativeScrollbar?.destroy()
   }
 
   /**
    * @internal 竖轴滚动条预留轨道条带宽（画布右缘，纵向滚动可滚时 scrollbarSize 常驻；
    * reserve 关闭/滚动条关闭/纵向不可滚为 0）。预留判定用扣预留前视口（内容 >
    * height − headerHeight 即可滚），不因预留缩小视口反馈地「滚起来」。
+   * 原生模式为 0：gutter 由滚动容器布局（scrollbar-gutter: stable）扣除。
    */
   get scrollbarGutterWidth(): number {
-    if (!this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
+    if (this.nativeScrollbar || !this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
       return 0
     }
     return this.contentHeight > this.height - this.headerHeight
@@ -1604,7 +1638,7 @@ export class ListTable {
 
   /** @internal 横轴滚动条预留轨道条带高（画布下缘；语义同 scrollbarGutterWidth） */
   get scrollbarGutterHeight(): number {
-    if (!this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
+    if (this.nativeScrollbar || !this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
       return 0
     }
     return this.contentWidth > this.width - this.rowHeaderWidth
@@ -1612,13 +1646,22 @@ export class ListTable {
       : 0
   }
 
-  /** @internal 视口宽（扣除行号列与竖轴预留轨道） */
+  /**
+   * @internal 视口宽（扣除行号列）。原生模式取滚动容器 clientWidth 口径（已含原生
+   * gutter 扣除；无布局环境回落 CSS 宽），canvas 模式另扣竖轴预留轨道。
+   */
   get viewportWidth(): number {
+    if (this.nativeScrollbar) {
+      return Math.max(0, this.nativeScrollbar.clientWidth - this.rowHeaderWidth)
+    }
     return Math.max(0, this.width - this.rowHeaderWidth - this.scrollbarGutterWidth)
   }
 
-  /** @internal 视口高（扣除列头与横轴预留轨道） */
+  /** @internal 视口高（扣除列头；原生/canvas 口径同 viewportWidth） */
   get viewportHeight(): number {
+    if (this.nativeScrollbar) {
+      return Math.max(0, this.nativeScrollbar.clientHeight - this.headerHeight)
+    }
     return Math.max(0, this.height - this.headerHeight - this.scrollbarGutterHeight)
   }
 
@@ -1791,6 +1834,8 @@ export class ListTable {
       this.contentWidth - this.frozenColsWidth,
       this.contentHeight - this.frozenRowsHeight,
     )
+    // 原生容器滚动范围随新边界同步（spacer 撑出 maxLeft/maxTop 同构范围）
+    this.nativeScrollbar?.updateScrollRange()
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
     if (this.media) {

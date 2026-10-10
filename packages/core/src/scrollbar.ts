@@ -3,6 +3,8 @@
 // 范围同构（内容 = 视口 + 滚动余量），视口口径取整个画布（含行号列/列头带），
 // 比例映射不受行头/列头像素差影响。内缩边距（margin）只作用于滑块厚度方向，
 // 纵向行程几何不变——拖拽/点按换算与命中语义不受主题 token 影响。
+// 原生滚动条模式（mode: 'native'）不走本文件几何：真实 DOM 滚动容器由
+// native-scrollbar.ts 装配，本文件只承担其配置归一化（resolveScrollbarConfig）。
 
 import type { ScrollbarOptions } from './types'
 
@@ -52,6 +54,12 @@ export interface ScrollbarConfig {
   hideDelay: number | undefined
   /** 可滚动轴常驻预留轨道条带（reserve: false 回悬浮式） */
   reserve: boolean
+  /**
+   * 原生滚动条档标记：仅 options.scrollbar.mode === 'native' 的对象形态带 'native'；
+   * 未配置/boolean/无 mode 对象不带该字段（canvas 档输出与旧版逐字段一致）。
+   * 此档下滚动条由浏览器原生渲染，visibility/hideDelay/reserve 归一化为不生效值。
+   */
+  mode?: 'native'
 }
 
 export function resolveScrollbarConfig(
@@ -67,6 +75,16 @@ export function resolveScrollbarConfig(
   // 显式 true 保留旧语义：常驻
   if (option === true) {
     return { enabled: true, visibility: 'always', hideDelay: undefined, reserve: true }
+  }
+  // 原生档：滚动条渲染/显隐/指针全归浏览器，canvas 档字段在此不生效
+  if (option.mode === 'native') {
+    return {
+      enabled: true,
+      mode: 'native',
+      visibility: 'always',
+      hideDelay: undefined,
+      reserve: false,
+    }
   }
   return {
     enabled: true,

@@ -37,8 +37,9 @@ export type {
   DataRecord,
   ListTableOptions,
   ResolveDisplayValue,
-  // 内建滚动条配置（ListTableOptions.scrollbar 的对象形态）
+  // 内建滚动条配置（ListTableOptions.scrollbar 的对象形态；mode: 'native' 启用浏览器原生滚动条）
   ScrollbarOptions,
+  ScrollbarMode,
   TableContextMenuEvent,
   TableModel,
 } from './types'
