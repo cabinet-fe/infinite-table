@@ -372,6 +372,7 @@ void writeSheet
 > - Store 维度构造期固定：行数/列数不可变（与引擎 `columns.length` 对齐）；值/样式/meta 越界写为空操作不报错。
 > - 单表形态宿主自建表时必须同时把插件传进 `plugins`（或 `table.use(sheet)`）：只取 `asModel()` 不挂插件则没有撤销/填充/键位接线；对插件外的表手动挂载会抛「mount 的表未关联 Store」。
 > - 书形态只管实例池与状态，DOM 呈现归宿主：容器显隐、尺寸测量、滚轮接线都在宿主的 `createHost`/`onSheetChange` 里做。
+> - SheetGrid 滚动条透传（0.1.4 起）：`SheetGridOptions.scrollbar` 与 core `ScrollbarOptions` 同形全形态透传（`boolean | ScrollbarOptions`，缺省 `true`）——`mode: 'native'` 即启用浏览器原生滚动条档（挂载容器内装配真实 DOM 滚动容器 + `scrollbar-gutter: stable` 预留，gutter 口径与宿主滚轮让位详见 `apis/list-table.md` 原生滚动条模式节）；`ScrollbarOptions` 类型从本子路径（`infinitable/sheet`）与 `@infinitable/sheet` 主入口均可导入。原生档下 SheetGrid 内建滚轮接线（`bindWheel`）自动让位——引擎只读判定 `table.usesNativeScrollbar` 为真时不挂监听、不 `preventDefault`、不 `scrollBy`，单次增量恰好一次等量位移（宿主外层若自有滚轮接线，同样按该判定让位防双滚）；`growOnScroll` 动态扩容后原生容器滚动范围随引擎边界（maxLeft/maxTop）同步。
 > - `switchTo` 只在实例首次创建时应用 Store 冻结/合并/尺寸；Store 状态在实例已建后再改，不会自动同步到引擎——订阅 Store `onChange` 自行写到活跃实例。
 > - `writeValues`/`undo`/`redo` 只覆盖值命令：结构命令（冻结/合并/行列尺寸）由宿主自行入栈管理。
 > - `exportSheet` 产出 hucre 的 `WriteSheet` 纯映射对象；hucre（xlsx 读写引擎）不在 infinitable 依赖里，由使用方自备。

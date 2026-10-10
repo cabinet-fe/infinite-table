@@ -14,6 +14,7 @@ import { HomePage } from './views/HomePage'
 import { InfiniteSheetPage } from './views/InfiniteSheetPage'
 import { InteractionPage } from './views/InteractionPage'
 import { MediaPage } from './views/MediaPage'
+import { NativeScrollPage } from './views/NativeScrollPage'
 import { PrintPage } from './views/PrintPage'
 import { ReportPage } from './views/ReportPage'
 import { SmokePage } from './views/SmokePage'
@@ -25,6 +26,7 @@ import { useHashRoute } from './useHashRoute'
 const PAGES: Record<PageKey, ComponentType> = {
   home: HomePage,
   display: DisplayPage,
+  'native-scroll': NativeScrollPage,
   'data-forms': DataFormsPage,
   interaction: InteractionPage,
   media: MediaPage,

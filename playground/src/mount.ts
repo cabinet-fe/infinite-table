@@ -23,8 +23,14 @@ export function resolveDpr(): number {
 /**
  * 鼠标滚轮 → scrollBy 接线（core 侧滚动接线为触控/键盘，滚轮由宿主负责）；
  * 返回退订函数（组件卸载时解绑）。
+ * 原生滚动条模式（判定用引擎只读判定 usesNativeScrollbar）整体让位：滚轮/触控板
+ * 由浏览器滚动容器原生处理，此处再接线 preventDefault + scrollBy 会拦截原生滚动并
+ * 造成双滚——跳过接线，滚轮事件直落原生容器。
  */
 export function attachWheel(container: HTMLElement, table: ListTable): () => void {
+  if (table.usesNativeScrollbar) {
+    return () => {}
+  }
   const handler = (e: WheelEvent): void => {
     e.preventDefault()
     table.scrollBy(e.deltaX, e.deltaY)

@@ -7,6 +7,7 @@ import type { DisplayDemo } from '../sections/display'
 import type { EditingDemo } from '../sections/editing'
 import type { InteractionDemo } from '../sections/interaction'
 import type { MediaDemo } from '../sections/media'
+import type { NativeScrollDemo } from '../sections/native-scroll'
 import type { PrintDemo } from '../sections/print'
 import type { WatermarkDemo } from '../sections/watermark'
 
@@ -19,6 +20,7 @@ export interface DemoHandles {
   watermark: WatermarkDemo
   print: PrintDemo
   editing: EditingDemo
+  nativeScroll: NativeScrollDemo
 }
 
 declare global {

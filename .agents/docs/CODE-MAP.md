@@ -63,8 +63,8 @@ infinitable/
 
 ### playground — `playground`
 
-- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 13 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
-- 示例：`src/sections/**` 十演示区（display/data-forms/interaction/media/chart/watermark/print/editing/report/infinite-sheet，末者为不指定行列数的 WPS 式无限表格）；`?smoke=1` 页内自检写 `window.__SMOKE__`。sheet 电子表格示例已移除（下游 ultra-ui 自实现 sheet 包；`@infinitable/sheet` 包与 playground 依赖保留——report 区与 bench S5 场景仍在用）
+- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 14 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
+- 示例：`src/sections/**` 十一演示区（display/native-scroll/data-forms/interaction/media/chart/watermark/print/editing/report/infinite-sheet；native-scroll 为 ListTable + SheetGrid 双实例浏览器原生滚动条模式，末者为不指定行列数的 WPS 式无限表格）；`?smoke=1` 页内自检写 `window.__SMOKE__`。sheet 电子表格示例已移除（下游 ultra-ui 自实现 sheet 包；`@infinitable/sheet` 包与 playground 依赖保留——report 区与 bench S5 场景仍在用）
 - vs 对比：`src/app/views/ComparePage.tsx` + `src/bench/vs/`（页内跑批 + `?vsrun=1` 自动契约，@visactor/vtable 仅进对比页动态分包）
 - 基准：`src/bench/headless.test.ts` 并入 `vp test run`（headless 回归，无独立命令）+ `bench.html` 浏览器入口，10 场景 JSON 落档 `results/`
 - 脚本（npm script 收敛，按需直跑）：`scripts/smoke.mjs`（构建 + preview + 冒烟断言）、`scripts/vs.mjs`（体积实测 + 对比落档）

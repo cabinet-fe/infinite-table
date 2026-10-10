@@ -12,10 +12,11 @@ import { mountDisplay } from '../sections/display'
 import { mountEditing } from '../sections/editing'
 import { mountInteraction } from '../sections/interaction'
 import { mountMedia } from '../sections/media'
+import { mountNativeScroll } from '../sections/native-scroll'
 import { mountPrint } from '../sections/print'
 import { createReportHandle, mountReport } from '../sections/report'
 import { mountWatermark } from '../sections/watermark'
-import { runSmoke } from '../smoke'
+import { installErrorSink, runSmoke } from '../smoke'
 import type { DemoHandles } from './types'
 
 export function SmokeMode() {
@@ -24,6 +25,11 @@ export function SmokeMode() {
   useEffect(() => {
     const mountPoint = mountRef.current
     if (!mountPoint) return
+    // 控制台错误采集最先装上：挂载期异常也计入（runSmoke 收尾断言「无控制台错误」）
+    installErrorSink()
+    // 冒烟确定性：强制经典尺寸滚动条（macOS overlay 滚动条零宽会让 gutter 断言失真，
+    // 见 global.css 的 .smoke-classic-scrollbars；须在挂载演示前生效——引擎构造期读 clientWidth）
+    document.documentElement.classList.add('smoke-classic-scrollbars')
 
     const demos: DemoHandles = {
       dataForms: mountDataForms(mountPoint),
@@ -34,6 +40,7 @@ export function SmokeMode() {
       watermark: mountWatermark(mountPoint),
       print: mountPrint(mountPoint),
       editing: mountEditing(mountPoint),
+      nativeScroll: mountNativeScroll(mountPoint),
     }
     window.__DEMO__ = demos
     // 报表区：快照灌入 + readonly 渲染（句柄供 checkReport 断言）

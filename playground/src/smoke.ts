@@ -26,6 +26,13 @@ import {
 } from './sections/chart'
 import { FLOAT_OBJECT_ID, imageUrlForRow } from './sections/media'
 import {
+  NATIVE_LIST_VIEW_HEIGHT,
+  NATIVE_LIST_VIEW_WIDTH,
+  NATIVE_SCROLL_WRAPPER_SELECTOR,
+  NATIVE_SHEET_VIEW_HEIGHT,
+  NATIVE_SHEET_VIEW_WIDTH,
+} from './sections/native-scroll'
+import {
   REPORT_COL_WIDTHS,
   REPORT_FLOAT_IMAGE_ID,
   REPORT_ROWS,
@@ -211,6 +218,45 @@ class Checker {
       this.failures.push(`${name}：${error instanceof Error ? error.message : String(error)}`)
     }
   }
+}
+
+// ---- 控制台错误采集（「无控制台错误」断言；SmokeMode 挂载演示前最先安装） ----
+
+const collectedPageErrors: string[] = []
+let errorSinkInstalled = false
+
+function formatLogArgs(args: readonly unknown[]): string {
+  return args
+    .map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+    .join(' ')
+}
+
+/** 安装错误采集（幂等）：console.error / error / unhandledrejection 全量入册 */
+export function installErrorSink(): void {
+  if (errorSinkInstalled) {
+    return
+  }
+  errorSinkInstalled = true
+  const originalError = console.error.bind(console)
+  console.error = (...args: unknown[]) => {
+    collectedPageErrors.push(formatLogArgs(args))
+    originalError(...args)
+  }
+  window.addEventListener('error', (event: Event) => {
+    collectedPageErrors.push(
+      event instanceof ErrorEvent
+        ? event.message
+        : `资源加载失败：${(event.target as HTMLElement)?.outerHTML?.slice(0, 120) ?? 'unknown'}`,
+    )
+  })
+  window.addEventListener('unhandledrejection', (event) => {
+    collectedPageErrors.push(`unhandledrejection：${formatLogArgs([event.reason])}`)
+  })
+}
+
+/** 已采集的错误清单（runSmoke 收尾断言「无控制台错误」） */
+export function collectedErrors(): readonly string[] {
+  return collectedPageErrors
 }
 
 // ---- 分组检查 ----
@@ -791,6 +837,11 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkChart(checker, demos)
   await checkEditing(checker, demos)
   await checkReport(checker)
+  await checkNativeScroll(checker, demos)
+  await checker.step('无控制台错误：挂载与断言全程零 error', () => {
+    const errors = collectedErrors()
+    assert(errors.length === 0, `控制台错误 ${errors.length} 条：${errors.slice(0, 5).join('；')}`)
+  })
   const result: SmokeResult = {
     done: true,
     pass: checker.failures.length === 0,
@@ -802,6 +853,235 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
     ? `SMOKE PASS ${result.total}/${result.total}`
     : `SMOKE FAIL ${result.failures.length}/${result.total}`
   console.log('[smoke]', result.pass ? 'PASS' : 'FAIL', result.failures)
+}
+
+// ---- 原生滚动条（native-scroll 演示区：ListTable + SheetGrid 原生模式） ----
+
+/** 原生滚动树：wrapper（滚动容器）→ spacer（撑滚动范围）→ viewport（sticky 层挂载点） */
+function nativeScrollWrapper(container: HTMLElement): HTMLElement {
+  const wrapper = container.querySelector<HTMLElement>(NATIVE_SCROLL_WRAPPER_SELECTOR)
+  assert(wrapper, '原生滚动容器未落挂载容器')
+  return wrapper
+}
+
+async function checkNativeScroll(checker: Checker, demos: DemoHandles): Promise<void> {
+  const { list, sheet } = demos.nativeScroll
+  const listTable = list.table
+  const sheetTable = sheet.grid.getTable()
+  const instances = [
+    { label: 'ListTable', container: list.container, table: listTable },
+    { label: 'SheetGrid', container: sheet.container, table: sheetTable },
+  ] as const
+
+  await checker.step(
+    '原生滚动条①：真实滚动容器（overflow 滚动 + gutter stable）且两轴内容溢出',
+    () => {
+      for (const { label, container, table } of instances) {
+        assert(table.usesNativeScrollbar, `${label} 引擎未进入原生滚动条模式`)
+        const wrapper = nativeScrollWrapper(container)
+        const style = getComputedStyle(wrapper)
+        assert(
+          style.overflowX === 'auto' || style.overflowX === 'scroll',
+          `${label} 横轴 overflow=${style.overflowX}（非真实滚动容器）`,
+        )
+        assert(
+          style.overflowY === 'auto' || style.overflowY === 'scroll',
+          `${label} 纵轴 overflow=${style.overflowY}（非真实滚动容器）`,
+        )
+        assert(
+          style.getPropertyValue('scrollbar-gutter') === 'stable',
+          `${label} gutter 未 stable 预留`,
+        )
+        // 容器尺寸口径：两实例容器均按锚点常量定尺寸；滚动 wrapper 的尺寸——
+        // ListTable 用显式视口常量，SheetGrid 经 ResizeObserver 贴容器 client 盒
+        // （.table-mount 为 border-box，client = 常量 − 边框 2px）
+        const isList = label === 'ListTable'
+        const [boxWidth, boxHeight] = isList
+          ? [NATIVE_LIST_VIEW_WIDTH, NATIVE_LIST_VIEW_HEIGHT]
+          : [NATIVE_SHEET_VIEW_WIDTH, NATIVE_SHEET_VIEW_HEIGHT]
+        const [viewWidth, viewHeight] = isList
+          ? [boxWidth, boxHeight]
+          : [container.clientWidth, container.clientHeight]
+        assert(
+          container.offsetWidth === boxWidth && container.offsetHeight === boxHeight,
+          `${label} 挂载容器尺寸 ${container.offsetWidth}×${container.offsetHeight}，期望 ${boxWidth}×${boxHeight}`,
+        )
+        assert(
+          wrapper.offsetWidth === viewWidth && wrapper.offsetHeight === viewHeight,
+          `${label} 滚动容器尺寸 ${wrapper.offsetWidth}×${wrapper.offsetHeight}，期望 ${viewWidth}×${viewHeight}`,
+        )
+        assert(wrapper.scrollWidth > wrapper.clientWidth, `${label} 横轴未溢出（内容不超视口）`)
+        assert(wrapper.scrollHeight > wrapper.clientHeight, `${label} 纵轴未溢出（内容不超视口）`)
+      }
+    },
+  )
+
+  await checker.step('原生滚动条②：无自建 thumb/track 部件（结构断言）', () => {
+    for (const { label, container } of instances) {
+      const wrapper = nativeScrollWrapper(container)
+      const divs = [...wrapper.querySelectorAll('div')]
+      assert(
+        divs.length === 2,
+        `${label} wrapper 内 div ${divs.length} 个（期望仅 spacer/viewport）`,
+      )
+      assert(
+        wrapper.querySelector('[class*="scrollbar"], [class*="thumb"], [class*="track"]') === null,
+        `${label} 存在自建滚动条部件元素`,
+      )
+    }
+  })
+
+  await checker.step(
+    '原生滚动条③：gutter 两轴独立扣减（含 corner），绘制边界 = 滚动容器 client 口径',
+    () => {
+      const wrapper = nativeScrollWrapper(list.container)
+      // 纵向（inline-end）gutter 必须预留：冒烟环境强制经典滚动条宽（global.css 的
+      // .smoke-classic-scrollbars）。横轴预留量依浏览器而定——本 headless Chromium 的
+      // scrollbar-gutter 只预留 inline 侧（block 侧为 0），经典滚动条桌面环境则为正；
+      // 引擎两侧一律从各自 client 口径取值，断言取两种环境都成立的不变量
+      const gutterWidth = wrapper.offsetWidth - wrapper.clientWidth
+      assert(gutterWidth > 0, `纵向 gutter 未预留（offsetWidth−clientWidth=${gutterWidth}）`)
+      assert(
+        wrapper.clientWidth <= wrapper.offsetWidth && wrapper.clientHeight <= wrapper.offsetHeight,
+        'client 口径超过滚动容器盒（gutter 扣减异常）',
+      )
+      // 引擎视口从滚动容器 clientWidth/clientHeight 取口径：行号列/列头/单元格绘制边界
+      // 恰好止于 client 区右缘/下缘（每轴独立跟随自身 client 量，corner 不与任何内容交叠）
+      assert(
+        listTable.rowHeaderWidth + listTable.viewportWidth === wrapper.clientWidth,
+        `横向绘制边界 ${listTable.rowHeaderWidth + listTable.viewportWidth} ≠ clientWidth ${wrapper.clientWidth}`,
+      )
+      assert(
+        listTable.headerHeight + listTable.viewportHeight === wrapper.clientHeight,
+        `纵向绘制边界 ${listTable.headerHeight + listTable.viewportHeight} ≠ clientHeight ${wrapper.clientHeight}`,
+      )
+    },
+  )
+
+  await checker.step(
+    '原生滚动条④：DOM→引擎同步（scrollTop 直写），单次增量恰好等量位移、无双滚',
+    async () => {
+      const wrapper = nativeScrollWrapper(list.container)
+      wrapper.scrollTop = 240
+      await frames(2)
+      assert(
+        listTable.getScrollTop() === 240,
+        `直写后引擎 top=${listTable.getScrollTop()}，期望 240`,
+      )
+      wrapper.scrollTop = 340
+      await frames(2)
+      assert(
+        listTable.getScrollTop() === 340,
+        `再 +100 后 top=${listTable.getScrollTop()}，期望 340（等量位移）`,
+      )
+      // 宿主滚轮接线让位（attachWheel 判 usesNativeScrollbar 跳过）：不吞事件、不双滚
+      const rect = list.container.getBoundingClientRect()
+      const event = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 120,
+        clientX: rect.left + 400,
+        clientY: rect.top + 200,
+      })
+      list.container.dispatchEvent(event)
+      await frames(2)
+      assert(event.defaultPrevented === false, '宿主滚轮接线未让位（preventDefault 拦截原生滚动）')
+      assert(
+        listTable.getScrollTop() === 340,
+        `滚轮派发后 top=${listTable.getScrollTop()}，期望仍 340（双滚）`,
+      )
+    },
+  )
+
+  await checker.step('原生滚动条⑤：引擎→DOM 写回（程序化 scrollTo），无回环放大', async () => {
+    const wrapper = nativeScrollWrapper(list.container)
+    listTable.scrollTo(160, 320)
+    await frames(2)
+    assert(wrapper.scrollLeft === 160, `写回 scrollLeft=${wrapper.scrollLeft}，期望 160`)
+    assert(wrapper.scrollTop === 320, `写回 scrollTop=${wrapper.scrollTop}，期望 320`)
+    assert(
+      listTable.getScrollLeft() === 160 && listTable.getScrollTop() === 320,
+      '写回后引擎状态漂移（回环放大）',
+    )
+  })
+
+  await checker.step(
+    '原生滚动条⑥：拖拽原生 thumb——滚动条区域指针序列不被拦截，直写等价同步',
+    async () => {
+      const wrapper = nativeScrollWrapper(list.container)
+      // 指针序列落在纵向滚动条区域（canvas 档此处为滑块拖拽会话）：不命中数据格、不产生拖拽
+      dispatchPointer(wrapper, 'pointerdown', wrapper.clientWidth + 4, 120)
+      dispatchPointer(wrapper, 'pointermove', wrapper.clientWidth + 4, 180)
+      dispatchPointer(wrapper, 'pointerup', wrapper.clientWidth + 4, 180)
+      assert(
+        listTable.getSelection().ranges.length === 0,
+        '滚动条区域指针序列命中了数据格/启动了拖拽',
+      )
+      assert(listTable.getScrollTop() === 320, '滚动条区域指针序列改变了滚动位置')
+      // 拖拽 thumb 的等价事件流：scrollTop 直写 → scroll 事件 → 引擎状态同步
+      wrapper.scrollTop = 500
+      await frames(2)
+      assert(
+        listTable.getScrollTop() === 500,
+        `thumb 等价直写后 top=${listTable.getScrollTop()}，期望 500`,
+      )
+    },
+  )
+
+  await checker.step('原生滚动条⑦：sky 层滚动条区域无滑块像素（canvas 档滚动条不绘制）', () => {
+    for (const { label, container } of instances) {
+      const wrapper = nativeScrollWrapper(container)
+      const sky = layerCanvas(container, 'sky')
+      const clientWidth = wrapper.clientWidth
+      const clientHeight = wrapper.clientHeight
+      // 右缘带（纵向滑块位）/下缘带（横向滑块位）/corner：canvas 档会绘制滑块，原生档零像素
+      assert(
+        !hasOpaquePixel(sky, clientWidth - 24, 0, sky.width, clientHeight),
+        `${label} sky 右缘带存在滑块像素`,
+      )
+      assert(
+        !hasOpaquePixel(sky, 0, clientHeight - 24, clientWidth, sky.height),
+        `${label} sky 下缘带存在滑块像素`,
+      )
+      assert(
+        !hasOpaquePixel(sky, clientWidth - 24, clientHeight - 24, sky.width, sky.height),
+        `${label} sky corner 存在滑块像素`,
+      )
+    }
+  })
+
+  await checker.step(
+    '原生滚动条⑧：SheetGrid growOnScroll 扩容后原生滚动范围与引擎边界同步',
+    async () => {
+      const wrapper = nativeScrollWrapper(sheet.container)
+      const spacer = wrapper.firstElementChild as HTMLElement
+      const initialRows = sheet.model.rows
+      const initialSpacerHeight = spacer.offsetHeight
+      // 滚到底触发扩容（growOnScroll 缺省开；合帧任务在滚动帧内落地，留重试余量）
+      wrapper.scrollTop = wrapper.scrollHeight
+      const deadline = Date.now() + 3000
+      while (sheet.model.rows === initialRows && Date.now() < deadline) {
+        await sleep(50)
+      }
+      assert(sheet.model.rows > initialRows, `触界后未扩容（rows=${sheet.model.rows}）`)
+      assert(
+        sheetTable.rowCount === sheet.model.rows,
+        `扩容后引擎行数 ${sheetTable.rowCount} ≠ 模型 ${sheet.model.rows}`,
+      )
+      const grownSpacerHeight = spacer.offsetHeight
+      assert(
+        grownSpacerHeight > initialSpacerHeight,
+        `扩容后原生滚动范围未同步（spacer ${initialSpacerHeight} → ${grownSpacerHeight}）`,
+      )
+      // 再滚到新底：滚动范围随引擎边界增长（可继续推进），引擎与容器偏移保持一致
+      wrapper.scrollTop = wrapper.scrollHeight
+      await frames(3)
+      assert(
+        sheetTable.getScrollTop() === wrapper.scrollTop,
+        `扩容滚动后引擎 top=${sheetTable.getScrollTop()} ≠ 容器 ${wrapper.scrollTop}`,
+      )
+    },
+  )
 }
 
 /** 报表演示区冒烟：快照全量灌入模型 + readonly 渲染（meta 迁移参考形态的行为锚点） */

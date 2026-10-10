@@ -1,5 +1,7 @@
 // ./sheet 子路径入口：具名转出 @infinitable/sheet 全部公共 API（与
-// packages/sheet/src/index.ts 白名单同步维护，禁止 export * 转售）。
+// packages/sheet/src/index.ts 白名单同步维护，禁止星号导出转售）。
+// 导出判据与主入口一致（判据、逐项清单与移出项过渡方案见 agent-docs/apis/exports.md）；
+// 符号集合由 tests/public-surface.test.ts 快照冻结，增删导出必须显式改快照。
 // 公式引擎 API 不在此转售——下游如需直接 import '@infinitable/formulas'，
 // 本子路径只覆盖电子表格核心（模型/命令/IO/SheetGrid 适配）。
 export {
@@ -150,6 +152,8 @@ export {
   SheetGrid,
   type ResolveCellRenderer,
   type SheetGridOptions,
+  // SheetGridOptions.scrollbar 对象形态（core 同形再导出；mode: 'native' 原生滚动条档）
+  type ScrollbarOptions,
   type ResolveCellStyleHook,
   type ResolveDisplayValue,
   type SheetGridContextMenuInfo,

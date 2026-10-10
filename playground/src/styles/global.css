@@ -117,3 +117,12 @@
     @apply relative touch-none overflow-hidden rounded-md border bg-card shadow-sm select-none;
   }
 }
+
+/* ---- 冒烟确定性（?smoke=1，SmokeMode 挂 html.smoke-classic-scrollbars）----
+   macOS overlay 滚动条零宽不占布局，scrollbar-gutter 预留量为 0 会让 gutter 几何断言失真；
+   冒烟模式强制经典尺寸滚动条（仍为浏览器原生渲染的滚动条 + scroll 事件 + thumb 拖拽，
+   仅宽度确定化）。人工目验入口（dev 2345）不受影响，原生外观随 OS 设置。 */
+.smoke-classic-scrollbars [data-native-scroll]::-webkit-scrollbar {
+  width: 15px;
+  height: 15px;
+}

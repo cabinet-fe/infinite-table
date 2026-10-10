@@ -1,8 +1,9 @@
-// 侧栏导航配置：13 个入口的 key 与既有 Vue 壳完全一致（hash 路由契约），bench 为独立页外链。
+// 侧栏导航配置：14 个入口（key 与 hash 路由契约一致），bench 为独立页外链。
 // 分组按演示内容的能力域组织（渲染显示 / 数据交互 / 插件场景 / 性能工程）；图标一律 lucide-react 矢量图标。
 
 import type { LucideIcon } from 'lucide-react'
 import {
+  ArrowUpDown,
   ChartColumn,
   Database,
   Droplets,
@@ -26,6 +27,7 @@ export const BRAND_ICON = InfinityIcon
 export type RouteKey =
   | 'home'
   | 'display'
+  | 'native-scroll'
   | 'infinite-sheet'
   | 'data-forms'
   | 'interaction'
@@ -88,6 +90,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: Palette,
         badge: '10万行',
         desc: '虚拟滚动 · 冻结 · 合并 · 逐边边框 · 自定义渲染',
+      },
+      {
+        key: 'native-scroll',
+        label: '原生滚动条',
+        icon: ArrowUpDown,
+        badge: 'mode: native',
+        desc: '浏览器渲染 · gutter 预留 · 双向同步 · 不双滚',
       },
       {
         key: 'media',

@@ -1,8 +1,8 @@
 ---
 title: ListTable 表格主类
-description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions 显隐档与主题 token 三态样式）。含 TableModel/SheetModel。
+description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions：mode 原生/画布双档、显隐档与主题 token 三态样式、原生档 scrollbar-gutter 预留与宿主滚轮让位）。含 TableModel/SheetModel。
 aliases: [Table, DataTable, Grid, 表格, ListTable]
-keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, scrollbar, visibility, hideDelay, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条]
+keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
 ---
 
 # ListTable 表格主类
@@ -145,7 +145,15 @@ export interface ListTableOptions {
 /** 内建滚动条配置（ListTableOptions.scrollbar 的对象形态） */
 export interface ScrollbarOptions {
   /**
-   * 显示策略：'always' 常驻（缺省，与 true 语义一致）；'scrolling' 滚动或滚动条
+   * 滚动条形态（0.1.4 起；缺省 'canvas'，旧语义完全保留）：
+   * - 'canvas'：画布内建滚动条——sky 浮层绘制 + 右/下缘条带指针拦截；
+   * - 'native'：浏览器原生滚动条——引擎在挂载容器内装配真实 DOM 滚动容器
+   *   （overflow 滚动 + `scrollbar-gutter: stable`），外观/显隐/触控板惯性/
+   *   辅助功能完全随 OS；此档下 visibility/hideDelay 不适用（给出即忽略）。
+   */
+  mode?: ScrollbarMode // 'canvas' | 'native'
+  /**
+   * 显示策略（canvas 档）：'always' 常驻（缺省，与 true 语义一致）；'scrolling' 滚动或滚动条
    * 交互（拖拽/点按/悬停）时显示，静止 hideDelay 后隐藏。
    */
   visibility?: 'always' | 'scrolling'
@@ -229,7 +237,7 @@ ListTableOptions 全部字段（五要素）：
 | `canResizeCol` | `(col) => boolean` | 全部允许 | 否 | 返回 false 禁止该列拖拽改宽 |
 | `canResizeRow` | `(row) => boolean` | 全部允许 | 否 | 返回 false 禁止该行拖拽改高 |
 | `ctrlMultiSelect` | `boolean` | `false` | 否 | 开启后 Ctrl/Cmd 点数据格追加选区段 |
-| `scrollbar` | `boolean \| ScrollbarOptions` | `true` | 否 | 内建滚动条：`false` 整体关闭（不绘制、右/下缘条带不拦截指针）；`true`/缺省 `'always'` 常驻；对象形态配显隐档——`visibility: 'scrolling'` 时滚动或滚动条交互（拖拽/点按/悬停）显示、静止 `hideDelay`（默认回落主题 `interaction.scrollbarHideDelay` = 1000ms）后隐藏。内容溢出该轴才显示该轴；支持拖滑块/点轨道跳转 |
+| `scrollbar` | `boolean \| ScrollbarOptions` | `true` | 否 | 内建滚动条：`false` 整体关闭（不绘制、右/下缘条带不拦截指针）；`true`/缺省 `'always'` 常驻；对象形态 `mode: 'native'`（0.1.4 起）切换浏览器原生滚动条档（见下方「原生滚动条模式」节）；对象形态配显隐档——`visibility: 'scrolling'` 时滚动或滚动条交互（拖拽/点按/悬停）显示、静止 `hideDelay`（默认回落主题 `interaction.scrollbarHideDelay` = 1000ms）后隐藏。内容溢出该轴才显示该轴；支持拖滑块/点轨道跳转 |
 
 `CellRange`（合并区，闭区间）：`{ startCol, startRow, endCol, endRow }`，构造与 `setMergeCells` 前先归一化（start ≤ end），1×1 单格区间不算合并。
 
@@ -384,8 +392,9 @@ table.setFrozenColCount(2) // 运行时改冻结（跨冻结边界的既有合�
 
 > [!WARNING]
 > - 0.1.2 起公共导出面大幅收敛：`ScrollManager`/`ModelBinding`/`CellValuePipeline`/`SelectionState`/`InteractionOverlay`/`EditManager`/`createTextEditor`/`ImageService`/`MediaCache`/`FloatObjectLayer`/`CellNode`/网格布局纯函数族不再从 `infinitable` 导出（滚动/选区/编辑/媒体/布局原语经引擎内置接线消费，实例面见 `table.scroll`/`table.selection`/`table.imageService`/`table.floatObjects` 与本表方法）。
-> - 鼠标滚轮滚动不内置：引擎内置触控惯性/键盘/内建滚动条，滚轮必须宿主自行 `container.addEventListener('wheel', ...)` 接线到 `table.scrollBy`（`preventDefault` + `passive: false`）。
-> - 内建滚动条（0.1.2 重构）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。
+> - 鼠标滚轮滚动不内置（canvas 档）：引擎内置触控惯性/键盘/内建滚动条，滚轮必须宿主自行 `container.addEventListener('wheel', ...)` 接线到 `table.scrollBy`（`preventDefault` + `passive: false`）。
+> - 原生滚动条模式（`scrollbar: { mode: 'native' }`，0.1.4 起）：**由浏览器原生渲染的真实滚动条**——引擎在挂载容器内装配真实 DOM 滚动容器（`overflow` 滚动 + `scrollbar-gutter: stable`），非 canvas 自绘、非 DOM 模拟假滚动条；外观/显隐/触控板惯性/系统辅助功能完全随 OS，`visibility`/`hideDelay` 不适用（给出即忽略）。**gutter 口径**：横向、纵向（含右下角 corner）独立预留、从视口布局扣除、永不覆盖任何单元格（含行号列/列头/冻结区）；视口口径取滚动容器 `clientWidth`/`clientHeight`（已含原生 gutter 扣除），`table.width`/`height` 语义不变。**宿主滚轮接线让位**：原生档下引擎滚轮/触控板由原生滚动容器接管，宿主既有 wheel 接线不得造成双滚——引擎提供只读判定 `table.usesNativeScrollbar`，宿主接线处按 `if (table.usesNativeScrollbar) return` 让位（playground `attachWheel` 即此模式）。程序化滚动（`scrollTo`/`scrollBy`/键盘导航 `ensureCellVisible`）与原生容器双向同步，`ScrollManager` 仍是唯一滚动状态源；canvas 滚动条不再绘制、右/下缘条带不拦截指针。不支持 `scrollbar-gutter` 的旧浏览器回落为原生覆盖式行为（仅滚动显隐时短暂覆盖），不做 polyfill。
+> - 内建滚动条（0.1.2 重构，canvas 档）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。
 > - `CellRef` 在统一入口有两个：core 的格坐标以 `GridCellRef` 导出，`CellRef` 是 formulas 层的 A1 引用（含 `colAbsolute`/`rowAbsolute`/`sheet` 字段）。
 > - 合并区重叠构造即抛错：`merge ranges overlap at (col, row): [startCol,startRow ~ endCol,endRow]`；越出表格抛 `assertMergesWithinTable` 系列错误。跨冻结边界的合并区合法（主格按冻结带钉固绘制）。
 > - `updateCell` 只对 model 形态生效；records 形态直接改行对象字段后调 `refreshCell`。
