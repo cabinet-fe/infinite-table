@@ -721,3 +721,76 @@ describe('SheetGrid 容器 resize 自适应', () => {
     }
   })
 })
+
+describe('SheetGrid 滚动近端动态增长（WPS 式无限表格）', () => {
+  /** 冲一帧 rAF：onScrollFrame 合帧任务落地（增长接线在其内） */
+  const flushFrame = async (): Promise<void> => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  }
+
+  it('未指定行列数：初始网格覆盖可视 + 缓冲；滚动触界后模型与引擎同步扩容', async () => {
+    const { grid, table, sheet } = createGrid({ rows: undefined, cols: undefined })
+    try {
+      // 800×600 视口：初始 = max(缺省 100×26, 可视 + 缓冲 + 1)
+      const initialRows = sheet.rows
+      const initialCols = sheet.cols
+      expect(initialRows).toBeGreaterThanOrEqual(100)
+      expect(initialCols).toBeGreaterThanOrEqual(26)
+      expect(table.rowCount).toBe(initialRows)
+
+      // 滚到底：行数增长（缓冲末端触界），引擎布局同步（可滚得更远）
+      table.setScrollTop(Number.MAX_SAFE_INTEGER)
+      await flushFrame()
+      expect(sheet.rows).toBeGreaterThan(initialRows)
+      expect(table.rowCount).toBe(sheet.rows)
+
+      // 滚到最右：列数增长，增出列宽 = 默认列宽（80）
+      table.setScrollLeft(Number.MAX_SAFE_INTEGER)
+      await flushFrame()
+      expect(sheet.cols).toBeGreaterThan(initialCols)
+      expect(table.colCount).toBe(sheet.cols)
+      expect(table.getColWidth(sheet.cols - 1)).toBe(80)
+
+      // 继续向下滚：新边界内可滚，再次触界再扩（无限滚动语义）
+      const rowsAfterFirst = sheet.rows
+      table.setScrollTop(Number.MAX_SAFE_INTEGER)
+      await flushFrame()
+      expect(sheet.rows).toBeGreaterThan(rowsAfterFirst)
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('growOnScroll: false：固定尺寸网格，滚动触界不增长', async () => {
+    const { grid, table, sheet } = createGrid({
+      rows: undefined,
+      cols: undefined,
+      growOnScroll: false,
+    })
+    try {
+      const rows = sheet.rows
+      const cols = sheet.cols
+      table.setScrollTop(Number.MAX_SAFE_INTEGER)
+      table.setScrollLeft(Number.MAX_SAFE_INTEGER)
+      await flushFrame()
+      expect(sheet.rows).toBe(rows)
+      expect(sheet.cols).toBe(cols)
+      expect(table.rowCount).toBe(rows)
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('显式行列数声明：初始网格按声明（不被可视 + 缓冲撑大），滚动仍可增长', async () => {
+    const { grid, table, sheet } = createGrid({ rows: 30, cols: 8 })
+    try {
+      expect(sheet.rows).toBe(30)
+      expect(sheet.cols).toBe(8)
+      table.setScrollTop(Number.MAX_SAFE_INTEGER)
+      await flushFrame()
+      expect(sheet.rows).toBeGreaterThan(30)
+    } finally {
+      grid.release()
+    }
+  })
+})

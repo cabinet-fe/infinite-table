@@ -37,6 +37,8 @@ export function getSheetEditValue(sheet: Sheet, col: number, row: number): CellV
 
 /**
  * Sheet → 引擎 TableModel 适配：
+ * - `rowCount` 为动态 getter（读 sheet.rows）——SheetGrid 增长（ensureTableSize）后
+ *   引擎 setRowCount 重算时即取新值；
  * - `getCellValue` 返回模型基础值口径——公式格返回 `'=' + f` 原文（编辑初值所见即所编，
  *   等价旧 resolveEditText），其余格返回存储值 `v`（被覆盖格无存储 → undefined）；
  * - `setCellValue` 委托 Sheet（`=` 前缀自动走公式命令、空串清格，天然进 undo）；
@@ -45,7 +47,9 @@ export function getSheetEditValue(sheet: Sheet, col: number, row: number): CellV
  */
 export function createSheetTableModel(sheet: Sheet): TableModel {
   return {
-    rowCount: sheet.rows,
+    get rowCount(): number {
+      return sheet.rows
+    },
     getCellValue: (col: number, row: number): unknown => getSheetEditValue(sheet, col, row),
     setCellValue(col: number, row: number, value: unknown): void {
       sheet.setCellValue({ row, col }, value as CellValue)

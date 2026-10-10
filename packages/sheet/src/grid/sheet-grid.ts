@@ -46,6 +46,12 @@ export type ResolveCellRenderer = (
 /** 容器未布局时的视口兜底尺寸（happy-dom / 隐藏挂载场景） */
 const FALLBACK_VIEW_W = 960
 const FALLBACK_VIEW_H = 420
+/**
+ * 滚动缓冲缺省（引擎 overscanRows/Cols）：可视窗口外两侧各预建 N 行/列场景，
+ * 快速滚动不闪白；绝大部分场景无需配置。
+ */
+const DEFAULT_OVERSCAN_ROWS = 10
+const DEFAULT_OVERSCAN_COLS = 4
 
 export interface SheetGridOptions {
   container: HTMLElement
@@ -86,6 +92,12 @@ export interface SheetGridOptions {
   showColHeader?: boolean
   /** 画布滚动条（透传引擎内建，缺省 true）：内容溢出的轴在画布右/下缘绘制滚动条 */
   scrollbar?: boolean
+  /**
+   * 滚动近端动态增长（WPS 式无限表格，缺省 true）：滚动缓冲末端触到当前行列数时，
+   * 模型与引擎同步扩容（初始尺寸 = 宿主下限或缺省 100×26 与「可视 + 缓冲」的较大者，
+   * 滚动触界后每次扩「一幅可视 + 缓冲」）。false 为固定尺寸网格。
+   */
+  growOnScroll?: boolean
 }
 
 /**
@@ -148,11 +160,28 @@ export class SheetGrid {
           })
         : undefined
 
-    // options 仅扩张：已声明更小的模型尺寸（删行后）不被 props 下限撑回；
-    // 与已存数据高水位一次 max 合并（原两次连续 ensureTableSize 合并为一次声明）
+    // 初始尺寸 = 宿主下限（缺省 100×26）与「可视 + 缓冲」的较大者；与已存数据高水位
+    // 一次 max 合并（原两次连续 ensureTableSize 合并为一次声明）。WPS 式无限表格：
+    // 宿主不指定行列数时按视口给足初始网格，后续增长由滚动驱动（growOnScroll）
+    const viewWidth = options.width ?? this.measureContainerWidth()
+    const viewHeight = options.height ?? this.measureContainerHeight()
+    const fitRows = Math.ceil(
+      Math.max(0, viewHeight - (this.showColHeader ? SHEET_HEADER_HEIGHT : 0)) /
+        SHEET_DEFAULT_ROW_HEIGHT,
+    )
+    const fitCols = Math.ceil(
+      Math.max(0, viewWidth - (this.showRowHeader ? SHEET_ROW_HEADER_WIDTH : 0)) /
+        SHEET_DEFAULT_COL_WIDTH,
+    )
+    const grow = options.growOnScroll !== false
+    // 宿主显式声明行列数时按声明（固定网格意图），未声明才按「可视 + 缓冲」给足初始网格
+    const initialRows =
+      options.rows ?? (grow ? Math.max(100, fitRows + DEFAULT_OVERSCAN_ROWS + 1) : 100)
+    const initialCols =
+      options.cols ?? (grow ? Math.max(26, fitCols + DEFAULT_OVERSCAN_COLS + 1) : 26)
     this.sheet.ensureTableSize(
-      Math.max(options.rows ?? 100, this.sheet.rowCount),
-      Math.max(options.cols ?? 26, this.sheet.colCount),
+      Math.max(initialRows, this.sheet.rowCount),
+      Math.max(initialCols, this.sheet.colCount),
     )
     const rows = Math.max(this.sheet.rows, 1)
     const cols = Math.max(this.sheet.cols, 1)
@@ -203,6 +232,11 @@ export class SheetGrid {
       canResizeRow: this.isReadonly ? () => false : undefined,
       // 画布滚动条（引擎内建，缺省 true）
       ...(options.scrollbar === false ? { scrollbar: false } : {}),
+      // 滚动缓冲：窗口外预建缓冲行列（growOnScroll 关闭时同样受益于平滑滚动）
+      overscanRows: DEFAULT_OVERSCAN_ROWS,
+      overscanCols: DEFAULT_OVERSCAN_COLS,
+      // 增出列（setColCount）的列头标题：自定义表头机制优先，缺省字母表头
+      resolveColTitle: (col) => this.headerLayer?.colTitle(col) ?? colIndexToName(col),
       // Excel 键位组合（Enter 进编辑 / 关闭 Ctrl 加选）：本仓引擎两开关缺省即关，
       // 由下方两项显式表达（只读覆盖为关闭），无需外部键位预设展开
       ctrlMultiSelect: false,
@@ -228,6 +262,10 @@ export class SheetGrid {
         this.headerLayer?.sync()
       }),
     )
+    // 滚动近端动态增长（WPS 式无限表格；growOnScroll: false 固定尺寸网格）
+    if (options.growOnScroll !== false) {
+      this.disposers.push(this.table.onScrollFrame(() => this.growOnNearEdge()))
+    }
 
     this.selectionController = new GridSelectionController(this.sheet, this.table, {
       isReadonly: this.isReadonly,
@@ -332,6 +370,63 @@ export class SheetGrid {
     }
     // 表头覆盖层随列几何重定位
     this.headerLayer?.sync()
+  }
+
+  // ─── 滚动近端动态增长（WPS 式无限表格） ─────────────────
+
+  /** 可视行数（当前表高；容器 resize 后跟随） */
+  private fitRows(): number {
+    return Math.max(
+      1,
+      Math.ceil(
+        Math.max(0, this.table.height - (this.showColHeader ? SHEET_HEADER_HEIGHT : 0)) /
+          SHEET_DEFAULT_ROW_HEIGHT,
+      ),
+    )
+  }
+
+  /** 可视列数（当前表宽；容器 resize 后跟随） */
+  private fitCols(): number {
+    return Math.max(
+      1,
+      Math.ceil(
+        Math.max(0, this.table.width - (this.showRowHeader ? SHEET_ROW_HEADER_WIDTH : 0)) /
+          SHEET_DEFAULT_COL_WIDTH,
+      ),
+    )
+  }
+
+  /**
+   * 滚动近端增长：引擎可视窗口已含 overscan 缓冲，缓冲末端触到模型行列数时，
+   * 模型与引擎同步扩到「末端 + 一幅可视 + 缓冲」——增长量恒大于触发余量，
+   * 扩后条件自然退出不循环。模型先行（ensureTableSize 持久化尺寸），引擎随后
+   * setRowCount/setColCount 重算布局；增出列的自定义列宽与表头覆盖层随批同步。
+   */
+  private growOnNearEdge(): void {
+    if (this.released) return
+    const visible = this.table.getBodyVisibleCellRange()
+    const rows = this.sheet.rows
+    const cols = this.sheet.cols
+    const needRows = visible.rows.end >= rows
+    const needCols = visible.cols.end >= cols
+    if (!needRows && !needCols) return
+    this.sheet.ensureTableSize(
+      needRows ? visible.rows.end + this.fitRows() + DEFAULT_OVERSCAN_ROWS : rows,
+      needCols ? visible.cols.end + this.fitCols() + DEFAULT_OVERSCAN_COLS : cols,
+    )
+    if (this.sheet.rows !== rows) {
+      this.table.setRowCount(this.sheet.rows)
+    }
+    if (this.sheet.cols !== cols) {
+      this.table.setColCount(this.sheet.cols, this.isReadonly ? {} : { editor: SHEET_TEXT_EDITOR })
+      // 增出列的自定义宽度（模型稀疏 colWidths）落到引擎
+      for (const [col, width] of this.sheet.getColWidths()) {
+        if (col >= cols && this.table.getColWidth(col) !== width) {
+          this.table.setColWidth(col, width)
+        }
+      }
+      this.headerLayer?.sync()
+    }
   }
 
   // ─── 构造装配 ───────────────────────────────────────────
@@ -626,6 +721,8 @@ export class SheetGrid {
           const height = this.container.clientHeight
           if (width <= 0 || height <= 0) return
           this.table.resize(width, height)
+          // 容器放大后初始网格可能不足：按新视口补增长
+          this.growOnNearEdge()
         })
       })
     })
