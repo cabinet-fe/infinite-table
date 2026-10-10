@@ -6,6 +6,7 @@ import {
   computeRowOffsets,
   computeRowWindow,
   computeRowWindowFromOffsets,
+  expandWindowRange,
   findColAt,
   findRowAt,
   type WindowRange,
@@ -137,5 +138,17 @@ describe('深滚动位置窗口（start 二分定位）', () => {
     for (let left = 0; left <= 2000 * 80; left += 997) {
       expect(computeColWindow(left, 300, colOffsets)).toEqual(linearWindow(left, 300, colOffsets))
     }
+  })
+})
+
+describe('expandWindowRange（滚动缓冲扩窗）', () => {
+  it('两端各扩 overscan 并夹取到 [0, count]', () => {
+    expect(expandWindowRange({ start: 5, end: 10 }, 3, 100)).toEqual({ start: 2, end: 13 })
+    expect(expandWindowRange({ start: 1, end: 99 }, 5, 100)).toEqual({ start: 0, end: 100 })
+  })
+
+  it('overscan ≤ 0 或空表原样返回', () => {
+    expect(expandWindowRange({ start: 5, end: 10 }, 0, 100)).toEqual({ start: 5, end: 10 })
+    expect(expandWindowRange({ start: 0, end: 0 }, 4, 0)).toEqual({ start: 0, end: 0 })
   })
 })

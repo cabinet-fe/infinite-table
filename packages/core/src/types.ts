@@ -193,22 +193,44 @@ export interface ListTableOptions {
   /** Ctrl/Cmd 点选多选：开启后 Ctrl/Cmd 点数据格在既有选区上追加选区段（缺省 false，点选替换选区） */
   ctrlMultiSelect?: boolean
   /**
-   * 内建滚动条：false 整体关闭（不绘制、右/下缘条带不拦截指针）；缺省 true 常驻；
-   * 对象形态配置显示策略——'always' 常驻（旧 true 语义）、'scrolling' 滚动或滚动条
-   * 交互时显示、静止 hideDelay 后隐藏（hideDelay 缺省回落主题 scrollbarHideDelay token）。
+   * 内建滚动条：false 整体关闭（不绘制、右/下缘条带不拦截指针）；缺省 hover 档
+   * （悬停表格内或滚动时显示、静止 hideDelay 后隐藏）；显式 true 常驻（旧语义）；
+   * 对象形态配置显示策略——'always' 常驻、'scrolling' 滚动或滚动条交互时显示、
+   * 'hover' 悬停或滚动时显示（hideDelay 缺省回落主题 scrollbarHideDelay token）。
    */
   scrollbar?: boolean | ScrollbarOptions
+  /**
+   * 滚动缓冲（渲染窗口向滚动方向两侧各多建 N 行/列的场景节点，缺省 0 不缓冲）。
+   * 只扩大场景装配窗口（节点/文本测量预建），不改变滚动边界与可视判定；
+   * 快速滚动时新滚入行列的建格成本摊到缓冲区，减少滚动帧的分配与测量。
+   */
+  overscanRows?: number
+  /** 滚动缓冲列数（语义同 overscanRows） */
+  overscanCols?: number
+  /**
+   * 动态列头标题源：列定义未给 title 的列（setColCount 增出的列等）逐列取标题，
+   * 返回值直接作为列头文本；未配置回落空串。电子表格类宿主可用它给增出的列
+   * 提供 A/B/C…AA 字母表头。
+   */
+  resolveColTitle?: (col: number) => string
 }
 
 /** 内建滚动条配置（ListTableOptions.scrollbar 的对象形态） */
 export interface ScrollbarOptions {
   /**
-   * 显示策略：'always' 常驻（缺省，与旧 true 语义一致）；'scrolling' 滚动或滚动条
-   * 交互（拖拽/点按/悬停）时显示，静止 hideDelay 后隐藏（参照 VTable scrollStyle.visible）。
+   * 显示策略：'hover' 悬停表格内或滚动时显示（缺省，静止 hideDelay 后隐藏）；
+   * 'scrolling' 滚动或滚动条交互（拖拽/点按/悬停）时显示，静止 hideDelay 后隐藏；
+   * 'always' 常驻（旧 true 语义）（参照 VTable scrollStyle.visible）。
    */
-  visibility?: 'always' | 'scrolling'
-  /** 'scrolling' 档静止后隐藏延时（ms）；缺省回落主题 interaction.scrollbarHideDelay */
+  visibility?: 'always' | 'scrolling' | 'hover'
+  /** 'scrolling'/'hover' 档静止后隐藏延时（ms）；缺省回落主题 interaction.scrollbarHideDelay */
   hideDelay?: number
+  /**
+   * 预留轨道区：true（缺省）在可滚动轴的画布右/下缘常驻预留一条 scrollbarSize 宽的
+   * 轨道条带（轨道底色 + 滑块绘制其上，表格内容不再被滚动条遮挡，桌面 Excel 观感）；
+   * false 回悬浮式（滑块浮在内容之上，旧语义）。
+   */
+  reserve?: boolean
 }
 
 /** contextmenu 事件（右键菜单 UI 为非目标，仅保留事件） */

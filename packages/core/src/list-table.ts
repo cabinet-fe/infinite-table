@@ -122,6 +122,7 @@ import { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 import type {
   CellChangeEvent,
   CellRef,
+  ColumnDefine,
   ContextMenuListener,
   EditEndEvent,
   EditStartEvent,
@@ -224,6 +225,14 @@ export class ListTable {
   /** @internal 列宽前缀和 */
   colOffsets: number[]
   colWidths: number[]
+  /**
+   * @internal 列定义集合（与 options.columns 同一数组引用，运行时可变）：
+   * setColCount 增删列在此数组原地 push/截断（pipeline/编辑路由持同一引用即见新列）。
+   */
+  readonly columns: ColumnDefine[]
+  /** @internal 滚动缓冲行/列数（options.overscanRows/Cols 构造期归一化，缺省 0） */
+  readonly overscanRows: number
+  readonly overscanCols: number
   /** 视口尺寸（构造后经 resize 原地调整；width/height 只读透出） */
   private tableWidth: number
   private tableHeight: number
@@ -315,11 +324,11 @@ export class ListTable {
   scrollbarDrag: ScrollbarDragSession | null = null
   /** @internal 滚动条开关与显隐策略（options.scrollbar 构造期归一化） */
   readonly scrollbarConfig: ScrollbarConfig
-  /** @internal 滚动条当前可见（'always' 档恒 true；'scrolling' 档由活动状态机维护） */
+  /** @internal 滚动条当前可见（'always' 档恒 true；'scrolling'/'hover' 档由活动状态机维护） */
   scrollbarVisible: boolean
   /** @internal 滚动条 hover 轴（非拖拽指针悬停滑块；null 无 hover） */
   scrollbarHover: 'vertical' | 'horizontal' | null = null
-  /** @internal 'scrolling' 档静止隐藏定时器 */
+  /** @internal 'scrolling'/'hover' 档静止隐藏定时器 */
   private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null
   /** @internal 滚动条拖拽画布外指针接续的解绑器（会话结束/销毁时调用） */
   scrollbarReleaseCapture: (() => void) | null = null
@@ -428,9 +437,12 @@ export class ListTable {
   constructor(public readonly options: ListTableOptions) {
     this.tableWidth = options.width
     this.tableHeight = options.height
+    this.columns = options.columns
+    this.overscanRows = Math.max(0, Math.floor(options.overscanRows ?? 0))
+    this.overscanCols = Math.max(0, Math.floor(options.overscanCols ?? 0))
     // 主题接入样式管线：几何与格样式默认取自主题，显式 options 优先
     this.theme = extendsTheme(options.theme)
-    // 滚动条配置归一化：'always' 档常驻可见，'scrolling' 档初始静止隐藏（首次滚动/交互显示）
+    // 滚动条配置归一化：'always' 档常驻可见，'scrolling'/'hover' 档初始静止隐藏（滚动/悬停显示）
     this.scrollbarConfig = resolveScrollbarConfig(options.scrollbar)
     this.scrollbarVisible = this.scrollbarConfig.visibility === 'always'
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
@@ -442,7 +454,7 @@ export class ListTable {
     this.rowHeaderWidth =
       options.showRowHeader === false ? 0 : (options.rowHeaderWidth ?? this.theme.rowHeaderWidth)
     const defaultColWidth = options.defaultColWidth ?? this.theme.defaultColWidth
-    this.colWidths = options.columns.map((col) => col.width ?? defaultColWidth)
+    this.colWidths = this.columns.map((col) => col.width ?? defaultColWidth)
     this.colOffsets = computeColOffsets(this.colWidths)
     this.pipeline = new CellValuePipeline({
       columns: options.columns,
@@ -453,16 +465,12 @@ export class ListTable {
     })
     this.rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, this.rowHeights)
     // 冻结区域划分：冻结列固定于行号列右侧，冻结行固定于列头下侧
-    this.frozenColCount = clampFrozenCount(options.frozenColCount ?? 0, options.columns.length)
+    this.frozenColCount = clampFrozenCount(options.frozenColCount ?? 0, this.columns.length)
     this.frozenRowCount = clampFrozenCount(options.frozenRowCount ?? 0, this.pipeline.rowCount)
     this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
     this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
     this.mergeCells = new MergeCellMap(options.mergeCells)
-    assertMergesWithinTable(
-      this.mergeCells.ranges,
-      this.options.columns.length,
-      this.pipeline.rowCount,
-    )
+    assertMergesWithinTable(this.mergeCells.ranges, this.columns.length, this.pipeline.rowCount)
     this.host =
       options.host ??
       createRenderHost({
@@ -491,6 +499,7 @@ export class ListTable {
       {
         cellRect: (col, row) => cellRectInViewport(this, col, row),
         bodyViewport: () => this.bodyViewport,
+        canvas: () => ({ width: this.width, height: this.height }),
       },
       this.theme.interaction,
     )
@@ -565,6 +574,8 @@ export class ListTable {
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
     this.sceneInitialized = true
+    // 首帧浮层内容装配（预留轨道条带等构造期即有内容；空浮层零失效提交）
+    refreshOverlay(this)
   }
 
   /** 当前生效主题（基于默认主题 extends 派生） */
@@ -585,6 +596,15 @@ export class ListTable {
     this.columnStyles.clear()
     // 浮层换读新 interaction token（不残留构造期旧对象引用），sky 重绘随 refreshOverlay 提交
     this.overlay.updateTheme(this.theme.interaction)
+    // 滚动条轨道 token（scrollbarSize）影响预留条带与视口口径：滚动边界随新 token 重算
+    this.scroll.setViewportSize(
+      this.viewportWidth - this.frozenColsWidth,
+      this.viewportHeight - this.frozenRowsHeight,
+    )
+    this.scroll.setContentSize(
+      this.contentWidth - this.frozenColsWidth,
+      this.contentHeight - this.frozenRowsHeight,
+    )
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
     refreshOverlay(this)
@@ -648,6 +668,8 @@ export class ListTable {
         this.overlayPainterNode.height = this.height
         // 层内挂最顶：sky root 末子节点（选区浮层/浮动对象之上）
         this.sky.root.appendChild(this.overlayPainterNode)
+        // 滚动条重新置顶：水印在选区/浮动对象之上，滚动条在水印之上
+        this.overlay.raiseToTop()
       }
       changed = true
     } else if (this.overlayPainterNode) {
@@ -701,6 +723,8 @@ export class ListTable {
         imageService: this.imageService,
         bodyViewport: this.bodyViewport,
       })
+      // 滚动条重新置顶：浮动对象层构造时后挂容器（层内绘制最顶），不得盖住滚动条
+      this.overlay.raiseToTop()
     }
     return this.floatLayer
   }
@@ -1049,7 +1073,7 @@ export class ListTable {
   }
 
   selectRow(row: number): void {
-    this.selection.selectRow(row, this.options.columns.length)
+    this.selection.selectRow(row, this.columns.length)
   }
 
   selectCol(col: number): void {
@@ -1057,7 +1081,7 @@ export class ListTable {
   }
 
   selectAll(): void {
-    this.selection.selectAll(this.options.columns.length, this.pipeline.rowCount)
+    this.selection.selectAll(this.columns.length, this.pipeline.rowCount)
   }
 
   clearSelection(): void {
@@ -1067,7 +1091,7 @@ export class ListTable {
   /** 外部模型回写选区：段边界与焦点钳制到数据区内（行头/列头带坐标不入库）并刷新浮层但不广播，防回环 */
   applyExternalSelection(snapshot: SelectionSnapshot): void {
     this.selection.applyExternal(snapshot, {
-      colCount: this.options.columns.length,
+      colCount: this.columns.length,
       rowCount: this.pipeline.rowCount,
     })
     refreshOverlay(this)
@@ -1121,12 +1145,12 @@ export class ListTable {
   }
 
   /**
-   * @internal 滚动条活动脉动（滚轮/触控/键盘/滚动条交互的每一条路径汇入）：
-   * 'always' 档空操作；'scrolling' 档显示滚动条并重置静止隐藏计时——计时到点时
+   * @internal 滚动条活动脉动（滚轮/触控/键盘/滚动条交互/悬停的每一条路径汇入）：
+   * 'always' 档空操作；'scrolling'/'hover' 档显示滚动条并重置静止隐藏计时——计时到点时
    * 若正被拖拽或悬停则保持可见（后续状态变化会重新计时）。
    */
   pokeScrollbar(): void {
-    if (this.scrollbarConfig.visibility !== 'scrolling') {
+    if (this.scrollbarConfig.visibility === 'always') {
       return
     }
     if (!this.scrollbarVisible) {
@@ -1173,6 +1197,84 @@ export class ListTable {
     this.rowHeights.set(row, Math.max(MIN_ROW_HEIGHT, height))
     this.rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, this.rowHeights)
     this.applyGeometryChange()
+  }
+
+  // ---- 行列数运行时可变（无限滚动 / 动态增长） ----
+
+  /** 当前数据行数（模型形态动态读取模型 rowCount；setRowCount 后即时反映） */
+  get rowCount(): number {
+    return this.pipeline.rowCount
+  }
+
+  /** 当前数据列数（setColCount 增删列即时反映） */
+  get colCount(): number {
+    return this.columns.length
+  }
+
+  /**
+   * 运行时修改行数：增长重算行高前缀和与滚动边界（滚动余量扩大，滚动条/窗口即时
+   * 反映）；收缩时冻结行数钳到新界、丢弃越界合并区、选区钳制。数据供给为 records
+   * 数组时行数恒等于 records.length（增长无效）；模型形态以模型 rowCount 为准——
+   * 宿主先增长模型再调用本方法触发重算；纯 hook 形态由本方法直接抬高兜底行数。
+   */
+  setRowCount(count: number): void {
+    this.pipeline.setRowCountFloor(count)
+    // prev 取引擎已物化的行数（rowOffsets 规模）：动态模型的 rowCount 在宿主写模型时
+    // 即生效，与物化值比对才能识别「模型已增长、引擎待重算」的形态
+    const prev = this.rowOffsets.length - 1
+    const next = this.pipeline.rowCount
+    if (next === prev) {
+      return
+    }
+    this.rowOffsets = computeRowOffsets(next, this.rowHeight, this.rowHeights)
+    if (next < prev) {
+      this.frozenRowCount = clampFrozenCount(this.frozenRowCount, next)
+      this.shrinkToBounds(this.columns.length, next)
+    }
+    this.applyGeometryChange()
+  }
+
+  /**
+   * 运行时修改列数：增长按 template（缺省空定义 → defaultColWidth 列宽）追加列定义
+   * 与列宽（列定义数组原地 push，pipeline/编辑路由持同一引用即见新列）；收缩时截断
+   * 并清越界列样式缓存、冻结列数钳到新界、丢弃越界合并区、选区钳制。增出列的列头
+   * 标题回落 options.resolveColTitle（未配置为空串）。
+   */
+  setColCount(count: number, template?: ColumnDefine): void {
+    const prev = this.columns.length
+    const next = Math.max(0, Math.floor(count))
+    if (next === prev) {
+      return
+    }
+    if (next > prev) {
+      const defaultColWidth = this.options.defaultColWidth ?? this.theme.defaultColWidth
+      for (let col = prev; col < next; col++) {
+        this.columns.push({ ...template })
+        this.colWidths.push(template?.width ?? defaultColWidth)
+      }
+    } else {
+      this.columns.length = next
+      this.colWidths.length = next
+      // Map 迭代中删除已访问键是安全的
+      for (const col of this.columnStyles.keys()) {
+        if (col >= next) {
+          this.columnStyles.delete(col)
+        }
+      }
+      this.frozenColCount = clampFrozenCount(this.frozenColCount, next)
+      this.shrinkToBounds(next, this.pipeline.rowCount)
+    }
+    this.colOffsets = computeColOffsets(this.colWidths)
+    this.applyGeometryChange()
+  }
+
+  /** 维度收缩后的越界收敛：丢弃越界合并区、选区钳到新界（不广播；浮层随几何变更刷新） */
+  private shrinkToBounds(colCount: number, rowCount: number): void {
+    const bounded = this.mergeCells.ranges.filter(
+      (range) => range.endCol < colCount && range.endRow < rowCount,
+    )
+    this.mergeCells = new MergeCellMap(bounded)
+    this.selection.applyExternal(this.selection.snapshot, { colCount, rowCount })
   }
 
   // ---- 容器 resize 原地自适应 ----
@@ -1331,7 +1433,7 @@ export class ListTable {
    * 重建），合并区模型不因冻结数变化而越界，无需合并校验，直接走几何变更重建。
    */
   private applyFrozenCounts(frozenColCount: number, frozenRowCount: number): void {
-    const nextCols = clampFrozenCount(frozenColCount, this.options.columns.length)
+    const nextCols = clampFrozenCount(frozenColCount, this.columns.length)
     const nextRows = clampFrozenCount(frozenRowCount, this.pipeline.rowCount)
     if (nextCols === this.frozenColCount && nextRows === this.frozenRowCount) {
       return
@@ -1343,7 +1445,7 @@ export class ListTable {
 
   /** 合并区集合运行时替换：先做模型越界校验（失败抛错原状不变），落地后走几何变更全量重建 */
   private replaceMergeCells(next: MergeCellMap): void {
-    assertMergesWithinTable(next.ranges, this.options.columns.length, this.pipeline.rowCount)
+    assertMergesWithinTable(next.ranges, this.columns.length, this.pipeline.rowCount)
     this.mergeCells = next
     this.applyGeometryChange()
   }
@@ -1486,14 +1588,38 @@ export class ListTable {
     }
   }
 
-  /** @internal 视口宽（扣除行号列） */
-  get viewportWidth(): number {
-    return Math.max(0, this.width - this.rowHeaderWidth)
+  /**
+   * @internal 竖轴滚动条预留轨道条带宽（画布右缘，纵向滚动可滚时 scrollbarSize 常驻；
+   * reserve 关闭/滚动条关闭/纵向不可滚为 0）。预留判定用扣预留前视口（内容 >
+   * height − headerHeight 即可滚），不因预留缩小视口反馈地「滚起来」。
+   */
+  get scrollbarGutterWidth(): number {
+    if (!this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
+      return 0
+    }
+    return this.contentHeight > this.height - this.headerHeight
+      ? this.theme.interaction.scrollbarSize
+      : 0
   }
 
-  /** @internal 视口高（扣除列头） */
+  /** @internal 横轴滚动条预留轨道条带高（画布下缘；语义同 scrollbarGutterWidth） */
+  get scrollbarGutterHeight(): number {
+    if (!this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
+      return 0
+    }
+    return this.contentWidth > this.width - this.rowHeaderWidth
+      ? this.theme.interaction.scrollbarSize
+      : 0
+  }
+
+  /** @internal 视口宽（扣除行号列与竖轴预留轨道） */
+  get viewportWidth(): number {
+    return Math.max(0, this.width - this.rowHeaderWidth - this.scrollbarGutterWidth)
+  }
+
+  /** @internal 视口高（扣除列头与横轴预留轨道） */
   get viewportHeight(): number {
-    return Math.max(0, this.height - this.headerHeight)
+    return Math.max(0, this.height - this.headerHeight - this.scrollbarGutterHeight)
   }
 
   /** @internal 数据区在层坐标中的可绘制矩形（扣除行号列与列头，CSS 像素） */
@@ -1530,7 +1656,7 @@ export class ListTable {
   resolveStyle(col: number, row: number): CellStyle {
     let colStyle = this.columnStyles.get(col)
     if (!colStyle) {
-      const column = this.options.columns[col]
+      const column = this.columns[col]
       const base = themeCellBase(this.theme.body)
       colStyle = projectCellStyle(
         column?.textWrap ? { ...base, textWrap: true } : base,
@@ -1565,7 +1691,7 @@ export class ListTable {
    */
   private onScroll(delta: ScrollDelta): void {
     updateSceneWindow(this)
-    // 滚动即滚动条活动：'scrolling' 档显示并重置静止隐藏计时（滚轮/触控/键盘全走此路径；
+    // 滚动即滚动条活动：'scrolling'/'hover' 档显示并重置静止隐藏计时（滚轮/触控/键盘全走此路径；
     // 钳制后无实际位移不脉动，静止期不被空转 setScroll 无谓续期）
     if (delta.dx !== 0 || delta.dy !== 0) {
       this.pokeScrollbar()
@@ -1602,7 +1728,7 @@ export class ListTable {
     if (this.binding) {
       return true
     }
-    const field = this.options.columns[col]?.field
+    const field = this.columns[col]?.field
     return field !== undefined && this.options.records?.[row] != null
   }
 
@@ -1615,7 +1741,7 @@ export class ListTable {
       this.refreshEchoedCells(this.binding.writeBack(col, row, value), col, row)
       return
     }
-    const field = this.options.columns[col]?.field
+    const field = this.columns[col]?.field
     const record = this.options.records?.[row]
     if (field !== undefined && record) {
       record[field] = value
@@ -1641,7 +1767,7 @@ export class ListTable {
     const next = nextActiveCell(
       move === 'down' ? 'ArrowDown' : 'Tab',
       { col, row },
-      this.options.columns.length,
+      this.columns.length,
       this.pipeline.rowCount,
     )
     if (next) {

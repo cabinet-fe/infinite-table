@@ -88,6 +88,8 @@ describe('ListTable 冻结', () => {
       records: records100(),
       frozenColCount: 1,
       frozenRowCount: 1,
+      // 关闭内建滚动条：隔离 hover 档「滚动显示」翻转的 sky 失效（本用例只看滚动分层）
+      scrollbar: false,
     })
     host.submitted.length = 0
     // 纵向滚动：冻结行（y 36..68）以下的横带；sky 全量来自冻结分隔线浮层（A2）
@@ -126,7 +128,11 @@ describe('ListTable 冻结', () => {
   })
 
   it('冻结数运行时可变：setFrozenColCount/setFrozenRowCount 后冻结区、窗口与下一帧渲染即时反映', () => {
-    const { host, table } = createTable({ records: records100() })
+    const { host, table } = createTable({
+      records: records100(),
+      // 关闭内建滚动条：隔离 hover 档滚动显示的 sky 失效（本用例只看冻结分层）
+      scrollbar: false,
+    })
     host.submitted.length = 0
     table.setFrozenColCount(1)
     table.setFrozenRowCount(1)

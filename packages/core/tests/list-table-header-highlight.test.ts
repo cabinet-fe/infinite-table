@@ -1,7 +1,7 @@
-// 单格行列头高亮（S9-P3）：选区焦点格所在行号格与列头格恒以
-// theme.interaction.headerHighlight 高亮（合并区按主格解析），选区随动、原格恢复；
+// 行列头高亮（S9-P3 覆盖语义）：选区段（合并盒扩展后）覆盖的行号格与列头格以
+// theme.interaction.headerHighlight 高亮——框选多格时两轴表头点亮整个覆盖区间
+// 而非仅焦点行列（对齐 Excel/WPS）；整行/整列选区不跨轴点亮对侧表头；
 // appendCell 建格装配与 applyHeaderHighlight 选区变化重涂两条路径观感一致；
-// 整轴（spansAll）表头带高亮不回退且不跨轴点亮焦点格（对齐 Excel/WPS）；
 // 表头高亮重绘只登记表头条带 band 失效，不产生 body band/full。
 // S8-P3：高亮背景以 token 与表头分区铬底预混的不透明色落格（style.background
 // 即绘制 fillStyle，见 cell-node.ts），半透明 token 下其下滑入内容不再透出。
@@ -50,8 +50,8 @@ function headerNode(host: StubHost, col: number, row: number) {
 const colHeaderBg = (host: StubHost, col: number) => headerNode(host, col, -1)?.style.background
 const rowHeaderBg = (host: StubHost, row: number) => headerNode(host, -1, row)?.style.background
 
-describe('单格行列头高亮（S9-P3）', () => {
-  it('appendCell 建格路径：选中单格后几何变更重建场景，焦点格行列头带高亮', () => {
+describe('行列头高亮覆盖选区（S9-P3）', () => {
+  it('appendCell 建格路径：选中单格后几何变更重建场景，覆盖行列头带高亮', () => {
     const { host, table } = createTable()
     const colHl = colHighlightOf(table)
     const rowHl = rowHighlightOf(table)
@@ -82,7 +82,26 @@ describe('单格行列头高亮（S9-P3）', () => {
     expect(rowHeaderBg(host, 3)).toBe(normalRowBg)
   })
 
-  it('多段选区按焦点格点亮（末段焦点格）', () => {
+  it('框选多格：两轴表头点亮整个覆盖区间（非仅焦点格行列）', () => {
+    const { host, table } = createTable()
+    const colHl = colHighlightOf(table)
+    const rowHl = rowHighlightOf(table)
+    // 覆盖 C2..E5（cols 2-4 × rows 2-4）的拖选段
+    table.selectCells([{ start: { col: 2, row: 2 }, end: { col: 4, row: 4 } }])
+    for (const col of [2, 3, 4]) {
+      expect(colHeaderBg(host, col)).toBe(colHl)
+    }
+    for (const row of [2, 3, 4]) {
+      expect(rowHeaderBg(host, row)).toBe(rowHl)
+    }
+    // 覆盖区间外的表头不高亮
+    expect(colHeaderBg(host, 1)).not.toBe(colHl)
+    expect(colHeaderBg(host, 5)).not.toBe(colHl)
+    expect(rowHeaderBg(host, 1)).not.toBe(rowHl)
+    expect(rowHeaderBg(host, 5)).not.toBe(rowHl)
+  })
+
+  it('多段选区覆盖区间取并集点亮', () => {
     const { host, table } = createTable()
     const colHl = colHighlightOf(table)
     const rowHl = rowHighlightOf(table)
@@ -90,29 +109,37 @@ describe('单格行列头高亮（S9-P3）', () => {
       { start: { col: 0, row: 0 }, end: { col: 1, row: 1 } },
       { start: { col: 4, row: 5 }, end: { col: 6, row: 7 } },
     ])
-    expect(colHeaderBg(host, 6)).toBe(colHl)
-    expect(rowHeaderBg(host, 7)).toBe(rowHl)
-    expect(colHeaderBg(host, 4)).not.toBe(colHl)
-    expect(rowHeaderBg(host, 5)).not.toBe(rowHl)
+    for (const col of [0, 1, 4, 5, 6]) {
+      expect(colHeaderBg(host, col)).toBe(colHl)
+    }
+    for (const row of [0, 1, 5, 6, 7]) {
+      expect(rowHeaderBg(host, row)).toBe(rowHl)
+    }
+    // 两段之间的空档不高亮
+    expect(colHeaderBg(host, 3)).not.toBe(colHl)
+    expect(rowHeaderBg(host, 3)).not.toBe(rowHl)
   })
 
-  it('合并区按主格点亮：覆盖格焦点解析到主格，重涂与建格两条路径一致', () => {
+  it('合并区按整块点亮：覆盖格选段扩展到整块合并盒，重涂与建格两条路径一致', () => {
     const merges = [{ startCol: 1, startRow: 1, endCol: 2, endRow: 2 }]
     const { host, table } = createTable({ mergeCells: merges })
     const colHl = colHighlightOf(table)
     const rowHl = rowHighlightOf(table)
-    // 焦点落在合并区覆盖格 (2,2)：按主格 (1,1) 点亮，覆盖格自身的行列头不点亮
+    // 程序化选中落在合并区覆盖格 (2,2)：段边界扩展到整块合并盒 (1,1)-(2,2)，
+    // 覆盖到的列头 1/2 与行号 1/2 全部点亮（Excel 语义）
     table.selectCell(2, 2)
     expect(colHeaderBg(host, 1)).toBe(colHl)
+    expect(colHeaderBg(host, 2)).toBe(colHl)
     expect(rowHeaderBg(host, 1)).toBe(rowHl)
-    expect(colHeaderBg(host, 2)).not.toBe(colHl)
-    expect(rowHeaderBg(host, 2)).not.toBe(rowHl)
+    expect(rowHeaderBg(host, 2)).toBe(rowHl)
+    expect(colHeaderBg(host, 0)).not.toBe(colHl)
+    expect(rowHeaderBg(host, 0)).not.toBe(rowHl)
     // 建格路径（几何变更重建）同口径
     table.setColWidth(0, 120)
     expect(colHeaderBg(host, 1)).toBe(colHl)
+    expect(colHeaderBg(host, 2)).toBe(colHl)
     expect(rowHeaderBg(host, 1)).toBe(rowHl)
-    expect(colHeaderBg(host, 2)).not.toBe(colHl)
-    expect(rowHeaderBg(host, 2)).not.toBe(rowHl)
+    expect(rowHeaderBg(host, 2)).toBe(rowHl)
   })
 
   it('失效登记：表头高亮重绘只提交 body band 且落在表头条带内，无 body full', () => {
@@ -170,6 +197,53 @@ describe('单格行列头高亮（S9-P3）', () => {
     for (const node of table.rowHeaderNodes.values()) {
       expect(node.style.background).toBe(rowHl)
     }
+  })
+})
+
+describe('拖选回写稳定性（焦点摆动不抖动）', () => {
+  it('拖选中外部回写锚点焦点：覆盖区间高亮不动，且零重涂（无 body 失效提交）', () => {
+    const { host, table } = createTable()
+    const colHl = colHighlightOf(table)
+    const rowHl = rowHighlightOf(table)
+    // 交互拖选会话：按下 C3（col2,row2）拖到 E6（col4,row5）——引擎焦点随移动端点
+    table.selection.beginDragRange({ col: 2, row: 2 }, { col: 2, row: 2 })
+    table.selection.updateDragRange({ col: 2, row: 2 }, { col: 4, row: 5 })
+    for (const col of [2, 3, 4]) {
+      expect(colHeaderBg(host, col)).toBe(colHl)
+    }
+    for (const row of [2, 3, 4, 5]) {
+      expect(rowHeaderBg(host, row)).toBe(rowHl)
+    }
+    // sheet 适配层回写（GridSelectionController.pushSelectionToTable 语义）：
+    // 段归一化 + 焦点回落锚点——旧实现（高亮跟焦点格行列）在此摆动间重涂收缩，
+    // 即下游「选区时行列头高亮抖动」；覆盖语义下高亮不动且不触发任何重涂
+    host.submitted.length = 0
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 2, row: 2 }, end: { col: 4, row: 5 } }],
+      focus: { col: 2, row: 2 },
+    })
+    for (const col of [2, 3, 4]) {
+      expect(colHeaderBg(host, col)).toBe(colHl)
+    }
+    for (const row of [2, 3, 4, 5]) {
+      expect(rowHeaderBg(host, row)).toBe(rowHl)
+    }
+    expect(host.submitted.some((entry) => entry.kind === 'body')).toBe(false)
+  })
+
+  it('抬手后宿主回写仅移动焦点（段不变）：高亮保持且零重涂', () => {
+    const { host, table } = createTable()
+    const colHl = colHighlightOf(table)
+    table.selectCells([{ start: { col: 2, row: 2 }, end: { col: 4, row: 5 } }])
+    host.submitted.length = 0
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 2, row: 2 }, end: { col: 4, row: 5 } }],
+      focus: { col: 3, row: 4 },
+    })
+    for (const col of [2, 3, 4]) {
+      expect(colHeaderBg(host, col)).toBe(colHl)
+    }
+    expect(host.submitted.some((entry) => entry.kind === 'body')).toBe(false)
   })
 })
 

@@ -1319,6 +1319,8 @@ describe('纯纵向滚动的窗外源反查短路（P2）', () => {
     columns: TWENTY_COLUMNS,
     records: Array.from({ length: 40 }, (_, row) => (row % 3 === 0 ? { f5: LONG_TEXT } : {})),
     resolveCellStyle: (col: number) => (col === 5 ? { textAlign: 'right' as const } : null),
+    // 关内建滚动条：本组聚焦溢出走廊几何，避开右/下缘预留轨道对窗口边界的挤压
+    scrollbar: false,
   } satisfies Partial<ListTableOptions>
 
   it('存活行窗外源保留不动；新滚入行照常反查补建；滚出随行摘除', () => {

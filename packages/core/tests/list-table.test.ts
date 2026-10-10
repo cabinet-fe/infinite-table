@@ -91,7 +91,11 @@ describe('ListTable 数据供给三形态', () => {
     const model = new EchoModel(100)
     const { host, table } = createTable({ model })
     expect(table.getCellText(0, 0)).toBe('')
-    expect(host.submitted).toEqual([{ kind: 'body', inv: { type: 'full' } }])
+    // 构造期失效：body 全量（首帧场景）+ sky 全量（两轴可滚 → 预留轨道条带首帧装配）
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'full' } },
+      { kind: 'sky', inv: { type: 'full' } },
+    ])
 
     host.submitted.length = 0
     model.data.set('0:0', 'ext')
@@ -181,7 +185,8 @@ describe('ListTable 回驱窗口收集刷新', () => {
 describe('ListTable 虚拟滚动窗口', () => {
   it('10 万行 records：窗口外行列不进入场景树', () => {
     const records = Array.from({ length: 100_000 }, (_, i) => ({ name: `row-${i}` }))
-    const { host, table } = createTable({ records })
+    // 'always' 常驻滚动条：保留「滑块随滚动重绘 sky」断言，隔离 hover 档显示翻转的一次性 sky full
+    const { host, table } = createTable({ records, scrollbar: true })
     // 视口 752x564：18 行 x 8 列 = 144 个数据格，加 8 列头 + 18 行号 + 1 左上角
     expect(table.getVisibleRange()).toEqual({
       rows: { start: 0, end: 18 },
@@ -198,7 +203,8 @@ describe('ListTable 虚拟滚动窗口', () => {
     // 滚动到底部：窗口滑到末尾行，首行节点被移出场景树
     host.submitted.length = 0
     table.scrollTo(0, Number.MAX_SAFE_INTEGER)
-    expect(table.getScrollState()).toEqual({ left: 0, top: 100_000 * 32 - 564 })
+    // 视口高 554（600 − 列头 36 − 横轴预留轨道 10）
+    expect(table.getScrollState()).toEqual({ left: 0, top: 100_000 * 32 - 554 })
     expect(table.getVisibleRange().rows).toEqual({ start: 99_982, end: 100_000 })
     expect(findNode(host, 0, 99_999)?.text).toBe('row-99999')
     expect(findNode(host, 0, 0)).toBeUndefined()
@@ -325,13 +331,38 @@ describe('ListTable 编辑生命周期事件', () => {
   })
 })
 
+describe('sky 层内滚动条置顶', () => {
+  it('浮动对象层与 overlay painter 惰性后挂后，交互浮层（滚动条）重挂为末子节点', () => {
+    const { host, table } = createTable()
+    table.floatObjects.add({
+      id: 'fx',
+      kind: 'image',
+      anchor: { from: { col: 0, row: 0 }, to: { col: 1, row: 1 }, offsetX: 0, offsetY: 0 },
+    })
+    table.setOverlayPainter(() => {})
+    const children = host.layers.get('sky')!.root.children
+    // 后挂序：浮动容器 → painter；交互浮层每次后挂后重挂最顶（滚动条画在最上层，
+    // 不被浮动图片/水印盖住）
+    expect(children).toHaveLength(3)
+    const [floatContainer, painter, top] = children
+    expect(floatContainer?.children).toHaveLength(1)
+    expect((painter as { painter?: unknown }).painter).toBeTypeOf('function')
+    // 交互浮层节点 = OverlayNode（updateTheme 为其独有方法；基类 SceneNode 无）
+    expect(typeof (top as { updateTheme?: unknown }).updateTheme).toBe('function')
+  })
+})
+
 describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', () => {
-  /** sky 层当前子节点（构造后含 1 个交互浮层节点） */
+  /**
+   * sky 层当前子节点（构造后含 1 个交互浮层节点）。子节点序：[overlay painter,
+   * 交互浮层]——交互浮层（内含滚动条）在 painter/浮动对象每次后挂后重新置顶，
+   * painter 层内次顶（选区浮层/浮动对象之上、滚动条之下）。
+   */
   const skyNodes = (host: StubHost) => host.layers.get('sky')?.root.children ?? []
   const skyFullCount = (host: StubHost) =>
     host.submitted.filter((s) => s.kind === 'sky' && s.inv.type === 'full').length
 
-  it('写入 painter 建承载节点挂 sky 最顶并整层失效；原位换 painter、置 null 摘除清屏', () => {
+  it('写入 painter 建承载节点挂 sky（次顶）并整层失效；原位换 painter、置 null 摘除清屏', () => {
     const { host, table } = createTable()
     expect(skyNodes(host)).toHaveLength(1)
 
@@ -339,22 +370,23 @@ describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', 
     table.setOverlayPainter((_ctx, viewport) => viewports.push(viewport))
     const nodes = skyNodes(host)
     expect(nodes).toHaveLength(2)
-    expect(skyFullCount(host)).toBe(1)
+    // 构造期预留轨道已提交过一次 sky full，写入 painter 再计一次
+    expect(skyFullCount(host)).toBe(2)
     // painter 以节点尺寸（=视口尺寸）调用，层坐标即视口坐标
-    nodes[1]?.paint(new RecordingContext())
+    nodes[0]?.paint(new RecordingContext())
     expect(viewports).toEqual([{ width: 800, height: 600 }])
 
-    // 原位换 painter：承载节点与树结构复用（仍为 sky 末子节点）
-    const node = nodes[1]
+    // 原位换 painter：承载节点与树结构复用（滚动条浮层保持置顶，painter 位次不变）
+    const node = nodes[0]
     table.setOverlayPainter(() => {})
-    expect(skyNodes(host)[1]).toBe(node)
+    expect(skyNodes(host)[0]).toBe(node)
 
     // 置 null：节点摘除 + 清屏失效；状态未变的空写不再提交
     table.setOverlayPainter(null)
     expect(skyNodes(host)).toHaveLength(1)
-    expect(skyFullCount(host)).toBe(3)
+    expect(skyFullCount(host)).toBe(4)
     table.setOverlayPainter(null)
-    expect(skyFullCount(host)).toBe(3)
+    expect(skyFullCount(host)).toBe(4)
   })
 
   it('承载节点不可命中（pointer 透传）；resize 同步视口尺寸', () => {
@@ -363,7 +395,7 @@ describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', 
     table.setOverlayPainter((_ctx, viewport) => viewports.push(viewport))
 
     // 覆盖全视口但 pickable=false 且无子节点：命中测试穿透（sky 事件语义不受拦截）
-    const node = skyNodes(host)[1]
+    const node = skyNodes(host)[0]
     expect(node?.pickable).toBe(false)
     expect(node?.children).toEqual([])
     expect(node?.width).toBe(800)
@@ -379,7 +411,7 @@ describe('setOverlayPainter 顶层 overlay 预留位（与 underlay 对称）', 
 
     // resize 后 painter 读到新视口尺寸（滚动重绘期间 painter 仍读旧视口）
     table.resize(500, 400)
-    skyNodes(host)[1]?.paint(new RecordingContext())
+    skyNodes(host)[0]?.paint(new RecordingContext())
     expect(viewports.at(-1)).toEqual({ width: 500, height: 400 })
   })
 })

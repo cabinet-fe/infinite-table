@@ -23,6 +23,8 @@ export interface OverlayGeometry {
   cellRect(col: number, row: number): Region | null
   /** 数据区在视口中的可绘制矩形（扣除行列头；闭包实时读取，容器 resize 原地自适应） */
   bodyViewport(): Region
+  /** 画布整体尺寸（滚动条/预留轨道锚定画布右/下缘，浮层节点须覆盖整画布） */
+  canvas(): { width: number; height: number }
 }
 
 /** resize 拖拽指示线（视口坐标） */
@@ -60,6 +62,8 @@ export interface OverlayContent {
     vertical: ScrollbarAxisView | null
     horizontal: ScrollbarAxisView | null
   }
+  /** 预留轨道条带（右缘宽/下缘高；reserve 开启时可滚动轴常驻，0 = 该侧无预留） */
+  readonly scrollbarGutter: { width: number; height: number }
   /** 可视窗口（选区裁剪用，[start, end)） */
   readonly window: { rows: WindowRange; cols: WindowRange }
 }
@@ -100,8 +104,28 @@ export class OverlayNode extends SceneNode {
     this.paintFillHandle(ctx, content)
     this.paintResizeLine(ctx, content, viewport)
     ctx.restore()
-    // 滚动条锚定视口（覆盖行号列/列头带），不随 body 裁剪
+    // 滚动条与预留轨道锚定视口（覆盖行号列/列头带），不随 body 裁剪
+    this.paintScrollbarGutter(ctx, content)
     this.paintScrollbars(ctx, content)
+  }
+
+  /**
+   * 预留轨道条带底色：可滚动轴的画布右/下缘常驻不透明轨道（宽/高 = scrollbarSize），
+   * 盖住探出内容区边缘的部分列与溢出文本——滚动条画其上，表格主体不被遮挡。
+   * 两轴交汇的右下角由横轴条带整宽覆盖。
+   */
+  private paintScrollbarGutter(ctx: RenderContext, content: OverlayContent): void {
+    const { width: gx, height: gy } = content.scrollbarGutter
+    if (gx <= 0 && gy <= 0) {
+      return
+    }
+    ctx.fillStyle = this.interaction.scrollbarTrackColor
+    if (gx > 0) {
+      ctx.fillRect(this.width - gx, 0, gx, this.height - gy)
+    }
+    if (gy > 0) {
+      ctx.fillRect(0, this.height - gy, this.width, gy)
+    }
   }
 
   /**
@@ -341,7 +365,7 @@ export class InteractionOverlay {
   private readonly node: OverlayNode
 
   constructor(
-    skyRoot: SceneNode,
+    private readonly skyRoot: SceneNode,
     private readonly geometry: OverlayGeometry,
     interaction: InteractionTokens,
   ) {
@@ -350,11 +374,19 @@ export class InteractionOverlay {
     skyRoot.appendChild(this.node)
   }
 
-  /** 视口尺寸变化后重设浮层节点覆盖范围（容器 resize 原地自适应路径） */
+  /**
+   * 重挂为 sky root 末子节点（层内绘制顺序最顶）：浮动对象层/水印等节点惰性后挂会
+   * 排到本节点之后，调用方在每次后挂后调用，滚动条保持画在浮层最上方。
+   */
+  raiseToTop(): void {
+    this.skyRoot.appendChild(this.node)
+  }
+
+  /** 视口尺寸变化后重设浮层节点覆盖范围（整画布：滚动条/预留轨道锚定画布右/下缘） */
   resize(): void {
-    const viewport = this.geometry.bodyViewport()
-    this.node.width = viewport.x + viewport.width
-    this.node.height = viewport.y + viewport.height
+    const { width, height } = this.geometry.canvas()
+    this.node.width = width
+    this.node.height = height
   }
 
   /** 运行时更换交互 token（表格 updateTheme 路径）：浮层绘制改读新主题解析值 */
@@ -372,6 +404,8 @@ export class InteractionOverlay {
       content.highlightRanges.length > 0 ||
       content.freezeDividers.x !== null ||
       content.freezeDividers.y !== null ||
+      content.scrollbarGutter.width > 0 ||
+      content.scrollbarGutter.height > 0 ||
       content.scrollbars.vertical !== null ||
       content.scrollbars.horizontal !== null
     this.node.visible = has

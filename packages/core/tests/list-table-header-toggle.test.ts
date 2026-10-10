@@ -60,7 +60,7 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
     expect(table.rowHeaderWidth).toBe(0)
     expect(table.headerHeight).toBe(36)
     // 内容原点左移到 x=0，数据区占满全宽
-    expect(table.getDrawRange()).toEqual({ x: 0, y: 36, width: 800, height: 564 })
+    expect(table.getDrawRange()).toEqual({ x: 0, y: 36, width: 800, height: 554 })
     expect(table.rowHeaderNodes.size).toBe(0)
     expect(table.cornerNode).toBeNull()
     // 列头照常装配（场景只建可视窗口：752 宽可见 8 列）
@@ -72,7 +72,7 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
     const { table } = createTable({ records: records3, showColHeader: false, headerHeight: 50 })
     expect(table.headerHeight).toBe(0)
     expect(table.rowHeaderWidth).toBe(48)
-    expect(table.getDrawRange()).toEqual({ x: 48, y: 0, width: 752, height: 600 })
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 0, width: 752, height: 590 })
     expect(table.colHeaderNodes.size).toBe(0)
     expect(table.cornerNode).toBeNull()
     expect(table.rowHeaderNodes.size).toBe(3)
@@ -81,7 +81,7 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
 
   it('双关：两侧表头节点全不建，内容原点为 (0,0)', () => {
     const { table } = createTable({ records: records3, showRowHeader: false, showColHeader: false })
-    expect(table.getDrawRange()).toEqual({ x: 0, y: 0, width: 800, height: 600 })
+    expect(table.getDrawRange()).toEqual({ x: 0, y: 0, width: 800, height: 590 })
     expect(table.colHeaderNodes.size).toBe(0)
     expect(table.rowHeaderNodes.size).toBe(0)
     expect(table.cornerNode).toBeNull()

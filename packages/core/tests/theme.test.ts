@@ -288,10 +288,11 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
       scrollbarThumbHover: 'rgba(31, 35, 41, 0.55)',
       scrollbarThumbActive: 'rgba(31, 35, 41, 0.7)',
       scrollbarRadius: 4,
+      scrollbarTrackColor: '#f0f1f3',
       scrollbarSize: 10,
       scrollbarMargin: 2,
       scrollbarMarginHover: 1,
-      scrollbarHideDelay: 1000,
+      scrollbarHideDelay: 1500,
     })
   })
 
@@ -302,7 +303,7 @@ describe('S1 交互/底色/外框/表头分区 token', () => {
     expect(theme.interaction.scrollbarThumb).toBe('#111111')
     expect(theme.interaction.scrollbarMargin).toBe(3)
     expect(theme.interaction.scrollbarThumbHover).toBe('rgba(31, 35, 41, 0.55)')
-    expect(theme.interaction.scrollbarHideDelay).toBe(1000)
+    expect(theme.interaction.scrollbarHideDelay).toBe(1500)
   })
 
   it('underlayBackgroundColor 默认白色；frameStyle 默认不绘制', () => {
@@ -489,9 +490,10 @@ describe('构造时背景通道固化与 updateTheme 运行时更新', () => {
 
   it('updateTheme 自动失效：提交 body 层 full 失效，宿主无需其它刷新调用', () => {
     const { host, table } = createTable()
+    // 选区浮层常驻 sky：updateTheme 重绘浮层附带 sky full（不依赖滚动条显隐档）
+    table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 0, row: 0 } }])
     host.submitted.length = 0
     table.updateTheme({ body: { background: '#aabbcc' } })
-    // 内建滚动条常驻 sky 浮层（内容溢出即有滑块），updateTheme 重绘浮层附带 sky full
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'full' } },
       { kind: 'sky', inv: { type: 'full' } },

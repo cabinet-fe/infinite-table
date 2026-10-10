@@ -40,6 +40,24 @@ export function clampFrozenCount(count: number, total: number): number {
   return Math.min(Math.max(count, 0), total)
 }
 
+/**
+ * 窗口向两端扩 overscan（滚动缓冲：场景装配窗口预建缓冲区，不改变滚动边界）。
+ * 夹取到 [0, count]；overscan ≤ 0 原样返回。
+ */
+export function expandWindowRange(
+  window: WindowRange,
+  overscan: number,
+  count: number,
+): WindowRange {
+  if (overscan <= 0 || count <= 0) {
+    return window
+  }
+  return {
+    start: Math.max(0, window.start - overscan),
+    end: Math.min(count, window.end + overscan),
+  }
+}
+
 /** 按滚动位置求可见列窗口（含边缘部分可见列）；start 二分定位，end 短程扫描 */
 export function computeColWindow(
   scrollLeft: number,

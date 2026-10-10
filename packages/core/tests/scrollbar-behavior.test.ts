@@ -1,7 +1,8 @@
 // 内建滚动条行为（P3 重构）：三态绘制、显隐状态机、画布外 pointerup 捕获语义、
 // rAF 合帧、min-thumb 钳位全程可达、轨道点按中心跳转。默认几何同 scrollbar.test.ts：
-// 行号列 48、列头 36、行高 32、列宽 100；800×600 视口下 10 列 100 行 →
-// maxLeft = 248、maxTop = 2636、竖轴轨道 590、滑块 104（usable 486）。
+// 行号列 48、列头 36、行高 32、列宽 100；800×600 视口下 10 列 100 行（两轴可滚，
+// 右/下缘各预留 10px 轨道 → 视口 742×554）→ maxLeft = 258、maxTop = 2646、
+// 竖轴轨道 590、滑块 102（usable 488）。
 // happy-dom 环境：画布外指针接续（window 级监听）需要真实 window/DOM。
 
 // @vitest-environment happy-dom
@@ -143,6 +144,7 @@ function paintViews(scrollbars: OverlayContent['scrollbars']): RectCall[] {
     {
       cellRect: (): Region | null => null,
       bodyViewport: () => VIEWPORT,
+      canvas: () => ({ width: 800, height: 600 }),
     },
     defaultTheme.interaction,
   )
@@ -155,6 +157,7 @@ function paintViews(scrollbars: OverlayContent['scrollbars']): RectCall[] {
     highlightRanges: [],
     freezeDividers: { x: null, y: null },
     scrollbars,
+    scrollbarGutter: { width: 0, height: 0 },
     window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 10 } },
   })
   const ctx = new FillRecordingContext()
@@ -204,7 +207,8 @@ describe('滚动条三态与圆角内缩绘制', () => {
   })
 
   it('updateTheme 运行时换 token：后续绘制读新值', () => {
-    const { host, table } = createTable()
+    // 'always' 常驻：浮层滑块恒可画（hover/scrolling 档静止隐藏时不绘制）
+    const { host, table } = createTable({ scrollbar: true })
     // 换 token：直角满厚（margin 0 / radius 0）+ 自定义色，绘制结果可精确断言
     table.updateTheme({
       interaction: { scrollbarThumb: '#123456', scrollbarMargin: 0, scrollbarRadius: 0 },
@@ -212,11 +216,12 @@ describe('滚动条三态与圆角内缩绘制', () => {
     const ctx = new FillRecordingContext()
     const skyRoot = host.layers.get('sky')!.root
     skyRoot.children[0]!.paint(ctx)
-    // 运行中实例的浮层已改读新 token：两轴滑块各一条直角满厚色条
-    expect(ctx.rects).toContainEqual({ x: 790, y: 0, width: 10, height: 104, fill: '#123456' })
-    const horizontal = ctx.rects.find((rect) => rect.y === 590)
-    expect(horizontal?.fill).toBe('#123456')
+    // 运行中实例的浮层已改读新 token：两轴滑块各一条直角满厚色条（竖轴滑块按视口 554 → 102）
+    expect(ctx.rects).toContainEqual({ x: 790, y: 0, width: 10, height: 102, fill: '#123456' })
+    // 横轴滑块与预留轨道同在 y=590：按滑块色过滤（轨道画在滑块之下）
+    const horizontal = ctx.rects.find((rect) => rect.fill === '#123456' && rect.y === 590)
     expect(horizontal?.height).toBe(10)
+    expect(horizontal?.width).toBe(586)
   })
 
   it('横轴镜像几何；隐藏轴（null）不绘制', () => {
@@ -246,32 +251,52 @@ describe('滚动条三态与圆角内缩绘制', () => {
 
 /* ---------- 显隐状态机 ---------- */
 
-describe("'scrolling' 显隐状态机", () => {
-  it('resolveScrollbarConfig：false 关闭、true/缺省/空对象映射 always、对象形态透传', () => {
+describe("'scrolling'/'hover' 显隐状态机", () => {
+  it('resolveScrollbarConfig：false 关闭、true 映射 always、缺省/空对象映射 hover、对象形态透传', () => {
     expect(resolveScrollbarConfig(false)).toEqual({
       enabled: false,
       visibility: 'always',
       hideDelay: undefined,
+      reserve: false,
     })
+    // 未配置缺省 hover：悬停表格内或滚动时显示；预留轨道缺省开启
     expect(resolveScrollbarConfig(undefined)).toEqual({
       enabled: true,
-      visibility: 'always',
+      visibility: 'hover',
       hideDelay: undefined,
+      reserve: true,
     })
+    // 显式 true 保留旧语义：常驻
     expect(resolveScrollbarConfig(true)).toEqual({
       enabled: true,
       visibility: 'always',
       hideDelay: undefined,
+      reserve: true,
     })
     expect(resolveScrollbarConfig({})).toEqual({
       enabled: true,
-      visibility: 'always',
+      visibility: 'hover',
       hideDelay: undefined,
+      reserve: true,
     })
     expect(resolveScrollbarConfig({ visibility: 'scrolling', hideDelay: 300 })).toEqual({
       enabled: true,
       visibility: 'scrolling',
       hideDelay: 300,
+      reserve: true,
+    })
+    expect(resolveScrollbarConfig({ visibility: 'hover', hideDelay: 300 })).toEqual({
+      enabled: true,
+      visibility: 'hover',
+      hideDelay: 300,
+      reserve: true,
+    })
+    // reserve: false 显式回悬浮式
+    expect(resolveScrollbarConfig({ reserve: false })).toEqual({
+      enabled: true,
+      visibility: 'hover',
+      hideDelay: undefined,
+      reserve: false,
     })
   })
 
@@ -320,14 +345,66 @@ describe("'scrolling' 显隐状态机", () => {
     }
   })
 
-  it("'always' 档（缺省）常驻可见，无隐藏计时", () => {
+  it("'always' 档（显式 true）常驻可见，无隐藏计时", () => {
     vi.useFakeTimers()
     try {
-      const { table } = createTable()
+      const { table } = createTable({ scrollbar: true })
       expect(table.scrollbarVisible).toBe(true)
       table.scrollBy(0, 96)
       vi.advanceTimersByTime(10_000)
       expect(table.scrollbarVisible).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("'hover' 档（缺省）：表格内移动即显示，静止 1.5s（主题缺省延时）后隐藏", () => {
+    vi.useFakeTimers()
+    try {
+      const { host, table } = createTable()
+      expect(table.scrollbarConfig.visibility).toBe('hover')
+      // 初始静止：隐藏；表格内任意移动即显示（无需命中滚动条条带/滚动）
+      expect(table.scrollbarVisible).toBe(false)
+      fireBody(host, 'pointermove', { x: 400, y: 300 })
+      expect(table.scrollbarVisible).toBe(true)
+      // 移动持续续期：1.5s 内多次 move 不隐藏
+      for (let i = 0; i < 6; i++) {
+        vi.advanceTimersByTime(300)
+        fireBody(host, 'pointermove', { x: 400 + i, y: 300 })
+        expect(table.scrollbarVisible).toBe(true)
+      }
+      // 静止：1499ms 仍可见，1500ms 到点隐藏（主题 scrollbarHideDelay 缺省）
+      vi.advanceTimersByTime(1499)
+      expect(table.scrollbarVisible).toBe(true)
+      vi.advanceTimersByTime(2)
+      expect(table.scrollbarVisible).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("'hover' 档：滚动同样触发显示；悬停滑块计时到点保持，离开后重新计时隐藏", () => {
+    vi.useFakeTimers()
+    try {
+      const { host, table } = createTable({ scrollbar: { visibility: 'hover' } })
+      // 滚动触发显示（与悬停同一脉动汇入）
+      table.scrollBy(0, 96)
+      expect(table.scrollbarVisible).toBe(true)
+      vi.advanceTimersByTime(10_000)
+      expect(table.scrollbarVisible).toBe(false)
+      // 悬停滑块：hover 态保持可见（计时到点不隐藏）
+      fireBody(host, 'pointermove', { x: 795, y: 50 })
+      expect(table.scrollbarVisible).toBe(true)
+      expect(table.scrollbarHover).toBe('vertical')
+      vi.advanceTimersByTime(10_000)
+      expect(table.scrollbarVisible).toBe(true)
+      // 离开滑块：清 hover 并重新计时隐藏
+      fireBody(host, 'pointermove', { x: 400, y: 300 })
+      expect(table.scrollbarHover).toBeNull()
+      vi.advanceTimersByTime(1499)
+      expect(table.scrollbarVisible).toBe(true)
+      vi.advanceTimersByTime(2)
+      expect(table.scrollbarVisible).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -402,8 +479,8 @@ describe('拖拽滚动 rAF 合帧', () => {
 
     host.flushFrames()
     expect(commit).toHaveBeenCalledTimes(1)
-    // 末次位移 90px：offset = 90 × 2636 / 486
-    expect(table.getScrollTop()).toBeCloseTo((90 * 2636) / 486, 5)
+    // 末次位移 90px：offset = 90 × 2646 / 488
+    expect(table.getScrollTop()).toBeCloseTo((90 * 2646) / 488, 5)
 
     // 无新 move 的空帧不再提交
     host.flushFrames()
@@ -413,7 +490,7 @@ describe('拖拽滚动 rAF 合帧', () => {
     fireBody(host, 'pointermove', { x: 795, y: 180 })
     fireBody(host, 'pointerup', { x: 795, y: 180 })
     expect(commit).toHaveBeenCalledTimes(2)
-    expect(table.getScrollTop()).toBeCloseTo((130 * 2636) / 486, 5)
+    expect(table.getScrollTop()).toBeCloseTo((130 * 2646) / 488, 5)
   })
 })
 
@@ -437,21 +514,66 @@ describe('min-thumb 钳位换算全程可达', () => {
 describe('轨道点按中心跳转', () => {
   it('点按处成为滑块中心（跳转后重算几何中心 ≈ 点按处），按住可继续拖拽', () => {
     const { host, table } = createTable()
-    // 滑块 0..104：y=300 在轨道空白处 → 跳转
+    // 滑块 0..102：y=300 在轨道空白处 → 跳转
     fireBody(host, 'pointerdown', { x: 795, y: 300, button: 0 })
-    const jumped = Math.round(((300 - 104 / 2) / (590 - 104)) * 2636)
+    const jumped = Math.round(((300 - 102 / 2) / (590 - 102)) * 2646)
     expect(table.getScrollTop()).toBe(jumped)
 
     // 跳转后的滑块中心回到点按处（±1px 取整误差）
     const geometry = planScrollbarThumb(
-      { maxScroll: 2636, viewport: 564, offset: table.getScrollTop() },
+      { maxScroll: 2646, viewport: 554, offset: table.getScrollTop() },
       590,
     )!
     expect(Math.abs(geometry.thumbPos + geometry.thumbSize / 2 - 300)).toBeLessThanOrEqual(1)
 
     // 跳转后按住继续拖拽：以跳转后的偏移起算
     fireBody(host, 'pointermove', { x: 795, y: 350 })
-    expect(table.getScrollTop()).toBeCloseTo(jumped + (50 * 2636) / 486, 5)
+    expect(table.getScrollTop()).toBeCloseTo(jumped + (50 * 2646) / 488, 5)
     fireBody(host, 'pointerup', { x: 795, y: 350 })
+  })
+})
+
+/* ---------- 预留轨道区（reserve） ---------- */
+
+describe('预留轨道区（reserve）', () => {
+  /** 画 sky 首子节点（交互浮层）收集 fillRect */
+  const paintOverlay = (host: StubHost): RectCall[] => {
+    const ctx = new FillRecordingContext()
+    host.layers.get('sky')!.root.children[0]!.paint(ctx)
+    return ctx.rects
+  }
+
+  it('缺省预留：可滚动轴视口扣减 10px，右/下缘常驻轨道底色（滑块隐藏时也在）', () => {
+    const { host, table } = createTable()
+    // 两轴可滚（10 列 1000 宽 / 100 行 3200 高）→ 视口 742×554
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 742, height: 554 })
+    expect(table.scrollbarGutterWidth).toBe(10)
+    expect(table.scrollbarGutterHeight).toBe(10)
+    // 'hover' 档静止（滑块隐藏），轨道底色仍常驻：右缘条带 [790,0,10,590)、
+    // 下缘条带 [0,590,800,10)（右下角由下缘条带整宽覆盖）
+    const rects = paintOverlay(host)
+    expect(rects).toContainEqual({ x: 790, y: 0, width: 10, height: 590, fill: '#f0f1f3' })
+    expect(rects).toContainEqual({ x: 0, y: 590, width: 800, height: 10, fill: '#f0f1f3' })
+  })
+
+  it('reserve: false 回悬浮式：视口不扣减、无轨道底色（旧语义）', () => {
+    const { host, table } = createTable({ scrollbar: { reserve: false } })
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 752, height: 564 })
+    expect(table.scrollbarGutterWidth).toBe(0)
+    expect(table.scrollbarGutterHeight).toBe(0)
+    expect(paintOverlay(host)).toEqual([])
+  })
+
+  it('滚动条整体关闭：不预留任何轨道', () => {
+    const { table } = createTable({ scrollbar: false })
+    expect(table.scrollbarConfig.reserve).toBe(false)
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 752, height: 564 })
+  })
+
+  it('不可滚轴不预留：3 行内容纵向不可滚（右缘不预留），横向照常（下缘预留）', () => {
+    const { table } = createTable({ records: rows(3) })
+    expect(table.scrollbarGutterWidth).toBe(0)
+    expect(table.scrollbarGutterHeight).toBe(10)
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 752, height: 554 })
   })
 })

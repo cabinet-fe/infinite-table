@@ -203,8 +203,8 @@ describe('ListTable 浮动对象层', () => {
     const { host, table } = createImageTable()
     table.floatObjects.add(FLOAT)
     table.floatObjects.add({ ...FLOAT, id: 'f2', size: { width: 50, height: 30 } })
-    // 浮动容器是 sky root 的末子节点（最后挂载 = 层内最顶）
-    const nodeAt = (index: number) => host.layers.get('sky')?.root.children.at(-1)?.children[index]
+    // 浮动容器是 sky root 的倒数第二子节点：滚动条浮层惰性后挂后重新置顶（绘制最顶）
+    const nodeAt = (index: number) => host.layers.get('sky')?.root.children.at(-2)?.children[index]
 
     // setColWidth：to 列（col2）100→200 → 右缘 48+100+200+100=448，宽 196→296，x 不变
     table.setColWidth(2, 200)

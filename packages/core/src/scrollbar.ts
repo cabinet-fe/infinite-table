@@ -47,24 +47,32 @@ export interface ScrollbarAxisView {
 /** options.scrollbar 归一化：false/undefined 关开与默认档位、对象形态透传策略与延时 */
 export interface ScrollbarConfig {
   enabled: boolean
-  visibility: 'always' | 'scrolling'
+  visibility: 'always' | 'scrolling' | 'hover'
   /** 显式延时（缺省回落主题 scrollbarHideDelay token，运行时逐次读取） */
   hideDelay: number | undefined
+  /** 可滚动轴常驻预留轨道条带（reserve: false 回悬浮式） */
+  reserve: boolean
 }
 
 export function resolveScrollbarConfig(
   option: boolean | ScrollbarOptions | undefined,
 ): ScrollbarConfig {
   if (option === false) {
-    return { enabled: false, visibility: 'always', hideDelay: undefined }
+    return { enabled: false, visibility: 'always', hideDelay: undefined, reserve: false }
   }
-  if (option === true || option === undefined) {
-    return { enabled: true, visibility: 'always', hideDelay: undefined }
+  // 未配置缺省 'hover'：指针悬停表格内或滚动时显示，静止后隐藏
+  if (option === undefined) {
+    return { enabled: true, visibility: 'hover', hideDelay: undefined, reserve: true }
+  }
+  // 显式 true 保留旧语义：常驻
+  if (option === true) {
+    return { enabled: true, visibility: 'always', hideDelay: undefined, reserve: true }
   }
   return {
     enabled: true,
-    visibility: option.visibility === 'scrolling' ? 'scrolling' : 'always',
+    visibility: option.visibility ?? 'hover',
     hideDelay: option.hideDelay,
+    reserve: option.reserve ?? true,
   }
 }
 
@@ -129,9 +137,10 @@ export interface ScrollbarDragSession {
 }
 
 /**
- * 命中判定：竖轴条带 = 右缘 [width-size, width) × [0, height-size)，横轴条带 =
- * 下缘 [0, width-size) × [height-size, height)；右下 size×size 空白角不命中。
- * 该轴无滑块（不可滚动）不命中。
+ * 命中判定：竖轴条带 = 右缘 [width-size, width) × [0, height)，横轴条带 =
+ * 下缘 [0, width) × [height-size, height)；两轴皆有滑块时右下 size×size 空白角
+ * 不命中（对侧条带互斥收边），单轴时该轴条带延伸到画布缘。该轴无滑块
+ * （不可滚动）不命中。
  */
 export function hitScrollbar(
   width: number,
@@ -142,7 +151,7 @@ export function hitScrollbar(
   x: number,
   y: number,
 ): ScrollbarHit | null {
-  if (x >= width - size && y < height - size && vertical) {
+  if (x >= width - size && y < height - (horizontal ? size : 0) && vertical) {
     const pointPx = y
     return {
       axis: 'vertical',
@@ -150,7 +159,7 @@ export function hitScrollbar(
       onThumb: pointPx >= vertical.thumbPos && pointPx < vertical.thumbPos + vertical.thumbSize,
     }
   }
-  if (y >= height - size && x < width - size && horizontal) {
+  if (y >= height - size && x < width - (vertical ? size : 0) && horizontal) {
     const pointPx = x
     return {
       axis: 'horizontal',

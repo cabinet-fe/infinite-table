@@ -17,7 +17,7 @@ export class CellValuePipeline {
   private readonly records?: readonly DataRecord[]
   private readonly model?: TableModel
   private readonly resolveDisplayValue?: ResolveDisplayValue
-  private readonly fallbackRowCount: number
+  private fallbackRowCount: number
 
   constructor(init: CellValuePipelineInit) {
     this.columns = init.columns
@@ -27,8 +27,24 @@ export class CellValuePipeline {
     this.fallbackRowCount = init.rowCount ?? 0
   }
 
+  /**
+   * 运行时设置行数兜底（setRowCount 路径）：records/模型给足时兜底不参与；
+   * 纯 hook 形态（无 records/模型）据此动态增减行数。
+   */
+  setRowCountFloor(count: number): void {
+    if (Number.isFinite(count)) {
+      this.fallbackRowCount = Math.max(0, Math.floor(count))
+    }
+  }
+
   get rowCount(): number {
-    return this.model?.rowCount ?? this.records?.length ?? this.fallbackRowCount
+    if (this.model) {
+      return Math.max(this.model.rowCount ?? 0, this.fallbackRowCount)
+    }
+    if (this.records) {
+      return this.records.length
+    }
+    return this.fallbackRowCount
   }
 
   /** 求单元格最终显示文本（同步 O(1)） */

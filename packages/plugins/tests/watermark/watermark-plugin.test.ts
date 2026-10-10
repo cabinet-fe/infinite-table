@@ -1,7 +1,7 @@
-// 水印插件单测：mount 写顶层 overlay 预留位（承载节点挂 sky 层最顶 + 整层失效）、
-// unmount 还原（节点摘除 + 清屏失效）、updateConfig 变更触发 sky 整层失效
-// （一帧内生效路径）与开关读写、滚动不波及 sky 层（水印锚定视口，对齐 core 层
-// 行为测试手法：断言失效提交的 kind 集合）、overlay 承载节点 pointer 事件透传。
+// 水印插件单测：mount 写顶层 overlay 预留位（承载节点挂 sky 层、滚动条浮层重置顶后
+// 为次顶子节点 + 整层失效）、unmount 还原（节点摘除 + 清屏失效）、updateConfig 变更
+// 触发 sky 整层失效（一帧内生效路径）与开关读写、滚动不波及 sky 层（水印锚定视口，
+// 对齐 core 层行为测试手法：断言失效提交的 kind 集合）、overlay 承载节点 pointer 透传。
 
 import { describe, expect, it } from 'vitest'
 
@@ -12,14 +12,14 @@ import { StubHost } from '../testing/stub-host'
 import { RecordingContext } from '../testing/recording-context'
 
 /**
- * 直绘 sky 层最顶子节点（overlay 承载节点；StubHost 不走真实 flush）：返回记录型
- * 上下文供内容断言。sky 恒在 body 之上（render LAYER_ORDER 四层叠放），默认主题
- * body 层不透明底色不构成遮挡（B2 根因）。
+ * 直绘 sky 层水印承载节点（倒数第二子节点；末子节点是重新置顶的交互浮层/滚动条，
+ * StubHost 不走真实 flush）：返回记录型上下文供内容断言。sky 恒在 body 之上
+ * （render LAYER_ORDER 四层叠放），默认主题 body 层不透明底色不构成遮挡（B2 根因）。
  */
 function paintOverlay(host: StubHost): RecordingContext {
   const ctx = new RecordingContext()
   const children = host.layers.get('sky')?.root.children ?? []
-  children[children.length - 1]?.paint(ctx)
+  children[children.length - 2]?.paint(ctx)
   return ctx
 }
 
@@ -60,7 +60,8 @@ describe('createWatermarkPlugin 预留位接线', () => {
     const table = createTable(host, [plugin])
     expect(plugin.name).toBe('watermark')
     expect(skyChildren(host)).toBe(2)
-    expect(skyFullCount(host)).toBe(1)
+    // 构造期预留轨道 1 次 + mount 整层失效 1 次
+    expect(skyFullCount(host)).toBe(2)
     const painted = paintOverlay(host)
     expect(painted.texts.length).toBeGreaterThan(0)
     expect(painted.texts.every((t) => t.text === '内部资料')).toBe(true)
@@ -83,8 +84,8 @@ describe('createWatermarkPlugin 预留位接线', () => {
     expect(skyChildren(host)).toBe(2)
     plugin.unmount?.(table)
     expect(skyChildren(host)).toBe(1)
-    // mount 一次 + unmount 清屏一次
-    expect(skyFullCount(host)).toBe(2)
+    // 构造期预留轨道 1 次 + mount 一次 + unmount 清屏一次
+    expect(skyFullCount(host)).toBe(3)
     expect(paintOverlay(host).texts).toEqual([])
   })
 
@@ -92,7 +93,8 @@ describe('createWatermarkPlugin 预留位接线', () => {
     const host = new StubHost()
     createTable(host, [createWatermarkPlugin({ enabled: false, text: '内部资料' })])
     expect(skyChildren(host)).toBe(1)
-    expect(skyFullCount(host)).toBe(0)
+    // 仅构造期预留轨道 1 次，挂载不写 painter
+    expect(skyFullCount(host)).toBe(1)
   })
 })
 
@@ -197,7 +199,7 @@ describe('overlay 事件透传', () => {
     const table = createTable(host)
     table.use(createWatermarkPlugin({ enabled: true, text: '内部资料' }))
     const children = host.layers.get('sky')?.root.children ?? []
-    const node = children[children.length - 1]
+    const node = children[children.length - 2]
     // pickable=false 且无子节点：命中测试穿透本节点（引擎 SceneNode 契约），
     // 事件继续命中下方 body 层数据格——sky 层既有交互接线不受水印影响
     expect(node?.pickable).toBe(false)

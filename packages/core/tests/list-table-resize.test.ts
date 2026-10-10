@@ -32,9 +32,9 @@ describe('ListTable 容器 resize 原地自适应', () => {
     table.resize(1000, 800)
     expect(table.width).toBe(1000)
     expect(table.height).toBe(800)
-    // 画布内容区 = 视口扣除行号列 48 / 列头 36
-    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 952, height: 764 })
-    // 可视行数按新视口扩（视口高 564 → 764）
+    // 画布内容区 = 视口扣除行号列 48 / 列头 36 / 两轴预留轨道各 10（两轴均可滚）
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 942, height: 754 })
+    // 可视行数按新视口扩（视口高 554 → 754）
     expect(table.getVisibleRange().rows.end).toBeGreaterThan(rowsBefore)
     expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
   })
@@ -55,12 +55,12 @@ describe('ListTable 容器 resize 原地自适应', () => {
 
   it('resize：视口增大时滚动位置按新边界夹取（原 maxTop 越界收敛）', () => {
     const { table } = createTable()
-    // 600 高视口的 maxTop = 3200 - 564 = 2636
-    table.setScrollTop(2636)
-    expect(table.getScrollTop()).toBe(2636)
-    // 视口高 764 → maxTop = 2436，原位置越界夹取
+    // 600 高视口的 maxTop = 3200 - 554 = 2646
+    table.setScrollTop(2646)
+    expect(table.getScrollTop()).toBe(2646)
+    // 视口高 754 → maxTop = 2446，原位置越界夹取
     table.resize(800, 800)
-    expect(table.getScrollTop()).toBe(2436)
+    expect(table.getScrollTop()).toBe(2446)
   })
 
   it('resize：尺寸未变化为空操作（不提交任何失效）', () => {

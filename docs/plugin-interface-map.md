@@ -89,7 +89,7 @@
 | hover 关闭/变色 | 无对应（hover 行列高亮已移除，悬浮无视觉反馈） | 不提供 |
 | `defaultStyle`（数据格） | `TableTheme.body` 分区 | 已有 |
 | `headerStyle` / `cornerHeaderStyle` / `rowHeaderStyle` | `TableTheme.header/corner/rowHeader` 三分区（缺省随 header 派生） | 已有 |
-| 填充柄颜色 | `interaction.fillHandle`；resize 线 `interaction.resizeLine/resizeLineWidth`；整行/整列表头高亮 `interaction.headerHighlight` | 已有 |
+| 填充柄颜色 | `interaction.fillHandle`；resize 线 `interaction.resizeLine/resizeLineWidth`；选区覆盖区间表头高亮 `interaction.headerHighlight`（框选点亮整个覆盖行列带，整轴选区不跨轴） | 已有 |
 
 ## 五、编辑器契约
 

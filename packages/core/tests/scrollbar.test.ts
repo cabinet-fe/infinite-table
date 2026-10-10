@@ -1,6 +1,7 @@
 // 画布内建滚动条：几何换算 / 命中纯函数 + 真实表格交互（拖拽会话、轨道点按跳转、
 // 选项关闭）。默认几何：行号列 48、列头 36、行高 32、列宽 100；800×600 视口下
-// 10 列 100 行 → maxLeft = 1000 − 752 = 248、maxTop = 3200 − 564 = 2636。
+// 10 列 100 行（两轴可滚，右/下缘各预留 10px 轨道 → 视口 742×554）→
+// maxLeft = 1000 − 742 = 258、maxTop = 3200 − 554 = 2646。
 
 import { describe, expect, it } from 'vitest'
 
@@ -126,14 +127,14 @@ describe('ListTable 内建滚动条交互', () => {
     const { host, table } = createTable()
     expect(table.getScrollTop()).toBe(0)
 
-    // 竖轴轨道 y=300 点按（滑块 0..104，非滑块上）→ 跳转；trackLen 590、滑块 104
+    // 竖轴轨道 y=300 点按（滑块 0..102，非滑块上）→ 跳转；trackLen 590、滑块 102
     fireBody(host, 'pointerdown', { x: 795, y: 300, button: 0 })
-    const jumped = Math.round(((300 - 104 / 2) / (590 - 104)) * 2636)
+    const jumped = Math.round(((300 - 102 / 2) / (590 - 102)) * 2646)
     expect(table.getScrollTop()).toBe(jumped)
 
-    // 拖拽 +50px：offset = jumped + 50×2636/486
+    // 拖拽 +50px：offset = jumped + 50×2646/488
     fireBody(host, 'pointermove', { x: 795, y: 350 })
-    expect(table.getScrollTop()).toBeCloseTo(jumped + (50 * 2636) / 486, 5)
+    expect(table.getScrollTop()).toBeCloseTo(jumped + (50 * 2646) / 488, 5)
 
     // 会话中不落选区（无选区产生）
     expect(table.getSelection().ranges.length).toBe(0)
@@ -142,16 +143,16 @@ describe('ListTable 内建滚动条交互', () => {
     fireBody(host, 'pointermove', { x: 795, y: 500 })
     // 会话已结束：后续 move 不再滚动
     const settled = table.getScrollTop()
-    expect(settled).toBeCloseTo(jumped + (50 * 2636) / 486, 5)
+    expect(settled).toBeCloseTo(jumped + (50 * 2646) / 488, 5)
   })
 
   it('滑块上按下直接起拖（无跳转）', () => {
     const { host, table } = createTable()
-    // 滑块 0..104：y=50 在滑块上
+    // 滑块 0..102：y=50 在滑块上
     fireBody(host, 'pointerdown', { x: 795, y: 50, button: 0 })
     expect(table.getScrollTop()).toBe(0)
     fireBody(host, 'pointermove', { x: 795, y: 100 })
-    expect(table.getScrollTop()).toBeCloseTo((50 * 2636) / (590 - 104), 5)
+    expect(table.getScrollTop()).toBeCloseTo((50 * 2646) / (590 - 102), 5)
     fireBody(host, 'pointerup', { x: 795, y: 100 })
   })
 

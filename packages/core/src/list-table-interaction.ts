@@ -183,7 +183,7 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     // 左上角：全选（焦点落可视带首格——活动格恒在视口内，以活动格可见性为闸的
     // 宿主滚动跟随不触发，视口不被拽回首格）
     const visible = table.getBodyVisibleCellRange()
-    table.selection.selectAll(table.options.columns.length, table.pipeline.rowCount, {
+    table.selection.selectAll(table.columns.length, table.pipeline.rowCount, {
       col: visible.cols.start,
       row: visible.rows.start,
     })
@@ -206,13 +206,13 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   }
   if (event.x < table.rowHeaderWidth) {
     const row = findRowAt(table.rowOffsets, toContentY(table, event.y))
-    if (row >= 0 && table.options.columns.length > 0) {
+    if (row >= 0 && table.columns.length > 0) {
       // 表头拖选会话：按下即整行（快照等价 selectRow），拖中/抬起重算为连续行区间。
       // 焦点落交互可视位（可视列带首列 × 被点行），同列头分支不拽视口
       table.headerDrag = { axis: 'row', anchor: row }
       table.selection.beginDragRange(
         { col: 0, row },
-        { col: table.options.columns.length - 1, row },
+        { col: table.columns.length - 1, row },
         { col: table.getBodyVisibleCellRange().cols.start, row },
       )
     }
@@ -236,6 +236,11 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
 }
 
 function onPointerMove(table: ListTable, event: SceneEvent): void {
+  // 'hover' 档：指针在表格内即脉动显示滚动条（pointermove 只在画布上触发，移开即停脉动，
+  // 静止计时到点隐藏；'always'/'scrolling' 档 pokeScrollbar 内部分流）
+  if (table.scrollbarConfig.visibility === 'hover') {
+    table.pokeScrollbar()
+  }
   // 浮动对象变换会话优先：缩放/旋转跟随指针（Shift 经事件态传入，不更新选区）
   if (table.floatLayer?.isTransforming()) {
     table.floatLayer.transformMove(event.x, event.y, event.shiftKey)
@@ -429,8 +434,8 @@ function extendHeaderDrag(table: ListTable, x: number, y: number): void {
   }
   const isCol = drag.axis === 'col'
   // 拖轴范围（列头会话为列数 / 行头会话为行数）与铺满轴范围（对侧全量行数/列数）
-  const axisCount = isCol ? table.options.columns.length : table.pipeline.rowCount
-  const fullCount = isCol ? table.pipeline.rowCount : table.options.columns.length
+  const axisCount = isCol ? table.columns.length : table.pipeline.rowCount
+  const fullCount = isCol ? table.pipeline.rowCount : table.columns.length
   const content = isCol ? toContentX(table, x) : toContentY(table, y)
   const hit = isCol ? findColAt(table.colOffsets, content) : findRowAt(table.rowOffsets, content)
   const target = hit >= 0 ? hit : content < 0 ? 0 : axisCount - 1
@@ -470,16 +475,16 @@ function updateFillCurrent(drag: FillDragState, cell: CellRef): void {
   drag.current = { col, row }
 }
 
-/** 指针在视口边缘区内的自动滚动速度（px/帧）；不在边缘区为 0 */
+/** 指针在视口边缘区内的自动滚动速度（px/帧）；不在边缘区为 0（右/下界避开预留轨道） */
 function fillEdgeVelocity(table: ListTable, x: number, y: number): { dx: number; dy: number } {
   let dx = 0
   let dy = 0
-  if (y >= table.height - FILL_EDGE_ZONE) {
+  if (y >= table.height - table.scrollbarGutterHeight - FILL_EDGE_ZONE) {
     dy = FILL_EDGE_STEP
   } else if (y <= table.headerHeight + table.frozenRowsHeight + FILL_EDGE_ZONE) {
     dy = -FILL_EDGE_STEP
   }
-  if (x >= table.width - FILL_EDGE_ZONE) {
+  if (x >= table.width - table.scrollbarGutterWidth - FILL_EDGE_ZONE) {
     dx = FILL_EDGE_STEP
   } else if (x <= table.rowHeaderWidth + table.frozenColsWidth + FILL_EDGE_ZONE) {
     dx = -FILL_EDGE_STEP
@@ -665,7 +670,7 @@ function onKeyDown(table: ListTable, event: SceneEvent): void {
   const next = nextActiveCell(
     event.key,
     focus,
-    table.options.columns.length,
+    table.columns.length,
     table.pipeline.rowCount,
     event.shiftKey,
   )
@@ -883,7 +888,7 @@ function updatePointerCursor(table: ListTable, x: number, y: number): void {
 /**
  * 非拖拽指针的滚动条悬停/显隐脉动（与光标判定共用同一次命中计算）：
  * 命中滑块置 hover 态（一帧内视觉反馈——变色/变粗）；任何命中（滑块或轨道）在
- * 'scrolling' 档触发显示并重置静止计时；离开滑块清 hover 并重新计时隐藏。
+ * 'scrolling'/'hover' 档触发显示并重置静止计时；离开滑块清 hover 并重新计时隐藏。
  */
 function updateScrollbarHover(table: ListTable, x: number, y: number): ScrollbarHit | null {
   const hit = scrollbarHit(table, x, y)
@@ -902,19 +907,24 @@ function updateScrollbarHover(table: ListTable, x: number, y: number): Scrollbar
 
 /**
  * 单轴滑块几何（可滚动且轨道非正才非 null）。不受显隐策略影响——命中与拖拽换算
- * 恒用真实几何（'scrolling' 静止隐藏档悬停/点按条带即触发显示）。
+ * 恒用真实几何（'scrolling'/'hover' 静止隐藏档悬停/点按条带即触发显示）。
+ * 轨道长 = 画布轴向尺寸 − 对轴预留条带（对轴可滚动时右下角为交汇空白角）。
  */
 function scrollbarGeometry(
   table: ListTable,
   axis: 'vertical' | 'horizontal',
 ): ScrollbarThumbGeometry | null {
-  const size = table.getTheme().interaction.scrollbarSize
   const { scroll } = table
   return planScrollbarThumb(
     axis === 'vertical'
       ? { maxScroll: scroll.maxTop, viewport: table.viewportHeight, offset: table.getScrollTop() }
       : { maxScroll: scroll.maxLeft, viewport: table.viewportWidth, offset: table.getScrollLeft() },
-    Math.max(0, (axis === 'vertical' ? table.height : table.width) - size),
+    Math.max(
+      0,
+      axis === 'vertical'
+        ? table.height - table.scrollbarGutterHeight
+        : table.width - table.scrollbarGutterWidth,
+    ),
   )
 }
 
@@ -981,7 +991,7 @@ function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEve
 
 /**
  * 结束拖拽会话：同步冲刷合帧中未落地的末次滚动目标（拖拽终点不丢帧）、解绑画布外
- * 指针接续，落点光标按 hover/命中重判（顺带脉动 'scrolling' 档重新计时）。
+ * 指针接续，落点光标按 hover/命中重判（顺带脉动 'scrolling'/'hover' 档重新计时）。
  */
 function endScrollbarDrag(table: ListTable, event: SceneEvent): void {
   table.scrollbarCommitTask()
@@ -1079,6 +1089,11 @@ export function refreshOverlay(table: ListTable): void {
     },
     // 内建滚动条视图（不可滚动/静止隐藏/选项关闭的轴为 null）
     scrollbars: scrollbarViews(table),
+    // 预留轨道条带（reserve 开启时可滚动轴常驻；滚动条画其上、内容不被遮挡）
+    scrollbarGutter: {
+      width: table.scrollbarGutterWidth,
+      height: table.scrollbarGutterHeight,
+    },
     // 冻结行列恒可见，裁剪窗口从 0 起并到滚动窗口末；无冻结时起点取滚动窗
     // 起点——rangeRect 收拢后还须经 cellRect 解析双角格，起点越过可解析范围
     // （cellRect 对滚动窗外行列返回 null）会让整行/整列选区在滚动后整块浮层丢失
@@ -1100,14 +1115,15 @@ export function refreshOverlay(table: ListTable): void {
 }
 
 /**
- * 选区联动表头高亮（整轴覆盖带 + 焦点格所在行列头，合并区按主格）：选区签名
- * （段集合×焦点格×全表行列数）未变化时零开销跳过；焦点格入签名——段集合不变而焦点移动
- * （宿主回写活动格移动等）同样要重涂。变化时只重涂翻转的表头节点，并按条带登记
- * body band 失效——不产生跨数据区的 body band/full。
+ * 选区联动表头高亮（S9-P3 覆盖语义）：签名（段集合×全表行列数）未变化时零开销
+ * 跳过。焦点格不入签名——高亮只由选区段覆盖区间决定，拖选中引擎焦点（移动端点）
+ * 与外部回写焦点（锚点）来回摆动时不触发重涂（下游表头高亮抖动的根因）。
+ * 变化时只重涂翻转的表头节点，并按条带登记 body band 失效——不产生跨数据区的
+ * body band/full。
  */
 function refreshHeaderHighlight(table: ListTable): void {
   const snapshot = table.selection.snapshot
-  const signature = `${JSON.stringify(snapshot.ranges)}|${JSON.stringify(snapshot.focus)}|${table.options.columns.length}|${table.pipeline.rowCount}`
+  const signature = `${JSON.stringify(snapshot.ranges)}|${table.columns.length}|${table.pipeline.rowCount}`
   if (signature === table.headerHighlightSignature) {
     return
   }

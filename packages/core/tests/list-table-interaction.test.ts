@@ -273,7 +273,8 @@ describe('ListTable 选区', () => {
   })
 
   it('指针移动不提交 sky 浮层失效（hover 高亮已移除，无会话 move 只管光标）', () => {
-    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    // 关闭内建滚动条：隔离 hover 档「悬停显示」翻转的 sky 失效（本用例只看 move 零副作用）
+    const { host, table } = createTable({ records: [{ name: 'a' }], scrollbar: false })
     host.submitted.length = 0
     fireBody(host, 'pointermove', { x: cellX(1), y: cellY(0) })
     fireBody(host, 'pointermove', { x: cellX(2), y: cellY(0) })
@@ -556,12 +557,12 @@ describe('ListTable 键盘导航', () => {
 
     // 滚动跟随：活动格部分露出视为不可见，选中即滚到刚好完整可见
     table.selectCell(0, 17)
-    // 行 17 下缘 576 超出 564 高视口：top = 17*32 + 32 - 564 = 12
-    expect(table.getScrollState().top).toBe(12)
+    // 行 17 下缘 576 超出 554 高视口（下缘预留轨道 10）：top = 17*32 + 32 - 554 = 22
+    expect(table.getScrollState().top).toBe(22)
     fireSky(host, 'keydown', { key: 'ArrowDown' })
-    // 行 18 完整进入视口：top = 18*32 + 32 - 564 = 44
+    // 行 18 完整进入视口：top = 18*32 + 32 - 554 = 54
     expect(table.getSelection().focus).toEqual({ col: 0, row: 18 })
-    expect(table.getScrollState().top).toBe(44)
+    expect(table.getScrollState().top).toBe(54)
   })
 })
 
@@ -588,7 +589,8 @@ describe('ListTable 行列 resize', () => {
   })
 
   it('指针拖拽列缘：拖拽期只画指示线（sky），pointerup 一次提交生效', () => {
-    const { host, table } = createTable({ records: [{ name: 'a' }] })
+    // 关闭内建滚动条：隔离 hover 档「悬停显示」翻转的 sky 失效（本用例只看 resize 指示线）
+    const { host, table } = createTable({ records: [{ name: 'a' }], scrollbar: false })
     // 第 0 列右缘视口 x = 48 + 100 = 148，列头带内
     fireBody(host, 'pointerdown', { x: 148, y: 10 })
     expect(table.getColWidth(0)).toBe(100)

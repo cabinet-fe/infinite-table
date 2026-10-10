@@ -19,7 +19,8 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
   return { host, table }
 }
 
-// 缺省几何：行号列 48、列头 36、行高 32、列宽 100；视口 752x564
+// 缺省几何：行号列 48、列头 36、行高 32、列宽 100；两轴可滚时视口 742x554
+// （右/下缘各预留 10px 滚动条轨道，scrollbar reserve 缺省开启）
 describe('ListTable 几何/滚动查询 API', () => {
   it('getCellRelativeRect：格视口矩形（CSS 像素），滚动后滚动区随滚动位移', () => {
     const { table } = createTable({ records: rows(100) })
@@ -58,22 +59,22 @@ describe('ListTable 几何/滚动查询 API', () => {
     // 已完整可见不滚动
     table.scrollToCell({ col: 0, row: 101 })
     expect(table.getScrollTop()).toBe(3200)
-    // 目标在视口下方：底边对齐（6400+32-564）
+    // 目标在视口下方：底边对齐（6400+32-554）
     table.setScrollTop(0)
     table.scrollToCell({ col: 5, row: 200 })
-    expect(table.getScrollTop()).toBe(5868)
+    expect(table.getScrollTop()).toBe(5878)
   })
 
   it('scrollToCell：横向让末列完整可见，冻结轴恒可见跳过滚动', () => {
     const { table } = createTable({ records: rows(100), frozenColCount: 1 })
     table.scrollToCell({ col: 9, row: 0 })
-    // 列 9 左缘 900，冻结宽 100 → 可滚动起点 800，视口 652 → 800+100-652=248
-    expect(table.getScrollLeft()).toBe(248)
+    // 列 9 左缘 900，冻结宽 100 → 可滚动起点 800，可滚动视口 642 → 800+100-642=258
+    expect(table.getScrollLeft()).toBe(258)
     const rect = table.getCellRelativeRect(9, 0)
-    expect(rect).toEqual({ x: 700, y: 36, width: 100, height: 32 })
+    expect(rect).toEqual({ x: 690, y: 36, width: 100, height: 32 })
     // 冻结格恒可见：不产生滚动
     table.scrollToCell({ col: 0, row: 0 })
-    expect(table.getScrollState()).toEqual({ left: 248, top: 0 })
+    expect(table.getScrollState()).toEqual({ left: 258, top: 0 })
   })
 
   it('getScrollLeft/getScrollTop/setScrollLeft/setScrollTop：单轴读写与越界夹取', () => {
@@ -84,14 +85,15 @@ describe('ListTable 几何/滚动查询 API', () => {
     expect(table.getScrollLeft()).toBe(150)
     expect(table.getScrollTop()).toBe(0) // 另一轴不受影响
     table.setScrollTop(5000)
-    expect(table.getScrollTop()).toBe(100 * 32 - 564) // 夹取到最大 2636
+    expect(table.getScrollTop()).toBe(100 * 32 - 554) // 夹取到最大 2646
     table.setScrollLeft(99999)
-    expect(table.getScrollLeft()).toBe(1000 - 752) // 夹取到最大 248
+    expect(table.getScrollLeft()).toBe(1000 - 742) // 夹取到最大 258
   })
 
   it('getDrawRange：画布内容区矩形（扣除行号列与列头）', () => {
     const { table } = createTable({ records: rows(10) })
-    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 752, height: 564 })
+    // 10 行内容纵向不可滚（右缘不预留），横向可滚（下缘预留 10）
+    expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 752, height: 554 })
   })
 
   it('getBodyVisibleCellRange：扣除表头/行号列，含冻结区语义', () => {

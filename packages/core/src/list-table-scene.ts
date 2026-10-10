@@ -12,6 +12,7 @@ import { cellStyleFont, type CellBorder, type CellBorderEdge, type CellStyle } f
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
+  expandWindowRange,
   resolveCellX,
   resolveCellYFromOffsets,
   spanHeight,
@@ -101,17 +102,26 @@ export function rebuildScene(table: ListTable): void {
   underlay.height = table.height
   root.appendChild(underlay)
   const { left, top } = table.scroll.state
-  const scrollableRows = computeScrollableRowWindowFromOffsets(
-    top,
-    table.viewportHeight - table.frozenRowsHeight,
-    table.rowOffsets,
-    table.frozenRowCount,
+  // 滚动带窗口两端扩 overscan（滚动缓冲：只扩场景装配窗口，滚动边界不变）
+  const scrollableRows = expandWindowRange(
+    computeScrollableRowWindowFromOffsets(
+      top,
+      table.viewportHeight - table.frozenRowsHeight,
+      table.rowOffsets,
+      table.frozenRowCount,
+    ),
+    table.overscanRows,
+    table.rowCount,
   )
-  const scrollableCols = computeScrollableColWindow(
-    left,
-    table.viewportWidth - table.frozenColsWidth,
-    table.colOffsets,
-    table.frozenColCount,
+  const scrollableCols = expandWindowRange(
+    computeScrollableColWindow(
+      left,
+      table.viewportWidth - table.frozenColsWidth,
+      table.colOffsets,
+      table.frozenColCount,
+    ),
+    table.overscanCols,
+    table.colCount,
   )
   table.rows = scrollableRows
   table.cols = scrollableCols
@@ -202,17 +212,25 @@ export function updateSceneWindow(table: ListTable): void {
   const { left, top } = table.scroll.state
   const prevRows = table.rows
   const prevCols = table.cols
-  const scrollableRows = computeScrollableRowWindowFromOffsets(
-    top,
-    table.viewportHeight - table.frozenRowsHeight,
-    table.rowOffsets,
-    table.frozenRowCount,
+  const scrollableRows = expandWindowRange(
+    computeScrollableRowWindowFromOffsets(
+      top,
+      table.viewportHeight - table.frozenRowsHeight,
+      table.rowOffsets,
+      table.frozenRowCount,
+    ),
+    table.overscanRows,
+    table.rowCount,
   )
-  const scrollableCols = computeScrollableColWindow(
-    left,
-    table.viewportWidth - table.frozenColsWidth,
-    table.colOffsets,
-    table.frozenColCount,
+  const scrollableCols = expandWindowRange(
+    computeScrollableColWindow(
+      left,
+      table.viewportWidth - table.frozenColsWidth,
+      table.colOffsets,
+      table.frozenColCount,
+    ),
+    table.overscanCols,
+    table.colCount,
   )
   table.rows = scrollableRows
   table.cols = scrollableCols
@@ -535,7 +553,7 @@ export function effectiveBorder(
   const endCol = range?.endCol ?? col
   const endRow = range?.endRow ?? row
   let facingRight: CellBorderEdge | undefined
-  if (endCol + 1 < table.options.columns.length) {
+  if (endCol + 1 < table.columns.length) {
     for (let r = row; r <= endRow; r++) {
       facingRight = strongerEdge(facingRight, table.styleAt(endCol + 1, r).border?.left)
     }
@@ -598,7 +616,7 @@ export function appendCell(
     height: spanHeight(table.rowOffsets, row, endRow),
     text: imageUrl || chartMedia ? '' : table.pipeline.resolveText(col, row),
     value: table.pipeline.resolveValue(col, row),
-    cellType: table.options.columns[col]?.cellType,
+    cellType: table.columns[col]?.cellType,
     style,
     border: effectiveBorder(table, col, row, style),
     renderer: table.options.resolveCellRenderer?.(col, row) ?? null,
@@ -625,7 +643,7 @@ export function appendCell(
 /** 空文本数据格判定（溢出邻居扫描用）：text 类型、无图片/图表/自定义渲染/合并覆盖、取值文本为空 */
 function isEmptyTextCell(table: ListTable, col: number, row: number): boolean {
   return (
-    (table.options.columns[col]?.cellType ?? 'text') === 'text' &&
+    (table.columns[col]?.cellType ?? 'text') === 'text' &&
     !table.options.resolveCellRenderer?.(col, row) &&
     !table.options.resolveCellImage?.(col, row) &&
     !table.chartMediaResolver?.(col, row) &&
@@ -741,7 +759,7 @@ export function corridorCols(
   if (
     style.textOverflow !== undefined ||
     style.textWrap === true ||
-    (table.options.columns[col]?.cellType ?? 'text') !== 'text' ||
+    (table.columns[col]?.cellType ?? 'text') !== 'text' ||
     table.options.resolveCellRenderer?.(col, row) ||
     table.options.resolveCellImage?.(col, row) ||
     table.chartMediaResolver?.(col, row) ||
@@ -769,7 +787,7 @@ export function corridorCols(
   const textRight = textLeft + textWidth
   const inFrozenBand = col < table.frozenColCount
   const bandStart = inFrozenBand ? 0 : table.frozenColCount
-  const bandEnd = inFrozenBand ? table.frozenColCount : table.options.columns.length
+  const bandEnd = inFrozenBand ? table.frozenColCount : table.columns.length
   const align = style.textAlign ?? 'left'
   /** 列左缘的格内局部坐标（相对源格左缘；同带内滚动位移在差中相消） */
   const colLeft = (c: number): number => (table.colOffsets[c] ?? 0) - (table.colOffsets[col] ?? 0)
@@ -821,7 +839,7 @@ export function overflowSourceCol(table: ListTable, col: number, row: number): n
  * 再往右被首个非空格挡住。返回后由调用方重算其溢出走廊（不可溢出则收敛回本格）
  */
 export function overflowSourceColRight(table: ListTable, col: number, row: number): number | null {
-  const bandEnd = col < table.frozenColCount ? table.frozenColCount : table.options.columns.length
+  const bandEnd = col < table.frozenColCount ? table.frozenColCount : table.columns.length
   for (let c = col + 1; c < bandEnd; c++) {
     if (!isEmptyTextCell(table, c, row)) {
       return c
@@ -1168,7 +1186,7 @@ function headerBorder(
     resolveSharedEdges(
       style.border,
       {
-        right: table.options.columns.length > 0 ? styles.col.border?.left : undefined,
+        right: table.columns.length > 0 ? styles.col.border?.left : undefined,
         bottom: table.pipeline.rowCount > 0 ? styles.row.border?.top : undefined,
       },
       { firstCol: true, firstRow: true },
@@ -1180,7 +1198,7 @@ function headerBorder(
 function headerHighlightInput(table: ListTable): HeaderHighlightInput {
   return {
     snapshot: table.selection.snapshot,
-    colCount: table.options.columns.length,
+    colCount: table.columns.length,
     rowCount: table.pipeline.rowCount,
     merges: table.mergeCells,
   }
@@ -1199,7 +1217,8 @@ function newColHeaderNode(
     y: 0,
     width: table.colWidths[col] ?? 0,
     height: table.headerHeight,
-    text: table.options.columns[col]?.title ?? '',
+    // 列定义未给 title 的列（setColCount 增出列等）回落宿主动态标题源
+    text: table.columns[col]?.title ?? table.options.resolveColTitle?.(col) ?? '',
     style: styles.col,
     border: headerBorder(table, 'col', styles),
   })

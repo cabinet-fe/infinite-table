@@ -75,11 +75,13 @@ export interface InteractionTokens {
   scrollbarRadius: number
   /** 内建滚动条条带厚度（CSS 像素；两轴交汇的右下空白角同厚） */
   scrollbarSize: number
+  /** 预留轨道区底色（reserve 开启时可滚动轴右/下缘常驻条带的轨道底色，不透明） */
+  scrollbarTrackColor: string
   /** 滑块与条带边缘的内缩边距（仅横向内缩变细；纵向行程换算不受影响） */
   scrollbarMargin: number
   /** hover/拖拽态的内缩边距（收窄即视觉变粗，参照 univer margin 2→1） */
   scrollbarMarginHover: number
-  /** 'scrolling' 显隐档静止后隐藏延时（ms；options.scrollbar.hideDelay 显式给定时优先） */
+  /** 'scrolling'/'hover' 显隐档静止后隐藏延时（ms；options.scrollbar.hideDelay 显式给定时优先） */
   scrollbarHideDelay: number
 }
 
@@ -178,11 +180,13 @@ export const defaultTheme: TableTheme = {
     scrollbarThumbActive: 'rgba(31, 35, 41, 0.7)',
     scrollbarRadius: 4,
     scrollbarSize: 10,
+    // 预留轨道底色：比表头铬底（#f5f6f7）深半档，常驻条带可辨识但不抢内容
+    scrollbarTrackColor: '#f0f1f3',
     // 缺省内缩 2px（厚度 10 − 2×2 = 6），hover/拖拽收窄到 1px（厚度 8，视觉变粗）
     scrollbarMargin: 2,
     scrollbarMarginHover: 1,
-    // 'scrolling' 档静止 1s 后隐藏（对齐 VTable autoHide 1000ms）
-    scrollbarHideDelay: 1000,
+    // 'scrolling'/'hover' 档静止 1.5s 后隐藏（对齐 macOS overlay scrollbar 观感）
+    scrollbarHideDelay: 1500,
   },
   frameStyle: {
     lineWidth: 0,

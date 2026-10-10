@@ -75,6 +75,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
       height: 32,
     }),
     bodyViewport: () => ({ x: 48, y: 36, width: 752, height: 564 }),
+    canvas: () => ({ width: 800, height: 600 }),
   }
 
   function makeContent(ranges: SelectionRange[], focus: SelectionSnapshot['focus']) {
@@ -88,6 +89,7 @@ describe('InteractionOverlay 绘制填充柄', () => {
       highlightRanges: [],
       freezeDividers: { x: null, y: null },
       scrollbars: { vertical: null, horizontal: null },
+      scrollbarGutter: { width: 0, height: 0 },
       window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
     }
     return content
