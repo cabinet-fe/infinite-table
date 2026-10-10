@@ -493,8 +493,15 @@ export class ListTable {
         // 缺省透传宿主环境 dpr（hostOptions.dpr 显式注入优先）：Retina 下不再 1× 被放大上屏
         dpr: resolveHostDpr(),
         ...options.hostOptions,
-        // 原生模式层 canvas（与缺省事件源）挂滚动容器的 sticky 视口：坐标口径与画布层对齐
+        // 原生模式层 canvas（与编辑浮层挂载点）挂滚动容器的 sticky 视口：坐标口径与画布层对齐
         container: this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container,
+        // 原生模式事件源改绑宿主容器：spacer 关闭 pointer-events 后真实 hit-test 命中的
+        // 是 wrapper（viewport 的祖先而非自身），宿主焦点契约元素（tabIndex=-1 + 聚焦）
+        // 也是宿主容器自身——监听绑 sticky 视口两路都不可达（缺陷根因），上提到宿主容器
+        // 即真实传播路径（论证见 NativeScrollbarHost.eventsTarget）；坐标换算基准仍贴
+        // sticky 视口。canvas 档不注入（nativeScrollbar 为 null → 回落 hostOptions
+        // 透传值，与展开缺省取 container 的既有行为一致，零变化）
+        eventsTarget: this.nativeScrollbar?.eventsTarget ?? options.hostOptions?.eventsTarget,
       })
     // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先，缺省取宿主环境值（resize 随宿主刷新）
     this.hostDpr = options.hostOptions?.dpr ?? resolveHostDpr()
@@ -541,6 +548,13 @@ export class ListTable {
     }
     // 原生模式编辑浮层/光标/指针换算容器随层挂载点（sticky 视口，坐标与画布层对齐）
     this.container = this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container
+    // 焦点回落目标：原生档为宿主容器——宿主焦点契约元素（tabIndex=-1 + 聚焦，见
+    // packages/sheet/src/grid/sheet-grid.ts 的 bindFocus）即事件源监听元素自身，编辑
+    // 提交/取消后键盘续可达；sticky 视口无 tabIndex 不可聚焦，回落它 focus() 静默
+    // 无效。canvas 档回落 this.container（即宿主容器），与既有行为一致零变化。
+    const restoreFocusTarget = this.nativeScrollbar
+      ? options.hostOptions?.container
+      : this.container
     this.editorRegistry = options.editorRegistry ?? new EditorRegistry()
     this.editManager = new EditManager({
       columns: options.columns,
@@ -576,7 +590,7 @@ export class ListTable {
         }
       },
       moveSelection: (col, row, move) => this.moveSelectionAfterCommit(col, row, move),
-      restoreFocus: () => this.container?.focus(),
+      restoreFocus: () => restoreFocusTarget?.focus(),
       // 失焦终止策略按当前拾取模式动态判定：公式引用拾取会话失焦不终止（宿主互锁），
       // 其余情况焦点移出画布即按提交语义结束会话（emitEnd 接线恢复 contentHidden）
       resolveEditorBlur: () => (this.editPickMode ? 'ignore' : 'commit'),

@@ -14,6 +14,9 @@
 // wrapper 偏移 → ScrollManager.scrollTo；引擎滚动广播（scrollTo/scrollBy/惯性/
 // ensureCellVisible）→ 写回 wrapper.scrollLeft/scrollTop。自身写回引发的 scroll
 // 事件与引擎状态相等即跳过——单次增量恰好一次等量位移，无回环放大。
+//
+// 事件源口径：原生档引擎监听（EventSystem）绑宿主容器而非 sticky 视口——真实
+// hit-test 命中元素与宿主焦点契约元素都在宿主容器自身/其子树，详见 eventsTarget。
 
 import type { ScrollManager } from './scroll-manager'
 
@@ -45,6 +48,17 @@ export interface NativeScrollbarHostOptions {
 }
 
 /**
+ * 原生档事件源面（结构满足 render 侧 EventSystem 的事件源最小面 EventTargetLike）：
+ * 监听转发宿主容器、坐标换算基准（getBoundingClientRect）转发 sticky 视口。
+ * 不直接绑 sticky 视口的原因见 NativeScrollbarHost.eventsTarget 的论证。
+ */
+export interface NativeEventsTarget {
+  addEventListener(type: string, listener: EventListener): void
+  removeEventListener(type: string, listener: EventListener): void
+  getBoundingClientRect(): { left: number; top: number }
+}
+
+/**
  * 原生滚动条宿主：DOM 装配 + ScrollManager 双向同步 + 滚动范围维护。
  * ListTable 构造期按 scrollbar.mode === 'native' 装配（canvas 档不创建本类）；
  * 视口口径取滚动容器 clientWidth/clientHeight（已扣原生 gutter），无布局环境
@@ -56,6 +70,7 @@ export class NativeScrollbarHost {
   private wrapper: HTMLElement | null = null
   private spacer: HTMLElement | null = null
   private viewport: HTMLElement | null = null
+  private eventsDelegate: NativeEventsTarget | null = null
   private width: number
   private height: number
   private disposed = false
@@ -113,6 +128,40 @@ export class NativeScrollbarHost {
     return this.viewport
   }
 
+  /**
+   * 原生档事件源（DOM 装配形态非空，替身/离屏为 null）：DOM 监听转发宿主容器、
+   * 坐标换算基准 getBoundingClientRect 转发 sticky 视口。选此方案（而非绑 sticky
+   * 视口或 wrapper）的两条不变量与无副作用论证：
+   *
+   * 1) hit-test 可达（不变量：内容区真实命中元素是监听元素自身或后代）：装配子树
+   *    wrapper→spacer→viewport→层 canvas 全在宿主容器内。spacer 关闭
+   *    pointer-events（继承使 viewport/canvas 计算值同为 none）后内容区点击命中的
+   *    是 wrapper——仍是宿主容器的后代，事件冒泡必经监听元素；wrapper 也不是可绑
+   *    目标（见 2）。故无需恢复 spacer/viewport 的 pointer-events（空 spacer 撑
+   *    滚动范围、不参与命中的语义保持），也不引入任何自建滚动条部件。
+   * 2) 焦点可达（不变量：宿主焦点契约元素是监听元素自身或后代）：宿主焦点契约是
+   *    宿主容器自身可聚焦（tabIndex=-1 + 挂载/按下聚焦，见 packages/sheet/src/
+   *    grid/sheet-grid.ts 的 bindFocus）。keydown 在焦点元素 target 阶段即送达自身
+   *    监听器，绑宿主容器即命中；绑 sticky 视口或 wrapper（都是宿主容器的后代、
+   *    不在焦点元素的祖先链上）则永远收不到——这正是缺陷根因，故监听必须上提。
+   * 3) 坐标换算：EventSystem 以事件源 getBoundingClientRect 的 left/top 为画布
+   *    坐标原点。监听元素（宿主容器）可能带 padding/border 或滚动容器前有兄弟
+   *    节点，其 rect 原点不保证与画布对齐，不能直接用；sticky 视口恒贴滚动视口
+   *    （top/left: 0）且层 canvas 以其原点锚定，转发 viewport rect 使
+   *    clientX/Y − rect.left/top 即画布 CSS 像素坐标，与 canvas 档（画布挂宿主
+   *    容器原点、rect 即容器 rect）同构。
+   * 4) 原生滚动无副作用：滚轮/触控板/拖原生滚动条走 wrapper 的 scroll 事件回灌
+   *    （scroll 监听与 pointer-events、监听绑哪无关），无双滚口径不变；拖拽原生
+   *    滚动条期间指针由浏览器在 gutter 命中区（scrollbar-gutter: stable 从布局
+   *    扣除、不覆盖内容）内部接管，引擎至多收到画布视口外的个别指针事件——坐标
+   *    在 viewport rect 之外，场景 hitTest 不命中，走既有「未命中从顶层根派发」
+   *    的视口外事件路径，与内容区拖选会话互不干扰；拖选自身的 pointerdown/move/up
+   *    命中链（wrapper→宿主容器）完整可达。
+   */
+  get eventsTarget(): NativeEventsTarget | null {
+    return this.eventsDelegate
+  }
+
   /** 视口宽（CSS 像素）：滚动容器 clientWidth 口径（已扣原生 gutter）；无布局回落逻辑尺寸 */
   get clientWidth(): number {
     return this.surface?.clientWidth || this.width
@@ -164,6 +213,9 @@ export class NativeScrollbarHost {
     this.wrapper = null
     this.spacer = null
     this.viewport = null
+    // 引擎监听的解绑由 RenderHost.destroy（EventSystem.dispose 转发 removeEventListener
+    // 到宿主容器）先于本方法完成；置空仅收回委托引用
+    this.eventsDelegate = null
     this.surface = null
   }
 
@@ -195,5 +247,11 @@ export class NativeScrollbarHost {
     this.wrapper = wrapper
     this.spacer = spacer
     this.viewport = viewport
+    // 事件源委托（监听绑宿主容器、rect 基准贴 sticky 视口）：接线与论证见 eventsTarget
+    this.eventsDelegate = {
+      addEventListener: (type, listener) => parent.addEventListener(type, listener),
+      removeEventListener: (type, listener) => parent.removeEventListener(type, listener),
+      getBoundingClientRect: () => viewport.getBoundingClientRect(),
+    }
   }
 }
