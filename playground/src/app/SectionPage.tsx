@@ -1,6 +1,6 @@
 // 演示区通用薄壳：标题/标签/描述头卡 + useEffect 挂载区。
 // 挂载复用 src/sections/** 的 mountXXX（命令式 DOM 落在 .demo-mount-area 内，由 global.css 组件类卡片化）；
-// sheet 等需要清理的演示经 unmount 回调在卸载时收尾。
+// 需要清理的演示经 unmount 回调在卸载时收尾。
 
 import { useEffect, useRef } from 'react'
 
@@ -12,7 +12,7 @@ interface SectionPageProps<D> {
   desc: string
   /** 挂载函数：页面传模块级具名函数（引用稳定，effect 只跑一次） */
   mount: (root: HTMLElement) => D
-  /** 卸载收尾（如 sheet 的 destroy 与调试句柄回收）；缺省仅随容器移除 DOM */
+  /** 卸载收尾（destroy 与调试句柄回收）；缺省仅随容器移除 DOM */
   unmount?: (demo: D) => void
 }
 

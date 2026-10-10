@@ -34,7 +34,7 @@ export function SmokePage() {
     staging.innerHTML = ''
 
     try {
-      // 子集冒烟：只挂五区（对齐旧 SmokeView），未挂载区（chart/watermark/print/sheet/report）
+      // 子集冒烟：只挂五区（对齐旧 SmokeView），未挂载区（chart/watermark/print/report）
       // 的检查项在 runSmoke 内逐项捕获记失败——既有行为，结果徽标会如实呈现
       const demos = {
         dataForms: mountDataForms(staging),

@@ -64,7 +64,7 @@ infinitable/
 ### playground — `playground`
 
 - 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 13 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
-- 示例：`src/sections/**` 十演示区（新增 print、watermark）；`?smoke=1` 页内自检写 `window.__SMOKE__`；sheet 区 UI 面（工具栏/公式栏/tabs/右键菜单/toast/观察区）在 `src/app/views/sheet/**`（React + shadcn），`sections/sheet/**` 只剩数据面与 `mountSheet` 引擎装配
+- 示例：`src/sections/**` 十演示区（display/data-forms/interaction/media/chart/watermark/print/editing/report/infinite-sheet，末者为不指定行列数的 WPS 式无限表格）；`?smoke=1` 页内自检写 `window.__SMOKE__`。sheet 电子表格示例已移除（下游 ultra-ui 自实现 sheet 包；`@infinitable/sheet` 包与 playground 依赖保留——report 区与 bench S5 场景仍在用）
 - vs 对比：`src/app/views/ComparePage.tsx` + `src/bench/vs/`（页内跑批 + `?vsrun=1` 自动契约，@visactor/vtable 仅进对比页动态分包）
 - 基准：`src/bench/headless.test.ts` 并入 `vp test run`（headless 回归，无独立命令）+ `bench.html` 浏览器入口，10 场景 JSON 落档 `results/`
 - 脚本（npm script 收敛，按需直跑）：`scripts/smoke.mjs`（构建 + preview + 冒烟断言）、`scripts/vs.mjs`（体积实测 + 对比落档）
@@ -104,4 +104,4 @@ graph TD
 - 水印上屏：plugins 平铺 painter → 注入 core `setOverlayPainter`（ground 层 `setUnderlayPainter` 同构）→ 对应层整层失效，锚定视口不随滚动平移
 - formulas 求值：宿主经 FormulaResolver 驱动求值（playground 装配与 packages/sheet 的 FormulaEngine 适配层）；依赖图标脏由宿主消费
 - sheet 公式重算：模型命令 → FormulaEngine（sheet 包内图簿联动/改名别名/易失编排）→ formulas 依赖图标脏 + evaluate 逐格求值；#CYCLE! 由适配层递归护栏产出，第二套图/求值不存在
-- sheet 装配：playground + `@infinitable/sheet`（电子表格核心：模型/命令/IO/SheetGrid 适配）+ core + formulas 接成电子表格示例
+- sheet 装配：playground 示例已移除（下游 ultra-ui 接手）；`@infinitable/sheet`（电子表格核心：模型/命令/IO/SheetGrid 适配）+ core + formulas 的装配能力保留在包内，playground 仅 report 区与 bench S5 消费只读面

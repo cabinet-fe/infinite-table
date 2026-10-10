@@ -62,7 +62,7 @@ function hashCode(text: string): number {
   return Math.abs(hash)
 }
 
-/** 本地生成位图（演示区共享）：按 URL 生成确定色 canvas（sheet 演示图片字节与此同源） */
+/** 本地生成位图（演示区共享）：按 URL 生成确定色 canvas */
 function demoImageCanvas(url: string): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = IMAGE_WIDTH
@@ -83,15 +83,4 @@ export async function demoLoadImage(url: string): Promise<LoadedImage> {
   await new Promise((resolve) => setTimeout(resolve, 40))
   const canvas = demoImageCanvas(url)
   return { source: canvas, width: canvas.width, height: canvas.height }
-}
-
-/** 本地生成位图 → PNG 字节（sheet 浮动图模型字节载荷；与 demoLoadImage 同一绘制源） */
-export function demoImagePngBytes(url: string): Uint8Array {
-  const encoded = demoImageCanvas(url).toDataURL('image/png')
-  const raw = atob(encoded.slice(encoded.indexOf(',') + 1))
-  const bytes = new Uint8Array(raw.length)
-  for (let index = 0; index < raw.length; index++) {
-    bytes[index] = raw.charCodeAt(index)
-  }
-  return bytes
 }

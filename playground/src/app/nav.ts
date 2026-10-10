@@ -1,4 +1,4 @@
-// 侧栏导航配置：14 个入口的 key 与既有 Vue 壳完全一致（hash 路由契约），bench 为独立页外链。
+// 侧栏导航配置：13 个入口的 key 与既有 Vue 壳完全一致（hash 路由契约），bench 为独立页外链。
 // 分组按演示内容的能力域组织（渲染显示 / 数据交互 / 插件场景 / 性能工程）；图标一律 lucide-react 矢量图标。
 
 import type { LucideIcon } from 'lucide-react'
@@ -6,6 +6,7 @@ import {
   ChartColumn,
   Database,
   Droplets,
+  Grid3x3,
   FileText,
   FlaskConical,
   Home,
@@ -16,7 +17,6 @@ import {
   Pencil,
   Printer,
   Swords,
-  Table2,
   Timer,
 } from 'lucide-react'
 
@@ -26,6 +26,7 @@ export const BRAND_ICON = InfinityIcon
 export type RouteKey =
   | 'home'
   | 'display'
+  | 'infinite-sheet'
   | 'data-forms'
   | 'interaction'
   | 'media'
@@ -33,7 +34,6 @@ export type RouteKey =
   | 'watermark'
   | 'print'
   | 'editing'
-  | 'sheet'
   | 'report'
   | 'compare'
   | 'bench'
@@ -130,15 +130,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     title: '插件与场景',
-    desc: 'TablePlugin 契约下的完整形态示例：sheet 书、文字水印、打印分页与只读报表',
+    desc: 'TablePlugin 契约下的完整形态示例：文字水印、打印分页与只读报表',
     items: [
-      {
-        key: 'sheet',
-        label: 'sheet 电子表格',
-        icon: Table2,
-        badge: '完整形态',
-        desc: '工具栏 · 公式栏 · tabs · 查找替换 · CSV',
-      },
       {
         key: 'watermark',
         label: '文字水印',
@@ -156,6 +149,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: '报表只读快照',
         icon: FileText,
         desc: '九字段快照灌入 + readonly 渲染',
+      },
+      {
+        key: 'infinite-sheet',
+        label: '无限表格',
+        icon: Grid3x3,
+        desc: '不指定行列数 · 滚动触界自动扩容 · 预留轨道滚动条',
       },
     ],
   },

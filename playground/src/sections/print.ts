@@ -3,10 +3,10 @@
 // （两行表头带合并单元格 + 48 行数据），PrintSource 由本区数据函数直接适配供数
 // （「宿主/适配器供数」形态，屏上表格与打印共用同一数据源）。控件面（纸张/方向/
 // 缩放/分页模式参数与预览弹层）由 PrintPage 以 shadcn 渲染，经 PrintDemo.plugin
-// 消费 paginate/buildDocumentHtml/print。window.print 在示例内替换为计数桩
-// （不弹系统对话框），打印经 demo.print（记录最近配置 + 插件 print → 注入钩子汇到
-// window.print 桩）；window.__DEMO__.print 暴露 getPrintCount/getLastPrintConfig
-// 供冒烟判定。
+// 消费 paginate/buildDocumentHtml/print。打印走插件缺省链路：隐藏 iframe 装载全部
+// 页面后调 iframe.contentWindow.print()（只打印报表内容的真实浏览器打印），
+// demo.print 记录最近配置并累计调起次数；window.__DEMO__.print 暴露
+// getPrintCount/getLastPrintConfig 供冒烟判定。
 
 import type { CellStyle, ListTableOptions } from '@infinitable/core'
 import {
@@ -115,9 +115,9 @@ export interface PrintDemo {
   mount: DemoMount
   /** 打印插件句柄（页面预览/打印消费：paginate 分页、buildDocumentHtml 文档、print 输出） */
   plugin: PrintPluginHandle
-  /** 打印入口：记录最近配置并走插件 print（注入钩子汇到 window.print 计数桩） */
+  /** 打印入口：记录最近配置并走插件 print（缺省链路：隐藏 iframe 装载后调起浏览器打印） */
   print(config: PrintConfig): Promise<void>
-  /** window.print 桩计数（打印按钮真实触发 print 链路 ≥1 即通过） */
+  /** 浏览器打印调起次数（打印链路真实完成 iframe 装载并调 print 即 +1） */
   getPrintCount(): number
   /** 最近一次打印的完整配置（null = 尚未打印） */
   getLastPrintConfig(): PrintConfig | null
@@ -147,14 +147,9 @@ export function mountPrint(root: HTMLElement): PrintDemo {
     canResizeCol: () => false,
     canResizeRow: () => false,
   }
-  const printPlugin = createPrintPlugin({
-    source,
-    hooks: {
-      print: () => {
-        window.print()
-      },
-    },
-  })
+  // 打印走插件缺省链路：printPages 经隐藏 iframe 装载全部页面后调
+  // iframe.contentWindow.print()（浏览器打印对话框只含报表内容），不注入 hooks.print
+  const printPlugin = createPrintPlugin({ source })
   const mount = mountTable(section, {
     width: 640,
     height: 320,
@@ -171,19 +166,17 @@ export function mountPrint(root: HTMLElement): PrintDemo {
   mount.table.setMergeCells(MERGES.map((merge) => ({ ...merge })))
   mount.table.setFrozenRowCount(PRINT_HEADER_ROWS)
 
-  // ---- 打印桩：替换 window.print 计数真实调用（打印链路终态汇到此处） ----
+  // ---- 打印计数：print 链路真实完成（iframe 装载 + 调起浏览器打印）后 +1 ----
   let printCount = 0
   let lastPrintConfig: PrintConfig | null = null
-  window.print = () => {
-    printCount++
-  }
 
   return {
     mount,
     plugin: printPlugin,
-    print(config) {
+    async print(config) {
       lastPrintConfig = config
-      return printPlugin.print(config)
+      await printPlugin.print(config)
+      printCount++
     },
     getPrintCount: () => printCount,
     getLastPrintConfig: () => lastPrintConfig,

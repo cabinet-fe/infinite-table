@@ -90,8 +90,8 @@ function Hero() {
 
         <p className="mt-5 max-w-[64ch] text-[13.5px] leading-relaxed text-muted-foreground">
           构造与首帧只处理可视窗口，10 万到 100 万行数据量变化下，首次渲染、滚动与写入指标基本不变。
-          以下 13 个入口均可交互验证：渲染显示、三种数据供给、交互与编辑、图表/水印/打印插件、sheet
-          电子表格与只读报表。
+          以下 13
+          个入口均可交互验证：渲染显示、三种数据供给、交互与编辑、图表/水印/打印插件与只读报表。
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">

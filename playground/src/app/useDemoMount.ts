@@ -1,5 +1,5 @@
 // 命令式演示区挂载 → React 句柄：sections 的 mountXXX 挂到容器，返回的 demo 句柄交回组件
-// 驱动页面控制面板。挂载区 DOM 随容器卸载移除；需要显式销毁的演示（如 sheet）仍走 SectionPage 的 unmount。
+// 驱动页面控制面板。挂载区 DOM 随容器卸载移除；需要显式销毁的演示仍走 SectionPage 的 unmount。
 
 import { useEffect, useRef, useState } from 'react'
 

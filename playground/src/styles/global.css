@@ -116,10 +116,4 @@
   .table-mount {
     @apply relative touch-none overflow-hidden rounded-md border bg-card shadow-sm select-none;
   }
-
-  /* sheet 网格实例容器（sections/sheet/book.ts 创建）：clip 而非 hidden——hidden 下编辑器聚焦
-     仍可被程序滚动（canvas 高于容器时整块错位），clip 完全禁止滚动位移 */
-  .sheet-grid-instance {
-    @apply absolute inset-0 touch-none overflow-clip bg-white select-none;
-  }
 }

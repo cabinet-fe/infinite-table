@@ -11,11 +11,11 @@ import { DataFormsPage } from './views/DataFormsPage'
 import { DisplayPage } from './views/DisplayPage'
 import { EditingPage } from './views/EditingPage'
 import { HomePage } from './views/HomePage'
+import { InfiniteSheetPage } from './views/InfiniteSheetPage'
 import { InteractionPage } from './views/InteractionPage'
 import { MediaPage } from './views/MediaPage'
 import { PrintPage } from './views/PrintPage'
 import { ReportPage } from './views/ReportPage'
-import { SheetPage } from './views/SheetPage'
 import { SmokePage } from './views/SmokePage'
 import { WatermarkPage } from './views/WatermarkPage'
 import { BRAND_ICON, NAV_GROUPS, findNavItem, type PageKey } from './nav'
@@ -32,8 +32,8 @@ const PAGES: Record<PageKey, ComponentType> = {
   watermark: WatermarkPage,
   print: PrintPage,
   editing: EditingPage,
-  sheet: SheetPage,
   report: ReportPage,
+  'infinite-sheet': InfiniteSheetPage,
   compare: ComparePage,
   smoke: SmokePage,
 }

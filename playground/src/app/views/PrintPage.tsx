@@ -1,5 +1,6 @@
 // 打印预览与输出：headless 打印内核 + shadcn Dialog 预览（缩略页列表 + 当前页放大 + 打印按钮）。
-// 参数面板改动即时合成 PrintConfig；预览/打印逐次传入插件方法，window.print 为计数桩。
+// 参数面板改动即时合成 PrintConfig；预览/打印逐次传入插件方法，打印经缺省链路
+// 调起浏览器打印对话框（隐藏 iframe 只装载报表内容）。
 
 import { Printer } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -141,7 +142,7 @@ export function PrintPage() {
   const [preview, setPreview] = useState<PrintPreview | null>(null)
   const [current, setCurrent] = useState(0)
   const [printing, setPrinting] = useState(false)
-  /** 桩计数镜像（window.print 桩无订阅面，打印完成后回读刷新状态行） */
+  /** 调起计数镜像（demo.print 完成后回读刷新状态行） */
   const [printCount, setPrintCount] = useState(0)
   const [lastPrinted, setLastPrinted] = useState<PrintConfig | null>(null)
 
@@ -185,13 +186,13 @@ export function PrintPage() {
           <Badge variant="secondary">fitpage/fixrows 分页</Badge>
           <Badge variant="secondary">每页重复表头</Badge>
           <Badge variant="secondary">页眉页脚占位符</Badge>
-          <Badge variant="secondary">window.print 桩计数</Badge>
+          <Badge variant="secondary">真实浏览器打印</Badge>
         </div>
         <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
           headless 打印内核 + 预览弹层：超过一页的示例表（两行表头带合并单元格）经 PrintSource
           供数，右侧配置纸张/方向/缩放/分页模式后打开预览（缩略列表 + 当前页放大 +
-          打印按钮）；window.print 已替换为计数桩，点打印按钮可在状态行与 window.__DEMO__.print
-          读取调用计数。
+          打印按钮）；点打印经隐藏 iframe 装载全部页面后调 iframe.contentWindow.print()
+          调起浏览器打印（只打印报表内容），状态行与 window.__DEMO__.print 可读调起计数。
         </p>
       </div>
 
@@ -298,7 +299,7 @@ export function PrintPage() {
           </Button>
 
           <p className="mt-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 font-mono text-[11px] leading-relaxed text-primary">
-            打印调用 {printCount} 次
+            已调起浏览器打印 {printCount} 次
             {lastPrinted
               ? `；最近：${paperLabel(lastPrinted.paperSize)} ${lastPrinted.orientation ?? 'portrait'}` +
                 ` ${lastPrinted.paging ?? 'fitpage'}` +
@@ -311,7 +312,7 @@ export function PrintPage() {
 
       <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
         {preview && (
-          <DialogContent className="flex h-[85vh] max-w-[1100px] flex-col gap-0 p-0">
+          <DialogContent className="flex h-[85vh] sm:max-w-[1100px] flex-col gap-0 p-0">
             <DialogHeader className="flex-none border-b px-5 py-3">
               <DialogTitle className="text-base">2026 Q3 销售明细（打印示例）</DialogTitle>
               <DialogDescription className="text-xs">
@@ -358,7 +359,7 @@ export function PrintPage() {
 
             <DialogFooter className="flex-none border-t px-5 py-3 sm:justify-between">
               <span className="self-center text-xs text-muted-foreground sm:mr-auto">
-                打印按钮经隐藏 iframe 装载全部页面后调起打印（本示例为 window.print 计数桩）
+                打印按钮经隐藏 iframe 装载全部页面后调起浏览器打印（只打印报表内容）
               </span>
               <Button onClick={handlePrint} disabled={printing}>
                 <Printer />
