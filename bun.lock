@@ -27,7 +27,7 @@
     },
     "packages/infinitable": {
       "name": "infinitable",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "devDependencies": {
         "@infinitable/core": "workspace:*",
         "@infinitable/formulas": "workspace:*",

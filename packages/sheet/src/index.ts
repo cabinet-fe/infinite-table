@@ -64,6 +64,7 @@ export {
   type CellStyle,
   type StyleId,
   type CellStylePatch,
+  type NumFmt,
 } from './core/style/types'
 
 export { StylePool } from './core/style/style-pool'
@@ -177,7 +178,14 @@ export {
 
 export { exportWorkbookXlsx, exportSheetXlsx, exportSheetCsv } from './core/io/export'
 
-export { importXlsx, importCsv } from './core/io/import'
+export {
+  importXlsx,
+  importCsv,
+  replaceWorkbookWithSnapshots,
+  type SheetReplaceItem,
+} from './core/io/import'
+
+export { TypedEventEmitter } from './core/events'
 
 // ---- grid 适配层（SheetGrid 装配：与 src/grid/index.ts 同一公共面） ----
 
