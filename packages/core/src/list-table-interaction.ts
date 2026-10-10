@@ -127,6 +127,24 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     beginScrollbarDrag(table, scrollbar, event)
     return
   }
+  // 绘制边界坐标守卫：落点在 [0, rowHeaderWidth + viewportWidth) ×
+  // [0, headerHeight + viewportHeight) 之外（含负坐标——原生档宿主容器可大于
+  // wrapper）直接 return，不提交编辑、不启动任何命中会话（选区/表头拖选/全选/
+  // resize/填充柄/编辑拾取）。原生档该界即 wrapper client 口径：canvas 宽取 CSS
+  // 视口、大于绘制边界（clientWidth 口径），gutter 带被 canvas 覆盖但无内容绘制；
+  // 部分可见末列的格节点命中盒是整列宽节点几何（不按绘制边界裁剪），伸进 gutter
+  // 带到达引擎监听是实测命中可达路径（hitTest 命中并冒泡到 body 根，cellAt 按含
+  // 滚动残留的内容坐标解析出列启动选区）。守卫位于 scrollbarHit 之后：canvas 档
+  // 滚动条带（绘制边界外）点击仍先被滚动条命中截获，不受本守卫影响；先于编辑提交
+  // 返回也对齐 canvas 档滚动条带点击不提交编辑的既有行为。
+  if (
+    event.x < 0 ||
+    event.y < 0 ||
+    event.x >= table.rowHeaderWidth + table.viewportWidth ||
+    event.y >= table.headerHeight + table.viewportHeight
+  ) {
+    return
+  }
   // 编辑中点击其它格/空白：先提交当前会话（同一时刻至多一个编辑会话）；
   // 编辑拾取模式（editPickMode）命中数据格除外——不提交，选区流动由宿主消费为引用插入
   const hit = cellAt(table, event.x, event.y)

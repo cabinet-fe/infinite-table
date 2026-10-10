@@ -153,10 +153,12 @@ export class NativeScrollbarHost {
    * 4) 原生滚动无副作用：滚轮/触控板/拖原生滚动条走 wrapper 的 scroll 事件回灌
    *    （scroll 监听与 pointer-events、监听绑哪无关），无双滚口径不变；拖拽原生
    *    滚动条期间指针由浏览器在 gutter 命中区（scrollbar-gutter: stable 从布局
-   *    扣除、不覆盖内容）内部接管，引擎至多收到画布视口外的个别指针事件——坐标
-   *    在 viewport rect 之外，场景 hitTest 不命中，走既有「未命中从顶层根派发」
-   *    的视口外事件路径，与内容区拖选会话互不干扰；拖选自身的 pointerdown/move/up
-   *    命中链（wrapper→宿主容器）完整可达。
+   *    扣除、不覆盖内容）内部接管，引擎至多收到 gutter 带的个别指针事件——gutter
+   *    带坐标在绘制边界（wrapper client 口径）之外，但部分可见格节点的命中盒
+   *    （整列/整行宽节点几何，不按绘制边界裁剪）可伸进 gutter 带到达引擎监听，
+   *    经 onPointerDown 入口的绘制边界守卫后不启动任何命中交互，与内容区拖选
+   *    会话互不干扰；拖选自身的 pointerdown/move/up 命中链（wrapper→宿主容器）
+   *    完整可达。
    */
   get eventsTarget(): NativeEventsTarget | null {
     return this.eventsDelegate
