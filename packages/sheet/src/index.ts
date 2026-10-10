@@ -191,6 +191,8 @@ export { TypedEventEmitter } from './core/events'
 
 export type { CellRenderer, CellRenderTarget } from './grid/index'
 export { SheetGrid, type ResolveCellRenderer, type SheetGridOptions } from './grid/sheet-grid'
+// SheetGridOptions.scrollbar 对象形态（core 同形再导出；mode: 'native' 原生滚动条档）
+export type { ScrollbarOptions } from '@infinitable/core'
 export type { ResolveCellStyleHook, ResolveDisplayValue } from './grid/grid-model'
 export type { SheetGridContextMenuInfo, SheetGridContextMenuKind } from './grid/grid-coords'
 export type { SheetGridHeaderOptions } from './grid/grid-header'

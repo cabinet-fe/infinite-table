@@ -5,6 +5,7 @@ import {
   type CellRenderer,
   type ColumnDefine,
   type ListTableOptions,
+  type ScrollbarOptions,
 } from '@infinitable/core'
 
 import type { CellAddress, CellRange } from '../core/address'
@@ -90,8 +91,14 @@ export interface SheetGridOptions {
   showRowHeader?: boolean
   /** 是否显示列字母表头，默认 true */
   showColHeader?: boolean
-  /** 画布滚动条（透传引擎内建，缺省 true）：内容溢出的轴在画布右/下缘绘制滚动条 */
-  scrollbar?: boolean
+  /**
+   * 滚动条（全形态透传引擎内建，缺省 true）：false 整体关闭；对象形态与 core
+   * `ScrollbarOptions` 同形——`mode: 'native'` 切换浏览器原生滚动条（挂载容器内
+   * 装配真实 DOM 滚动容器 + `scrollbar-gutter: stable` 预留，滚动条随 OS 外观/
+   * 触控板惯性，宿主滚轮接线自动让位不双滚，`growOnScroll` 扩容后滚动范围随
+   * 引擎边界同步）；其余字段为 canvas 档显示策略（画布右/下缘绘制）。
+   */
+  scrollbar?: boolean | ScrollbarOptions
   /**
    * 滚动近端动态增长（WPS 式无限表格，缺省 true）：滚动缓冲末端触到当前行列数时，
    * 模型与引擎同步扩容（初始尺寸 = 宿主下限或缺省 100×26 与「可视 + 缓冲」的较大者，
@@ -230,8 +237,8 @@ export class SheetGrid {
       // colResize 仅放开列 resize（readonly 下手柄解锁）；行 resize 仍随 readonly 关闭
       canResizeCol: this.isReadonly && options.colResize !== true ? () => false : undefined,
       canResizeRow: this.isReadonly ? () => false : undefined,
-      // 画布滚动条（引擎内建，缺省 true）
-      ...(options.scrollbar === false ? { scrollbar: false } : {}),
+      // 滚动条全形态透传（undefined 缺省 / false 关闭 / 对象形态含 mode: 'native' 原生档）
+      ...(options.scrollbar !== undefined ? { scrollbar: options.scrollbar } : {}),
       // 滚动缓冲：窗口外预建缓冲行列（growOnScroll 关闭时同样受益于平滑滚动）
       overscanRows: DEFAULT_OVERSCAN_ROWS,
       overscanCols: DEFAULT_OVERSCAN_COLS,
@@ -683,8 +690,13 @@ export class SheetGrid {
    * 只在引擎确实消费了滚动（scrollBy 前后位置变化）时才 preventDefault：某轴余量
    * 为 0（宿主把 grid 定为内容全量尺寸导致视口==内容，或已滚到该轴边缘）时吞掉
    * 事件会饿死外层原生滚动容器——放行让 wheel 沿滚动链冒泡给祖先。
+   *
+   * 原生滚动条模式（scrollbar.mode === 'native'）整体让位：滚轮/触控板由引擎
+   * 装配的原生滚动容器接管，本接线不挂监听——不 preventDefault、不 scrollBy，
+   * 单次增量恰好一次等量位移（判定用引擎只读判定 usesNativeScrollbar）。
    */
   private bindWheel(): void {
+    if (this.table.usesNativeScrollbar) return
     const onWheel = (event: WheelEvent): void => {
       let deltaX = Number.isFinite(event.deltaX) ? event.deltaX : 0
       let deltaY = Number.isFinite(event.deltaY) ? event.deltaY : 0
