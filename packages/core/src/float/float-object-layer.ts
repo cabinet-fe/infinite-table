@@ -218,7 +218,8 @@ interface FloatObjectLayerInit {
   imageService?: ImageService
   /**
    * 绘制裁剪视口（层坐标，通常为表格 body 视口）：滚动跟随平移进表头带/行号列的
-   * 部分不画，行列头不被浮动对象盖住；缺省不裁剪（独立宿主自行负责层序）。
+   * 部分不画（行列头不被浮动对象盖住），同时是编辑会话位置钳制的边界（clampToViewport）；
+   * 缺省不裁剪也不钳制（独立宿主自行负责层序）。
    */
   bodyViewport?: Region
 }
@@ -247,11 +248,12 @@ class FloatObjectNode extends SceneNode {
   override paint(ctx: RenderContext): void {
     const viewport = this.viewport()
     if (viewport) {
-      // 裁剪窗口画在边界外侧（选中环 + 手柄）：窗口随选中态外扩，手柄不被视口交叠裁掉。
+      // 裁剪窗口严格取数据区视口：内容与选中装饰（环/手柄）一律不越视口画进行列头带。
+      // 编辑中的越界由拖拽/变换的位置钳制避免（clampToViewport），此处只兜底
+      // 「选中即部分在视口外」的存量状态（贴边手柄被视口边缘裁掉，不压表头）。
       // 旋转对象的窗口在预旋转帧计算（此刻 CTM 与层坐标 1:1 平移），clip 在层空间固定，
       // 随后的 ctx.rotate 只旋转内容不旋转窗口——旋转后的像素不会越窗画进表头带。
-      const pad = this.pad()
-      const clip = this.clipWindow(viewport, pad)
+      const clip = this.clipWindow(viewport, this.pad())
       if (!clip) {
         return
       }
@@ -286,13 +288,13 @@ class FloatObjectNode extends SceneNode {
   }
 
   /**
-   * 局部帧内的绘制裁剪窗口：内容覆盖（旋转 AABB + pad）∩（视口 + pad）。
+   * 局部帧内的绘制裁剪窗口：内容覆盖（旋转 AABB + pad）∩ 视口（严格，四边不外扩）。
    * 不相交返回 null（整体在视口外/带外，不画）。
    */
   private clipWindow(viewport: Region, pad: number): Region | null {
     const cover = inflateRegion(rotatedLocalCover(this.width, this.height, this.rotation), pad)
-    const x0 = Math.max(cover.x, viewport.x - this.x - pad)
-    const y0 = Math.max(cover.y, viewport.y - this.y - pad)
+    const x0 = Math.max(cover.x, viewport.x - this.x)
+    const y0 = Math.max(cover.y, viewport.y - this.y)
     const x1 = Math.min(cover.x + cover.width, viewport.x + viewport.width - this.x)
     const y1 = Math.min(cover.y + cover.height, viewport.y + viewport.height - this.y)
     if (x1 <= x0 || y1 <= y0) {
@@ -550,14 +552,16 @@ export class FloatObjectLayer {
     const prev = this.coverOf(node)
     node.x = session.originX + dx
     node.y = session.originY + dy
+    this.clampToViewport(node)
     this.invalidateNode(node, prev)
   }
 
   /**
    * 结束拖拽（pointerup 由指针路由调用）：未成拖拽的点按到此为止（选中已在按下完成）；
-   * 成拖拽的以拖拽对象左上角的视觉位置反查落点格（对齐 ultra-ui commitDrag 口径），
-   * 换算新锚点抛 onDragEnd 由宿主写回模型——落点在行列头带/空白（无 cellAtPoint）
-   * 或原地放下则回弹原锚点布局，不改模型。
+   * 成拖拽的以拖拽对象左上角的视觉位置反查落点格（对齐 ultra-ui commitDrag 口径，
+   * 位置先投影回数据区视口——编辑钳制允许左上角带装饰余量越缘，落点按可见位置就近
+   * 换算），换算新锚点抛 onDragEnd 由宿主写回模型——落点在行列头带/空白（无
+   * cellAtPoint）或原地放下则回弹原锚点布局，不改模型。
    */
   endDrag(): void {
     const session = this.drag
@@ -570,7 +574,8 @@ export class FloatObjectLayer {
       return
     }
     const object = node.object
-    const next = this.resolveAnchorAt(object, node.x, node.y)
+    const point = this.pointInView(node.x, node.y)
+    const next = this.resolveAnchorAt(object, point.x, point.y)
     const samePlace =
       next.from.col === object.anchor.from.col &&
       next.from.row === object.anchor.from.row &&
@@ -732,6 +737,15 @@ export class FloatObjectLayer {
       }
       width = Math.max(MIN_TRANSFORM_SIZE, Math.round(width))
       height = Math.max(MIN_TRANSFORM_SIZE, Math.round(height))
+      // 缩放上限 = 绘制视口（扣选中装饰余量）：编辑态整体钳制在可视区内，不无限放大；
+      // 已超限的现有尺寸不强制回缩，只挡增量（会话首帧不跳变）
+      const viewport = this.bodyViewport
+      if (viewport) {
+        const maxW = Math.max(MIN_TRANSFORM_SIZE, Math.floor(viewport.width - SELECTED_PAD * 2))
+        const maxH = Math.max(MIN_TRANSFORM_SIZE, Math.floor(viewport.height - SELECTED_PAD * 2))
+        width = Math.min(width, Math.max(session.width0, maxW))
+        height = Math.min(height, Math.max(session.height0, maxH))
+      }
       // 新中心 = 固定锚点 − R(θ)·(锚点相对新中心的局部向量)；左上角随之定
       const au = session.sx > 0 ? 0 : session.sx < 0 ? 1 : 0.5
       const av = session.sy > 0 ? 0 : session.sy < 0 ? 1 : 0.5
@@ -744,14 +758,62 @@ export class FloatObjectLayer {
       node.x = cx - width / 2
       node.y = cy - height / 2
     }
+    this.clampToViewport(node)
     this.invalidateNode(node, prev)
   }
 
   /**
+   * 编辑会话位置钳制：对象旋转 AABB（含选中装饰外扩）整体保持在绘制视口内——
+   * 编辑中图片与选中环/手柄完整可见，不压行列头。视口小于对象（含 pad）时取中，
+   * 两侧均匀出血；未配置视口不钳制（独立宿主自行负责）。
+   */
+  private clampToViewport(node: FloatObjectNode): void {
+    const viewport = this.bodyViewport
+    if (!viewport) {
+      return
+    }
+    const pad = node.pad()
+    const cover = rotatedLocalCover(node.width, node.height, node.rotation)
+    const clampAxis = (
+      coverStart: number,
+      coverLen: number,
+      viewStart: number,
+      viewLen: number,
+      value: number,
+    ): number => {
+      const min = viewStart - pad - coverStart
+      const max = viewStart + viewLen + pad - coverStart - coverLen
+      // min > max 即对象（含 pad）宽出视口：取中，出血对称
+      if (min > max) {
+        return (min + max) / 2
+      }
+      return Math.min(Math.max(value, min), max)
+    }
+    node.x = clampAxis(cover.x, cover.width, viewport.x, viewport.width, node.x)
+    node.y = clampAxis(cover.y, cover.height, viewport.y, viewport.height, node.y)
+  }
+
+  /**
+   * 落点反查投影：位置钳进数据区视口内（编辑钳制允许左上角带装饰余量越缘，
+   * 落点按可见位置就近换算，贴缘放下提交而不是整拖回弹）；未配置视口原样返回。
+   */
+  private pointInView(x: number, y: number): { x: number; y: number } {
+    const viewport = this.bodyViewport
+    if (!viewport) {
+      return { x, y }
+    }
+    return {
+      x: Math.min(Math.max(x, viewport.x), viewport.x + viewport.width - 1),
+      y: Math.min(Math.max(y, viewport.y), viewport.y + viewport.height - 1),
+    }
+  }
+
+  /**
    * 结束变换（pointerup 由指针路由调用）：未成拖拽的点按到此为止；成拖拽的按对象
-   * 视觉状态反查新锚点（与拖拽移动同一口径，反查无效保持原锚点），抛 onTransformEnd
-   * `{ id, anchor, size, rotation }` 由宿主写回模型——拖拽过程只改了渲染态，宿主
-   * 写回（update）后模型与展示对齐；宿主不写回时下次锚定重排会回弹到模型态。
+   * 视觉状态反查新锚点（与拖拽移动同一口径：位置先投影回数据区视口，反查无效保持
+   * 原锚点），抛 onTransformEnd `{ id, anchor, size, rotation }` 由宿主写回模型——
+   * 拖拽过程只改了渲染态，宿主写回（update）后模型与展示对齐；宿主不写回时下次
+   * 锚定重排会回弹到模型态。
    */
   endTransform(): void {
     const session = this.transform
@@ -763,9 +825,10 @@ export class FloatObjectLayer {
     if (!node) {
       return
     }
+    const point = this.pointInView(node.x, node.y)
     const event: FloatTransformEndEvent = {
       id: session.id,
-      anchor: this.resolveAnchorAt(node.object, node.x, node.y),
+      anchor: this.resolveAnchorAt(node.object, point.x, point.y),
       size: { width: Math.round(node.width), height: Math.round(node.height) },
       rotation: node.rotation,
     }

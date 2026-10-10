@@ -37,7 +37,7 @@ function createRecordingContainer() {
     return originalRemove(type, listener as EventListener)
   }) as typeof container.removeEventListener
   container.getBoundingClientRect = () =>
-    ({ left: PAGE_OFFSET.left, top: PAGE_OFFSET.top, width: 400, height: 200 }) as DOMRect
+    ({ left: PAGE_OFFSET.left, top: PAGE_OFFSET.top, width: 400, height: 260 }) as DOMRect
   return {
     container,
     /** 以 DOM 事件对象触发容器上注册的监听器（层坐标 + 偏移 = 页面坐标口径） */
@@ -65,8 +65,10 @@ function createRecordingContainer() {
 function mountDispatchTable() {
   const { container, fire } = createRecordingContainer()
   const options: ListTableOptions = {
+    // 高度 260：拖拽行程终点 (158,170) 距视口下缘留出钳制余量（编辑态位置钳制
+    // 会把旋转 AABB + 装饰外扩钳在 body 视口内，本组只验证指针派发链路）
     width: 400,
-    height: 200,
+    height: 260,
     rowHeight: 32,
     headerHeight: 36,
     rowHeaderWidth: 48,
