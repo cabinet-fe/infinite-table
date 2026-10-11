@@ -43,6 +43,8 @@ export interface SheetImage {
   rotation?: number
   altText?: string
   title?: string
+  /** 图片超链接 URL；带链接图片单击由引擎侧派发打开事件，缺省无链接 */
+  link?: string
 }
 
 /**
@@ -64,6 +66,8 @@ export interface ImageInput {
   rotation?: number
   altText?: string
   title?: string
+  /** 图片超链接 URL；带链接图片单击由引擎侧派发打开事件，缺省无链接 */
+  link?: string
 }
 
 /** 生成图片 id（crypto.randomUUID 优先，无 crypto 时回落时间戳） */
@@ -101,6 +105,7 @@ export function cloneSheetImage(image: SheetImage): SheetImage {
     ...(image.rotation != null ? { rotation: image.rotation } : {}),
     ...(image.altText != null ? { altText: image.altText } : {}),
     ...(image.title != null ? { title: image.title } : {}),
+    ...(image.link != null ? { link: image.link } : {}),
   }
 }
 

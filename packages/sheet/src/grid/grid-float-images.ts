@@ -32,6 +32,10 @@ function toFloatObject(image: SheetImage, src: string): FloatObject {
     src,
     ...(image.altText != null ? { alt: image.altText } : {}),
     ...(image.title != null ? { title: image.title } : {}),
+    // 带链接浮动图单击由引擎侧派发图片链接点击事件（onImageLinkClick）。
+    // link 必须显式携带键（无链接为 undefined）：sync 对已存在对象走 update 合并语义，
+    // 缺键删不掉旧值——link 清除后引擎若残留旧链接，单击仍会按带链接派发
+    link: image.link,
   }
 }
 

@@ -37,6 +37,7 @@ export const InsertImageCommand: Command<InsertImageParams, string> = {
       ...(params.image.rotation != null ? { rotation: params.image.rotation } : {}),
       ...(params.image.altText != null ? { altText: params.image.altText } : {}),
       ...(params.image.title != null ? { title: params.image.title } : {}),
+      ...(params.image.link != null ? { link: params.image.link } : {}),
     })
     const patch: ImagePatch = { kind: 'image', id, before: undefined, after }
     ctx.applyPatch(patch, 'redo')
@@ -78,6 +79,8 @@ export interface ImageUpdateFields {
   rotation?: number
   altText?: string
   title?: string
+  /** 图片超链接 URL；null 清除链接（undefined 不动该字段），设置/清除同一命令可 undo */
+  link?: string | null
 }
 
 export interface UpdateImageParams {
@@ -104,6 +107,8 @@ export const UpdateImageCommand: Command<UpdateImageParams> = {
     if (patch.rotation != null) after.rotation = patch.rotation
     if (patch.altText != null) after.altText = patch.altText
     if (patch.title != null) after.title = patch.title
+    // link 支持 null 显式清除（其余文案字段 undefined 即不动，无法表达清除）
+    if (patch.link !== undefined) after.link = patch.link ?? undefined
 
     // 无实际变更：不入历史
     const sameAnchor = imageAnchorsEqual(before.anchor, after.anchor)
@@ -112,7 +117,8 @@ export const UpdateImageCommand: Command<UpdateImageParams> = {
       before.height === after.height &&
       before.rotation === after.rotation &&
       before.altText === after.altText &&
-      before.title === after.title
+      before.title === after.title &&
+      before.link === after.link
     if (sameAnchor && sameMeta) return { mutations: [] }
 
     const imagePatch: ImagePatch = {

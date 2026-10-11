@@ -1,6 +1,7 @@
 // 按格嵌入图桥：Sheet 模型 Cell Meta（cell-image namespace）↔ 引擎图片格渲染通道。
-// SheetGrid 构造时无条件安装 resolveCellImage / resolveCellImageFit（宿主无需传 hook），
-// 模型有图的格自动进入引擎 media 请求并产出 ImageCellNode；写入/清除经 meta-change
+// SheetGrid 构造时无条件安装 resolveCellImage / resolveCellImageFit / resolveCellImageLink
+// （宿主无需传 hook），模型有图的格自动进入引擎 media 请求并产出 ImageCellNode；
+// 带链接嵌入图（载荷 link）单击由引擎派发图片链接点击事件。写入/清除经 meta-change
 // 定向刷新（引擎 refreshImageCell 承担「URL 首次出现补建 / 变化重建 / 消失摘除」）。
 
 import type { ListTable } from '@infinitable/core'
@@ -99,6 +100,11 @@ export class GridCellImages {
   /** 引擎 resolveCellImageFit 取值：缺省 undefined（core 回落 contain 保比例） */
   resolveFit(col: number, row: number): ImageFitMode | undefined {
     return peekCellImage(this.sheet, col, row)?.fit
+  }
+
+  /** 引擎 resolveCellImageLink 取值：该格嵌入图的超链接 URL（无图或无链接 undefined） */
+  resolveLink(col: number, row: number): string | undefined {
+    return peekCellImage(this.sheet, col, row)?.link
   }
 
   /** 释放指定格的 objectURL（格已无图） */

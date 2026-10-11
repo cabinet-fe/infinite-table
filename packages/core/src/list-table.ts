@@ -130,6 +130,7 @@ import type {
   ContextMenuListener,
   EditEndEvent,
   EditStartEvent,
+  ImageLinkClickListener,
   ListTableOptions,
   ResolveCellChart,
 } from './types'
@@ -390,6 +391,8 @@ export class ListTable {
   readonly cellLinkLeaveListeners = new Set<CellLinkLeaveListener>()
   /** @internal 链接单击事件订阅（onCellLinkClick 注册） */
   readonly cellLinkClickListeners = new Set<CellLinkClickListener>()
+  /** @internal 图片链接单击事件订阅（onImageLinkClick 注册） */
+  readonly imageLinkClickListeners = new Set<ImageLinkClickListener>()
   /**
    * @internal 当前链接悬停格（pointer 光标与 hover/leave 事件的状态源）：
    * 指针悬停命中的链接格坐标；null 未悬停链接。由交互层的悬停状态机维护。
@@ -1553,6 +1556,12 @@ export class ListTable {
   onCellLinkClick(listener: CellLinkClickListener): () => void {
     this.cellLinkClickListeners.add(listener)
     return () => this.cellLinkClickListeners.delete(listener)
+  }
+
+  /** 订阅图片链接单击事件（带链接浮动图/嵌入图真实指针单击；拖拽不触发）；返回退订函数 */
+  onImageLinkClick(listener: ImageLinkClickListener): () => void {
+    this.imageLinkClickListeners.add(listener)
+    return () => this.imageLinkClickListeners.delete(listener)
   }
 
   /** 订阅 onScrollFrame 帧级同步：滚动发生的帧上带最新位置触发一次；返回退订函数 */

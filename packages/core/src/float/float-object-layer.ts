@@ -99,6 +99,8 @@ export interface FloatObject {
   src?: string
   alt?: string
   title?: string
+  /** 图片超链接 URL；带链接浮动图单击派发图片链接点击事件（缺省无链接，单击保持选中行为） */
+  link?: string
 }
 
 /** 层坐标几何适配：由宿主表格提供（含表头偏移与滚动偏移），本层不感知表格内部 */
@@ -464,6 +466,11 @@ export class FloatObjectLayer {
     this.emit({ type: 'remove', id })
   }
 
+  /**
+   * 合并补丁到既有对象（Object.assign 语义）：补丁未携带的键保持原值；
+   * 要清除可选字段（如 link/alt/title），补丁须显式携带该键并置 undefined——
+   * 缺键不构成删除，宿主全量同步可清除字段时不得省略键。
+   */
   update(id: string, patch: Partial<Omit<FloatObject, 'id'>>): void {
     const node = this.nodes.get(id)
     if (!node) {

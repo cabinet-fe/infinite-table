@@ -4,9 +4,10 @@
 
 import './setup'
 
+import type { ImageLinkClickEvent } from '@infinitable/core'
 import { describe, expect, it } from 'vitest'
 
-import { cellX, cellY, createGrid, flushMicrotasks } from './grid-test-utils'
+import { cellX, cellY, createGrid, fire, flushMicrotasks } from './grid-test-utils'
 
 /** happy-dom 可能缺 objectURL 实现：测试内补最小桩 */
 function ensureObjectURLStubs(): { created: string[]; revoked: string[] } {
@@ -159,6 +160,46 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       expect(sheet.getImage(id)).toBeUndefined()
       expect(sheet.undo()).toBe(true)
       expect(sheet.getImage(id)).toBeDefined()
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('link 清除删除语义：清除后引擎对象无 link 残留、单击零派发；undo 恢复', async () => {
+    ensureObjectURLStubs()
+    const { grid, container, table, sheet } = createGrid()
+    try {
+      const id = sheet.insertImage({
+        data: PNG_BYTES,
+        type: 'png',
+        src: 'https://example.com/linked.png',
+        anchor: { from: { row: 0, col: 0 } },
+        width: 40,
+        height: 20,
+        link: 'https://example.com/target',
+      })
+      await flushMicrotasks()
+      expect(table.floatObjects.get(id)?.link).toBe('https://example.com/target')
+
+      // 命令清除 link：引擎侧随模型同步为无链接（update 合并语义下缺键删不掉旧值，
+      // 残留会让单击仍按带链接派发——本断言即该回归的复现点）
+      sheet.updateImage(id, { link: null })
+      await flushMicrotasks()
+      expect(table.floatObjects.get(id)?.link).toBeUndefined()
+
+      // 清除后单击该图（对象覆盖层坐标 (46,28)–(86,48)，中心 (66,38)）：零派发，
+      // 无链接单击保持现有选中行为
+      const seen: ImageLinkClickEvent[] = []
+      table.onImageLinkClick((event) => seen.push(event))
+      fire(container, 'pointerdown', { clientX: 66, clientY: 38 })
+      fire(container, 'pointerup', { clientX: 66, clientY: 38 })
+      expect(seen).toEqual([])
+      expect(table.floatObjects.getSelectedId()).toBe(id)
+
+      // undo 恢复链接：引擎对象随命令历史回摆
+      expect(sheet.undo()).toBe(true)
+      await flushMicrotasks()
+      expect(table.floatObjects.get(id)?.link).toBe('https://example.com/target')
     } finally {
       grid.release()
     }

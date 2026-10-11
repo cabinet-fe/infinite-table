@@ -31,6 +31,8 @@ export interface CellImagePayload {
   type?: SheetImageType
   /** 缩放语义：contain 保比例（缺省）、fill 拉伸铺满 */
   fit?: ImageFitMode
+  /** 图片超链接 URL；带链接嵌入图单击由引擎侧派发打开事件，缺省无链接 */
+  link?: string
 }
 
 /** 按格超链接的 Cell Meta namespace（payload 为 CellLinkPayload） */

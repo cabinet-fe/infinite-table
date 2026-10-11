@@ -47,6 +47,7 @@ import type {
   CellLinkHoverEvent,
   CellLinkLeaveEvent,
   CellRef,
+  ImageLinkClickEvent,
   TableContextMenuEvent,
 } from './types'
 
@@ -378,14 +379,18 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     table.floatLayer.endTransform()
     return
   }
-  // 图片拖拽会话结束：落点换算在浮动层（按对象视觉位置反查，onDragEnd 抛新锚点给宿主写回）
+  // 图片拖拽会话结束：落点换算在浮动层（按对象视觉位置反查，onDragEnd 抛新锚点给宿主写回）；
+  // 未成拖拽的点按在此判定图片链接点击（成拖拽时位移超阈值，派发函数内部拦截）
   if (table.floatLayer?.isDragging()) {
     table.floatLayer.endDrag()
+    dispatchFloatImageLinkClick(table, event)
     return
   }
-  // 点按图片（未成拖拽，含只读）：选中语义在按下完成，抬起不落选区/双击进编辑
+  // 点按图片（未成拖拽，含只读）：选中语义在按下完成，抬起不落选区/双击进编辑；
+  // 带链接浮动图在此派发图片链接点击（无链接零派发，选中行为不变）
   const floats = table.floatLayer
   if (floats && floats.getSelectedId() !== null && floats.getAt(event.x, event.y)) {
+    dispatchFloatImageLinkClick(table, event)
     return
   }
   if (table.scrollbarDrag) {
@@ -455,6 +460,11 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   // 拾取会话中抬起不做双击进编辑与链接单击（画布点选都是引用拾取，落双击会顶掉编辑会话）
   if (!(table.editPickMode && table.editManager.isEditing())) {
     detectDoubleTap(table, event)
+    // 嵌入图链接优先：该格有带链接嵌入图时派发图片链接点击并跳过单元格链接点击
+    // （嵌入图覆盖格内容，视觉点击的是图片）；无嵌入图链接时单元格链接照常
+    if (dispatchCellImageLinkClick(table, event)) {
+      return
+    }
     dispatchCellLinkClick(table, event)
   }
 }
@@ -1033,6 +1043,86 @@ function openCellLinkDefault(url: string): void {
     return
   }
   window.open(url, '_blank', 'noopener')
+}
+
+/**
+ * 图片链接单击派发公共段（通道对齐单元格链接单击）：先派发 onImageLinkClick，
+ * openCellLinkOnClick 未关闭（缺省开）时随后默认打开 URL。
+ */
+function emitImageLinkClick(table: ListTable, event: ImageLinkClickEvent): void {
+  if (table.imageLinkClickListeners.size > 0) {
+    for (const listener of table.imageLinkClickListeners) {
+      listener(event)
+    }
+  }
+  if (table.options.openCellLinkOnClick !== false) {
+    openCellLinkDefault(event.url)
+  }
+}
+
+/**
+ * 浮动图片链接单击派发：抬起命中带链接浮动图片、down/up 位移在阈值内才派发
+ * onImageLinkClick（kind: 'float'）。拖拽/变换会话在 up 侧已提前 return（不进本
+ * 函数）；无链接浮动图点按零派发（选中语义在按下完成，行为不变）。
+ */
+function dispatchFloatImageLinkClick(table: ListTable, event: SceneEvent): void {
+  // 非主键抬起（右/中键）不是单击
+  if (event.button !== undefined && event.button !== 0) {
+    return
+  }
+  const down = table.pointerDownAt
+  if (!down) {
+    return
+  }
+  if (Math.hypot(event.x - down.x, event.y - down.y) > LINK_CLICK_SLOP) {
+    return
+  }
+  const object = table.floatLayer?.getAt(event.x, event.y)
+  if (!object?.link) {
+    return
+  }
+  emitImageLinkClick(table, {
+    kind: 'float',
+    id: object.id,
+    url: object.link,
+    originalEvent: event.originalEvent,
+  })
+}
+
+/**
+ * 按格嵌入图链接单击派发：down/up 命中同一格、位移在阈值内且该格经
+ * resolveCellImageLink 返回链接时派发 onImageLinkClick（kind: 'cell'）并返回 true
+ * （调用方据此跳过单元格链接点击——嵌入图覆盖格内容，视觉点击的是图片）；
+ * 无命中返回 false，单元格链接照常。
+ */
+function dispatchCellImageLinkClick(table: ListTable, event: SceneEvent): boolean {
+  if (event.button !== undefined && event.button !== 0) {
+    return false
+  }
+  const down = table.pointerDownAt
+  const downCell = table.pointerDownCell
+  if (!down || !downCell) {
+    return false
+  }
+  if (Math.hypot(event.x - down.x, event.y - down.y) > LINK_CLICK_SLOP) {
+    return false
+  }
+  const cell = cellAt(table, event.x, event.y)
+  if (!cell || cell.col !== downCell.col || cell.row !== downCell.row) {
+    return false
+  }
+  const url = table.options.resolveCellImageLink?.(cell.col, cell.row)
+  if (!url) {
+    return false
+  }
+  emitImageLinkClick(table, {
+    kind: 'cell',
+    col: cell.col,
+    row: cell.row,
+    url,
+    originalEvent: event.originalEvent,
+  })
+  return true
 }
 
 /**

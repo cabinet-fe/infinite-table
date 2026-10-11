@@ -231,10 +231,11 @@ export class SheetGrid {
       resolveDisplayValue: createEngineDisplayValue(this.sheet, this.hooks),
       resolveCellStyle: createEngineCellStyle(this.sheet, this.hooks),
       // 按格嵌入图：无条件接入引擎图片格渲染通道（宿主无需传 hook，模型有图即渲染），
-      // 缩放 fit 同链取值（缺省 contain 保比例）
+      // 缩放 fit 与图片链接同链取值（缺省 contain 保比例；带链接嵌入图单击派发图片链接点击事件）
       resolveCellImage: (col: number, row: number): string | null | undefined =>
         this.cellImages.resolveUrl(col, row),
       resolveCellImageFit: (col: number, row: number) => this.cellImages.resolveFit(col, row),
+      resolveCellImageLink: (col: number, row: number) => this.cellImages.resolveLink(col, row),
       // 仅宿主提供 hook 时安装分发器：渲染热路径零差异（ADR-0004）
       ...(this.hooks.resolveCellRenderer
         ? {

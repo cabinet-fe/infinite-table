@@ -150,6 +150,41 @@ export type CellLinkHoverListener = (event: CellLinkHoverEvent) => void
 export type CellLinkLeaveListener = (event: CellLinkLeaveEvent) => void
 export type CellLinkClickListener = (event: CellLinkClickEvent) => void
 
+/**
+ * 按格嵌入图超链接 hook：纯函数、同步、O(1)。
+ * 返回 URL 的图片格单击派发图片链接点击事件（onImageLinkClick，kind: 'cell'）；
+ * 与 resolveCellImage 同链取值（宿主桥接层保证仅有图格返回链接）。
+ */
+export type ResolveCellImageLink = (col: number, row: number) => string | null | undefined
+
+/**
+ * 图片链接单击事件（浮动图与嵌入图两来源，判别字段 kind）：
+ * 真实指针 down+up 命中同一带链接图片、位移在阈值内（拖拽/框选不触发）时派发；
+ * 派发后按 openCellLinkOnClick 决定是否执行引擎默认打开。
+ * 无链接图片单击不派发（保持现有选中行为）。
+ */
+export type ImageLinkClickEvent =
+  | {
+      /** 浮动图片（命中浮动层对象） */
+      kind: 'float'
+      /** 命中的浮动对象 id */
+      id: string
+      /** 链接 URL */
+      url: string
+      originalEvent: SceneEvent['originalEvent']
+    }
+  | {
+      /** 嵌入单元格图片（命中有图格） */
+      kind: 'cell'
+      col: number
+      row: number
+      /** 链接 URL */
+      url: string
+      originalEvent: SceneEvent['originalEvent']
+    }
+
+export type ImageLinkClickListener = (event: ImageLinkClickEvent) => void
+
 /** 图表位图生产尺寸：width/height 为格 CSS 像素，dpr 为出图设备像素比 */
 export interface CellChartMediaSize {
   width: number
@@ -207,10 +242,12 @@ export interface ListTableOptions {
   resolveCellImageFit?: ResolveCellImageFit
   /** 按格超链接 hook：返回链接的格获得默认链接外观与链接 hover/单击事件 */
   resolveCellLink?: ResolveCellLink
+  /** 按格嵌入图超链接 hook：返回 URL 的图片格单击派发图片链接点击事件（嵌入图渲染通道之外的独立链接来源） */
+  resolveCellImageLink?: ResolveCellImageLink
   /**
-   * 链接单击默认打开开关：true（缺省）单击命中链接格时引擎在派发 onCellLinkClick
-   * 后默认打开 URL（window.open 新标签 + noopener；无 window 环境静默跳过）；
-   * false 关闭默认打开，打开行为由宿主经 onCellLinkClick 接管。
+   * 链接单击默认打开开关：true（缺省）单击命中链接格或带链接图片（浮动图/嵌入图）时
+   * 引擎在派发对应链接点击事件后默认打开 URL（window.open 新标签 + noopener；
+   * 无 window 环境静默跳过）；false 关闭默认打开，打开行为由宿主经事件接管。
    */
   openCellLinkOnClick?: boolean
   /** 格级可编判定：返回 false 该格不可编（缺省全部可编） */
