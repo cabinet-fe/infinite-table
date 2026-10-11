@@ -5,6 +5,7 @@ import type { ChartDemo } from '../sections/chart'
 import type { DataFormsDemo } from '../sections/data-forms'
 import type { DisplayDemo } from '../sections/display'
 import type { EditingDemo } from '../sections/editing'
+import type { HyperlinkImageDemo } from '../sections/hyperlink-image'
 import type { InteractionDemo } from '../sections/interaction'
 import type { MediaDemo } from '../sections/media'
 import type { NativeScrollDemo } from '../sections/native-scroll'
@@ -15,6 +16,7 @@ export interface DemoHandles {
   dataForms: DataFormsDemo
   display: DisplayDemo
   interaction: InteractionDemo
+  hyperlinkImage: HyperlinkImageDemo
   media: MediaDemo
   chart: ChartDemo
   watermark: WatermarkDemo

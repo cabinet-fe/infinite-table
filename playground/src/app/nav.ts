@@ -1,4 +1,4 @@
-// 侧栏导航配置：14 个入口（key 与 hash 路由契约一致），bench 为独立页外链。
+// 侧栏导航配置：15 个路由页（key 与 hash 路由契约一致）+ bench 独立页外链。
 // 分组按演示内容的能力域组织（渲染显示 / 数据交互 / 插件场景 / 性能工程）；图标一律 lucide-react 矢量图标。
 
 import type { LucideIcon } from 'lucide-react'
@@ -13,6 +13,7 @@ import {
   Home,
   Image as ImageIcon,
   Infinity as InfinityIcon,
+  Link2,
   MousePointerClick,
   Palette,
   Pencil,
@@ -31,6 +32,7 @@ export type RouteKey =
   | 'infinite-sheet'
   | 'data-forms'
   | 'interaction'
+  | 'hyperlink-image'
   | 'media'
   | 'chart'
   | 'watermark'
@@ -128,6 +130,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: '交互能力',
         icon: MousePointerClick,
         desc: '拖选 · resize · 键盘 · 右键菜单 · 批量更新',
+      },
+      {
+        key: 'hyperlink-image',
+        label: '超链接与图片',
+        icon: Link2,
+        desc: '单元格链接 · 嵌入图缩放平移 · 图片右键',
       },
       {
         key: 'editing',

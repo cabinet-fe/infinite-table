@@ -11,6 +11,7 @@ import { DataFormsPage } from './views/DataFormsPage'
 import { DisplayPage } from './views/DisplayPage'
 import { EditingPage } from './views/EditingPage'
 import { HomePage } from './views/HomePage'
+import { HyperlinkImagePage } from './views/HyperlinkImagePage'
 import { InfiniteSheetPage } from './views/InfiniteSheetPage'
 import { InteractionPage } from './views/InteractionPage'
 import { MediaPage } from './views/MediaPage'
@@ -29,6 +30,7 @@ const PAGES: Record<PageKey, ComponentType> = {
   'native-scroll': NativeScrollPage,
   'data-forms': DataFormsPage,
   interaction: InteractionPage,
+  'hyperlink-image': HyperlinkImagePage,
   media: MediaPage,
   chart: ChartPage,
   watermark: WatermarkPage,

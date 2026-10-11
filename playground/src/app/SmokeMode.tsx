@@ -10,6 +10,7 @@ import { mountChart } from '../sections/chart'
 import { mountDataForms } from '../sections/data-forms'
 import { mountDisplay } from '../sections/display'
 import { mountEditing } from '../sections/editing'
+import { mountHyperlinkImage } from '../sections/hyperlink-image'
 import { mountInteraction } from '../sections/interaction'
 import { mountMedia } from '../sections/media'
 import { mountNativeScroll } from '../sections/native-scroll'
@@ -35,6 +36,7 @@ export function SmokeMode() {
       dataForms: mountDataForms(mountPoint),
       display: mountDisplay(mountPoint),
       interaction: mountInteraction(mountPoint),
+      hyperlinkImage: mountHyperlinkImage(mountPoint),
       media: mountMedia(mountPoint),
       chart: mountChart(mountPoint),
       watermark: mountWatermark(mountPoint),
