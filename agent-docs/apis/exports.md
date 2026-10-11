@@ -28,7 +28,7 @@ infinitable 对外只有两个发布入口：主入口 `infinitable`（npm 单�
 
 支撑口径（满足其一即可保留在公共面）：仓内非测试消费（playground / 跨包公共入口）、红线文档面（`docs/plugin-interface-map.md` 红线 + `agent-docs/index.md` 速查表逐项覆盖）。同名消歧：core 的格坐标 `CellRef` 与 formulas 的 A1 引用 `CellRef` 同名——A1 引用保留原名（配 `parseCellRef`/`formatCellRef`/`createRangeRef`），格坐标以 `GridCellRef` 别名从主入口导出。同源去重：`RenderContext`/`Size`（render 定义、core 亦转出）与 `TablePlugin`（core 定义、plugins 亦转出）在主入口各从定义包导出一次。
 
-## 主入口逐项清单（src/index.ts，35 值 + 80 类型）
+## 主入口逐项清单（src/index.ts，35 值 + 89 类型）
 
 按包分组；组内符号的保留理由是组级判据，个别符号另有特别说明。全部符号可在 `agent-docs/index.md` 速查表逐项 grep 到文档路径。
 
@@ -37,14 +37,14 @@ infinitable 对外只有两个发布入口：主入口 `infinitable`（npm 单�
 | render 值 | `createRenderHost`、`SceneNode` | 渲染宿主装配唯一入口与场景树节点（宿主注入 host 必用） |
 | render 类型 | `RenderHostOptions`、`SceneEventListener`、`SceneNodeInit`、`SceneEvent`、`SceneEventType`、`FrameTask`、`Invalidation`、`LayerHandle`、`LayerKind`、`LayerOpts`、`Region`、`RenderCanvas`、`RenderContext`、`RenderHost`、`RenderImageSource`、`Size` | 渲染窄接口的对外形态：宿主选项、federated 事件、层句柄与三档失效、绘制上下文与基础几何（自定义 CellRenderer / underlay/overlay painter 消费） |
 | core 值 | `ListTable`、`SheetModel`、`EditorRegistry`、`extendsTheme`、`normalizeCellRange`、`normalizeRange`、`projectCellStyle` | 表格主类、内置模型、编辑器注册表、主题派生与选区/合并/样式归一化公共工具 |
-| core 类型 | `ListTableOptions`、`ColumnDefine`、`DataRecord`、`TableModel`、`ResolveDisplayValue`、`CellChangeEvent`、`TableContextMenuEvent`、`CellRef`→`GridCellRef`、`CellRange`、`CellRenderer`、`CellStyle`、`CellBorder`、`CellBorderEdge`、`TableTheme`、`ThemeOverride`、`RangeBounds`、`SelectionSnapshot`、`HighlightRange`、`FillDragEndEvent`、`UnderlayPainter`、`OverlayPainter`、`LoadedImage`、`CellChartMedia`、`FloatObject`、`FloatTransformEndEvent`、`FloatTransformHandle`、`TablePlugin` | 构造/列/模型/事件/选区/媒体/浮动层/插件契约的公共形态；`GridCellRef` 为消歧别名 |
+| core 类型 | `ListTableOptions`、`ColumnDefine`、`DataRecord`、`TableModel`、`ResolveDisplayValue`、`CellChangeEvent`、`TableContextMenuEvent`、`CellRef`→`GridCellRef`、`CellRange`、`CellRenderer`、`CellStyle`、`CellBorder`、`CellBorderEdge`、`TableTheme`、`ThemeOverride`、`RangeBounds`、`SelectionSnapshot`、`HighlightRange`、`FillDragEndEvent`、`UnderlayPainter`、`OverlayPainter`、`LoadedImage`、`CellChartMedia`、`FloatObject`、`FloatTransformEndEvent`、`FloatTransformHandle`、`TablePlugin`、`CellLink`、`CellLinkClickEvent`、`CellLinkHoverEvent`、`CellLinkLeaveEvent`、`ResolveCellLink`、`ResolveCellImageLink`、`ImageLinkClickEvent`、`ImageLinkClickListener`、`FloatContextMenuEvent` | 构造/列/模型/事件/选区/媒体/浮动层/插件契约的公共形态；`GridCellRef` 为消歧别名；`CellLink`/`ResolveCellLink` 与三个链接事件为单元格超链接载荷与事件，`ResolveCellImageLink`/`ImageLinkClick*` 为嵌入图链接 hook 与点击事件，`FloatContextMenuEvent` 为浮动对象右键事件 |
 | core 滚动条 | `ScrollbarOptions`、`ScrollbarMode` | 内建滚动条配置（`scrollbar` 选项对象形态）与形态联合（`mode: 'native'` 原生滚动条档，0.1.4 起新增） |
 | formulas 值 | `colLetters`、`parseCellRef`、`formatCellRef`、`formatRangeRef`、`createRangeRef`、`formulaError`、`isFormulaError`、`isFormulaErrorCode`、`FormulaParseError`、`tokenText`、`parseFormula`、`astHasVolatileCall`、`collectAstReferences`、`DependencyGraph`、`scanFormulaReferences`、`shiftFormulaText`、`shiftFormulaRefs`、`evaluate`、`FORMULA_FUNCTION_CATEGORIES`、`getFormulaFunction`、`getFormulaFunctionInfo`、`listFormulaFunctions`、`registerFormulaFunction` | A1 地址系统、错误值体系、Pratt 解析、AST 静态分析、依赖图、容错引用扫描、引用平移（`tokenText` 随引用级文本改出公共化）、求值器、函数注册表读写（宿主自定义函数注册面） |
 | formulas 类型 | `CellRef`（原名）、`FormulaError`、`AstNode`、`FormulaRefCoord`、`SheetCellCoord`、`FormulaShiftResult`、`FormulaEvalContext`、`FormulaResolver`、`ScalarValue`、`FormulaFunction`、`FormulaFunctionCategory`、`FormulaFunctionInfo` | 地址/错误/AST/依赖/平移/求值上下文（自定义函数求值需要）/注册表元数据形态 |
 | plugins 值 | `createChartPlugin`、`createWatermarkPlugin`、`createPrintPlugin` | 官方插件三工厂（插件对象形态：同时是 TablePlugin 与运行时 handle） |
 | plugins 类型 | `ChartPluginOptions`、`ChartPluginHandle`、`ChartCellDeclaration`、`ChartDatasetDeclaration`、`ChartDatasetSpec`、`ChartSpec`、`ChartSpecType`、`ChartType`、`WatermarkHandle`、`WatermarkTextConfig`、`PrintPluginOptions`、`PrintPluginHandle`、`PrintConfig`、`PrintSource`、`PrintPaperPreset`、`PrintPaperSpec`、`PrintOrientation`、`PrintMargin`、`PrintScaleMode`、`PrintPagingMode`、`PrintHeaderFooterConfig`、`PrintHeaderFooterSection`、`PrintImagePayload` | 三插件的配置与声明/预设形态（`WatermarkTextConfig` 与打印水印共享同一模型，经插件入口一并转出） |
 
-## ./sheet 子路径逐项清单（src/sheet.ts，72 值 + 85 类型）
+## ./sheet 子路径逐项清单（src/sheet.ts，79 值 + 92 类型）
 
 与 `packages/sheet/src/index.ts` 白名单同步维护（同判据、同集合）。公式引擎 API 不在此转售（下游直接 `import '@infinitable/formulas'`）。分组与理由：
 
@@ -52,12 +52,12 @@ infinitable 对外只有两个发布入口：主入口 `infinitable`（npm 单�
 | --- | --- |
 | 地址系统 | `cellKey`、`colIndexToName`、`colNameToIndex`、`parseAddress`、`formatAddress`、`createRange`、`parseRange`、`formatRange`、`rangesEqual`、`rangesIntersect`、`rangeContainsAddress`、`boundingBox`、`iterateRange`；类型 `CellAddress`、`CellRange` |
 | 单元格存储 | `NUMERIC_TEXT_RE`（输入归一化判值口径，伴生公共）、`normalizeInputValue`、`inferCellType`、`isEmptyCellData`、`cellDataEqual`、`CellStore`；类型 `CellType`、`CellValue`、`CellData`、`CellSnapshotItem` |
-| 单元格元数据 | `cellMetaKey`、`cellMetaKeyFrom`、`cloneCellMetaPayload`、`cellMetaPayloadEqual`、`CellMetaStore`、`CELL_READONLY_META_NAMESPACE`；类型 `CellMetaSnapshotItem` |
+| 单元格元数据 | `cellMetaKey`、`cellMetaKeyFrom`、`cloneCellMetaPayload`、`cellMetaPayloadEqual`、`CellMetaStore`、`CELL_READONLY_META_NAMESPACE`、`CELL_IMAGE_META_NAMESPACE`、`CELL_LINK_META_NAMESPACE`；类型 `CellMetaSnapshotItem`、`CellImagePayload`、`CellLinkPayload` |
 | 样式 | `BORDER_SIDES`、`BORDER_STYLE_WIDTH`、`BORDER_EDGE_DEFAULTS`、`FONT_STYLE_KEYS`、`ALIGN_STYLE_KEYS`、`StylePool`、`composeCellStyles`、`buildBorderPresetItems`；类型 `BorderLineStyle`、`BorderSide`、`BorderEdge`、`HorizontalAlign`、`VerticalAlign`、`CellFont`、`CellAlign`、`CellStyle`、`StyleId`、`CellStylePatch`、`NumFmt`、`BorderPreset`、`BorderPresetItem` |
 | 合并/选区/填充/查找 | `MergeManager`、`SelectionModel`、`computeFillTargetRange`、`generateFill`、`findAll`、`findNext`、`findNextFrom`、`findPrev`、`findPrevFrom`；类型 `MergedCellKind`、`CellInfo`、`MergeResult`、`SelectionState`、`FillDirection`、`GenerateFillOptions`、`FindOptions`、`FindMatch` |
 | 模型与簿 | `Sheet`、`Workbook`、`FormulaEngine`（组合 @infinitable/formulas 的图簿联动门面）、`TypedEventEmitter`（Sheet/Workbook 事件基类，宿主自定义事件源同基类）；类型 `FrozenState`、`SheetSnapshot`、`SheetEvents`、`WorkbookEvents`、`AddSheetOptions`、`AddSheetCellInput` |
-| 命令与撤销 | `HistoryManager`、`CommandRegistry`、`defaultCommandRegistry` 与 13 个 `XxxCommand` 类；类型 `HistoryState`、`PatchDirection`、`CellPatch`、`MergePatch`、`StructureChange`、`StructurePatch`、`SnapshotPatch`、`ImagePatch`、`CellMetaPatch`、`AxisStylePatch`、`Patch`、`Mutation`、`CommandResult`、`CommandContext`、`Command`、`SetCellValueItem` 与各命令 `*Params` 族 |
-| 图片 | `createImageId`、`cloneImageAnchor`、`cloneSheetImage`；类型 `SheetImageType`、`SheetImageAnchor`、`SheetImage`、`ImageInput` |
+| 命令与撤销 | `HistoryManager`、`CommandRegistry`、`defaultCommandRegistry` 与 17 个 `XxxCommand` 类；类型 `HistoryState`、`PatchDirection`、`CellPatch`、`MergePatch`、`StructureChange`、`StructurePatch`、`SnapshotPatch`、`ImagePatch`、`CellMetaPatch`、`AxisStylePatch`、`Patch`、`Mutation`、`CommandResult`、`CommandContext`、`Command`、`SetCellValueItem` 与各命令 `*Params` 族 |
+| 图片 | `createImageId`、`cloneImageAnchor`、`cloneSheetImage`、`IMAGE_MIME`；类型 `SheetImageType`、`SheetImageAnchor`、`SheetImage`、`ImageInput`、`ImageFitMode` |
 | IO | `exportWorkbookXlsx`、`exportSheetXlsx`、`exportSheetCsv`、`importXlsx`、`importCsv`、`replaceWorkbookWithSnapshots`；类型 `SheetReplaceItem` |
 | SheetGrid 适配 | `SheetGrid`；类型 `ResolveCellRenderer`、`SheetGridOptions`、`ScrollbarOptions`（core 同形再导出，`mode: 'native'` 原生滚动条档，0.1.4 起新增）、`ResolveCellStyleHook`、`ResolveDisplayValue`、`SheetGridContextMenuInfo`、`SheetGridContextMenuKind`、`SheetGridHeaderOptions`、`GridCellEditor`、`GridEditorRect`、`GridEditorSession`、`SheetGridEditorsOptions`、`CellRenderer`、`CellRenderTarget` |
 
