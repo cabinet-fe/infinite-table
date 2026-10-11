@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DependencyGraph } from '../src/dependency-graph'
-import type { SheetCellCoord, SheetRangeCoord } from '../src/dependency-graph'
+import type { FormulaRefCoord, SheetCellCoord, SheetRangeCoord } from '../src/dependency-graph'
 
 const cell = (sheet: string, col: number, row: number): SheetCellCoord => ({ sheet, col, row })
 const cellRef = (sheet: string, col: number, row: number) => ({
@@ -186,6 +186,138 @@ describe('DependencyGraph：易失集', () => {
     graph.setFormula(cell('S2', 0, 0), [], { volatile: true })
     graph.removeSheet('S1')
     expect(graph.volatileCells()).toEqual([cell('S2', 0, 0)])
+  })
+})
+
+describe('DependencyGraph：大批量输入（批量写入重算路径）', () => {
+  // 回归防护：affectedBy 曾用 shift() 排空输入队列，15 万坐标级批量写入下
+  // O(n²) 搬移会卡死主线程数分钟；两段式批量点查后为线性。规模低于此则
+  // 回归也难超时，故固定 15 万。
+
+  it('空图快路径：无公式格时大批量 changed 不逐格遍历，直接空结果', () => {
+    const graph = new DependencyGraph()
+    const changed = Array.from({ length: 150_000 }, (_, i) => cell('S1', i % 12, (i / 12) | 0))
+    expect(graph.affectedBy(changed)).toEqual([])
+  })
+
+  it('两段式扩散：大批量 changed 中命中依赖闭包仍正确', () => {
+    const graph = new DependencyGraph()
+    // S1!E5 = S1!D4 + 1；D4 淹没在 15 万变更集中
+    graph.setFormula(cell('S1', 4, 4), [cellRef('S1', 3, 3)])
+    const changed = Array.from({ length: 150_000 }, (_, i) => cell('S1', i % 12, (i / 12) | 0))
+    expect(sorted(graph.affectedBy(changed))).toEqual(['S1!4,4'])
+  })
+
+  it('区域批量判定：矩形批量变更命中区域公式（#8 列区间合并路径）', () => {
+    const graph = new DependencyGraph()
+    // S1!A1 = SUM(S1!C3:G9)；批量变更矩形 C..G × 3..9 的子块应命中，
+    // 矩形外的行/列不命中
+    graph.setFormula(cell('S1', 0, 0), [rangeRef('S1', 2, 2, 6, 8)])
+    const inside = Array.from({ length: 50_000 }, (_, i) =>
+      cell('S1', 2 + (i % 5), 2 + ((i / 5) | 0) % 7),
+    )
+    expect(sorted(graph.affectedBy(inside))).toEqual(['S1!0,0'])
+    const outsideRows = Array.from({ length: 50_000 }, (_, i) => cell('S1', 2, 9 + (i % 3)))
+    expect(graph.affectedBy(outsideRows)).toEqual([])
+    const outsideCols = Array.from({ length: 50_000 }, (_, i) => cell('S1', 7 + (i % 3), 2))
+    expect(graph.affectedBy(outsideCols)).toEqual([])
+  })
+})
+
+describe('DependencyGraph：affectedBy 批量路径差分等价（#8 回归防护）', () => {
+  // 朴素参考实现：直接拿注册边暴力求闭包（不经过被测的批量/区间代码），
+  // 与 affectedBy 在随机图 × 随机变更集上逐轮对照。覆盖：跨表、链式、
+  // 环、单格/区域混合引用、变更集含公式格与重复坐标。
+
+  const coordOf = (c: SheetCellCoord) => `${c.sheet}!${c.col},${c.row}`
+
+  const refContains = (ref: FormulaRefCoord, coord: SheetCellCoord): boolean => {
+    if (ref.kind === 'cell') {
+      const r = ref.ref
+      return r.sheet === coord.sheet && r.col === coord.col && r.row === coord.row
+    }
+    const r = ref.ref
+    return (
+      r.sheet === coord.sheet &&
+      coord.col >= r.startCol &&
+      coord.col <= r.endCol &&
+      coord.row >= r.startRow &&
+      coord.row <= r.endRow
+    )
+  }
+
+  const bruteForce = (
+    formulas: Array<{ coord: SheetCellCoord; refs: FormulaRefCoord[] }>,
+    changed: SheetCellCoord[],
+  ): string[] => {
+    const affected = new Map<string, SheetCellCoord>()
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const f of formulas) {
+        const key = coordOf(f.coord)
+        if (affected.has(key)) continue
+        const sources = [...changed, ...affected.values()]
+        if (f.refs.some((ref) => sources.some((coord) => refContains(ref, coord)))) {
+          affected.set(key, f.coord)
+          grew = true
+        }
+      }
+    }
+    return [...affected.keys()].sort()
+  }
+
+  /** mulberry32：固定种子的确定性 PRNG（可复现失败轮次） */
+  function prng(seed: number): () => number {
+    let state = seed >>> 0
+    return () => {
+      state = (state + 0x6d2b79f5) | 0
+      let t = Math.imul(state ^ (state >>> 15), 1 | state)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  it('随机图 × 随机变更集：与朴素参考闭包完全一致（30 轮）', () => {
+    const rand = prng(20261011)
+    for (let round = 0; round < 30; round++) {
+      const graph = new DependencyGraph()
+      const formulas: Array<{ coord: SheetCellCoord; refs: FormulaRefCoord[] }> = []
+      // 候选格池含少量公式格自身（制造链式/环）；两张表制造跨表引用
+      const pool: SheetCellCoord[] = []
+      for (let i = 0; i < 24; i++) pool.push(cell(rand() < 0.7 ? 'S1' : 'S2', (rand() * 8) | 0, (rand() * 8) | 0))
+      const formulaCount = 2 + ((rand() * 10) | 0)
+      for (let i = 0; i < formulaCount; i++) {
+        const coord = pool[(rand() * pool.length) | 0]!
+        const refs: FormulaRefCoord[] = []
+        const refCount = (rand() * 3) | 0
+        for (let r = 0; r < refCount; r++) {
+          if (rand() < 0.5) {
+            refs.push(cellRef(pool[(rand() * pool.length) | 0]!.sheet, (rand() * 8) | 0, (rand() * 8) | 0))
+          } else {
+            const c1 = (rand() * 8) | 0
+            const r1 = (rand() * 8) | 0
+            refs.push(rangeRef('S1', c1, r1, c1 + ((rand() * 3) | 0), r1 + ((rand() * 3) | 0)))
+          }
+        }
+        graph.setFormula(coord, refs)
+        // setFormula 是同格全量替换语义：参考实现只保留最后一次注册
+        const key = coordOf(coord)
+        const prev = formulas.findIndex((f) => coordOf(f.coord) === key)
+        if (prev >= 0) formulas.splice(prev, 1)
+        formulas.push({ coord, refs })
+      }
+      // 随机变更集：多为随机分散，偶发重复坐标
+      const changed: SheetCellCoord[] = []
+      const changeCount = 1 + ((rand() * 40) | 0)
+      for (let i = 0; i < changeCount; i++) {
+        changed.push(cell(rand() < 0.7 ? 'S1' : 'S2', (rand() * 9) | 0, (rand() * 9) | 0))
+        if (rand() < 0.2) changed.push(changed[changed.length - 1]!)
+      }
+      const actual = sorted(graph.affectedBy(changed))
+      const expected = bruteForce(formulas, changed).sort()
+      expect(actual).toEqual(expected)
+    }
   })
 })
 

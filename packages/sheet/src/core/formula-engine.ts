@@ -210,6 +210,9 @@ export class FormulaEngine {
    */
   recalc(changed: readonly { sheet: Sheet; addr: CellAddress }[]): CellPatch[] {
     if (changed.length === 0) return []
+    // 全簿无公式格：闭包与易失集必空，跳过逐格建坐标与 has 点查——
+    // 百万级批量初始化写在「无公式数据」下重算编排零开销
+    if (this.nodeCount === 0) return []
     const dirty = new Map<string, SheetCellCoord>()
     const coords: SheetCellCoord[] = []
     for (const { sheet, addr } of changed) {

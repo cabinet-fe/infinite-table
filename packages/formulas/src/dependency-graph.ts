@@ -68,6 +68,62 @@ function contains(range: SheetRangeCoord, coord: SheetCellCoord): boolean {
   )
 }
 
+/**
+ * 坐标数组 → 按行分组的列闭区间（相邻列合并）。#8
+ * 批量粘贴/填充/初始化写的变更格通常呈连续矩形，区间数 ≪ 格数；
+ * 随机分散时区间数 ≈ 格数（退化到与逐格判定同阶，不更差）。
+ */
+function mergeIntoRowSpans(
+  coords: readonly SheetCellCoord[],
+): Map<number, Array<[number, number]>> {
+  const byRow = new Map<number, number[]>()
+  for (const coord of coords) {
+    let cols = byRow.get(coord.row)
+    if (!cols) {
+      cols = []
+      byRow.set(coord.row, cols)
+    }
+    cols.push(coord.col)
+  }
+  const spans = new Map<number, Array<[number, number]>>()
+  for (const [row, cols] of byRow) {
+    cols.sort((a, b) => a - b)
+    const rowSpans: Array<[number, number]> = []
+    let start = cols[0]!
+    let end = cols[0]!
+    for (let i = 1; i < cols.length; i++) {
+      if (cols[i] === end + 1) {
+        end = cols[i]!
+      } else {
+        rowSpans.push([start, end])
+        start = cols[i]!
+        end = cols[i]!
+      }
+    }
+    rowSpans.push([start, end])
+    spans.set(row, rowSpans)
+  }
+  return spans
+}
+
+/** 区域与按行分组的列区间是否有交集（任一命中行的 span 与区域列区间相交）。#8 */
+function spansOverlap(
+  range: SheetRangeCoord,
+  spans: Map<number, Array<[number, number]>>,
+): boolean {
+  for (const [row, rowSpans] of spans) {
+    if (row < range.startRow || row > range.endRow) {
+      continue
+    }
+    for (const [colStart, colEnd] of rowSpans) {
+      if (colEnd >= range.startCol && colStart <= range.endCol) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 export class DependencyGraph {
   /** 全部公式格：key → 坐标（size/has/易失快照的回查源） */
   private readonly formulas = new Map<string, SheetCellCoord>()
@@ -190,41 +246,83 @@ export class DependencyGraph {
   /**
    * 变更传递闭包：直接或间接依赖 changed 中任一格的公式格（去重）。
    * 循环时环上格也会出现（含 changed 自身若在环上）。
+   *
+   * 两段式（#8）：初始变更坐标按表分组批量点查——单格依赖逐点 O(1)，区域依赖
+   * 把同表坐标合并为按行列区间后每条目一次相交判定（连续矩形批量变更的区间数
+   * ≪ 格数；随机分散时退化到 ≈ 逐格同阶，不更差）；只有命中的公式格进 BFS
+   * 队列沿闭包继续扩散。原始变更坐标不进队列——百万级批量写只付一次批处理
+   * 成本，不随扩散重复逐格扫描。
    */
   affectedBy(changed: Iterable<SheetCellCoord>): SheetCellCoord[] {
+    // 无公式格时闭包必空：跳过对 changed 的逐格遍历与按表分组
+    if (this.formulas.size === 0) {
+      return []
+    }
     const result = new Map<string, SheetCellCoord>()
-    const visited = new Set<string>()
-    const queue: SheetCellCoord[] = [...changed]
-    while (queue.length > 0) {
-      const coord = queue.shift()!
-      const coordKey = keyOf(coord)
-      if (visited.has(coordKey)) {
-        continue
+    const queue: SheetCellCoord[] = []
+    const enqueue = (owner: string): void => {
+      if (result.has(owner)) {
+        return
       }
-      visited.add(coordKey)
-      // 单格依赖点查 + 区域依赖线性扫（条目数 ≈ 公式数，见文件头取舍说明）
-      const owners = new Set<string>(
-        this.cellIndex.get(coord.sheet)?.get(`${coord.col},${coord.row}`),
-      )
+      const formulaCoord = this.formulas.get(owner)
+      if (!formulaCoord) {
+        return
+      }
+      result.set(owner, formulaCoord)
+      queue.push(formulaCoord)
+    }
+
+    // 阶段一：原始变更坐标批量点查（exact 逐点 O(1)；ranged 按表合并一次扫）
+    const bySheet = new Map<string, SheetCellCoord[]>()
+    for (const coord of changed) {
+      let coords = bySheet.get(coord.sheet)
+      if (!coords) {
+        coords = []
+        bySheet.set(coord.sheet, coords)
+      }
+      coords.push(coord)
+    }
+    for (const [sheet, coords] of bySheet) {
+      const exactMap = this.cellIndex.get(sheet)
+      if (exactMap) {
+        for (const coord of coords) {
+          const owners = exactMap.get(`${coord.col},${coord.row}`)
+          if (owners) {
+            for (const owner of owners) {
+              enqueue(owner)
+            }
+          }
+        }
+      }
+      const entries = this.rangeIndex.get(sheet)
+      if (entries && entries.size > 0) {
+        const spans = mergeIntoRowSpans(coords)
+        for (const entry of entries) {
+          if (spansOverlap(entry.range, spans)) {
+            enqueue(entry.owner)
+          }
+        }
+      }
+    }
+
+    // 阶段二：沿命中公式格 BFS 扩散（队列只含公式坐标，条数 = 命中公式数；
+    // 游标消费——shift() 每次搬移剩余元素，队列级输入下 O(n²)）
+    let head = 0
+    while (head < queue.length) {
+      const coord = queue[head++]!
+      const owners = this.cellIndex.get(coord.sheet)?.get(`${coord.col},${coord.row}`)
+      if (owners) {
+        for (const owner of owners) {
+          enqueue(owner)
+        }
+      }
       const entries = this.rangeIndex.get(coord.sheet)
       if (entries) {
         for (const entry of entries) {
           if (contains(entry.range, coord)) {
-            owners.add(entry.owner)
+            enqueue(entry.owner)
           }
         }
-      }
-      for (const owner of owners) {
-        if (result.has(owner)) {
-          continue
-        }
-        const formulaCoord = this.formulas.get(owner)
-        if (!formulaCoord) {
-          continue
-        }
-        result.set(owner, formulaCoord)
-        // 公式格自身也是格坐标：可能被其它公式引用，继续扩散
-        queue.push(formulaCoord)
       }
     }
     return [...result.values()]
