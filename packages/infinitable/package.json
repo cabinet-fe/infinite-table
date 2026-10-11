@@ -1,6 +1,6 @@
 {
   "name": "infinitable",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，10 万~100 万行性能不随数据量劣化，最小构建 gzip 仅 27KB",
   "keywords": [
     "canvas",
