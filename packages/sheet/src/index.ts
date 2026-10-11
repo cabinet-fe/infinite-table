@@ -170,6 +170,10 @@ export {
   SetCellLinkCommand,
   type ClearCellLinkParams,
   ClearCellLinkCommand,
+  type InsertCellImageParams,
+  InsertCellImageCommand,
+  type RemoveCellImageParams,
+  RemoveCellImageCommand,
   defaultCommandRegistry,
   CommandRegistry,
 } from './core/command'

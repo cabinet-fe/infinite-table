@@ -12,7 +12,7 @@ import {
 
 import type { CellAddress, CellRange } from '../core/address'
 import { colIndexToName } from '../core/address'
-import type { CellLinkPayload } from '../core/cell-meta'
+import type { CellImagePayload, CellLinkPayload } from '../core/cell-meta'
 import type { CellValue } from '../core/cell-store'
 import type { Sheet } from '../core/sheet'
 import {
@@ -436,6 +436,21 @@ export class SheetGrid {
   /** 清除单元格超链接（模型命令通道，可 undo/redo）；无链接时无操作 */
   clearCellLink(addr: CellAddress): void {
     this.sheet.clearCellLink(addr)
+  }
+
+  // ─── 按格嵌入图（模型命令入口） ────────────────────────
+
+  /**
+   * 插入（或覆盖）按格嵌入图：透传模型命令通道（可 undo/redo、随快照序列化、
+   * 行列插入删除时平移；发定向 cell-image-change）。载荷缺 src 与 data 时无操作。
+   */
+  insertCellImage(addr: CellAddress, image: CellImagePayload): void {
+    this.sheet.insertCellImage(addr, image)
+  }
+
+  /** 移除按格嵌入图（模型命令通道，可 undo/redo）；无图时无操作 */
+  removeCellImage(addr: CellAddress): void {
+    this.sheet.removeCellImage(addr)
   }
 
   /** 默认行高：模型声明优先（xlsx 导入写入），未声明回落内置缺省 */

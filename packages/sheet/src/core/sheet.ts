@@ -17,6 +17,7 @@ import {
   type CellSnapshotItem,
   type CellValue,
 } from './cell-store'
+import { InsertCellImageCommand, RemoveCellImageCommand } from './command/cell-image'
 import { ClearCellMetaCommand, SetCellMetaCommand } from './command/cell-meta'
 import { defaultCommandRegistry } from './command/default-registry'
 import { HistoryManager, type HistoryState } from './command/history'
@@ -147,6 +148,11 @@ export type SheetEvents = {
    * 单条变更带 addr + namespace；整表替换时二者缺省（视图层全量刷新）。
    */
   'meta-change': { addr?: CellAddress; namespace?: string }
+  /**
+   * 按格嵌入图变化（插入/移除命令执行、undo/redo 回放、结构平移、整表替换）。
+   * 单格变更带 addr；结构平移/整表替换时缺省（视图层全量刷新）。
+   */
+  'cell-image-change': { addr?: CellAddress }
   /**
    * 行/列默认样式变化（setRowStyle / setColStyle / undo 回放）。
    * grid 层据此刷新样式回调。
@@ -617,15 +623,15 @@ export class Sheet {
   // ─── 按格嵌入图 ─────────────────────────────────────────
 
   /**
-   * 写入按格嵌入图（经 Cell Meta 命令，可撤销、随快照序列化、行列插入删除时平移）。
-   * image 为 null 或 src/data 全缺时清除该格嵌入图。
+   * 写入按格嵌入图（委托 insert/remove 命令入口；可撤销、随快照序列化、
+   * 行列插入删除时平移）。image 为 null 或 src/data 全缺时清除该格嵌入图。
    */
   setCellImage(addr: CellAddress, image: CellImagePayload | null): void {
     if (image == null || (image.src == null && image.data == null)) {
-      this.clearCellMeta(addr, CELL_IMAGE_META_NAMESPACE)
+      this.removeCellImage(addr)
       return
     }
-    this.setCellMeta(addr, CELL_IMAGE_META_NAMESPACE, image)
+    this.insertCellImage(addr, image)
   }
 
   /** 读取按格嵌入图载荷（副本）；无图返回 undefined（合并格解析锚点） */
@@ -636,6 +642,22 @@ export class Sheet {
   /** 该格是否有嵌入图（合并格解析锚点；供右键菜单等判定） */
   hasCellImage(addr: CellAddress): boolean {
     return this.getCellImage(addr) != null
+  }
+
+  /**
+   * 插入（或覆盖）按格嵌入图（经 cell-image 命令，可撤销；发定向 cell-image-change）。
+   * 相同载荷视为无操作；载荷缺 src 与 data 时不入历史。合并格解析锚点。
+   */
+  insertCellImage(addr: CellAddress, image: CellImagePayload): void {
+    if (image.src == null && image.data == null) return
+    const resolved = this.merges.resolveAnchor(addr)
+    this.executeCommand(InsertCellImageCommand.id, { addr: resolved, image })
+  }
+
+  /** 移除按格嵌入图（经 cell-image 命令，可撤销；发定向 cell-image-change）；无图时无操作 */
+  removeCellImage(addr: CellAddress): void {
+    const resolved = this.merges.resolveAnchor(addr)
+    this.executeCommand(RemoveCellImageCommand.id, { addr: resolved })
   }
 
   // ─── 单元格超链接 ─────────────────────────────────────────
@@ -839,6 +861,7 @@ export class Sheet {
 
     this.cellMeta.applyStructureChange(change)
     this.emitter.emit('meta-change', {})
+    this.emitter.emit('cell-image-change', {})
 
     this.emitter.emit('structure-change', change)
   }
@@ -1174,10 +1197,13 @@ export class Sheet {
     if (emitEvent) this.emitter.emit('image-change', {})
   }
 
-  /** 替换 Cell Meta 集合；emitEvent 时发 meta-change（无 addr = 整表替换） */
+  /** 替换 Cell Meta 集合；emitEvent 时发 meta-change / cell-image-change（无 addr = 整表替换） */
   private replaceMeta(meta: CellMetaSnapshotItem[] | undefined, emitEvent: boolean): void {
     this.cellMeta.restore(meta)
-    if (emitEvent) this.emitter.emit('meta-change', {})
+    if (emitEvent) {
+      this.emitter.emit('meta-change', {})
+      this.emitter.emit('cell-image-change', {})
+    }
   }
 
   /**
@@ -1257,6 +1283,10 @@ export class Sheet {
       const next = direction === 'redo' ? patch.after : patch.before
       this.cellMeta.set(patch.addr, patch.namespace, next)
       this.emitter.emit('meta-change', { addr: patch.addr, namespace: patch.namespace })
+      // 嵌入图 meta 附发定向事件（命令执行 / undo/redo 回放共走本通道，三时机齐备）
+      if (patch.namespace === CELL_IMAGE_META_NAMESPACE) {
+        this.emitter.emit('cell-image-change', { addr: patch.addr })
+      }
       return
     }
     if (patch.kind === 'axis-style') {

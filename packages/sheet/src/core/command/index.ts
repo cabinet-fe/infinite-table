@@ -1,6 +1,12 @@
 // 命令系统聚合出口（显式具名导出，供包公共入口转出）。
 
 export {
+  InsertCellImageCommand,
+  RemoveCellImageCommand,
+  type InsertCellImageParams,
+  type RemoveCellImageParams,
+} from './cell-image'
+export {
   ClearCellMetaCommand,
   SetCellMetaCommand,
   type ClearCellMetaParams,

@@ -1,3 +1,4 @@
+import { InsertCellImageCommand, RemoveCellImageCommand } from './cell-image'
 import { ClearCellMetaCommand, SetCellMetaCommand } from './cell-meta'
 import { InsertImageCommand, RemoveImageCommand, UpdateImageCommand } from './image'
 import { InsertCellsCommand } from './insert-delete-cells'
@@ -32,3 +33,5 @@ defaultCommandRegistry.register(SetCellMetaCommand)
 defaultCommandRegistry.register(ClearCellMetaCommand)
 defaultCommandRegistry.register(SetCellLinkCommand)
 defaultCommandRegistry.register(ClearCellLinkCommand)
+defaultCommandRegistry.register(InsertCellImageCommand)
+defaultCommandRegistry.register(RemoveCellImageCommand)
