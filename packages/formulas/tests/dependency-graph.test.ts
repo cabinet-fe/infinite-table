@@ -214,7 +214,7 @@ describe('DependencyGraph：大批量输入（批量写入重算路径）', () =
     // 矩形外的行/列不命中
     graph.setFormula(cell('S1', 0, 0), [rangeRef('S1', 2, 2, 6, 8)])
     const inside = Array.from({ length: 50_000 }, (_, i) =>
-      cell('S1', 2 + (i % 5), 2 + ((i / 5) | 0) % 7),
+      cell('S1', 2 + (i % 5), 2 + (((i / 5) | 0) % 7)),
     )
     expect(sorted(graph.affectedBy(inside))).toEqual(['S1!0,0'])
     const outsideRows = Array.from({ length: 50_000 }, (_, i) => cell('S1', 2, 9 + (i % 3)))
@@ -285,7 +285,8 @@ describe('DependencyGraph：affectedBy 批量路径差分等价（#8 回归防�
       const formulas: Array<{ coord: SheetCellCoord; refs: FormulaRefCoord[] }> = []
       // 候选格池含少量公式格自身（制造链式/环）；两张表制造跨表引用
       const pool: SheetCellCoord[] = []
-      for (let i = 0; i < 24; i++) pool.push(cell(rand() < 0.7 ? 'S1' : 'S2', (rand() * 8) | 0, (rand() * 8) | 0))
+      for (let i = 0; i < 24; i++)
+        pool.push(cell(rand() < 0.7 ? 'S1' : 'S2', (rand() * 8) | 0, (rand() * 8) | 0))
       const formulaCount = 2 + ((rand() * 10) | 0)
       for (let i = 0; i < formulaCount; i++) {
         const coord = pool[(rand() * pool.length) | 0]!
@@ -293,7 +294,9 @@ describe('DependencyGraph：affectedBy 批量路径差分等价（#8 回归防�
         const refCount = (rand() * 3) | 0
         for (let r = 0; r < refCount; r++) {
           if (rand() < 0.5) {
-            refs.push(cellRef(pool[(rand() * pool.length) | 0]!.sheet, (rand() * 8) | 0, (rand() * 8) | 0))
+            refs.push(
+              cellRef(pool[(rand() * pool.length) | 0]!.sheet, (rand() * 8) | 0, (rand() * 8) | 0),
+            )
           } else {
             const c1 = (rand() * 8) | 0
             const r1 = (rand() * 8) | 0
