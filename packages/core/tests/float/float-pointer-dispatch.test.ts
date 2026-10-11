@@ -65,8 +65,8 @@ function createRecordingContainer() {
 function mountDispatchTable() {
   const { container, fire } = createRecordingContainer()
   const options: ListTableOptions = {
-    // 高度 260：拖拽行程终点 (158,170) 距视口下缘留出钳制余量（编辑态位置钳制
-    // 会把旋转 AABB + 装饰外扩钳在 body 视口内，本组只验证指针派发链路）
+    // 高度 260：拖拽行程终点 (158,170) 保持在 body 视口内（本组只验证指针派发链路，
+    // 不混入越缘拖拽的落点投影行为）
     width: 400,
     height: 260,
     rowHeight: 32,

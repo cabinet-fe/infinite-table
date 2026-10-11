@@ -376,12 +376,12 @@ describe('FloatObjectLayer 点选与拖拽（对齐 ultra-ui image-layer）', ()
   })
 })
 
-describe('编辑态位置钳制与严格裁剪（编辑不压行列头）', () => {
+describe('编辑态不钳制与绘制严格裁剪（可越缘编辑，绘制不压行列头）', () => {
   /**
    * 编辑台架：body 视口 {48,36,352,164}（对齐 400×200 表格口径），对象 a 层坐标
-   * (104,72) 尺寸 (196,56)，已选中（SELECTED_PAD = 26 含在钳制/裁剪范围）。
+   * (104,72) 尺寸 (196,56)，已选中（SELECTED_PAD = 26 只计入绘制裁剪外扩，编辑不钳制）。
    */
-  function clampSetup() {
+  function viewportSetup() {
     const { layer, invalidated } = stubLayer()
     const floats = new FloatObjectLayer({
       layer,
@@ -423,33 +423,33 @@ describe('编辑态位置钳制与严格裁剪（编辑不压行列头）', () =
     ).toBe(true)
   })
 
-  it('拖拽钳制：对象（含装饰外扩）拖向视口外时钳在边界内，落点换算用钳制后位置', () => {
-    const { layer, floats } = clampSetup()
+  it('拖拽不钳制：对象（含装饰外扩）可拖出视口，落点按投影就近换算提交', () => {
+    const { layer, floats } = viewportSetup()
     const node = nodeOf(layer)
     const events: FloatDragEndEvent[] = []
     floats.onDragEnd((event) => events.push(event))
-    // 左上拖出：未钳制位置 (4,2) → 钳到 (22,10)（视口原点 − pad）
+    // 左上拖出：位置随指针到 (4,2)（装饰越缘，不钳回视口内）
     floats.beginDrag('a', 110, 80)
     floats.dragMove(10, 10)
-    expect({ x: node?.x, y: node?.y }).toEqual({ x: 22, y: 10 })
-    // 抬起：左上角 (22,10) 在表头带，先投影回视口 (48,36) → 格 (0,1) 原点 (0,32)，
-    // 贴缘放下提交（而非整拖回弹）
+    expect({ x: node?.x, y: node?.y }).toEqual({ x: 4, y: 2 })
+    // 抬起：左上角 (4,2) 在表头带，先投影回视口 (48,36) → 格 (0,1) 原点 (0,32)，
+    // 贴缘就近提交（而非整拖回弹）
     floats.endDrag()
     expect(events[0]?.anchor.from).toEqual({ col: 0, row: 1 })
     expect(events[0]?.anchor.offsetX).toBe(48)
     expect(events[0]?.anchor.offsetY).toBe(4)
-    // 右下拖出：未钳制位置 (394,292) → 钳到 (230,170)（视口右/下缘 + pad − 对象尺寸）
+    // 右下拖出：上一拖未写回模型，从 (4,2) 起算 → (294,222)（视口右/下缘外，不钳回）
     floats.beginDrag('a', 110, 80)
     floats.dragMove(400, 300)
-    expect({ x: node?.x, y: node?.y }).toEqual({ x: 230, y: 170 })
-    // 抬起按钳制后位置反查落点：(230,170) → 格 (2,5) 原点 (200,160)，余量 (30,10)
+    expect({ x: node?.x, y: node?.y }).toEqual({ x: 294, y: 222 })
+    // 抬起：y 越下缘投影到 199，落点 (294,199) → 格 (2,6) 原点 (200,192)，余量 (94,7)
     floats.endDrag()
-    expect(events[1]?.anchor.from).toEqual({ col: 2, row: 5 })
-    expect(events[1]?.anchor.offsetX).toBe(30)
-    expect(events[1]?.anchor.offsetY).toBe(10)
+    expect(events[1]?.anchor.from).toEqual({ col: 2, row: 6 })
+    expect(events[1]?.anchor.offsetX).toBe(94)
+    expect(events[1]?.anchor.offsetY).toBe(7)
   })
 
-  it('对象（含装饰）宽出视口：钳制取中，两侧均匀出血', () => {
+  it('对象（含装饰）宽出视口：不取中出血，位置随指针（越缘部分由绘制裁剪不画）', () => {
     const { layer } = stubLayer()
     const floats = new FloatObjectLayer({
       layer,
@@ -461,33 +461,33 @@ describe('编辑态位置钳制与严格裁剪（编辑不压行列头）', () =
     const node = nodeOf(layer)
     floats.beginDrag('a', 110, 80)
     floats.dragMove(120, 90)
-    // x 行程 [22, −22] 无解 → 中点 0（对象必然出血，位置对称）
-    expect(node?.x).toBe(0)
+    // 对象宽 196（+pad 52）远出视口宽 100：不再取中，位移 (+10,+10) 原样成立
+    expect({ x: node?.x, y: node?.y }).toEqual({ x: 114, y: 82 })
   })
 
-  it('缩放钳制：尺寸上限 = 视口（扣装饰外扩），位置随钳制保持整体可见', () => {
-    const { layer, floats } = clampSetup()
+  it('缩放无上限：可放大到超出视口，对侧锚点保持不动', () => {
+    const { layer, floats } = viewportSetup()
     const node = nodeOf(layer)
-    // 右下角手柄 (300,128) 起拖，目标 (500,300)：未钳制尺寸 396×228 → 上限 300×112
+    // 右下角手柄 (300,128) 起拖，目标 (500,300)：尺寸 396×228 超出视口 352×164，不封顶
     expect(floats.beginTransform('right-bottom', 300, 128)).toBe(true)
     floats.transformMove(500, 300, false)
-    expect({ width: node?.width, height: node?.height }).toEqual({ width: 300, height: 112 })
-    // 对侧锚点（左上角 (104,72)）固定，钳制范围内原位成立
+    expect({ width: node?.width, height: node?.height }).toEqual({ width: 396, height: 228 })
+    // 对侧锚点（左上角 (104,72)）固定，位置不回拉
     expect({ x: node?.x, y: node?.y }).toEqual({ x: 104, y: 72 })
     const events: FloatTransformEndEvent[] = []
     floats.onTransformEnd((event) => events.push(event))
     floats.endTransform()
-    expect(events[0]?.size).toEqual({ width: 300, height: 112 })
+    expect(events[0]?.size).toEqual({ width: 396, height: 228 })
   })
 
-  it('旋转钳制：旋转 AABB（含装饰）越视口上缘时位置下移保持整体可见', () => {
-    const { layer, floats } = clampSetup()
+  it('旋转不钳制：旋转 AABB（含装饰）越视口上缘时位置不移动', () => {
+    const { layer, floats } = viewportSetup()
     const node = nodeOf(layer)
     // 旋转手柄 (202,52) 起拖（方位 −90°），拖到 (262,100)（方位 0°）：旋转 0°→90°
     expect(floats.beginTransform('rotate', 202, 52)).toBe(true)
     floats.transformMove(262, 100, false)
     expect(node.rotation).toBe(90)
-    // 90° AABB 高 196：y ∈ [80, 100] 有解 → 72 钳到 80（装饰不再越视口上缘）
-    expect(node?.y).toBe(80)
+    // 90° AABB 高 196 越视口上缘：位置不动（72 保持，越缘部分由绘制裁剪不画）
+    expect(node?.y).toBe(72)
   })
 })

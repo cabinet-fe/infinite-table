@@ -249,6 +249,21 @@ describe('ListTable 行列头', () => {
     expect(findNode(host, 2, -1)?.x).toBe(48 + 200 - 200)
     expect(findNode(host, 2, -1)?.text).toBe('C2')
   })
+
+  it('增量滚动列头滚入后角块仍是表头容器最后一个子节点', () => {
+    const records = Array.from({ length: 100 }, (_, i) => ({ name: `r${i}` }))
+    const { table } = createTable({ records })
+    // 初窗列 0..8；横向滚到列 2..10：列头 8/9 增量滚入、补建节点挂 headerGroup 树尾，
+    // 若角块不重挂则后画的列头盖住角块（列字母叠进左上角），来回滚覆盖多轮增量维护
+    table.scrollTo(200, 0)
+    expect(table.getVisibleRange().cols).toEqual({ start: 2, end: 10 })
+    expect(table.colHeaderNodes.has(9)).toBe(true)
+    expect(table.cornerNode).not.toBeNull()
+    expect(table.headerGroup!.children.at(-1)).toBe(table.cornerNode)
+    table.scrollTo(0, 0)
+    table.scrollTo(200, 0)
+    expect(table.headerGroup!.children.at(-1)).toBe(table.cornerNode)
+  })
 })
 
 describe('ListTable 宿主生命周期', () => {

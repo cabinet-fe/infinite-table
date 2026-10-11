@@ -415,6 +415,12 @@ export class ListTable {
   readonly editorRegistry: EditorRegistry
   /** 编辑器浮层挂载容器（hostOptions.container）；缺省离屏不落 DOM */
   private readonly container: HTMLElement | undefined
+  /**
+   * 光标写入容器：native 档 this.container 是 sticky 视口，spacer 的
+   * pointer-events:none 使其永不成为命中元素，style.cursor 无效；恒指宿主容器
+   * （真实命中元素的祖先，光标沿 CSS 继承生效）。canvas 档与 this.container 相同。
+   */
+  private readonly cursorContainer: HTMLElement | undefined
   /** @internal 双击/双触检测：上一次落点（同格、时长与位移阈值内判定连击进编辑） */
   lastTap: { col: number; row: number; x: number; y: number; time: number } | null = null
   /** @internal pointerdown 落点（连击位移阈值判定用） */
@@ -548,6 +554,9 @@ export class ListTable {
     }
     // 原生模式编辑浮层/光标/指针换算容器随层挂载点（sticky 视口，坐标与画布层对齐）
     this.container = this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container
+    // 光标写入恒指宿主容器（native 档 sticky 视口不命中光标）；canvas 档与
+    // this.container 相同（此时两者同为 hostOptions.container），行为零变化
+    this.cursorContainer = options.hostOptions?.container ?? this.container
     // 焦点回落目标：原生档为宿主容器——宿主焦点契约元素（tabIndex=-1 + 聚焦，见
     // packages/sheet/src/grid/sheet-grid.ts 的 bindFocus）即事件源监听元素自身，编辑
     // 提交/取消后键盘续可达；sticky 视口无 tabIndex 不可聚焦，回落它 focus() 静默
@@ -1173,12 +1182,13 @@ export class ListTable {
 
   /**
    * @internal 容器光标写入（行列 resize 手柄 col-resize/row-resize、填充柄十字光标等
-   * 指针光标管理）：直写 hostOptions.container 的 style.cursor；
+   * 指针光标管理）：直写宿主容器（cursorContainer）的 style.cursor——native 档
+   * sticky 视口不命中光标，须写宿主容器沿 CSS 继承生效；
    * 未传容器（无 DOM 环境/离屏构造）静默容错不抛错。
    */
   setContainerCursor(cursor: string): void {
-    if (this.container) {
-      this.container.style.cursor = cursor
+    if (this.cursorContainer) {
+      this.cursorContainer.style.cursor = cursor
     }
   }
 

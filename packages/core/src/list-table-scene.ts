@@ -426,8 +426,12 @@ export function updateSceneWindow(table: ListTable): void {
       }
     }
   }
-  if (!table.cornerNode && showsColHeader(table) && showsRowHeader(table)) {
-    table.cornerNode = newCornerNode(table, styles)
+  if (showsColHeader(table) && showsRowHeader(table)) {
+    if (!table.cornerNode) {
+      table.cornerNode = newCornerNode(table, styles)
+    }
+    // appendChild 自带摘除重挂（O(1)）：增量滚动补建列头挂树尾后，角块重挂树尾
+    // 保持「角块最上」不变量（全量重建路径本就最后建角块，此处同序）
     headerGroup.appendChild(table.cornerNode)
   }
   if (bodyChanged) {
