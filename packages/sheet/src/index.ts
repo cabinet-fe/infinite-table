@@ -41,6 +41,10 @@ export {
   cellMetaKeyFrom,
   cloneCellMetaPayload,
   cellMetaPayloadEqual,
+  CELL_IMAGE_META_NAMESPACE,
+  type CellImagePayload,
+  CELL_LINK_META_NAMESPACE,
+  type CellLinkPayload,
   type CellMetaSnapshotItem,
 } from './core/cell-meta'
 
@@ -162,6 +166,10 @@ export {
   SetCellMetaCommand,
   type ClearCellMetaParams,
   ClearCellMetaCommand,
+  type SetCellLinkParams,
+  SetCellLinkCommand,
+  type ClearCellLinkParams,
+  ClearCellLinkCommand,
   defaultCommandRegistry,
   CommandRegistry,
 } from './core/command'
@@ -170,10 +178,12 @@ export {
   createImageId,
   cloneImageAnchor,
   cloneSheetImage,
+  IMAGE_MIME,
   type SheetImageType,
   type SheetImageAnchor,
   type SheetImage,
   type ImageInput,
+  type ImageFitMode,
 } from './core/image'
 
 export { exportWorkbookXlsx, exportSheetXlsx, exportSheetCsv } from './core/io/export'

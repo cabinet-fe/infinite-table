@@ -35,6 +35,12 @@ export {
 } from './set-axis-style'
 export { SetCellFormulaCommand, type SetCellFormulaParams } from './set-cell-formula'
 export {
+  ClearCellLinkCommand,
+  SetCellLinkCommand,
+  type ClearCellLinkParams,
+  type SetCellLinkParams,
+} from './set-cell-link'
+export {
   SetCellStyleCommand,
   type SetCellStyleItem,
   type SetCellStyleParams,

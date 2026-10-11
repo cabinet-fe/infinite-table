@@ -12,6 +12,7 @@ import {
 
 import type { CellAddress, CellRange } from '../core/address'
 import { colIndexToName } from '../core/address'
+import type { CellLinkPayload } from '../core/cell-meta'
 import type { CellValue } from '../core/cell-store'
 import type { Sheet } from '../core/sheet'
 import {
@@ -19,6 +20,7 @@ import {
   hitTestSheetAddr as hitTestSheetAddrAt,
   type SheetGridContextMenuInfo,
 } from './grid-coords'
+import { GridCellImages } from './grid-cell-images'
 import { GridEditorRouting, SHEET_TEXT_EDITOR, type SheetGridEditorsOptions } from './grid-editors'
 import { GridFloatImages } from './grid-float-images'
 import { GridHeaderLayer, type SheetGridHeaderOptions } from './grid-header'
@@ -140,6 +142,7 @@ export class SheetGrid {
   private readonly rowHeightEngine: GridRowHeightEngine
   private readonly selectionController: GridSelectionController
   private readonly floatImages: GridFloatImages
+  private readonly cellImages: GridCellImages
   private readonly disposers: (() => void)[] = []
   /** LRU 可见性：隐藏实例停用视图同步（只置脏），激活时一次性全量同步 */
   private visible = true
@@ -207,6 +210,10 @@ export class SheetGrid {
     this.rowHeightEngine = new GridRowHeightEngine(this.sheet, rows, cols)
     this.rowHeightEngine.applyWrapEstimates(this.defaultColWidth)
 
+    // 按格嵌入图桥先于引擎构造（初始装配的 resolveCellImage 回调直接可用）；
+    // 事件监听在引擎实例就绪后 attach
+    this.cellImages = new GridCellImages(this.sheet)
+
     const editorRegistry = this.editorRouting?.createRegistry() ?? new EditorRegistry()
     if (!this.isReadonly && !this.editorRouting) {
       editorRegistry.registerEditor(SHEET_TEXT_EDITOR, {})
@@ -223,6 +230,11 @@ export class SheetGrid {
       model: createSheetTableModel(this.sheet),
       resolveDisplayValue: createEngineDisplayValue(this.sheet, this.hooks),
       resolveCellStyle: createEngineCellStyle(this.sheet, this.hooks),
+      // 按格嵌入图：无条件接入引擎图片格渲染通道（宿主无需传 hook，模型有图即渲染），
+      // 缩放 fit 同链取值（缺省 contain 保比例）
+      resolveCellImage: (col: number, row: number): string | null | undefined =>
+        this.cellImages.resolveUrl(col, row),
+      resolveCellImageFit: (col: number, row: number) => this.cellImages.resolveFit(col, row),
       // 仅宿主提供 hook 时安装分发器：渲染热路径零差异（ADR-0004）
       ...(this.hooks.resolveCellRenderer
         ? {
@@ -303,6 +315,10 @@ export class SheetGrid {
     })
     this.floatImages.sync()
     this.disposers.push(() => this.floatImages.dispose())
+
+    // 嵌入图事件监听（写入/清除后定向刷新该格；构造期已有图的格已在引擎首帧装配）
+    this.cellImages.attach(this.table)
+    this.disposers.push(() => this.cellImages.dispose())
 
     this.bindSheetEvents(options.onColResizeEnd)
     this.bindKeyboard()
@@ -400,6 +416,26 @@ export class SheetGrid {
     }
     // 表头覆盖层随列几何重定位
     this.headerLayer?.sync()
+  }
+
+  // ─── 单元格超链接（模型命令入口） ────────────────────────
+
+  /**
+   * 写入单元格超链接：透传模型命令通道（可 undo/redo、随快照序列化、
+   * 行列插入删除时平移）；link 为 null 或 URL 空白时清除该格链接。
+   */
+  setCellLink(addr: CellAddress, link: CellLinkPayload | null): void {
+    this.sheet.setCellLink(addr, link)
+  }
+
+  /** 读取单元格超链接（副本）；无链接返回 undefined */
+  getCellLink(addr: CellAddress): CellLinkPayload | undefined {
+    return this.sheet.getCellLink(addr)
+  }
+
+  /** 清除单元格超链接（模型命令通道，可 undo/redo）；无链接时无操作 */
+  clearCellLink(addr: CellAddress): void {
+    this.sheet.clearCellLink(addr)
   }
 
   /** 默认行高：模型声明优先（xlsx 导入写入），未声明回落内置缺省 */

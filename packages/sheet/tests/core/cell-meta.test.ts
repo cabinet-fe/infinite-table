@@ -193,4 +193,15 @@ describe('Sheet Cell Meta：结构变更平移', () => {
     expect(sheet.getCellMeta({ row: 2, col: 1 }, 'report')).toBeUndefined()
     expect(sheet.rows).toBe(4)
   })
+
+  it('平移保留载荷内 TypedArray 字节（不被重建成普通对象）', () => {
+    const sheet = new Sheet()
+    sheet.ensureTableSize(5, 3)
+    const bytes = new Uint8Array([137, 80, 78, 71])
+    sheet.setCellMeta({ row: 1, col: 1 }, 'cell-image', { data: bytes, type: 'png' })
+    sheet.insertRows(0, 2)
+    const shifted = sheet.getCellMeta<{ data: unknown }>({ row: 3, col: 1 }, 'cell-image')
+    expect(shifted?.data).toBeInstanceOf(Uint8Array)
+    expect(shifted?.data).toEqual(bytes)
+  })
 })

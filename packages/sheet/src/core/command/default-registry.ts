@@ -6,6 +6,7 @@ import { CommandRegistry } from './registry'
 import { RestoreSheetCommand } from './restore-sheet'
 import { SetAxisStyleCommand } from './set-axis-style'
 import { SetCellFormulaCommand } from './set-cell-formula'
+import { ClearCellLinkCommand, SetCellLinkCommand } from './set-cell-link'
 import { SetCellStyleCommand } from './set-cell-style'
 import { SetCellValueCommand } from './set-cell-value'
 
@@ -29,3 +30,5 @@ defaultCommandRegistry.register(RemoveImageCommand)
 defaultCommandRegistry.register(UpdateImageCommand)
 defaultCommandRegistry.register(SetCellMetaCommand)
 defaultCommandRegistry.register(ClearCellMetaCommand)
+defaultCommandRegistry.register(SetCellLinkCommand)
+defaultCommandRegistry.register(ClearCellLinkCommand)

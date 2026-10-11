@@ -1,5 +1,6 @@
 import type { CellAddress } from './address'
 import type { StructureChange } from './command/types'
+import type { ImageFitMode, SheetImageType } from './image'
 
 /** Cell Meta 快照项（与单元格地址平行、按 namespace 存储的可序列化载荷） */
 export interface CellMetaSnapshotItem {
@@ -7,6 +8,44 @@ export interface CellMetaSnapshotItem {
   col: number
   namespace: string
   payload: unknown
+}
+
+/**
+ * 按格嵌入图的 Cell Meta namespace（payload 为 CellImagePayload）。
+ *
+ * 存储 / 撤销 / 快照序列化 / 行列结构平移全部复用 Cell Meta 机制；
+ * 渲染接线在 grid 层（SheetGrid 自动接入引擎 resolveCellImage/media 通道，宿主无需传 hook）。
+ */
+export const CELL_IMAGE_META_NAMESPACE = 'cell-image'
+
+/**
+ * 按格嵌入图载荷：图片字节或 src 二选一（src 优先，同浮动图 SheetImage 先例）。
+ * 格坐标即存储键（Cell Meta 的 row,col），载荷内不携带地址字段。
+ */
+export interface CellImagePayload {
+  /** URL 来源；存在时优先于 data 字节 */
+  src?: string
+  /** 图片字节（渲染层转 objectURL；structuredClone 可序列化） */
+  data?: Uint8Array
+  /** 图片格式（data 字节的 MIME 来源）；缺省按 png */
+  type?: SheetImageType
+  /** 缩放语义：contain 保比例（缺省）、fill 拉伸铺满 */
+  fit?: ImageFitMode
+}
+
+/** 按格超链接的 Cell Meta namespace（payload 为 CellLinkPayload） */
+export const CELL_LINK_META_NAMESPACE = 'cell-link'
+
+/**
+ * 按格超链接载荷：URL + 可选显示文本。
+ * 格坐标即存储键（Cell Meta 的 row,col），载荷内不携带地址字段；
+ * 链接外观 / 悬停 / 点击事件接线在 grid 层（引擎侧）。
+ */
+export interface CellLinkPayload {
+  /** 链接 URL */
+  url: string
+  /** 可选显示文本（缺省显示单元格原值） */
+  text?: string
 }
 
 /** 生成 Cell Meta 存储键（row,col,namespace 三元组） */
@@ -78,9 +117,10 @@ function isCellAddressLike(value: unknown): value is CellAddress {
   return Number.isInteger(row) && Number.isInteger(col)
 }
 
-/** 结构变更时平移载荷内嵌的单元格地址（如 meta 中的父格引用） */
+/** 结构变更时平移载荷内嵌的单元格地址（如 meta 中的父格引用）；TypedArray 原样保留 */
 export function shiftMetaPayloadForStructure(payload: unknown, change: StructureChange): unknown {
   if (payload === null || payload === undefined) return payload
+  if (ArrayBuffer.isView(payload)) return payload
   if (Array.isArray(payload)) {
     return payload.map((item) => shiftMetaPayloadForStructure(item, change))
   }

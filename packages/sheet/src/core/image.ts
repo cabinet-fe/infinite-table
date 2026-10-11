@@ -3,6 +3,15 @@ import type { CellAddress } from './address'
 /** 支持的图片格式（与 hucre SheetImage.type 对齐） */
 export type SheetImageType = 'png' | 'jpeg' | 'gif' | 'svg' | 'webp'
 
+/** MIME：模型 type → Blob type（字节来源转 objectURL 用，浮动图与嵌入图共用） */
+export const IMAGE_MIME: Record<SheetImageType, string> = {
+  png: 'image/png',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  webp: 'image/webp',
+}
+
 /** 图片缩放模式：fill 拉伸（默认）；contain 等比缩放、完整显示于锚定区域内（不裁剪、不溢出） */
 export type ImageFitMode = 'fill' | 'contain'
 

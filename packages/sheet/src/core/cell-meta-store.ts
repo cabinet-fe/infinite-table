@@ -22,6 +22,14 @@ export class CellMetaStore {
     return payload === undefined ? undefined : cloneCellMetaPayload(payload)
   }
 
+  /**
+   * 读取原始引用（不拷贝）：渲染热路径（引擎逐格拉取 hook）零深拷贝；
+   * 返回值不得持有或修改——写入一律经 set。
+   */
+  peek(addr: CellAddress, namespace: string): unknown {
+    return this.data.get(cellMetaKeyFrom(addr, namespace))
+  }
+
   /** 写入 meta；payload 为 undefined 等价于删除该 namespace */
   set(addr: CellAddress, namespace: string, payload: unknown): void {
     const key = cellMetaKeyFrom(addr, namespace)

@@ -1,6 +1,12 @@
 import type { CellAddress, CellRange } from './address'
 import { createRange, iterateRange } from './address'
-import type { CellMetaSnapshotItem } from './cell-meta'
+import {
+  CELL_IMAGE_META_NAMESPACE,
+  CELL_LINK_META_NAMESPACE,
+  type CellImagePayload,
+  type CellLinkPayload,
+  type CellMetaSnapshotItem,
+} from './cell-meta'
 import { CellMetaStore } from './cell-meta-store'
 import { CELL_READONLY_META_NAMESPACE } from './cell-readonly'
 import {
@@ -28,6 +34,7 @@ import {
 } from './command/merge-cells'
 import { SetAxisStyleCommand } from './command/set-axis-style'
 import { SetCellFormulaCommand } from './command/set-cell-formula'
+import { ClearCellLinkCommand, SetCellLinkCommand } from './command/set-cell-link'
 import { SetCellStyleCommand, type SetCellStyleItem } from './command/set-cell-style'
 import { SetCellValueCommand, type SetCellValueItem } from './command/set-cell-value'
 import type {
@@ -595,6 +602,66 @@ export class Sheet {
   /** 迭代所有 Cell Meta 条目（视图层占位覆盖等场景） */
   *entriesCellMeta(): Generator<[CellAddress, string, unknown]> {
     yield* this.cellMeta.entries()
+  }
+
+  /**
+   * 读取指定地址与 namespace 的 Cell Meta 原始引用（不拷贝）：渲染热路径内部用
+   * （grid 层逐格拉取嵌入图载荷），返回值不得持有或修改。
+   * @internal
+   */
+  peekCellMeta(addr: CellAddress, namespace: string): unknown {
+    const resolved = this.merges.resolveAnchor(addr)
+    return this.cellMeta.peek(resolved, namespace)
+  }
+
+  // ─── 按格嵌入图 ─────────────────────────────────────────
+
+  /**
+   * 写入按格嵌入图（经 Cell Meta 命令，可撤销、随快照序列化、行列插入删除时平移）。
+   * image 为 null 或 src/data 全缺时清除该格嵌入图。
+   */
+  setCellImage(addr: CellAddress, image: CellImagePayload | null): void {
+    if (image == null || (image.src == null && image.data == null)) {
+      this.clearCellMeta(addr, CELL_IMAGE_META_NAMESPACE)
+      return
+    }
+    this.setCellMeta(addr, CELL_IMAGE_META_NAMESPACE, image)
+  }
+
+  /** 读取按格嵌入图载荷（副本）；无图返回 undefined（合并格解析锚点） */
+  getCellImage(addr: CellAddress): CellImagePayload | undefined {
+    return this.getCellMeta<CellImagePayload>(addr, CELL_IMAGE_META_NAMESPACE)
+  }
+
+  /** 该格是否有嵌入图（合并格解析锚点；供右键菜单等判定） */
+  hasCellImage(addr: CellAddress): boolean {
+    return this.getCellImage(addr) != null
+  }
+
+  // ─── 单元格超链接 ─────────────────────────────────────────
+
+  /**
+   * 写入单元格超链接（经 cell-link 命令，可撤销、随快照序列化、行列插入删除时平移）。
+   * link 为 null 或 URL 空白时清除该格链接；合并格解析锚点。
+   */
+  setCellLink(addr: CellAddress, link: CellLinkPayload | null): void {
+    if (link == null || link.url.trim() === '') {
+      this.clearCellLink(addr)
+      return
+    }
+    const resolved = this.merges.resolveAnchor(addr)
+    this.executeCommand(SetCellLinkCommand.id, { addr: resolved, link })
+  }
+
+  /** 读取单元格超链接载荷（副本）；无链接返回 undefined（合并格解析锚点） */
+  getCellLink(addr: CellAddress): CellLinkPayload | undefined {
+    return this.getCellMeta<CellLinkPayload>(addr, CELL_LINK_META_NAMESPACE)
+  }
+
+  /** 清除单元格超链接（经命令，可撤销）；无链接则无操作（合并格解析锚点） */
+  clearCellLink(addr: CellAddress): void {
+    const resolved = this.merges.resolveAnchor(addr)
+    this.executeCommand(ClearCellLinkCommand.id, { addr: resolved })
   }
 
   // ─── 单元格只读 ──────────────────────────────────────────

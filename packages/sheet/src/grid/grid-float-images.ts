@@ -1,16 +1,8 @@
 import type { FloatObject, FloatTransformEndEvent, ListTable } from '@infinitable/core'
 
-import type { SheetImage, SheetImageAnchor, SheetImageType } from '../core/image'
+import { IMAGE_MIME } from '../core/image'
+import type { SheetImage, SheetImageAnchor } from '../core/image'
 import type { Sheet } from '../core/sheet'
-
-/** MIME：模型 type → Blob type（objectURL） */
-const IMAGE_MIME: Record<SheetImageType, string> = {
-  png: 'image/png',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  svg: 'image/svg+xml',
-  webp: 'image/webp',
-}
 
 export interface GridFloatImagesOptions {
   table: ListTable
