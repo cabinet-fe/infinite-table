@@ -25,7 +25,7 @@ infinitable/
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
 | plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + chart/print/watermark 插件 | `src/index.ts` |
 | sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 core 与 formulas | `src/index.ts` |
-| infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口 re-export 四层 + `./sheet` 子路径，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版走仓根 `scripts/release/publish.mjs` + `.github/workflows/release.yml`（tag v* 触发 OIDC trusted publishing） | `src/index.ts` |
+| infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口 re-export 四层 + `./sheet` 子路径，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版统一走发版技能 `.agents/skills/release`（changesets + CI） | `src/index.ts` |
 | playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ComparePage.tsx`、`src/bench/headless.test.ts` |
 
 ## 模块内检索

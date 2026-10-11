@@ -1,25 +1,42 @@
-# 发版流水线：tag v* 触发，npm trusted publishing（OIDC）免 token 发布统一包 infinitable。
+# 发版流水线（发版规范 A：changesets · CI 发布）：
+# push main 触碰 packages/*/CHANGELOG.md 自动触发（本地 bun run release 产生的 version commit），
+# npm trusted publishing（OIDC）免 token 发布统一包 infinitable。
 # 鉴权不落任何 NPM_TOKEN secret：npm >= 11.5.1 自动探测 GitHub Actions OIDC 环境，
 # 凭 workflow 顶层 id-token: write 与 npmjs.com 包设置的 Trusted Publisher 配置
 # （cabinet-fe/infinite-table + release.yml）放行。
-# 幂等：scripts/release/publish.mjs 对已在 registry 的同名同版本跳过，tag 重跑安全。
+# 幂等：changeset publish 对已在 registry 的同名同版本自动跳过，重跑安全。
 
 name: release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - 'packages/*/CHANGELOG.md'
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 校验发布分支
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "手动发布仅允许从 main 触发，当前 ref: ${{ github.ref }}"
+            exit 1
+          fi
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -31,8 +48,30 @@ jobs:
 
       - run: bun run check:exports
 
-      - uses: actions/setup-node@v5
+      - name: 安装 Node.js（供 npm publish 使用）
+        # 不要设置 registry-url：占位 NODE_AUTH_TOKEN 会让 npm 跳过 OIDC 交换（npm/cli#8730）
+        uses: actions/setup-node@v5
         with:
           node-version: 24
 
-      - run: node scripts/release/publish.mjs
+      - name: 安装 npm@11
+        # 固定 11.x：trusted publishing 需要 >= 11.5.1；npm 12 改了 `npm info --json`
+        # 输出结构（object -> list），changesets 2.31 解析不了会误判所有包"未发布"
+        run: npm install -g npm@11
+
+      - name: 剥离 devDependencies（供 changeset publish 使用）
+        run: bun run scripts/release/normalize-manifest.ts
+
+      - name: 发布到 npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: bun run changeset publish
+          createGithubReleases: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: 推送版本 tag
+        if: steps.changesets.outputs.published == 'true'
+        run: git push origin --tags

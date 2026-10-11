@@ -14,9 +14,12 @@
     "fmt": "vp fmt --write .",
     "fmt:check": "vp fmt --check .",
     "check:deps": "bun scripts/check-core-deps.ts",
-    "check:exports": "node scripts/check-package-exports.mjs"
+    "check:exports": "node scripts/check-package-exports.mjs",
+    "changeset": "changeset",
+    "release": "bun run scripts/release.ts"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.3",
     "happy-dom": "^20.14.5",
     "typescript": "~7.0.2",
     "vite-plus": "1.1.0",
