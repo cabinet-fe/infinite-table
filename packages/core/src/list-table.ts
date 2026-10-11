@@ -122,6 +122,9 @@ import { extendsTheme, themeCellBase, type TableTheme, type ThemeOverride } from
 import { InertiaScroller, TouchScrollTracker } from './touch-scroll'
 import type {
   CellChangeEvent,
+  CellLinkClickListener,
+  CellLinkHoverListener,
+  CellLinkLeaveListener,
   CellRef,
   ColumnDefine,
   ContextMenuListener,
@@ -381,6 +384,23 @@ export class ListTable {
   destroyed = false
   /** @internal contextmenu 事件订阅 */
   readonly contextMenuListeners = new Set<ContextMenuListener>()
+  /** @internal 链接悬停事件订阅（onCellLinkHover 注册） */
+  readonly cellLinkHoverListeners = new Set<CellLinkHoverListener>()
+  /** @internal 链接离开事件订阅（onCellLinkLeave 注册） */
+  readonly cellLinkLeaveListeners = new Set<CellLinkLeaveListener>()
+  /** @internal 链接单击事件订阅（onCellLinkClick 注册） */
+  readonly cellLinkClickListeners = new Set<CellLinkClickListener>()
+  /**
+   * @internal 当前链接悬停格（pointer 光标与 hover/leave 事件的状态源）：
+   * 指针悬停命中的链接格坐标；null 未悬停链接。由交互层的悬停状态机维护。
+   */
+  linkHover: CellRef | null = null
+  /**
+   * @internal 按下命中的数据格（链接单击判定的 down 侧锚点）：正文数据格命中时定格，
+   * 早退路径（浮动对象/滚动条/越界/表头/手柄/填充柄）为 null；抬起侧同格且位移在
+   * 阈值内才派发链接点击（框选拖拽/键盘选中不触发）。
+   */
+  pointerDownCell: CellRef | null = null
   private readonly scrollFrameListeners = new Set<ScrollFrameListener>()
   /** 编辑提交事件订阅（col/row/oldValue/newValue） */
   private readonly cellChangeListeners = new Set<(change: CellChangeEvent) => void>()
@@ -880,8 +900,12 @@ export class ListTable {
     const prevMaxX = node.textMaxX
     const prevMinX = node.textMinX
     const prevHasText = node.text !== ''
+    // 图片/图表格：body 节点只画背景/边框（文本留空），与 appendCell 装配口径一致
+    // （同格双声明时图片优先，图表让位——两通道互斥，宿主不应同时声明）
+    const imageUrl = this.options.resolveCellImage?.(masterCol, masterRow)
+    const chartMedia = imageUrl ? null : (this.chartMediaResolver?.(masterCol, masterRow) ?? null)
     node.setContent(
-      this.pipeline.resolveText(masterCol, masterRow),
+      imageUrl || chartMedia ? '' : this.pipeline.resolveText(masterCol, masterRow),
       this.pipeline.resolveValue(masterCol, masterRow),
     )
     node.style = this.resolveStyle(masterCol, masterRow)
@@ -1181,13 +1205,13 @@ export class ListTable {
   }
 
   /**
-   * @internal 容器光标写入（行列 resize 手柄 col-resize/row-resize、填充柄十字光标等
-   * 指针光标管理）：直写宿主容器（cursorContainer）的 style.cursor——native 档
-   * sticky 视口不命中光标，须写宿主容器沿 CSS 继承生效；
-   * 未传容器（无 DOM 环境/离屏构造）静默容错不抛错。
+   * @internal 容器光标写入（行列 resize 手柄 col-resize/row-resize、填充柄十字、
+   * 链接格 pointer 等指针光标管理）：直写宿主容器（cursorContainer）的
+   * style.cursor——native 档 sticky 视口不命中光标，须写宿主容器沿 CSS 继承生效；
+   * 未传容器或容器无 style（无 DOM 环境/离屏构造/部分假容器）静默容错不抛错。
    */
   setContainerCursor(cursor: string): void {
-    if (this.cursorContainer) {
+    if (this.cursorContainer?.style) {
       this.cursorContainer.style.cursor = cursor
     }
   }
@@ -1513,6 +1537,24 @@ export class ListTable {
     return () => this.contextMenuListeners.delete(listener)
   }
 
+  /** 订阅链接悬停事件（URL 与格坐标 + 落点；tooltip 由宿主渲染）；返回退订函数 */
+  onCellLinkHover(listener: CellLinkHoverListener): () => void {
+    this.cellLinkHoverListeners.add(listener)
+    return () => this.cellLinkHoverListeners.delete(listener)
+  }
+
+  /** 订阅链接离开事件（刚离开的链接格坐标）；返回退订函数 */
+  onCellLinkLeave(listener: CellLinkLeaveListener): () => void {
+    this.cellLinkLeaveListeners.add(listener)
+    return () => this.cellLinkLeaveListeners.delete(listener)
+  }
+
+  /** 订阅链接单击事件（真实指针单击命中链接格时；框选/键盘选中不触发）；返回退订函数 */
+  onCellLinkClick(listener: CellLinkClickListener): () => void {
+    this.cellLinkClickListeners.add(listener)
+    return () => this.cellLinkClickListeners.delete(listener)
+  }
+
   /** 订阅 onScrollFrame 帧级同步：滚动发生的帧上带最新位置触发一次；返回退订函数 */
   onScrollFrame(listener: ScrollFrameListener): () => void {
     this.scrollFrameListeners.add(listener)
@@ -1713,12 +1755,14 @@ export class ListTable {
   }
 
   /**
-   * @internal 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 按格 hook」逐字段覆盖——
-   * 上层给了的字段被下层覆盖、未给的沿用上层，边框逐边独立合并。
-   * 列级 textWrap 旗标并入主题层（先于列级样式片段）。
+   * @internal 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 链接默认外观 → 按格 hook」
+   * 逐字段覆盖——上层给了的字段被下层覆盖、未给的沿用上层，边框逐边独立合并。
+   * 列级 textWrap 旗标并入主题层（先于列级样式片段）；有链接格（resolveCellLink 命中）
+   * 在列级样式之上注入默认链接观感（主题 linkColor 蓝字 + 下划线，WPS 式），仍被按格
+   * resolveCellStyle 显式字段覆盖。
    * 性能：token+列级的合成结果按列缓存（列定义为构造期快照，缓存与表实例同生命周期，
    * updateTheme 换主题时整体清空；CellStyle 全仓按不可变约定使用，无就地写入点），
-   * 仅按格 hook 返回非空时才做第二级投影。
+   * 仅链接格或按格 hook 返回非空时才做第二级投影。
    */
   resolveStyle(col: number, row: number): CellStyle {
     let colStyle = this.columnStyles.get(col)
@@ -1731,8 +1775,13 @@ export class ListTable {
       )
       this.columnStyles.set(col, colStyle)
     }
+    // 链接默认外观注入（仅在链接格发生，不进列级缓存）：主题链接色 + 下划线
+    const link = this.options.resolveCellLink?.(col, row)
+    const linked = link
+      ? projectCellStyle(colStyle, { color: this.theme.linkColor, underline: true })
+      : colStyle
     const cellStyle = this.options.resolveCellStyle?.(col, row)
-    return cellStyle ? projectCellStyle(colStyle, cellStyle) : colStyle
+    return cellStyle ? projectCellStyle(linked, cellStyle) : linked
   }
 
   /**

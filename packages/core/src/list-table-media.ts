@@ -58,7 +58,7 @@ export function appendImageCell(
   y: number,
   width: number,
   height: number,
-): void {
+): ImageCellNode {
   const node = new ImageCellNode({
     col,
     row,
@@ -67,6 +67,8 @@ export function appendImageCell(
     width,
     height,
     url,
+    // 缩放语义：按格 hook 覆盖，缺省 contain 保比例
+    fit: table.options.resolveCellImageFit?.(col, row) ?? 'contain',
     placeholderAfter: Date.now() + table.imageService.placeholderDelay,
     // 边缘半格图片经 body 视口裁剪，不越界画进表头/行号列区域；滚动区格再钳掉
     // 冻结带（滑入冻结带的部分不画，见 mediaViewport）
@@ -85,17 +87,34 @@ export function appendImageCell(
   }
   mediaLayer(table).root.appendChild(node)
   table.imageCellNodes.set(cellKey(col, row), node)
+  return node
 }
 
-/** 图片格局部刷新：URL 变化则原位重建节点；URL 消失则摘除 media 节点 */
+/**
+ * 图片格局部刷新：URL 变化则原位重建节点；URL 消失则摘除 media 节点；
+ * URL 首次出现（节点尚无）则按 body 节点几何原位补建——对称「消失摘除」，
+ * 供宿主侧后置声明图片（嵌入图写入模型等场景）无需重建场景。
+ * fit 变化（URL 不变）原地更新节点字段。三个分支统一收口：定向失效本格上屏。
+ */
 export function refreshImageCell(table: ListTable, col: number, row: number): void {
   const key = cellKey(col, row)
   const node = table.imageCellNodes.get(key)
-  if (!node || !table.media) {
+  const url = table.options.resolveCellImage?.(col, row)
+  if (!node) {
+    const body = table.cellNodes.get(key)
+    if (!url || !body) {
+      return
+    }
+    const appended = appendImageCell(table, col, row, url, body.x, body.y, body.width, body.height)
+    // appendChild 不触发失效，位图即时可得（mediaCache 命中 / ImageService 已 ready）
+    // 时也没有异步加载回写兜底：主动定向失效本格，否则补建节点不上屏
+    table.host.submitInvalidation('media', { type: 'cell', region: appended.getGlobalBounds() })
+    return
+  }
+  if (!table.media) {
     return
   }
   const region = node.getGlobalBounds()
-  const url = table.options.resolveCellImage?.(col, row)
   if (!url) {
     table.media.root.removeChild(node)
     table.imageCellNodes.delete(key)
@@ -103,6 +122,11 @@ export function refreshImageCell(table: ListTable, col: number, row: number): vo
     table.media.root.removeChild(node)
     table.imageCellNodes.delete(key)
     appendImageCell(table, col, row, url, node.x, node.y, node.width, node.height)
+  } else {
+    const fit = table.options.resolveCellImageFit?.(col, row) ?? 'contain'
+    if (node.fit !== fit) {
+      node.fit = fit
+    }
   }
   table.host.submitInvalidation('media', { type: 'cell', region })
 }

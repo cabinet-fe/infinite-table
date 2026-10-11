@@ -109,6 +109,11 @@ export interface TableTheme {
   corner: CellStyleTokens
   /** 数据区底色：格背景之下铺设（数据区外空白处直接可见） */
   underlayBackgroundColor: string
+  /**
+   * 超链接默认字色：有链接格注入的默认链接外观用色（下划线恒随链接注入），
+   * 仍被按格 resolveCellStyle 逐字段覆盖；对齐 Office/WPS 超链接蓝
+   */
+  linkColor: string
   /** 交互浮层 token */
   interaction: InteractionTokens
   /** 表格外框 */
@@ -128,6 +133,7 @@ export interface ThemeOverride {
   /** 缺省随生效 header 派生；给定的键覆盖派生值 */
   corner?: Partial<CellStyleTokens>
   underlayBackgroundColor?: string
+  linkColor?: string
   interaction?: Partial<InteractionTokens>
   frameStyle?: Partial<FrameStyle>
 }
@@ -163,6 +169,8 @@ export const defaultTheme: TableTheme = {
     borderColor: '#e5e6eb',
   },
   underlayBackgroundColor: '#ffffff',
+  // Office/WPS 超链接默认蓝（#0563c1）：有链接格缺省观感的唯一颜色来源
+  linkColor: '#0563c1',
   interaction: {
     selectionFill: 'rgba(46, 106, 219, 0.08)',
     selectionBorder: '#2e6adb',
@@ -215,6 +223,7 @@ export function extendsTheme(
     rowHeader: { ...header, ...override.rowHeader },
     corner: { ...header, ...override.corner },
     underlayBackgroundColor: override.underlayBackgroundColor ?? base.underlayBackgroundColor,
+    linkColor: override.linkColor ?? base.linkColor,
     interaction: { ...base.interaction, ...override.interaction },
     frameStyle: { ...base.frameStyle, ...override.frameStyle },
   }

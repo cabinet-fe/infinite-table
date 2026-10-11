@@ -41,11 +41,21 @@ import {
   type ScrollbarThumbGeometry,
 } from './scrollbar'
 import { normalizeRange, type RangeBounds, type SelectionRange } from './selection'
-import type { CellRef, TableContextMenuEvent } from './types'
+import type {
+  CellLink,
+  CellLinkClickEvent,
+  CellLinkHoverEvent,
+  CellLinkLeaveEvent,
+  CellRef,
+  TableContextMenuEvent,
+} from './types'
 
 /** 双击/双触判定窗口与位移阈值（鼠标双击与触控双击统一走指针事件流） */
 const DOUBLE_TAP_MS = 400
 const DOUBLE_TAP_SLOP = 10
+
+/** 链接单击判定位移阈值：down/up 落点距离超过该值视为拖拽（框选），不派发链接点击 */
+const LINK_CLICK_SLOP = 10
 
 /** 表头拖选会话：pointerdown 命中列头/行头后开启，锚定按下时命中的列/行，pointerup 重算后结束 */
 export interface HeaderDragState {
@@ -99,6 +109,9 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     return
   }
   table.pointerDownAt = { x: event.x, y: event.y }
+  // 链接单击判定的 down 侧锚点先清零：早退路径（浮动/滚动条/越界/手柄/填充柄/表头）
+  // 保持 null，只有正文数据格命中才定格（up 侧同格且位移内才派发链接点击）
+  table.pointerDownCell = null
   // 新按下终结任何残留的表头拖选会话（正常流由 pointerup 结束）
   table.headerDrag = null
   // 浮动对象命中优先（浮动层在 sky 最顶、盖在格内容之上）：选中对象的变换手柄
@@ -238,6 +251,8 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   }
   const cell = cellAt(table, event.x, event.y)
   if (cell) {
+    // 链接单击判定的 down 侧锚点定格（合并区路由到主格，与选区/编辑同锚点口径）
+    table.pointerDownCell = cell
     // 合并区整体作为选区单元：点按即全选包围盒（锚定主格，焦点随主格，编辑/取值都走主格）
     const extent = dragExtentRange(table, cell, cell)
     // ctrlMultiSelect：Ctrl/Cmd 点选在既有选区上追加选区段（后续拖拽扩展该段）；缺省替换选区
@@ -352,8 +367,9 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     return
   }
   // 悬停光标：走到此处即无任何会话（浮动图拖拽/resize/填充/表头拖选/拖选均已提前返回）——
-  // resize 手柄 col-resize/row-resize、填充柄命中区 crosshair、其余恢复缺省
-  updatePointerCursor(table, event.x, event.y)
+  // 链接悬停状态机（enter/leave 事件）+ resize 手柄 col-resize/row-resize、填充柄命中区
+  // crosshair、链接格 pointer、其余恢复缺省
+  updatePointerCursor(table, event)
 }
 
 function onPointerUp(table: ListTable, event: SceneEvent): void {
@@ -389,7 +405,7 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
     // 拖拽会话成功结束：尺寸落地后按目标抛列/行结束事件（尺寸为夹取后的生效值）
     emitResizeEnd(table, session.target)
     // 尺寸落地后光标按落点重判：夹取到最小尺寸等场景指针可能已不贴缘
-    updatePointerCursor(table, event.x, event.y)
+    updatePointerCursor(table, event)
     return
   }
   if (table.fillDrag) {
@@ -434,9 +450,12 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   table.selecting = false
   table.dragAnchor = null
   table.selection.endDrag()
-  // 拾取会话中抬起不做双击进编辑（画布点选都是引用拾取，落双击会顶掉编辑会话）
+  // 抬起落点重判光标与链接悬停（拖选从链接格拖出后释放：pointer 立即恢复、leave 即时派发）
+  updatePointerCursor(table, event)
+  // 拾取会话中抬起不做双击进编辑与链接单击（画布点选都是引用拾取，落双击会顶掉编辑会话）
   if (!(table.editPickMode && table.editManager.isEditing())) {
     detectDoubleTap(table, event)
+    dispatchCellLinkClick(table, event)
   }
 }
 
@@ -726,6 +745,16 @@ function onTouchCancel(table: ListTable): void {
 }
 
 function onContextMenuEvent(table: ListTable, event: SceneEvent): void {
+  // 浮动对象命中优先（对齐 onPointerDown 的「浮动层优先」路由先例）：右键浮动图片
+  // 不穿透到单元格——不派发单元格右键事件，改派发携带 id/落点的浮动对象右键事件
+  const floats = table.floatLayer
+  if (floats) {
+    const floatObject = floats.getAt(event.x, event.y)
+    if (floatObject) {
+      floats.dispatchContextMenu(floatObject, event)
+      return
+    }
+  }
   if (table.contextMenuListeners.size === 0) {
     return
   }
@@ -878,10 +907,14 @@ function resizeHandleAt(table: ListTable, x: number, y: number): ResizeTarget | 
 }
 
 /**
- * 无会话时的指针光标：resize 手柄 → col-resize/row-resize，填充柄命中区 → crosshair，
- * 其余恢复缺省；拖拽会话的会话期光标由各会话分支自行维持（见 onPointerMove）。
+ * 无会话时的指针光标与链接悬停：链接悬停状态机（enter/leave 事件派发）先行，
+ * 光标链——resize 手柄 → col-resize/row-resize，填充柄命中区 → crosshair，
+ * 链接格 → pointer，其余恢复缺省；拖拽会话的会话期光标由各会话分支自行维持（见 onPointerMove）。
  */
-function updatePointerCursor(table: ListTable, x: number, y: number): void {
+function updatePointerCursor(table: ListTable, event: SceneEvent): void {
+  const { x, y } = event
+  // 链接悬停状态机（命中链接的取值供光标链共用；未配置 hook 零开销）
+  const link = updateLinkHover(table, event)
   // 浮动对象变换手柄：缩放手柄按对角/轴向、旋转手柄 grab（仅选中对象有手柄）
   const floats = table.floatLayer
   if (floats) {
@@ -900,7 +933,106 @@ function updatePointerCursor(table: ListTable, x: number, y: number): void {
     table.setContainerCursor(RESIZE_CURSOR[handle.kind])
     return
   }
-  table.setContainerCursor(fillHandleHit(table, x, y) ? 'crosshair' : 'auto')
+  table.setContainerCursor(fillHandleHit(table, x, y) ? 'crosshair' : link ? 'pointer' : 'auto')
+}
+
+/**
+ * 链接悬停状态机：无会话指针悬停命中链接格时进入（派发携带 URL 与格坐标的 hover
+ * 事件）、移出（非链接格/表头/空白）派发 leave，同格内移动不重复派发；
+ * 返回当前命中格的链接（供光标链判 pointer）。两监听集全空时仍维护状态与命中
+ * （光标需要），但零事件分配。
+ */
+function updateLinkHover(table: ListTable, event: SceneEvent): CellLink | null {
+  const resolve = table.options.resolveCellLink
+  if (!resolve) {
+    return null
+  }
+  const cell = cellAt(table, event.x, event.y)
+  const link = cell ? (resolve(cell.col, cell.row) ?? null) : null
+  const hover = table.linkHover
+  const sameCell =
+    hover !== null && cell !== null && hover.col === cell.col && hover.row === cell.row
+  // 离开：格变化（非链接格/表头/空白），或同格但链接已被清除（模型变更后悬停原地）
+  if (hover && (!sameCell || link === null)) {
+    table.linkHover = null
+    if (table.cellLinkLeaveListeners.size > 0) {
+      const leave: CellLinkLeaveEvent = { col: hover.col, row: hover.row }
+      for (const listener of table.cellLinkLeaveListeners) {
+        listener(leave)
+      }
+    }
+  }
+  // 进入：新命中的链接格（同格内移动不重复派发）；先离后进——一次 move 从链接格 A
+  // 切到链接格 B 时 leave(A) 与 hover(B) 依次派发
+  if (!sameCell && cell && link) {
+    table.linkHover = { col: cell.col, row: cell.row }
+    if (table.cellLinkHoverListeners.size > 0) {
+      const hoverEvent: CellLinkHoverEvent = {
+        col: cell.col,
+        row: cell.row,
+        url: link.url,
+        text: link.text,
+        x: event.x,
+        y: event.y,
+        originalEvent: event.originalEvent,
+      }
+      for (const listener of table.cellLinkHoverListeners) {
+        listener(hoverEvent)
+      }
+    }
+  }
+  return link
+}
+
+/**
+ * 链接单击派发：down 与 up 命中同一链接格、位移在阈值内（拖拽/框选不触发）才派发
+ * onCellLinkClick；openCellLinkOnClick 未关闭（缺省开）时随后默认打开 URL。
+ * 框选（拖选/表头拖选）与键盘方向键选中不经过本函数的判定条件，天然零派发。
+ */
+function dispatchCellLinkClick(table: ListTable, event: SceneEvent): void {
+  // 非主键抬起（右/中键）不是单击；down 侧须有正文格锚点（早退路径为 null）
+  if (event.button !== undefined && event.button !== 0) {
+    return
+  }
+  const down = table.pointerDownAt
+  const downCell = table.pointerDownCell
+  if (!down || !downCell) {
+    return
+  }
+  if (Math.hypot(event.x - down.x, event.y - down.y) > LINK_CLICK_SLOP) {
+    return
+  }
+  const cell = cellAt(table, event.x, event.y)
+  if (!cell || cell.col !== downCell.col || cell.row !== downCell.row) {
+    return
+  }
+  const link = table.options.resolveCellLink?.(cell.col, cell.row)
+  if (!link) {
+    return
+  }
+  if (table.cellLinkClickListeners.size > 0) {
+    const emitted: CellLinkClickEvent = {
+      col: cell.col,
+      row: cell.row,
+      url: link.url,
+      text: link.text,
+      originalEvent: event.originalEvent,
+    }
+    for (const listener of table.cellLinkClickListeners) {
+      listener(emitted)
+    }
+  }
+  if (table.options.openCellLinkOnClick !== false) {
+    openCellLinkDefault(link.url)
+  }
+}
+
+/** 链接默认打开：window.open 新标签 + noopener；无 window 环境（离屏/SSR/测试）静默跳过 */
+function openCellLinkDefault(url: string): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.open(url, '_blank', 'noopener')
 }
 
 /**
@@ -1016,7 +1148,7 @@ function endScrollbarDrag(table: ListTable, event: SceneEvent): void {
   table.scrollbarCommitTask()
   table.scrollbarDrag = null
   releaseScrollbarCapture(table)
-  updatePointerCursor(table, event.x, event.y)
+  updatePointerCursor(table, event)
 }
 
 /**

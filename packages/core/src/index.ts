@@ -24,6 +24,7 @@ export type { OverlayPainter } from './list-table'
 export type { RenderContext, Size } from '@infinitable/render'
 export type { LoadedImage } from './media/image-service'
 export type {
+  FloatContextMenuEvent,
   FloatObject,
   FloatTransformEndEvent,
   FloatTransformHandle,
@@ -33,9 +34,14 @@ export type {
   // 格坐标类型（infinitable 聚合包以 GridCellRef 消歧转出）
   CellRef,
   CellChartMedia,
+  CellLink,
+  CellLinkClickEvent,
+  CellLinkHoverEvent,
+  CellLinkLeaveEvent,
   ColumnDefine,
   DataRecord,
   ListTableOptions,
+  ResolveCellLink,
   ResolveDisplayValue,
   // 内建滚动条配置（ListTableOptions.scrollbar 的对象形态；mode: 'native' 启用浏览器原生滚动条）
   ScrollbarOptions,

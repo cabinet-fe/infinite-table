@@ -6,6 +6,7 @@ import type { CellRange } from './cell-range'
 import type { CellType, ResolveCellRenderer } from './cell-renderer'
 import type { CellStyle, ResolveCellStyle } from './cell-style'
 import type { EditorRegistry } from './editor-registry'
+import type { ImageFit } from './media/draw-image'
 import type { ImageServiceOptions, LoadedImage } from './media/image-service'
 import type { TablePlugin } from './plugin'
 import type { ThemeOverride } from './theme'
@@ -88,6 +89,67 @@ export interface CellRef {
  */
 export type ResolveCellImage = (col: number, row: number) => string | null | undefined
 
+/**
+ * 按格图片缩放 hook：纯函数、同步、O(1)。
+ * 返回 fill/contain 覆盖该格图片的缩放语义；null/undefined 回落 contain（保比例）。
+ * 与 resolveCellImage 同格命中（返回 URL 的格才消费本 hook）。
+ */
+export type ResolveCellImageFit = (col: number, row: number) => ImageFit | null | undefined
+
+/** 按格超链接描述（resolveCellLink 的返回形态） */
+export interface CellLink {
+  /** 链接 URL */
+  url: string
+  /** 可选显示文本（tooltip 等宿主侧消费；缺省显示单元格原值） */
+  text?: string
+}
+
+/**
+ * 按格超链接 hook：纯函数、同步、O(1)。
+ * 返回链接的格自动获得默认链接外观（主题 linkColor 蓝字 + 下划线，被 resolveCellStyle
+ * 覆盖）、悬停 pointer 光标与链接 hover/leave/单击事件。
+ */
+export type ResolveCellLink = (col: number, row: number) => CellLink | null | undefined
+
+/** 链接悬停事件：指针悬停命中链接格时派发（tooltip 由宿主渲染） */
+export interface CellLinkHoverEvent {
+  col: number
+  row: number
+  /** 链接 URL */
+  url: string
+  /** 可选显示文本 */
+  text?: string
+  /** 层坐标（CSS 像素，悬停落点） */
+  x: number
+  y: number
+  originalEvent: SceneEvent['originalEvent']
+}
+
+/** 链接离开事件：指针移出已悬停的链接格（含移到非链接格/表头/空白）时派发 */
+export interface CellLinkLeaveEvent {
+  /** 刚离开的链接格坐标 */
+  col: number
+  row: number
+}
+
+/**
+ * 链接单击事件：真实指针 down+up 命中同一链接格（框选拖拽/键盘选中不触发）时派发；
+ * 派发后按 openCellLinkOnClick 决定是否执行引擎默认打开。
+ */
+export interface CellLinkClickEvent {
+  col: number
+  row: number
+  /** 链接 URL */
+  url: string
+  /** 可选显示文本 */
+  text?: string
+  originalEvent: SceneEvent['originalEvent']
+}
+
+export type CellLinkHoverListener = (event: CellLinkHoverEvent) => void
+export type CellLinkLeaveListener = (event: CellLinkLeaveEvent) => void
+export type CellLinkClickListener = (event: CellLinkClickEvent) => void
+
 /** 图表位图生产尺寸：width/height 为格 CSS 像素，dpr 为出图设备像素比 */
 export interface CellChartMediaSize {
   width: number
@@ -141,6 +203,16 @@ export interface ListTableOptions {
   resolveCellRenderer?: ResolveCellRenderer
   /** 按格图片 hook：返回 URL 的格在 L2 media 层按图片渲染（ImageService 窗口化加载 + 无闪协议） */
   resolveCellImage?: ResolveCellImage
+  /** 按格图片缩放 hook：返回 fill/contain 覆盖缩放语义（缺省 contain 保比例） */
+  resolveCellImageFit?: ResolveCellImageFit
+  /** 按格超链接 hook：返回链接的格获得默认链接外观与链接 hover/单击事件 */
+  resolveCellLink?: ResolveCellLink
+  /**
+   * 链接单击默认打开开关：true（缺省）单击命中链接格时引擎在派发 onCellLinkClick
+   * 后默认打开 URL（window.open 新标签 + noopener；无 window 环境静默跳过）；
+   * false 关闭默认打开，打开行为由宿主经 onCellLinkClick 接管。
+   */
+  openCellLinkOnClick?: boolean
   /** 格级可编判定：返回 false 该格不可编（缺省全部可编） */
   resolveEditable?: (col: number, row: number) => boolean
   /**

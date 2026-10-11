@@ -4,14 +4,21 @@
 // 行高/列宽 resize 后 recalcGeometry 按新行列尺寸重算锚定几何。
 // 交互（对齐 ultra-ui image-layer）：点选单选（2px #2170E7 选中环）、拖拽移动（阈值 3px，
 // 落点换算新锚点经 onDragEnd 抛给宿主写回模型）、只读（isReadonly）可选中不拖拽；
-// 命中由宿主表格的指针路由优先接管（事件不落入单元格选区）。
+// 命中由宿主表格的指针/contextmenu 路由优先接管（指针事件不落入单元格选区；
+// 右键命中经 dispatchContextMenu 抛携带 id/落点的浮动对象右键事件，不穿透到单元格）。
 // 变换（univer Transformer 思路）：选中态画 8 缩放手柄 + 顶部 1 旋转手柄（随对象 rotation 一起
 // 旋转）；拖角/边手柄缩放（Shift 等比）、拖旋转手柄改 rotation（Shift 吸附 15°，归一化 0–360），
 // 拖拽过程只改渲染态，结束经 onTransformEnd 抛 { id, anchor, size, rotation } 由宿主写回模型。
 // 旋转渲染绕对象中心（ctx.rotate），命中沿统一逆变换路径（指针先逆旋转回未旋转局部帧再判框）。
 // 变更以事件抛出（onChange/onDragEnd/onTransformEnd），undo/历史由宿主入库，本层不内置历史栈。
 
-import { SceneNode, type LayerHandle, type Region, type RenderContext } from '@infinitable/render'
+import {
+  SceneNode,
+  type LayerHandle,
+  type Region,
+  type RenderContext,
+  type SceneEvent,
+} from '@infinitable/render'
 
 import { drawFittedImage, paintImagePlaceholder, type ImageFit } from '../media/draw-image'
 import type { ImageService, LoadedImage } from '../media/image-service'
@@ -160,6 +167,16 @@ export interface FloatTransformEndEvent {
   size: { width: number; height: number }
   /** 变换后旋转角（顺时针度数，归一化 0–360） */
   rotation: number
+}
+
+/** 浮动对象右键事件：contextmenu 命中浮动对象时抛出（不穿透到单元格右键事件） */
+export interface FloatContextMenuEvent {
+  /** 命中的浮动对象 id */
+  id: string
+  /** 层坐标（CSS 像素，右键落点） */
+  x: number
+  y: number
+  originalEvent: SceneEvent['originalEvent']
 }
 
 /** 拖拽会话：pointerdown 命中图片开启，move 跟随指针（超阈值后），up 落点换算提交 */
@@ -387,6 +404,7 @@ export class FloatObjectLayer {
   private readonly listeners = new Set<(change: FloatObjectChange) => void>()
   private readonly dragEndListeners = new Set<(event: FloatDragEndEvent) => void>()
   private readonly transformEndListeners = new Set<(event: FloatTransformEndEvent) => void>()
+  private readonly contextMenuListeners = new Set<(event: FloatContextMenuEvent) => void>()
   /** 当前选中对象 id（单选；无选中为 null） */
   private selectedId: string | null = null
   /** 进行中的拖拽会话（无拖拽为 null） */
@@ -798,6 +816,36 @@ export class FloatObjectLayer {
   onTransformEnd(listener: (event: FloatTransformEndEvent) => void): () => void {
     this.transformEndListeners.add(listener)
     return () => this.transformEndListeners.delete(listener)
+  }
+
+  // ---- 右键（contextmenu 路由浮动层优先，事件不穿透到单元格） ----
+
+  /**
+   * 派发浮动对象右键事件（宿主表格 contextmenu 路由以「浮动层优先」命中本层对象后
+   * 调用）：有订阅才派发并阻止原生菜单，无订阅零派发（原生菜单照常）。命中浮动
+   * 对象时不回落单元格右键事件（不穿透）。
+   */
+  dispatchContextMenu(object: FloatObject, event: SceneEvent): void {
+    if (this.contextMenuListeners.size === 0) {
+      return
+    }
+    // 应用接管了右键菜单：阻止浏览器原生菜单盖在自绘菜单上
+    event.originalEvent.preventDefault?.()
+    const emitted: FloatContextMenuEvent = {
+      id: object.id,
+      x: event.x,
+      y: event.y,
+      originalEvent: event.originalEvent,
+    }
+    for (const listener of this.contextMenuListeners) {
+      listener(emitted)
+    }
+  }
+
+  /** 订阅浮动对象右键事件（宿主据 id/落点构建图片右键菜单；可退订） */
+  onContextMenu(listener: (event: FloatContextMenuEvent) => void): () => void {
+    this.contextMenuListeners.add(listener)
+    return () => this.contextMenuListeners.delete(listener)
   }
 
   /** 滚动跟随的帧级重排：滚动只改锚点换算结果（行列尺寸不变），与锚定几何重算共用同一重排 */
