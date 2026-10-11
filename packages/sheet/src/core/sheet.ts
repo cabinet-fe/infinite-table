@@ -292,6 +292,43 @@ export class Sheet {
     return this.colWidths
   }
 
+  /**
+   * 默认行高（px；undefined = 未声明，视图层回落内置缺省）。稀疏行高未覆盖的行
+   * 均按此值布局；不进 undo，随 SheetReplaceItem 条目应用（xlsx 导入写入）。
+   */
+  private _defaultRowHeight: number | undefined
+
+  /**
+   * 默认列宽（px；undefined = 未声明，视图层回落内置缺省）。语义对称
+   * _defaultRowHeight，不进 undo，随 SheetReplaceItem 条目应用。
+   */
+  private _defaultColWidth: number | undefined
+
+  /** 读取默认行高（px）；未声明返回 undefined（视图层用内置缺省） */
+  get defaultRowHeight(): number | undefined {
+    return this._defaultRowHeight
+  }
+
+  /**
+   * 设置默认行高（px；不进 undo）；height 非有限正数时清除声明（回落内置缺省）。
+   */
+  setDefaultRowHeight(height: number | undefined): void {
+    this._defaultRowHeight =
+      height != null && Number.isFinite(height) && height > 0 ? height : undefined
+  }
+
+  /** 读取默认列宽（px）；未声明返回 undefined（视图层用内置缺省） */
+  get defaultColWidth(): number | undefined {
+    return this._defaultColWidth
+  }
+
+  /**
+   * 设置默认列宽（px；不进 undo）；width 非有限正数时清除声明（回落内置缺省）。
+   */
+  setDefaultColWidth(width: number | undefined): void {
+    this._defaultColWidth = width != null && Number.isFinite(width) && width > 0 ? width : undefined
+  }
+
   // ─── 冻结 ────────────────────────────────────────────────
 
   /** 读取冻结状态（返回副本，外部修改不影响模型） */

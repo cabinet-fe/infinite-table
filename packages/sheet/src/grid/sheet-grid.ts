@@ -1,11 +1,13 @@
 import {
   EditorRegistry,
   ListTable,
+  extendsTheme,
   type CellRange as EngineCellRange,
   type CellRenderer,
   type ColumnDefine,
   type ListTableOptions,
   type ScrollbarOptions,
+  type ThemeOverride,
 } from '@infinitable/core'
 
 import type { CellAddress, CellRange } from '../core/address'
@@ -100,6 +102,12 @@ export interface SheetGridOptions {
    */
   scrollbar?: boolean | ScrollbarOptions
   /**
+   * 主题覆盖层（core `ThemeOverride` 同形）：以内置 SHEET_GRID_THEME 为底经
+   * `extendsTheme` 深覆盖合成——未给的 token 保持内置缺省，未传（undefined）
+   * 与现状完全一致。运行时换肤用 `updateTheme`（原地深覆盖，不重建网格）。
+   */
+  theme?: ThemeOverride
+  /**
    * 滚动近端动态增长（WPS 式无限表格，缺省 true）：滚动缓冲末端触到当前行列数时，
    * 模型与引擎同步扩容（初始尺寸 = 宿主下限或缺省 100×26 与「可视 + 缓冲」的较大者，
    * 滚动触界后每次扩「一幅可视 + 缓冲」）。false 为固定尺寸网格。
@@ -174,11 +182,11 @@ export class SheetGrid {
     const viewHeight = options.height ?? this.measureContainerHeight()
     const fitRows = Math.ceil(
       Math.max(0, viewHeight - (this.showColHeader ? SHEET_HEADER_HEIGHT : 0)) /
-        SHEET_DEFAULT_ROW_HEIGHT,
+        this.defaultRowHeight,
     )
     const fitCols = Math.ceil(
       Math.max(0, viewWidth - (this.showRowHeader ? SHEET_ROW_HEADER_WIDTH : 0)) /
-        SHEET_DEFAULT_COL_WIDTH,
+        this.defaultColWidth,
     )
     const grow = options.growOnScroll !== false
     // 宿主显式声明行列数时按声明（固定网格意图），未声明才按「可视 + 缓冲」给足初始网格
@@ -197,12 +205,16 @@ export class SheetGrid {
 
     // wrap 估算先写模型：行高覆盖在构造后统一落地
     this.rowHeightEngine = new GridRowHeightEngine(this.sheet, rows, cols)
-    this.rowHeightEngine.applyWrapEstimates(SHEET_DEFAULT_COL_WIDTH)
+    this.rowHeightEngine.applyWrapEstimates(this.defaultColWidth)
 
     const editorRegistry = this.editorRouting?.createRegistry() ?? new EditorRegistry()
     if (!this.isReadonly && !this.editorRouting) {
       editorRegistry.registerEditor(SHEET_TEXT_EDITOR, {})
     }
+
+    // 主题合成（两层 extendsTheme）：内置 SHEET_GRID_THEME 先展开为完整底座（与
+    // 引擎单独消费该 override 的派生结果一致），宿主 theme 再深覆盖其上；未传等价现状
+    const theme = extendsTheme(options.theme ?? {}, extendsTheme(SHEET_GRID_THEME))
 
     this.table = new ListTable({
       width: options.width ?? this.measureContainerWidth(),
@@ -224,13 +236,13 @@ export class SheetGrid {
           : undefined,
       editorRegistry,
       editorMaxLength: 50000,
-      rowHeight: SHEET_DEFAULT_ROW_HEIGHT,
-      defaultColWidth: SHEET_DEFAULT_COL_WIDTH,
+      rowHeight: this.defaultRowHeight,
+      defaultColWidth: this.defaultColWidth,
       headerHeight: SHEET_HEADER_HEIGHT,
       rowHeaderWidth: SHEET_ROW_HEADER_WIDTH,
       showRowHeader: this.showRowHeader,
       showColHeader: this.showColHeader,
-      theme: SHEET_GRID_THEME,
+      theme,
       frozenColCount: this.sheet.frozen.cols,
       frozenRowCount: this.sheet.frozen.rows,
       mergeCells: this.readMergeCells(),
@@ -253,7 +265,7 @@ export class SheetGrid {
 
     // 构造期一次落地行列尺寸覆盖（列宽已随列定义写入，行为运行时 API）
     for (const [row, height] of this.sheet.getRowHeights()) {
-      if (height !== SHEET_DEFAULT_ROW_HEIGHT) this.table.setRowHeight(row, height)
+      if (height !== this.defaultRowHeight) this.table.setRowHeight(row, height)
     }
     this.lastMergeSignature = JSON.stringify(this.readMergeCells())
 
@@ -321,6 +333,17 @@ export class SheetGrid {
   }
 
   /**
+   * 运行时更新主题：转发引擎 `table.updateTheme`——以当前生效主题（内置
+   * SHEET_GRID_THEME 底座 + 构造期 override）为 base 级联深覆盖并整表重绘，
+   * 不重建网格、不触碰滚动/选区/冻结等运行时状态；同形 override 幂等，
+   * 主题来回切换安全。
+   */
+  updateTheme(override: ThemeOverride): void {
+    if (this.released) return
+    this.table.updateTheme(override)
+  }
+
+  /**
    * LRU 可见性：隐藏只置脏；激活时若脏则一次性全量同步（选区/冻结/合并/
    * 行列尺寸/浮动图/可视窗口刷新），隐藏期间的值变更补 wrap 行高估算。
    */
@@ -379,6 +402,16 @@ export class SheetGrid {
     this.headerLayer?.sync()
   }
 
+  /** 默认行高：模型声明优先（xlsx 导入写入），未声明回落内置缺省 */
+  private get defaultRowHeight(): number {
+    return this.sheet.defaultRowHeight ?? SHEET_DEFAULT_ROW_HEIGHT
+  }
+
+  /** 默认列宽：模型声明优先（xlsx 导入写入），未声明回落内置缺省 */
+  private get defaultColWidth(): number {
+    return this.sheet.defaultColWidth ?? SHEET_DEFAULT_COL_WIDTH
+  }
+
   // ─── 滚动近端动态增长（WPS 式无限表格） ─────────────────
 
   /** 可视行数（当前表高；容器 resize 后跟随） */
@@ -387,7 +420,7 @@ export class SheetGrid {
       1,
       Math.ceil(
         Math.max(0, this.table.height - (this.showColHeader ? SHEET_HEADER_HEIGHT : 0)) /
-          SHEET_DEFAULT_ROW_HEIGHT,
+          this.defaultRowHeight,
       ),
     )
   }
@@ -398,7 +431,7 @@ export class SheetGrid {
       1,
       Math.ceil(
         Math.max(0, this.table.width - (this.showRowHeader ? SHEET_ROW_HEADER_WIDTH : 0)) /
-          SHEET_DEFAULT_COL_WIDTH,
+          this.defaultColWidth,
       ),
     )
   }
@@ -444,7 +477,7 @@ export class SheetGrid {
       // 列头机制：自定义渲染列置空（覆盖层接管内容）、resolveTitle 覆盖、缺省字母表头
       title: this.headerLayer?.colTitle(col) ?? colIndexToName(col),
       // 列宽进列定义：构造期一次布局，避免逐列 setColWidth 反复全量重建
-      width: this.sheet.getColWidth(col) ?? SHEET_DEFAULT_COL_WIDTH,
+      width: this.sheet.getColWidth(col) ?? this.defaultColWidth,
       // 单元格级只读由 resolveEditable 拦截；整表只读不注册编辑器；
       // 编辑器路由命中自定义名时优先于该列级声明（引擎 route hook 语义）
       ...(this.isReadonly ? {} : { editor: SHEET_TEXT_EDITOR }),

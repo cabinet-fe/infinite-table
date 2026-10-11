@@ -548,6 +548,46 @@ describe('importXlsx 映射（hucre 读取结果 → 模型）', () => {
     // 默认列宽不得外扩 KEEP_MARGIN 写进模型（否则切 sheet 会逐列 setColWidth 卡死）
     expect(sheet.getColWidths().size).toBeLessThanOrEqual(sheet.cols)
   })
+
+  it('默认行列尺寸：声明值按口径换算写入模型（pt→px ×4/3、字符→px ×7+5）', async () => {
+    xlsxMock.readXlsx.mockResolvedValue({
+      sheets: [
+        {
+          name: 'Custom',
+          rows: [],
+          cells: new Map([['0,0', { value: 1, type: 'number' }]]),
+          defaultRowHeight: 24,
+          defaultColWidth: 12,
+        },
+      ],
+      activeSheet: 0,
+    })
+    const sheet = (await importXlsx(new Uint8Array())).activeSheet
+    expect(sheet.defaultRowHeight).toBe(32) // 24pt × 4/3
+    expect(sheet.defaultColWidth).toBe(89) // 12 字符 × 7 + 5（与显式列宽同口径 MDW=7）
+  })
+
+  it('默认行列尺寸：字段缺省按 Excel 规范（15pt→20px / 8.43 字符→64px）；新建空白表保持引擎默认 28px / 80px', async () => {
+    // hucre 会丢弃恰好等于 15 的 defaultRowHeight → undefined 即视为规范缺省
+    xlsxMock.readXlsx.mockResolvedValue({
+      sheets: [
+        {
+          name: 'Spec',
+          rows: [],
+          cells: new Map([['0,0', { value: 1, type: 'number' }]]),
+        },
+      ],
+      activeSheet: 0,
+    })
+    const imported = (await importXlsx(new Uint8Array())).activeSheet
+    expect(imported.defaultRowHeight).toBe(20)
+    expect(imported.defaultColWidth).toBe(64)
+
+    // 非导入路径不写模型声明（undefined = 视图层回落引擎默认 28px / 80px）
+    const blank = new Sheet()
+    expect(blank.defaultRowHeight).toBeUndefined()
+    expect(blank.defaultColWidth).toBeUndefined()
+  })
 })
 
 describe('importCsv（写入既有活动表）', () => {

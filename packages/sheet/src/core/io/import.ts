@@ -47,7 +47,8 @@ const XLSX_READ_OPTIONS = { readStyles: true, sparse: true } as const
  *   hucreStyleToModel；numFmt 映射见 xlsxNumFmtToModel——四类之外的格式忽略）
  * - 合并：MergeRange（0-based 闭区间）→ mergeCells（相交自动包围盒）
  * - 冻结：freezePane → setFrozen；行高：points → 像素（×4/3 取整）；
- *   列宽：字符宽 → 像素（×7+5，与 export pxToExcelColWidth 对称）
+ *   列宽：字符宽 → 像素（×7+5，与 export pxToExcelColWidth 对称）；
+ *   默认行列尺寸：sheetFormatPr 缺省口径（15pt→20px / 8.43 字符→64px）写入模型字段
  * - 图片：source.images → insertImage（剥离后生成模型 id；纳入同事务 = 单 undo 单元）；
  *   cellImages（WPS 内嵌图）本期跳过
  * - CSV：parseCsv（typeInference 开，前导零保留）→ 从 A1 覆盖写入既有活动表
@@ -625,6 +626,12 @@ function applyHucreSheet(
   target.selectCell(target.selection.activeCell ?? { row: 0, col: 0 })
   // 冻结与行高/列宽：模型状态，不进 undo（定义的行/列计入尺寸）
   target.setFrozen(source.freezePane?.rows ?? 0, source.freezePane?.columns ?? 0)
+  // 默认行列尺寸：同样模型状态不进 undo。undefined 按文件规范缺省——hucre
+  // 会丢弃恰好等于 15 的 defaultRowHeight，undefined 即视为 15pt→20px；
+  // 列宽缺省 8.43 字符→64px，与下方显式列宽换算同口径（MDW=7）。
+  // 只写模型默认字段不逐列写，16384 长的 columns[] 不会撑开渲染（见上）。
+  target.setDefaultRowHeight(Math.round(((source.defaultRowHeight ?? 15) * 4) / 3))
+  target.setDefaultColWidth(Math.round((source.defaultColWidth ?? 8.43) * 7 + 5))
   // 行高/列宽只应用到实际渲染范围。hucre 会把 Excel 默认列宽物化成
   // 16384 长的 columns[]；KEEP_MARGIN 外扩再写入默认宽，随后逐列
   // setColWidth 会把切 sheet 卡在数秒（见 SheetGrid column.width）。
@@ -751,7 +758,7 @@ export function importCsv(text: string, sheet: Sheet): void {
   sheet.ensureTableSize(rows.length, maxCols)
 }
 
-/** 快照替换条目（行高/列宽不进 restoreContent，单独随条目传输） */
+/** 快照替换条目（行高/列宽/默认行列尺寸不进 restoreContent，单独随条目传输） */
 export interface SheetReplaceItem {
   name: string
   snapshot: SheetSnapshot
@@ -759,6 +766,10 @@ export interface SheetReplaceItem {
   rowHeights?: ReadonlyMap<number, number>
   /** 列宽（不进 undo；快照数组路径不传 → 目标列宽保持现状） */
   colWidths?: ReadonlyMap<number, number>
+  /** 默认行高 px（不进 undo；不传 → 目标声明保持现状） */
+  defaultRowHeight?: number
+  /** 默认列宽 px（不进 undo；不传 → 目标声明保持现状） */
+  defaultColWidth?: number
 }
 
 /**
@@ -822,7 +833,7 @@ const EMPTY_SHEET_SNAPSHOT: SheetSnapshot = {
 /**
  * 单个 sheet 的快照整表替换（RestoreSheetCommand，事务保护 = 单 undo 单元）。
  * 替换 cells/styles/merges/rowStyles/colStyles（+ 公式图重建）；
- * 行高/列宽随条目应用（不进 undo）；选区对齐快照。
+ * 行高/列宽/默认行列尺寸随条目应用（不进 undo）；选区对齐快照。
  */
 function replaceSheetFromSnapshot(sheet: Sheet, item: SheetReplaceItem): void {
   const { snapshot } = item
@@ -845,6 +856,8 @@ function replaceSheetFromSnapshot(sheet: Sheet, item: SheetReplaceItem): void {
   } else if (snapshot.colWidths) {
     for (const [col, width] of snapshot.colWidths) sheet.setColWidth(col, width)
   }
+  if (item.defaultRowHeight !== undefined) sheet.setDefaultRowHeight(item.defaultRowHeight)
+  if (item.defaultColWidth !== undefined) sheet.setDefaultColWidth(item.defaultColWidth)
   // 选区静默对齐快照（导入默认 A1——hucre 不解析 OOXML selection；不复制则替换后
   // 残留目标旧选区）。用 selection.restoreState 而非 selectCell/selectRange：
   // 不发 selection-change——批量替换 196 sheet 时避免 196 次事件 + vue bump +
