@@ -21,6 +21,7 @@ import {
   type SheetGridContextMenuInfo,
 } from './grid-coords'
 import { GridCellImages } from './grid-cell-images'
+import { GridCellLinks } from './grid-cell-links'
 import { GridEditorRouting, SHEET_TEXT_EDITOR, type SheetGridEditorsOptions } from './grid-editors'
 import { GridFloatImages } from './grid-float-images'
 import { GridHeaderLayer, type SheetGridHeaderOptions } from './grid-header'
@@ -110,6 +111,12 @@ export interface SheetGridOptions {
    */
   theme?: ThemeOverride
   /**
+   * 链接单击默认打开开关（core 同形透传）：true（缺省）单击命中链接格或带链接图片时
+   * 引擎在派发链接点击事件后默认打开 URL；false 关闭默认打开，打开行为由宿主经
+   * onCellLinkClick / onImageLinkClick 事件接管。
+   */
+  openCellLinkOnClick?: boolean
+  /**
    * 滚动近端动态增长（WPS 式无限表格，缺省 true）：滚动缓冲末端触到当前行列数时，
    * 模型与引擎同步扩容（初始尺寸 = 宿主下限或缺省 100×26 与「可视 + 缓冲」的较大者，
    * 滚动触界后每次扩「一幅可视 + 缓冲」）。false 为固定尺寸网格。
@@ -143,6 +150,7 @@ export class SheetGrid {
   private readonly selectionController: GridSelectionController
   private readonly floatImages: GridFloatImages
   private readonly cellImages: GridCellImages
+  private readonly cellLinks: GridCellLinks
   private readonly disposers: (() => void)[] = []
   /** LRU 可见性：隐藏实例停用视图同步（只置脏），激活时一次性全量同步 */
   private visible = true
@@ -213,6 +221,8 @@ export class SheetGrid {
     // 按格嵌入图桥先于引擎构造（初始装配的 resolveCellImage 回调直接可用）；
     // 事件监听在引擎实例就绪后 attach
     this.cellImages = new GridCellImages(this.sheet)
+    // 按格超链接桥同先例：构造期 resolveCellLink 即从模型取值（初始已设链接的格首帧生效）
+    this.cellLinks = new GridCellLinks(this.sheet)
 
     const editorRegistry = this.editorRouting?.createRegistry() ?? new EditorRegistry()
     if (!this.isReadonly && !this.editorRouting) {
@@ -236,6 +246,13 @@ export class SheetGrid {
         this.cellImages.resolveUrl(col, row),
       resolveCellImageFit: (col: number, row: number) => this.cellImages.resolveFit(col, row),
       resolveCellImageLink: (col: number, row: number) => this.cellImages.resolveLink(col, row),
+      // 按格超链接：无条件接入引擎链接渲染/事件通道（宿主无需传 hook，模型有链接即
+      // 蓝字下划线 + 悬停 pointer 光标 + hover/leave/单击事件）
+      resolveCellLink: (col: number, row: number) => this.cellLinks.resolveLink(col, row),
+      // 链接单击默认打开开关透传（缺省开；false 交宿主经事件接管）
+      ...(options.openCellLinkOnClick !== undefined
+        ? { openCellLinkOnClick: options.openCellLinkOnClick }
+        : {}),
       // 仅宿主提供 hook 时安装分发器：渲染热路径零差异（ADR-0004）
       ...(this.hooks.resolveCellRenderer
         ? {
@@ -320,6 +337,10 @@ export class SheetGrid {
     // 嵌入图事件监听（写入/清除后定向刷新该格；构造期已有图的格已在引擎首帧装配）
     this.cellImages.attach(this.table)
     this.disposers.push(() => this.cellImages.dispose())
+
+    // 超链接事件监听（写入/清除后定向刷新该格外观与命中态；构造期已有链接的格已在首帧装配）
+    this.cellLinks.attach(this.table)
+    this.disposers.push(() => this.cellLinks.dispose())
 
     this.bindSheetEvents(options.onColResizeEnd)
     this.bindKeyboard()

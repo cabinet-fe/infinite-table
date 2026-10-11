@@ -1,6 +1,7 @@
 // 超链接与图片能力演示区：引擎按格超链接、图片嵌入单元格、浮动图片右键不穿透。
-// ① 单元格超链接：resolveCellLink 命中格自动蓝字下划线 + 悬停 pointer 光标 +
-//    hover/leave/单击事件；openCellLinkOnClick 关闭，打开行为由宿主（页面状态行）接管展示。
+// ① 单元格超链接：sheet 模型 cell-link 载荷经 SheetGrid 自动接线（宿主不传 hook）——
+//    setCellLink 命中格自动蓝字下划线 + 悬停 pointer 光标 + hover/leave/单击事件；
+//    openCellLinkOnClick 关闭，打开行为由宿主（页面状态行）接管展示。
 // ② 图片嵌入单元格：sheet.setCellImage 写模型，SheetGrid 自动接线 media 渲染通道（宿主
 //    不传 hook）；contain/fill 缩放切换、插入/删除行列后图随格平移，按格查询 API 扫描定位。
 // ③ 浮动图片右键：contextmenu 浮动层优先路由——右键命中浮动图派发携带图片 id 的浮动
@@ -8,26 +9,27 @@
 // 零网络资源：图片为内联 SVG data URL（引擎默认加载器直接命中，无需注入 loader）。
 // 用户可见控件（按钮与状态行）由 HyperlinkImagePage 以 shadcn 组件承担。
 
-import type { CellLink } from '@infinitable/core'
-import { Sheet, SheetGrid, type ImageFitMode } from '@infinitable/sheet'
+import { Sheet, SheetGrid, type CellLinkPayload, type ImageFitMode } from '@infinitable/sheet'
 
-import { mountTable, type DemoMount } from '../mount'
-
-// ---- ① 单元格超链接（core ListTable：resolveCellLink 通道） ----
+// ---- ① 单元格超链接（Sheet 模型 + SheetGrid 自动接线） ----
 
 const LINK_COL_COUNT = 4
-const LINK_ROW_COUNT = 8
+/** 表内标题行 + 数据行（门面带缺省字母列头，列名作第 0 行表内标题） */
+const LINK_HEADER_ROWS = 1
+const LINK_DATA_ROWS = 8
 /** 演示列宽（名称/链接/说明/备注） */
 const LINK_COL_WIDTH = 130
 /** 页面「设置/清除链接」按钮的目标格 */
 export const LINK_TARGET = { col: 1, row: 5 } as const
 /** 按钮写入的演示链接（URL 为伪协议展示形态，宿主接管打开时不真实跳转） */
-const DEMO_LINK: CellLink = { url: 'demo://open/hyperlink-guide', text: '超链接使用指南' }
+const DEMO_LINK: CellLinkPayload = { url: 'demo://open/hyperlink-guide', text: '超链接使用指南' }
 /** 预置链接格：链接列多格可悬停/单击观察 */
-const PRESET_LINKS: ReadonlyArray<{ col: number; row: number; link: CellLink }> = [
+const PRESET_LINKS: ReadonlyArray<{ col: number; row: number; link: CellLinkPayload }> = [
   { col: 1, row: 1, link: { url: 'demo://open/docs', text: '引擎文档' } },
   { col: 1, row: 3, link: { url: 'demo://open/changelog', text: '更新日志' } },
 ]
+/** 演示列名（第 0 行表内标题与数据格默认标签共用） */
+const LINK_TITLES = ['名称', '链接', '说明', '备注'] as const
 
 export interface LinkDemoState {
   /** 目标格当前是否有链接 */
@@ -35,7 +37,9 @@ export interface LinkDemoState {
 }
 
 export interface LinkDemo {
-  mount: DemoMount
+  container: HTMLElement
+  grid: SheetGrid
+  sheet: Sheet
   /** 向 LINK_TARGET 写入演示链接（格文本随链接显示文本更新） */
   setLink(): void
   /** 清除 LINK_TARGET 链接（格文本回落默认值） */
@@ -45,47 +49,56 @@ export interface LinkDemo {
 }
 
 function mountLinkDemo(section: HTMLElement): LinkDemo {
-  /** `col,row` → 链接（预置 + 按钮写入共用同一通道） */
-  const links = new Map<string, CellLink>()
-  /** `col,row` → 显示文本（链接格写链接文本，其余格回落默认标签） */
-  const texts = new Map<string, string>()
-  const key = (col: number, row: number): string => `${col},${row}`
-  const defaultText = (col: number, row: number): string => {
-    const titles = ['名称', '链接', '说明', '备注']
-    return `${titles[col] ?? '列'}-${row}`
+  const container = document.createElement('div')
+  container.className = 'table-mount'
+  container.style.width = '578px'
+  container.style.height = '284px'
+  section.appendChild(container)
+
+  const defaultText = (col: number, row: number): string => `${LINK_TITLES[col] ?? '列'}-${row}`
+
+  const sheet = new Sheet('link-demo')
+  // 第 0 行作列名标题行（对齐原列头观感，数据格从第 1 行起）
+  for (let col = 0; col < LINK_COL_COUNT; col++) {
+    sheet.setCellValue({ row: 0, col }, LINK_TITLES[col] ?? `列${col}`)
+    sheet.setColWidth(col, LINK_COL_WIDTH)
   }
+  sheet.setCellStyle(
+    { start: { row: 0, col: 0 }, end: { row: 0, col: LINK_COL_COUNT - 1 } },
+    { font: { bold: true } },
+  )
+  // 预置链接格：格文本 = 链接显示文本，链接载荷走模型命令通道（可 undo、随结构平移）
   for (const { col, row, link } of PRESET_LINKS) {
-    links.set(key(col, row), link)
-    texts.set(key(col, row), link.text ?? link.url)
+    sheet.setCellValue({ row, col }, link.text ?? link.url)
+    sheet.setCellLink({ row, col }, { url: link.url, text: link.text })
   }
 
-  const mount = mountTable(section, {
-    width: 48 + LINK_COL_COUNT * LINK_COL_WIDTH + 12,
-    height: 36 + LINK_ROW_COUNT * 32 + 4,
-    columns: Array.from({ length: LINK_COL_COUNT }, (_, col) => ({
-      title: ['名称', '链接', '说明', '备注'][col] ?? `列${col}`,
-      width: LINK_COL_WIDTH,
-    })),
-    rowCount: LINK_ROW_COUNT,
-    resolveDisplayValue: (col, row) => texts.get(key(col, row)) ?? defaultText(col, row),
-    resolveCellLink: (col, row) => links.get(key(col, row)),
+  const grid = new SheetGrid({
+    container,
+    sheet,
+    rows: LINK_HEADER_ROWS + LINK_DATA_ROWS,
+    cols: LINK_COL_COUNT,
+    width: 578,
+    height: 284,
+    // 固定网格：演示尺寸可控
+    growOnScroll: false,
     // 默认打开关闭：单击事件由页面状态行接管展示（真实宿主可在此打开 URL）
     openCellLinkOnClick: false,
   })
 
   return {
-    mount,
+    container,
+    grid,
+    sheet,
     setLink: () => {
-      links.set(key(LINK_TARGET.col, LINK_TARGET.row), DEMO_LINK)
-      texts.set(key(LINK_TARGET.col, LINK_TARGET.row), DEMO_LINK.text ?? DEMO_LINK.url)
-      mount.table.refreshCell(LINK_TARGET.col, LINK_TARGET.row)
+      sheet.setCellValue(LINK_TARGET, DEMO_LINK.text ?? DEMO_LINK.url)
+      grid.setCellLink(LINK_TARGET, { url: DEMO_LINK.url, text: DEMO_LINK.text })
     },
     clearLink: () => {
-      links.delete(key(LINK_TARGET.col, LINK_TARGET.row))
-      texts.delete(key(LINK_TARGET.col, LINK_TARGET.row))
-      mount.table.refreshCell(LINK_TARGET.col, LINK_TARGET.row)
+      grid.clearCellLink(LINK_TARGET)
+      sheet.setCellValue(LINK_TARGET, defaultText(LINK_TARGET.col, LINK_TARGET.row))
     },
-    getState: () => ({ hasLink: links.has(key(LINK_TARGET.col, LINK_TARGET.row)) }),
+    getState: () => ({ hasLink: sheet.getCellLink(LINK_TARGET) != null }),
   }
 }
 

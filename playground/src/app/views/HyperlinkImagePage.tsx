@@ -37,7 +37,7 @@ function LinkControls({ demo }: { demo: HyperlinkImageDemo }) {
   const [lastOpen, setLastOpen] = useState<{ col: number; row: number; url: string } | null>(null)
 
   useEffect(() => {
-    const { table } = link.mount
+    const table = link.grid.getTable()
     const unsubHover = table.onCellLinkHover((event) =>
       setHover({ col: event.col, row: event.row, url: event.url }),
     )
@@ -256,13 +256,13 @@ export function HyperlinkImagePage() {
       <SectionPage
         title="超链接与图片能力"
         tags={[
-          'resolveCellLink 悬停/单击',
+          '模型链接自动接线',
           '宿主接管打开',
           '格内嵌入图 contain/fill',
           '随行列平移',
           '浮动图右键不穿透',
         ]}
-        desc="单元格超链接：命中格蓝字下划线 + 手型光标，悬停/单击事件由宿主订阅（默认打开已关闭，页面状态行接管展示）。图片嵌入单元格：sheet 模型按格存图后引擎自动渲染，contain/fill 缩放切换，插入/删除行列后图随格平移（按格查询 API 定位）。浮动图片右键：浮动层优先路由，右键图片派发携带 id 的浮动对象右键事件，普通格仍走单元格右键事件。"
+        desc="单元格超链接：sheet 模型按格写链接后引擎自动接线（宿主不传 hook），命中格蓝字下划线 + 手型光标，悬停/单击事件由宿主订阅（默认打开已关闭，页面状态行接管展示）。图片嵌入单元格：sheet 模型按格存图后引擎自动渲染，contain/fill 缩放切换，插入/删除行列后图随格平移（按格查询 API 定位）。浮动图片右键：浮动层优先路由，右键图片派发携带 id 的浮动对象右键事件，普通格仍走单元格右键事件。"
         mount={mount}
       />
       {demo ? (
