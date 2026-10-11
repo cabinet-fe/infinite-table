@@ -102,26 +102,33 @@ export function rebuildScene(table: ListTable): void {
   underlay.height = table.height
   root.appendChild(underlay)
   const { left, top } = table.scroll.state
-  // 滚动带窗口两端扩 overscan（滚动缓冲：只扩场景装配窗口，滚动边界不变）
-  const scrollableRows = expandWindowRange(
-    computeScrollableRowWindowFromOffsets(
-      top,
-      table.viewportHeight - table.frozenRowsHeight,
-      table.rowOffsets,
-      table.frozenRowCount,
+  // 滚动带窗口两端扩 overscan（滚动缓冲：只扩场景装配窗口，滚动边界不变），
+  // 扩展后回收冻结带边界（见 clampWindowToScrollableBand）
+  const scrollableRows = clampWindowToScrollableBand(
+    expandWindowRange(
+      computeScrollableRowWindowFromOffsets(
+        top,
+        table.viewportHeight - table.frozenRowsHeight,
+        table.rowOffsets,
+        table.frozenRowCount,
+      ),
+      table.overscanRows,
+      table.rowCount,
     ),
-    table.overscanRows,
-    table.rowCount,
+    table.frozenRowCount,
   )
-  const scrollableCols = expandWindowRange(
-    computeScrollableColWindow(
-      left,
-      table.viewportWidth - table.frozenColsWidth,
-      table.colOffsets,
-      table.frozenColCount,
+  const scrollableCols = clampWindowToScrollableBand(
+    expandWindowRange(
+      computeScrollableColWindow(
+        left,
+        table.viewportWidth - table.frozenColsWidth,
+        table.colOffsets,
+        table.frozenColCount,
+      ),
+      table.overscanCols,
+      table.colCount,
     ),
-    table.overscanCols,
-    table.colCount,
+    table.frozenColCount,
   )
   table.rows = scrollableRows
   table.cols = scrollableCols
@@ -212,25 +219,33 @@ export function updateSceneWindow(table: ListTable): void {
   const { left, top } = table.scroll.state
   const prevRows = table.rows
   const prevCols = table.cols
-  const scrollableRows = expandWindowRange(
-    computeScrollableRowWindowFromOffsets(
-      top,
-      table.viewportHeight - table.frozenRowsHeight,
-      table.rowOffsets,
-      table.frozenRowCount,
+  // 滚动带窗口两端扩 overscan + 回收冻结带边界（同 rebuildScene，见
+  // clampWindowToScrollableBand）
+  const scrollableRows = clampWindowToScrollableBand(
+    expandWindowRange(
+      computeScrollableRowWindowFromOffsets(
+        top,
+        table.viewportHeight - table.frozenRowsHeight,
+        table.rowOffsets,
+        table.frozenRowCount,
+      ),
+      table.overscanRows,
+      table.rowCount,
     ),
-    table.overscanRows,
-    table.rowCount,
+    table.frozenRowCount,
   )
-  const scrollableCols = expandWindowRange(
-    computeScrollableColWindow(
-      left,
-      table.viewportWidth - table.frozenColsWidth,
-      table.colOffsets,
-      table.frozenColCount,
+  const scrollableCols = clampWindowToScrollableBand(
+    expandWindowRange(
+      computeScrollableColWindow(
+        left,
+        table.viewportWidth - table.frozenColsWidth,
+        table.colOffsets,
+        table.frozenColCount,
+      ),
+      table.overscanCols,
+      table.colCount,
     ),
-    table.overscanCols,
-    table.colCount,
+    table.frozenColCount,
   )
   table.rows = scrollableRows
   table.cols = scrollableCols
@@ -372,6 +387,31 @@ export function updateSceneWindow(table: ListTable): void {
   }
   // 4) 主格窗外但区间部分可见的合并主格补建（已存在则跳过）
   bodyChanged = appendPartiallyVisibleMerges(table, left, top, rowBands, colBands) || bodyChanged
+  // 4.5) 冻结带 z 序收口：滚入格挂树尾画在既有冻结带格之上——窗口起点行/列在非对齐
+  // 滚动位置与冻结带几何重叠（局部可见行顶部伸进冻结带），z 序翻转后滚动 band 失效
+  // 不覆盖冻结带区域，任何全量重绘会把「滚动区内容盖住冻结行/列」烙进冻结带像素。
+  // 重挂全部冻结带数据格恢复全量重建「滚动带 → 冻结列带 → 冻结行带」的带间次序；
+  // 带内溢出源最后按行内列升序重挂（保持「源后画于走廊格」不变量，与全量重建
+  // remountOverflowSources 同序）；跨边界合并主格在随后重挂其上。
+  if (bodyChanged) {
+    const frozenSources: CellNode[] = []
+    for (const node of table.cellNodes.values()) {
+      if (node.row >= table.frozenRowCount && node.col >= table.frozenColCount) {
+        continue
+      }
+      if (node.textMaxX > node.width || node.textMinX < 0) {
+        frozenSources.push(node)
+        continue
+      }
+      table.body.root.removeChild(node)
+      table.body.root.appendChild(node)
+    }
+    frozenSources.sort((a, b) => a.row - b.row || a.col - b.col)
+    for (const node of frozenSources) {
+      table.body.root.removeChild(node)
+      table.body.root.appendChild(node)
+    }
+  }
   // 5) 表头增量维护：存活节点平移、滚出摘除、滚入补建，全部发生在表头容器内
   //    （容器恒在数据格之上，见 rebuildScene）；有新建数据格时把容器重挂到树尾，
   //    保持「表头最上」的既有 z 序（合并主格上缘可能伸进列头带）
@@ -404,6 +444,7 @@ export function updateSceneWindow(table: ListTable): void {
       table.rowHeaderNodes.delete(row)
     }
   }
+  let headersChanged = false
   if (showsColHeader(table)) {
     for (const cols of [scrollableCols, frozenCols]) {
       for (let col = cols.start; col < cols.end; col++) {
@@ -411,6 +452,7 @@ export function updateSceneWindow(table: ListTable): void {
           const node = newColHeaderNode(table, col, left, styles)
           headerGroup.appendChild(node)
           table.colHeaderNodes.set(col, node)
+          headersChanged = true
         }
       }
     }
@@ -422,7 +464,22 @@ export function updateSceneWindow(table: ListTable): void {
           const node = newRowHeaderNode(table, row, top, styles)
           headerGroup.appendChild(node)
           table.rowHeaderNodes.set(row, node)
+          headersChanged = true
         }
+      }
+    }
+  }
+  // 冻结带头 z 序收口（与数据格 4.5 同构）：滚入行/列头挂容器树尾会画在既有冻结
+  // 带头之上，重挂冻结带头恢复「滚动带头在下、冻结带头在上」；角块随后重挂保持最上。
+  if (headersChanged) {
+    for (const [row, node] of table.rowHeaderNodes) {
+      if (row < table.frozenRowCount) {
+        headerGroup.appendChild(node)
+      }
+    }
+    for (const [col, node] of table.colHeaderNodes) {
+      if (col < table.frozenColCount) {
+        headerGroup.appendChild(node)
       }
     }
   }
@@ -642,6 +699,20 @@ export function appendCell(
     appendChartCell(table, col, row, chartMedia, node.x, node.y, node.width, node.height)
   }
   return true
+}
+
+/**
+ * overscan 扩展后的滚动带窗口回收冻结带边界：expandWindowRange 的 start 回退会越过
+ * computeScrollableRowWindowFromOffsets 的 frozenRowCount 钳制（overscan ≥ 窗口起点
+ * 到带缘的距离时窗口重新混入冻结行/列）——冻结行混入滚动带后，重建的冻结带装配趟
+ * 因节点已存在而整体跳过，冻结带 z 序落败于同趟后建的窗口行（滑到冻结带位置的行
+ * 盖写冻结行内容）；table.rows/cols 的「滚动带」语义同样被破坏。
+ */
+function clampWindowToScrollableBand(window: WindowRange, frozenCount: number): WindowRange {
+  if (window.start < frozenCount) {
+    return { start: frozenCount, end: Math.max(window.end, frozenCount) }
+  }
+  return window
 }
 
 /** 空文本数据格判定（溢出邻居扫描用）：text 类型、无图片/图表/自定义渲染/合并覆盖、取值文本为空 */

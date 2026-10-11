@@ -4,7 +4,7 @@
 // 离屏出图，经 cell 级 MediaCache LRU 缓存与 blit，无闪协议同图片）。
 // 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
 
-import type { LayerHandle } from '@infinitable/render'
+import type { LayerHandle, Region } from '@infinitable/render'
 
 import { computeScrollableColWindow, computeScrollableRowWindowFromOffsets } from './grid-layout'
 import { ChartCellNode } from './media/chart-cell-node'
@@ -16,6 +16,24 @@ import type { CellChartMedia, CellChartMediaSize } from './types'
 
 /** 图片加载窗口余量（px）：可视区域四周外扩的预挂范围，滚出即取消降级 */
 const IMAGE_WINDOW_MARGIN = 240
+
+/**
+ * media 格绘制视口（按格的冻结带归属收口）：media 层整体画在 body 之上，滚动区
+ * 行/列的图片滑入冻结带时无带间 z 序可用——把绘制视口顶/左缘钳到冻结行/列带边缘，
+ * 滑入冻结带的部分直接不画（与 body 层「冻结带覆盖滚动区」的观感一致）；冻结带内
+ * 的格用完整 body 视口。冻结计数为 0 时与 body 视口相同（行为不变）。
+ */
+function mediaViewport(table: ListTable, col: number, row: number): Region {
+  const viewport = table.bodyViewport
+  const top = row < table.frozenRowCount ? viewport.y : viewport.y + table.frozenRowsHeight
+  const left = col < table.frozenColCount ? viewport.x : viewport.x + table.frozenColsWidth
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, viewport.x + viewport.width - left),
+    height: Math.max(0, viewport.y + viewport.height - top),
+  }
+}
 
 /** L2 media 层惰性创建（无图片格不建层） */
 function mediaLayer(table: ListTable): LayerHandle {
@@ -50,8 +68,9 @@ export function appendImageCell(
     height,
     url,
     placeholderAfter: Date.now() + table.imageService.placeholderDelay,
-    // 边缘半格图片经 body 视口裁剪，不越界画进表头/行号列区域
-    bodyViewport: table.bodyViewport,
+    // 边缘半格图片经 body 视口裁剪，不越界画进表头/行号列区域；滚动区格再钳掉
+    // 冻结带（滑入冻结带的部分不画，见 mediaViewport）
+    bodyViewport: mediaViewport(table, col, row),
   })
   const cacheKey = imageCacheKey(col, row, width, height)
   const cached = table.mediaCache.get(cacheKey)
@@ -178,8 +197,9 @@ export function appendChartCell(
     height,
     cacheKey,
     placeholderAfter: Date.now() + table.imageService.placeholderDelay,
-    // 边缘半格图表格经 body 视口裁剪，不越界画进表头/行号列区域
-    bodyViewport: table.bodyViewport,
+    // 边缘半格图表格经 body 视口裁剪，不越界画进表头/行号列区域；滚动区格再钳掉
+    // 冻结带（滑入冻结带的部分不画，见 mediaViewport）
+    bodyViewport: mediaViewport(table, col, row),
   })
   const cached = table.mediaCache.get(cacheKey)
   if (cached) {
