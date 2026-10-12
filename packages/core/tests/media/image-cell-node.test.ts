@@ -30,11 +30,20 @@ function readyNode(extra: Partial<ImageCellNodeInit> = {}): ImageCellNode {
 }
 
 describe('ImageCellNode 绘制', () => {
-  it('位图就绪即画位图；占位未到期本帧不画', () => {
+  it('位图就绪即画位图；白底只垫位图实际区域（contain 留白不画，不盖网格线）', () => {
     const ctx = new RecordingContext()
     readyNode().paint(ctx)
     expect(ctx.callsOf('fillRect')).toHaveLength(1)
     expect(ctx.callsOf('drawImage')).toHaveLength(1)
+    // 10×10 位图 contain 进 100×32：等比 32×32 居中，白底与位图同矩形（留白透出网格线）
+    expect(ctx.callsOf('fillRect')[0]?.args).toEqual([34, 0, 32, 32])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([
+      expect.anything(),
+      34,
+      0,
+      32,
+      32,
+    ])
 
     const pending = new ImageCellNode({
       col: 0,
@@ -47,6 +56,21 @@ describe('ImageCellNode 绘制', () => {
     })
     pending.paint(ctx)
     expect(ctx.callsOf('fillRect')).toHaveLength(1)
+  })
+
+  it('fill 缩放：白底铺满整格（位图覆盖整格时盖住网格线属预期）', () => {
+    const ctx = new RecordingContext()
+    const node = readyNode()
+    node.fit = 'fill'
+    node.paint(ctx)
+    expect(ctx.callsOf('fillRect')[0]?.args).toEqual([0, 0, 100, 32])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([
+      expect.anything(),
+      0,
+      0,
+      100,
+      32,
+    ])
   })
 
   it('未提供 bodyViewport：绘制不裁剪（行为不变）', () => {

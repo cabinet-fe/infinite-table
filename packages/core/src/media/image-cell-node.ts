@@ -12,6 +12,7 @@ import {
   MEDIA_CELL_BACKGROUND,
   bodyViewportClip,
   drawFittedImage,
+  fittedRect,
   paintImagePlaceholder,
   type ImageFit,
 } from './draw-image'
@@ -76,8 +77,11 @@ export class ImageCellNode extends SceneNode {
       ctx.clip()
     }
     if (this.image) {
+      // 白底只垫位图实际区域：contain 留白保持透明——格底色与网格线从下层透出，
+      // 不再整格填充白底把网格线盖住（透明位图在位图区域内仍有白底兜底可读）
+      const rect = fittedRect(this.image, this.width, this.height, this.fit)
       ctx.fillStyle = MEDIA_CELL_BACKGROUND
-      ctx.fillRect(0, 0, this.width, this.height)
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
       drawFittedImage(ctx, this.image, this.width, this.height, this.fit)
     } else {
       paintImagePlaceholder(ctx, this.width, this.height)

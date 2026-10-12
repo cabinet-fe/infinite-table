@@ -5,7 +5,7 @@ import type { Region, RenderContext } from '@infinitable/render'
 
 import type { LoadedImage } from './image-service'
 
-/** media 格内容底色：位图画布透明区域下的白底（图片格与图表格共用） */
+/** media 内容白底：垫在位图之下保证透明位图可读（图片格只垫位图实际区域，图表格整格垫底） */
 export const MEDIA_CELL_BACKGROUND = '#ffffff'
 
 const PLACEHOLDER_FILL = '#f0f1f2'
@@ -18,6 +18,25 @@ export function paintImagePlaceholder(ctx: RenderContext, width: number, height:
 
 export type ImageFit = 'fill' | 'contain'
 
+/**
+ * fit 语义下位图的目标矩形（目标框局部坐标）：fill 铺满目标框（可能变形），
+ * contain 等比居中。零尺寸位图回落整框（与 drawFittedImage 的 fill 回落一致）。
+ */
+export function fittedRect(
+  image: { width: number; height: number },
+  width: number,
+  height: number,
+  fit: ImageFit,
+): Region {
+  if (fit === 'fill' || image.width <= 0 || image.height <= 0) {
+    return { x: 0, y: 0, width, height }
+  }
+  const scale = Math.min(width / image.width, height / image.height)
+  const dw = image.width * scale
+  const dh = image.height * scale
+  return { x: (width - dw) / 2, y: (height - dh) / 2, width: dw, height: dh }
+}
+
 /** 按 fit 语义把位图画进目标框（fill 铺满可能变形，contain 等比居中） */
 export function drawFittedImage(
   ctx: RenderContext,
@@ -26,14 +45,8 @@ export function drawFittedImage(
   height: number,
   fit: ImageFit,
 ): void {
-  if (fit === 'fill' || image.width <= 0 || image.height <= 0) {
-    ctx.drawImage(image.source, 0, 0, width, height)
-    return
-  }
-  const scale = Math.min(width / image.width, height / image.height)
-  const dw = image.width * scale
-  const dh = image.height * scale
-  ctx.drawImage(image.source, (width - dw) / 2, (height - dh) / 2, dw, dh)
+  const rect = fittedRect(image, width, height, fit)
+  ctx.drawImage(image.source, rect.x, rect.y, rect.width, rect.height)
 }
 
 /**
