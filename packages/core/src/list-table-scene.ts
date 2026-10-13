@@ -635,6 +635,46 @@ export function effectiveBorder(
 }
 
 /**
+ * 锚定格四周可视边框线宽（编辑浮层内缩口径，配合 options.editorInsideBorder）：
+ * right/bottom 本格为共享边所有权格，生效边框（已与右/下邻居对侧边取强）即可视线；
+ * left/top 非首列/首行由左/上邻居代画（邻居 right/bottom 与本格对侧边取强，画在邻居
+ * 矩形内），按同一条可视线取宽，浮层内缩后整圈边框编辑期保持可见。
+ * 合并主格沿区域左/上缘逐格归约（与 effectiveBorder 的右/下缘归约同口径）。
+ */
+export function editorBorderInsets(
+  table: ListTable,
+  col: number,
+  row: number,
+  style: CellStyle,
+): { top: number; right: number; bottom: number; left: number } {
+  const range = table.mergeCells.rangeAt(col, row)
+  const endCol = range?.endCol ?? col
+  const endRow = range?.endRow ?? row
+  let facingLeft: CellBorderEdge | undefined
+  if (col > 0) {
+    for (let r = row; r <= endRow; r++) {
+      facingLeft = strongerEdge(facingLeft, table.styleAt(col - 1, r).border?.right)
+    }
+  }
+  let facingTop: CellBorderEdge | undefined
+  if (row > 0) {
+    for (let c = col; c <= endCol; c++) {
+      facingTop = strongerEdge(facingTop, table.styleAt(c, row - 1).border?.bottom)
+    }
+  }
+  // 左/上取强仅用于取宽（同宽平局与显式/网格档位裁决对宽度结果无关）
+  const visualLeft = col === 0 ? style.border?.left : strongerEdge(style.border?.left, facingLeft)
+  const visualTop = row === 0 ? style.border?.top : strongerEdge(style.border?.top, facingTop)
+  const painted = effectiveBorder(table, col, row, style)
+  return {
+    top: visualTop?.width ?? 0,
+    right: painted?.right?.width ?? 0,
+    bottom: painted?.bottom?.width ?? 0,
+    left: visualLeft?.width ?? 0,
+  }
+}
+
+/**
  * 建单格节点：被合并覆盖的格不建节点（由主格统一取值/绘制/命中），主格跨域取完整尺寸；
  * 节点已存在（增量窗口保留的存活格/既有合并主格）时跳过。返回是否新建了节点。
  * 导出给 refreshCell 的窗外溢出源联动复用（P1 窗缘反查：窗外源补建走同一装配路径）。

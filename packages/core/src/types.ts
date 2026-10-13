@@ -261,6 +261,12 @@ export interface ListTableOptions {
   editorRegistry?: EditorRegistry
   /** 编辑器字符上限（options 级缺省，可按列 editorMaxLength 覆盖）；未配置不截断 */
   editorMaxLength?: number
+  /**
+   * 编辑浮层内缩开关：true 时编辑浮层矩形按锚定格四周可视边框内缩（含浮层自带边框
+   * 的骑缘外扩补偿），浮层落在边框内侧、格边框编辑期保持可见（对齐 Excel/WPS）；
+   * 缺省 false 保持现状（浮层骑格缘，盖住本格自画的 right/bottom 边框）。
+   */
+  editorInsideBorder?: boolean
   /** ImageService 配置（位图 LRU 预算/并发/占位延迟/加载器注入等） */
   imageServiceOptions?: ImageServiceOptions
   /** 左侧冻结列数（数据列，不含行号列；缺省 0） */

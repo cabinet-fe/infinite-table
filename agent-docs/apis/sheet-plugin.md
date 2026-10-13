@@ -2,7 +2,7 @@
 title: createSheetPlugin sheet 插件
 description: infinitable 官方 sheet 插件：createSheetPlugin 工厂（单表/书两种装配）返回插件对象（TablePlugin 契约 + 运行时 handle）。handle 操作面：Store 参考模型（值/样式/meta/尺寸/冻结/合并 + asModel 模型直挂）、多 sheet 实例池（registerSheet/switchTo）、撤销栈（undo/redo/writeValues 撤销化批量写）、快照采集灌回（saveSnapshot/restoreSnapshot）、填充生成与选区同步构造期接线、公式显示与 Excel 键位底座、边框预设与 xlsx 导出映射（borderEdge/borderCells/exportSheet）。
 aliases: [sheet 插件, 电子表格, SheetStore, SheetBook, 填充, 撤销, 快照, undo]
-keywords: [createSheetPlugin, SheetPluginOptions, SheetPluginHandle, store, createStore, asModel, registerSheet, switchTo, activeStore, activeTable, onSheetChange, undo, redo, writeValues, canUndo, clearHistory, saveSnapshot, restoreSnapshot, selectionSync, syncSelectionFromExternal, evaluate, excelKeys, readonly, undoLimit, borderEdge, borderCells, exportSheet, decodeImage, 填充, 撤销, 快照, 电子表格, xlsx 导出]
+keywords: [createSheetPlugin, SheetPluginOptions, SheetPluginHandle, store, createStore, asModel, registerSheet, switchTo, activeStore, activeTable, onSheetChange, undo, redo, writeValues, canUndo, clearHistory, saveSnapshot, restoreSnapshot, selectionSync, syncSelectionFromExternal, evaluate, excelKeys, readonly, undoLimit, borderEdge, borderCells, exportSheet, decodeImage, editorInsideBorder, SheetGridOptions, 填充, 撤销, 快照, 电子表格, xlsx 导出]
 ---
 
 # createSheetPlugin sheet 插件
@@ -374,6 +374,7 @@ void writeSheet
 > - 书形态只管实例池与状态，DOM 呈现归宿主：容器显隐、尺寸测量、滚轮接线都在宿主的 `createHost`/`onSheetChange` 里做。
 > - SheetGrid 滚动条透传（0.1.4 起）：`SheetGridOptions.scrollbar` 与 core `ScrollbarOptions` 同形全形态透传（`boolean | ScrollbarOptions`，缺省 `true`）——`mode: 'native'` 即启用浏览器原生滚动条档（挂载容器内装配真实 DOM 滚动容器 + `scrollbar-gutter: stable` 预留，gutter 口径与宿主滚轮让位详见 `apis/list-table.md` 原生滚动条模式节）；`ScrollbarOptions` 类型从本子路径（`infinitable/sheet`）与 `@infinitable/sheet` 主入口均可导入。原生档下 SheetGrid 内建滚轮接线（`bindWheel`）自动让位——引擎只读判定 `table.usesNativeScrollbar` 为真时不挂监听、不 `preventDefault`、不 `scrollBy`，单次增量恰好一次等量位移（宿主外层若自有滚轮接线，同样按该判定让位防双滚）；`growOnScroll` 动态扩容后原生容器滚动范围随引擎边界（maxLeft/maxTop）同步。
 > - SheetGrid 主题透传：`SheetGridOptions.theme`（core `ThemeOverride` 同形）以内置 `SHEET_GRID_THEME` 为底经 `extendsTheme` 深覆盖合成——未给的 token 保持内置缺省，未传（undefined）与不配置完全一致；`extendsTheme` / `ThemeOverride` 从 `@infinitable/core` 主入口（及 `infinitable`）可导入。运行时换肤走公开方法 `SheetGrid.updateTheme(override)`：转发引擎 `table.updateTheme`（级联深覆盖 + 整表重绘，不重建网格、不触碰滚动/选区/冻结），同形 override 幂等、主题来回切换安全。
+> - SheetGrid 编辑浮层内缩透传（0.2.2 起）：`SheetGridOptions.editorInsideBorder`（core `ListTableOptions.editorInsideBorder` 同形，缺省 `false`）为 true 时编辑浮层按锚定格四周可视边框内缩（含浮层自带边框骑缘补偿），浮层落在边框内侧、格边框编辑期保持可见（对齐 Excel/WPS）——粗边框格双击编辑不再吞边框；缺省浮层骑格缘、行为不变。行为细节见 `apis/editing.md`。
 > - Sheet 模型默认行列尺寸：`sheet.defaultRowHeight` / `sheet.defaultColWidth`（px；getter + `setDefaultRowHeight` / `setDefaultColWidth`，非正数清除声明；不进 undo）——SheetGrid 的默认尺寸消费点（引擎 `rowHeight`/`defaultColWidth`、初始网格与增长估算、wrap 估算列宽、列定义兜底）优先读模型声明，未声明回落内置缺省 28px / 80px。导入 replace 快照（`SheetReplaceItem.defaultRowHeight` / `defaultColWidth`）随条目应用不丢，不传则目标声明保持现状。xlsx 导入（`importXlsx`）按文件声明写入两字段：行高 pt→px `Math.round(v * 4 / 3)`，字段缺省按 Excel 规范 15pt→20px（hucre 会丢弃恰好等于 15 的值，undefined 即视为 15）；列宽字符→px `Math.round(v * 7 + 5)`，缺省 8.43→64px（与显式列宽换算同口径 MDW=7）。非导入路径（新建空白表 / CSV 写入既有表）不写声明，保持引擎缺省。
 > - `switchTo` 只在实例首次创建时应用 Store 冻结/合并/尺寸；Store 状态在实例已建后再改，不会自动同步到引擎——订阅 Store `onChange` 自行写到活跃实例。
 > - `writeValues`/`undo`/`redo` 只覆盖值命令：结构命令（冻结/合并/行列尺寸）由宿主自行入栈管理。

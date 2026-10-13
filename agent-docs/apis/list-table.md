@@ -2,7 +2,7 @@
 title: ListTable 表格主类
 description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions：mode 原生/画布双档、显隐档与主题 token 三态样式、原生档 scrollbar-gutter 预留与宿主滚轮让位）。含 TableModel/SheetModel。
 aliases: [Table, DataTable, Grid, 表格, ListTable]
-keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, sanitizeMerges, MergeOverlapError, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
+keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, sanitizeMerges, MergeOverlapError, onCellChange, onSelectionChange, editorInsideBorder, 编辑浮层内缩, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
 ---
 
 # ListTable 表格主类
@@ -113,6 +113,8 @@ export interface ListTableOptions {
   editCellOnEnter?: boolean
   editorRegistry?: EditorRegistry
   editorMaxLength?: number
+  /** 编辑浮层内缩（0.2.2 起）：true 浮层落在锚定格四周可视边框内侧，格边框编辑期保持可见 */
+  editorInsideBorder?: boolean
   /** 图片服务配置（类型未导出，字段见 apis/media-float.md） */
   imageServiceOptions?: {
     maxCacheBytes?: number
@@ -220,6 +222,7 @@ ListTableOptions 全部字段（五要素）：
 | `editCellOnEnter` | `boolean` | `false` | 否 | 开启后非编辑态按 Enter 进入焦点格编辑 |
 | `editorRegistry` | `EditorRegistry` | 空表 | 否 | 可编第一级判定与格级路由；也可事后经 `table.editorRegistry` 注册 |
 | `editorMaxLength` | `number` | 不截断 | 否 | 编辑器字符上限；列级 `editorMaxLength` 优先 |
+| `editorInsideBorder` | `boolean` | `false` | 否 | true 编辑浮层按锚定格四周可视边框线宽内缩（含浮层自带边框骑缘补偿），浮层落在边框内侧、格边框编辑期保持可见（Excel/WPS 表现）；缺省浮层骑格缘，盖住本格自画的 right/bottom 边框（0.2.2 起） |
 | `imageServiceOptions` | 图片服务配置对象 | `maxCacheBytes: 256MB`、`maxCacheCount: 1000`、`concurrency: 10`、`placeholderDelay: 80` | 否 | 位图 LRU 预算/并发/占位延迟/加载器注入（字段见 `apis/media-float.md`；类型未导出） |
 | `frozenColCount` | `number` | `0` | 否 | 左侧冻结列数（数据列，不含行号列），构造时夹取到 [0, 列数] |
 | `frozenRowCount` | `number` | `0` | 否 | 顶部冻结行数（数据行，不含列头），构造时夹取到 [0, 行数] |

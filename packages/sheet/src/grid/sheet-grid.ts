@@ -123,6 +123,12 @@ export interface SheetGridOptions {
    */
   openCellLinkOnClick?: boolean
   /**
+   * 编辑浮层内缩开关（core 同形透传）：true 时编辑浮层落在锚定格四周可视边框内侧，
+   * 格边框编辑期保持可见（对齐 Excel/WPS，双击进入编辑不再吞掉粗边框）；
+   * 缺省 false 保持现状（浮层骑格缘）。
+   */
+  editorInsideBorder?: boolean
+  /**
    * 滚动近端动态增长（WPS 式无限表格，缺省 true）：滚动缓冲末端触到当前行列数时，
    * 模型与引擎同步扩容（初始尺寸 = 宿主下限或缺省 100×26 与「可视 + 缓冲」的较大者，
    * 滚动触界后每次扩「一幅可视 + 缓冲」）。false 为固定尺寸网格。
@@ -259,6 +265,8 @@ export class SheetGrid {
       ...(options.openCellLinkOnClick !== undefined
         ? { openCellLinkOnClick: options.openCellLinkOnClick }
         : {}),
+      // 编辑浮层内缩开关透传（缺省关；true 浮层落在格边框内侧、边框编辑期可见）
+      editorInsideBorder: options.editorInsideBorder,
       // 仅宿主提供 hook 时安装分发器：渲染热路径零差异（ADR-0004）
       ...(this.hooks.resolveCellRenderer
         ? {

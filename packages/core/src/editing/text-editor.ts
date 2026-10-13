@@ -80,6 +80,12 @@ export interface TextEditor {
 
 /** 编辑浮层边框宽（对齐 VTable InputEditor：2px 边框骑在格缘上，内外各半） */
 const EDITOR_BORDER_WIDTH = 2
+/**
+ * 编辑浮层定位外扩（半边框宽）：moveTo 把给定矩形向四周外扩的像素量。
+ * 宿主做「浮层落在格边框内侧」内缩（editorInsideBorder）时按此补偿，
+ * 浮层外缘恰好贴住边框内缘、边框像素零覆盖。
+ */
+export const EDITOR_STRADDLE_PX = EDITOR_BORDER_WIDTH / 2
 /** 编辑浮层失焦/聚焦边框色（对齐 VTable InputEditor 硬编码值） */
 const EDITOR_BORDER_COLOR = '#d9d9d9'
 const EDITOR_BORDER_COLOR_FOCUS = '#4A90E2'
@@ -137,8 +143,8 @@ export function createTextEditor(init: TextEditorInit = {}): TextEditor {
   }
 
   const moveTo = (rect: Region): void => {
-    // 边框骑格缘：矩形向外扩半边框宽，2px 边框在格缘内外各占 1px
-    const half = EDITOR_BORDER_WIDTH / 2
+    // 边框骑格缘：矩形向外扩半边框宽，2px 边框在给定矩形缘内外各占 1px
+    const half = EDITOR_STRADDLE_PX
     element.style.left = `${rect.x - half}px`
     element.style.top = `${rect.y - half}px`
     element.style.width = `${rect.width + EDITOR_BORDER_WIDTH}px`

@@ -1,8 +1,8 @@
 ---
 title: EditorRegistry 编辑器注册表与编辑会话
-description: infinitable 编辑体系：EditorRegistry 编辑器注册表与格级路由（registerEditor/resolveEditor）、可编三级判定（editor 声明 ∧ 格级 editable ∧ 有回写目标）、table.startEdit/commitEdit/cancelEdit 编辑会话、editorMultiline/editorMaxLength 字符上限、onEditStart/onEditEnd 事件与编辑浮层跟随行为（Enter 提交下移/Tab 右移/Esc 取消）。
+description: infinitable 编辑体系：EditorRegistry 编辑器注册表与格级路由（registerEditor/resolveEditor）、可编三级判定（editor 声明 ∧ 格级 editable ∧ 有回写目标）、table.startEdit/commitEdit/cancelEdit 编辑会话、editorMultiline/editorMaxLength 字符上限、editorInsideBorder 编辑浮层边框内缩、onEditStart/onEditEnd 事件与编辑浮层跟随行为（Enter 提交下移/Tab 右移/Esc 取消）。
 aliases: [Editor, 编辑器, 编辑, EditManager, TextEditor, createTextEditor, 单元格编辑]
-keywords: [EditorRegistry, registerEditor, resolveEditor, startEdit, commitEdit, cancelEdit, isEditing, editPickMode, editorMultiline, editorMaxLength, resolveEditable, editCellOnEnter, onEditStart, onEditEnd, 编辑, 双击编辑, 单元格编辑, 编辑器注册, 提交, 取消]
+keywords: [EditorRegistry, registerEditor, resolveEditor, startEdit, commitEdit, cancelEdit, isEditing, editPickMode, editorMultiline, editorMaxLength, editorInsideBorder, resolveEditable, editCellOnEnter, onEditStart, onEditEnd, 编辑, 双击编辑, 单元格编辑, 编辑器注册, 编辑浮层内缩, 提交, 取消]
 ---
 
 # EditorRegistry 编辑器注册表与编辑会话
@@ -109,6 +109,7 @@ export class ListTable {
 | `resolveEditable` | `(col, row) => boolean` | 全部可编 | 否 | 返回 false 该格不可编 |
 | `editCellOnEnter` | `boolean` | `false` | 否 | true 时非编辑态按 Enter 进入焦点格编辑 |
 | `editorMaxLength` | `number` | 不截断 | 否 | 编辑器字符上限；列级 `editorMaxLength` 优先 |
+| `editorInsideBorder` | `boolean` | `false` | 否 | true 编辑浮层按锚定格四周可视边框线宽内缩（含浮层自带边框骑缘补偿 1px），浮层落在边框内侧、格边框编辑期保持可见；缺省浮层骑格缘（0.2.2 起） |
 | `ColumnDefine.editor` | `string` | — | 否 | 该列编辑器注册名 |
 | `ColumnDefine.editorMultiline` | `boolean` | `false` | 否 | true 走 textarea（多行形态） |
 
@@ -131,6 +132,7 @@ export class ListTable {
 
 - 滚动帧：浮层逐帧对齐锚定格最新视口矩形；锚定格滚出视口按 Enter 语义自动提交。
 - 编辑中锚定格内容隐藏（DOM 浮层取代内容渲染，溢出部分一并隐去），会话结束恢复。
+- `editorInsideBorder: true`（0.2.2 起）：浮层矩形按锚定格四周可视边框线宽内缩（每边 = 线宽 + 骑缘补偿 1px），浮层外缘恰贴边框内缘、格边框编辑期保持可见；四周可视线口径与画布绘制一致（right/bottom 本格生效边框、left/top 含左/上邻居代画的取强结果），合并主格按整块包围盒逐缘归约。缺省 `false` 浮层骑格缘，盖住本格自画的 right/bottom 边框。
 - 焦点移出画布（浮层 blur）：缺省按提交语义终止但不抢回焦点；`table.editPickMode = true` 时保持会话（公式引用拾取等宿主互锁形态）。
 - `onEditStart`：`{ col, row, initialValue }`——会话真正打开后通知（可编判定失败不抛）；同格幂等重入不重复通知。
 - `onEditEnd`：`{ col, row, initialValue, finalValue?, committed }`——提交路径在 `onCellChange` 之后抛且带终值；取消 committed=false。
@@ -187,6 +189,32 @@ const table = new ListTable({
   hostOptions: { container },
 })
 console.log(table.startEdit(0, 6)) // => true（路由命中 long-text）
+```
+
+### 粗边框格编辑保持边框可见
+
+```ts
+import { EditorRegistry, ListTable, SheetModel } from 'infinitable'
+
+const registry = new EditorRegistry()
+registry.registerEditor('text', {})
+const container = document.querySelector<HTMLDivElement>('#table')!
+const thick = { width: 2, color: '#FF0000' }
+const table = new ListTable({
+  width: 620,
+  height: 220,
+  columns: [{ title: '名称', width: 160, editor: 'text' }],
+  model: new SheetModel(16, 1),
+  editorRegistry: registry,
+  editorInsideBorder: true, // 编辑浮层落在边框内侧，双击编辑不吞粗边框
+  resolveCellStyle: (col, row) =>
+    col === 0 && row === 3
+      ? { border: { top: thick, right: thick, bottom: thick, left: thick } }
+      : null,
+  hostOptions: { container },
+})
+
+table.startEdit(0, 3) // => true；浮层矩形 = 格矩形四周内缩（2px 线宽 + 1px 骑缘补偿）
 ```
 
 ### 编辑事件镜像公式栏

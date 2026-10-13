@@ -28,7 +28,8 @@ import {
 } from './grid-layout'
 import type { ListTable } from './list-table'
 import { nextActiveCell, revealAxis } from './keyboard-navigation'
-import { applyHeaderHighlight } from './list-table-scene'
+import { applyHeaderHighlight, editorBorderInsets } from './list-table-scene'
+import { EDITOR_STRADDLE_PX } from './editing/text-editor'
 import type { OverlayContent } from './interaction-overlay'
 import type { ColResizeEndEvent, ResizeGeometry, ResizeTarget, RowResizeEndEvent } from './resize'
 import { hitResizeHandle, ResizeSession } from './resize'
@@ -892,6 +893,34 @@ export function mergeAwareCellRect(table: ListTable, col: number, row: number): 
     y: base.y,
     width: spanWidth(table.colOffsets, range.startCol, range.endCol),
     height: spanHeight(table.rowOffsets, range.startRow, range.endRow),
+  }
+}
+
+/**
+ * 编辑浮层锚定矩形：opt-in editorInsideBorder 时按锚定格四周可视边框内缩
+ * （内缩量含浮层自带边框的骑缘外扩补偿，浮层外缘贴住边框内缘、格边框编辑期
+ * 保持可见，对齐 Excel/WPS）；缺省原矩形直通（行为不变）。
+ */
+export function editorCellRect(table: ListTable, col: number, row: number): Region | null {
+  const rect = mergeAwareCellRect(table, col, row)
+  if (!rect || !table.options.editorInsideBorder) {
+    return rect
+  }
+  // 内缩口径与场景装配同源：主格归一后取样式与四周可视线（宿主直传被覆盖格也一致）
+  const master = table.mergeCells.masterOf(col, row) ?? { col, row }
+  const insets = editorBorderInsets(
+    table,
+    master.col,
+    master.row,
+    table.resolveStyle(master.col, master.row),
+  )
+  const pad = EDITOR_STRADDLE_PX
+  return {
+    x: rect.x + insets.left + pad,
+    y: rect.y + insets.top + pad,
+    // 极小格内缩溢出时兜底 1px，浮层矩形不出现非正宽高
+    width: Math.max(1, rect.width - insets.left - insets.right - pad * 2),
+    height: Math.max(1, rect.height - insets.top - insets.bottom - pad * 2),
   }
 }
 

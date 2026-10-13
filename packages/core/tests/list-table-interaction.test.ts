@@ -6,6 +6,7 @@ import { EditorRegistry } from '../src/editor-registry'
 import type { FillDragEndEvent, FillHandleDoubleClickEvent } from '../src/fill-handle'
 import type { FloatDragEndEvent } from '../src/float/float-object-layer'
 import { ListTable } from '../src/list-table'
+import { editorCellRect, mergeAwareCellRect } from '../src/list-table-interaction'
 import type { SelectionSnapshot } from '../src/selection'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
 import { findCellNode } from './testing/find-cell-node'
@@ -1258,6 +1259,98 @@ describe('ListTable 编辑', () => {
     expect(container.children).toHaveLength(1)
     table.destroy()
     expect(container.children).toEqual([])
+  })
+
+  it('editorInsideBorder：浮层矩形按四周可视边框内缩（含骑缘补偿），格边框编辑期可见', () => {
+    const thick = { width: 2, color: '#FF0000' }
+    const { table, created } = createEditingTable({
+      editorInsideBorder: true,
+      resolveCellStyle: (col, row) =>
+        col === 0 && row === 0
+          ? { border: { top: thick, right: thick, bottom: thick, left: thick } }
+          : null,
+    })
+    expect(table.startEdit(0, 0)).toBe(true)
+    // 格矩形 48..148 × 36..68：四周可视线 2px，内缩 2 + 骑缘补偿 1 = 3，
+    // 浮层（自带 2px 边框骑缘外扩 1）外缘 50+96=146 恰贴右边框内缘 148-2
+    expect(created[0]!.style.left).toBe('50px')
+    expect(created[0]!.style.top).toBe('38px')
+    expect(created[0]!.style.width).toBe('96px')
+    expect(created[0]!.style.height).toBe('28px')
+  })
+})
+
+describe('ListTable 编辑浮层边框内缩（editorCellRect）', () => {
+  const thick = (width: number) => ({ width, color: '#FF0000' })
+  const records = Array.from({ length: 10 }, (_, i) => ({ name: `r${i}` }))
+
+  it('缺省直通：editorCellRect 与 mergeAwareCellRect 同矩形（行为不变）', () => {
+    const { table } = createTable({ records })
+    expect(editorCellRect(table, 0, 0)).toEqual(mergeAwareCellRect(table, 0, 0))
+  })
+
+  it('开关开启：显式粗边框格四周内缩（线宽 + 骑缘补偿）', () => {
+    const { table } = createTable({
+      records,
+      editorInsideBorder: true,
+      resolveCellStyle: (col, row) =>
+        col === 1 && row === 1
+          ? {
+              border: {
+                top: thick(3),
+                right: thick(3),
+                bottom: thick(3),
+                left: thick(3),
+              },
+            }
+          : null,
+    })
+    const base = mergeAwareCellRect(table, 1, 1)!
+    // 四周可视线均 3px（left/top 经邻居代画取强口径同值），内缩 3 + 骑缘 1
+    expect(editorCellRect(table, 1, 1)).toEqual({
+      x: base.x + 4,
+      y: base.y + 4,
+      width: base.width - 8,
+      height: base.height - 8,
+    })
+  })
+
+  it('开关开启：缺省网格线格（right/bottom grid 边、邻居代画 left/top）四周内缩 1 + 骑缘 1', () => {
+    const { table } = createTable({ records, editorInsideBorder: true })
+    const base = mergeAwareCellRect(table, 2, 3)!
+    expect(editorCellRect(table, 2, 3)).toEqual({
+      x: base.x + 2,
+      y: base.y + 2,
+      width: base.width - 4,
+      height: base.height - 4,
+    })
+  })
+
+  it('开关开启：合并主格左缘按区域跨度逐格归约邻居可视线', () => {
+    const { table } = createTable({
+      records,
+      editorInsideBorder: true,
+      mergeCells: [{ startCol: 1, startRow: 1, endCol: 2, endRow: 2 }],
+      resolveCellStyle: (col, row) => {
+        if (col === 0 && row === 2) {
+          return { border: { right: thick(5) } }
+        }
+        if (col === 1 && row === 1) {
+          return {
+            border: { top: thick(3), right: thick(3), bottom: thick(3), left: thick(3) },
+          }
+        }
+        return null
+      },
+    })
+    const base = mergeAwareCellRect(table, 1, 1)!
+    const rect = editorCellRect(table, 1, 1)!
+    // 左缘 facing 归约 rows 1..2 的 (0,r).right：(0,2) 显式 5px 胜 grid 1px，
+    // 与主格自画 left 3px 取强 → 5；其余三边维持主格 3px 口径
+    expect(rect.x).toBe(base.x + 5 + 1)
+    expect(rect.y).toBe(base.y + 3 + 1)
+    expect(rect.width).toBe(base.width - (5 + 1) - (3 + 1))
+    expect(rect.height).toBe(base.height - (3 + 1) * 2)
   })
 })
 

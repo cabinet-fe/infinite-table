@@ -69,7 +69,7 @@ import {
   cellRectInViewport,
   type HeaderDragState,
   ensureCellVisible,
-  mergeAwareCellRect,
+  editorCellRect,
   refreshOverlay,
 } from './list-table-interaction'
 import { assertMergesWithinTable, cellKey, HEADER_COORD } from './list-table-internal'
@@ -602,8 +602,9 @@ export class ListTable {
       },
       resolveValue: (col, row) => this.pipeline.resolveValue(col, row),
       cellFont: (col, row) => cellStyleFont(this.resolveStyle(col, row)),
-      // 合并感知锚定：编辑合并区（主格）时浮层跨满整块包围盒
-      cellRect: (col, row) => mergeAwareCellRect(this, col, row),
+      // 合并感知锚定 + opt-in 边框内缩：编辑合并区（主格）时浮层跨满整块包围盒，
+      // editorInsideBorder 开启后浮层落在四周可视边框内侧（格边框编辑期可见）
+      cellRect: (col, row) => editorCellRect(this, col, row),
       refreshCell: (col, row) => this.refreshCell(col, row),
       emitChange: (change) => {
         for (const listener of this.cellChangeListeners) {
