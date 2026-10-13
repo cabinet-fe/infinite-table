@@ -14,6 +14,7 @@ import { readXlsx } from 'hucre/xlsx'
 import type { CellData } from '../cell-store'
 import { inferCellType } from '../cell-store'
 import { RestoreSheetCommand } from '../command/restore-sheet'
+import type { SetCellStyleItem } from '../command/set-cell-style'
 import type { SetCellValueItem } from '../command/set-cell-value'
 import type { ImageInput } from '../image'
 import type { Sheet, SheetSnapshot } from '../sheet'
@@ -522,11 +523,16 @@ function applyHucreSheet(
   const KEEP_MARGIN = 100
   target.beginTransaction()
   try {
-    // 清空：先解除既有合并（结构），再批量清除数据（空数据删除整格，样式一并移除）
+    // 清空：先解除既有合并（结构），再批量清除数据与样式。
+    // 值清除不再触碰样式（样式属于单元格），存留的纯样式记录经样式通道
+    // clear 项整体删除；两步同在一个事务 = 单 undo 单元（undo 恢复导入前状态）
     for (const range of target.merges.getMerges()) target.unmergeCells(range)
     const clearItems: SetCellValueItem[] = []
     for (const [addr] of target.store.entries()) clearItems.push({ addr, data: undefined })
     if (clearItems.length > 0) target.setCells(clearItems)
+    const clearStyleItems: SetCellStyleItem[] = []
+    for (const [addr] of target.store.entries()) clearStyleItems.push({ addr, clear: true })
+    if (clearStyleItems.length > 0) target.setCellStyles(clearStyleItems)
     // 清空既有浮动图（与单元格同事务，undo 一并恢复）
     for (const image of target.getImages()) target.removeImage(image.id)
 

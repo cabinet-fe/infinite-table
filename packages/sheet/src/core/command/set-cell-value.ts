@@ -31,6 +31,10 @@ export const SetCellValueCommand: Command<SetCellValueParams> = {
       if (target && !isEmptyCellData(target)) {
         // 编辑值保留既有样式（样式属于单元格，不随值写入丢失；item.data 显式带 s 时优先）
         after = { ...target, s: target.s ?? before?.s }
+      } else if (before?.s != null) {
+        // 清值同样不碰样式：仅留样式记录（清样式走 setCellStyle 独立通道），
+        // 否则仅设样式的格经编辑空提交整格被删、边框丢失
+        after = { s: before.s }
       }
       if (cellDataEqual(before, after)) continue
       const patch: CellPatch = { kind: 'cell', addr: anchor, before, after }

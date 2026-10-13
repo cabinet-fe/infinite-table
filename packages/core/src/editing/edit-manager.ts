@@ -1,7 +1,8 @@
 // 编辑状态唯一源：进入（可编三级判定）、提交回写、取消的完整生命周期。
 // 同一时刻至多一个编辑会话；初值取基础值（resolveValue 口径，未过 resolveDisplayValue）；
 // 提交经回写目标落数据源（records 改 field / model 经 ModelBinding.writeBack），
-// 随后局部刷新该格并抛 onCellChange（col/row/oldValue/newValue）。
+// 随后局部刷新该格并抛 onCellChange（col/row/oldValue/newValue）；
+// 值与初值相等的提交（无操作编辑）跳过写回与 onCellChange，end/焦点/选区移动照常。
 // 编辑中订阅滚动帧：浮层逐帧对齐锚定格最新视口矩形，锚定格滚出视口按 Enter 语义自动提交。
 
 import type { Region } from '@infinitable/render'
@@ -23,6 +24,11 @@ export interface EditWriteTarget {
   canWrite(col: number, row: number): boolean
   /** 写回数据源 */
   write(col: number, row: number, value: unknown): void
+}
+
+/** 编辑器初值文本口径（与 open 参数一致：oldValue 文本化，null/undefined → 空串） */
+function initialValueText(oldValue: unknown): string {
+  return oldValue == null ? '' : String(oldValue)
 }
 
 /** 提交后的选区移动方向：Enter 下移、Tab 右移 */
@@ -144,7 +150,7 @@ export class EditManager {
     })
     editor.onKey((action) => this.onEditorKey(action))
     editor.onBlur(() => this.onEditorBlur())
-    editor.open(this.host, rect, oldValue == null ? '' : String(oldValue))
+    editor.open(this.host, rect, initialValueText(oldValue))
     this.session = { col, row, oldValue, editor }
     this.init.emitStart?.({ col, row, initialValue: oldValue })
     return true
@@ -180,14 +186,18 @@ export class EditManager {
   private writeAndNotifyCommit(session: EditSession, move?: EditCommitMove): void {
     const newValue = session.editor.getValue()
     session.editor.close()
-    this.init.writeTarget.write(session.col, session.row, newValue)
-    this.init.refreshCell(session.col, session.row)
-    this.init.emitChange({
-      col: session.col,
-      row: session.row,
-      oldValue: session.oldValue,
-      newValue,
-    })
+    // 无操作编辑（提交值与编辑初值同口径相等）跳过写回/刷新/变更事件：
+    // 不触数据源与 onCellChange；会话生命周期（end/焦点/选区移动）照常
+    if (newValue !== initialValueText(session.oldValue)) {
+      this.init.writeTarget.write(session.col, session.row, newValue)
+      this.init.refreshCell(session.col, session.row)
+      this.init.emitChange({
+        col: session.col,
+        row: session.row,
+        oldValue: session.oldValue,
+        newValue,
+      })
+    }
     this.init.emitEnd?.({
       col: session.col,
       row: session.row,

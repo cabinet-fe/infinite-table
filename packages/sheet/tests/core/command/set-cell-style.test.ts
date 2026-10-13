@@ -272,7 +272,7 @@ describe('SetCellStyleCommand（经 Sheet）', () => {
     expect(sheet.getCellStyle(B2)).toEqual({ fill: { color: '#FF0000' } })
   })
 
-  it('编辑值 / 公式保留既有样式；清除值删除整格（含样式）', () => {
+  it('编辑值 / 公式保留既有样式；清除值同样保留样式（值写入/清除不触碰样式）', () => {
     const sheet = new Sheet()
     sheet.setCellValue(B2, 'old')
     sheet.setCellStyle(B2C3, { fill: { color: '#FF0000' } })
@@ -286,9 +286,53 @@ describe('SetCellStyleCommand（经 Sheet）', () => {
     expect(sheet.getCellData(C3)).toMatchObject({ f: 'B2', s: 1 })
     expect(sheet.getCellData(C3)?.v).toBe('new')
 
-    // 清除值 → 整格删除（空单元格不占存储）
+    // 清除值 → 只清值，样式保留（清样式走 clearCellStyle 独立通道）
     sheet.setCellValue(B2, null)
-    expect(sheet.getCellData(B2)).toBeUndefined()
+    expect(sheet.getCellData(B2)).toEqual({ s: 1 })
+    expect(sheet.getCellStyle(B2)).toEqual({ fill: { color: '#FF0000' } })
+  })
+
+  it('仅样式格空值清除保留样式，且不入历史（无变化不产生 undo 记录）', () => {
+    const sheet = new Sheet()
+    const border: CellStyle = {
+      border: { top: { style: 'thin', width: 1, color: '#000000' } },
+    }
+    sheet.setCellStyle(B2C3, border)
+    const undoSize = sheet.history.undoSize
+
+    // 编辑空提交（setCellValue('') / null / undefined 同一清格路径）：
+    // after = {s} 与 before 相等 → 跳过，既不删样式也不产生 undo 记录
+    sheet.setCellValue(B2, '')
+    sheet.setCellValue(C3, null)
+    expect(sheet.getCellStyle(B2)).toEqual(border)
+    expect(sheet.getCellStyle(C3)).toEqual(border)
+    expect(sheet.getCellData(B2)).toEqual({ s: 1 })
+    expect(sheet.history.undoSize).toBe(undoSize)
+  })
+
+  it('有值格清空值后样式保留：undo/redo 回放与快照 round-trip 正确', () => {
+    const sheet = new Sheet()
+    const fill: CellStyle = { fill: { color: '#FF0000' } }
+    sheet.setCellValue(B2, 'keep')
+    sheet.setCellStyle(B2C3, fill)
+
+    // 全选删空后提交（清值路径）：样式保留
+    sheet.setCellValue(B2, '')
+    expect(sheet.getCellData(B2)).toEqual({ s: 1 })
+    expect(sheet.getCellStyle(B2)).toEqual(fill)
+
+    // undo → 值与样式同时恢复；redo → 再次只剩样式
+    sheet.undo()
+    expect(sheet.getCellData(B2)).toEqual({ v: 'keep', t: 's', s: 1 })
+    sheet.redo()
+    expect(sheet.getCellData(B2)).toEqual({ s: 1 })
+    expect(sheet.getCellStyle(B2)).toEqual(fill)
+
+    // 快照 round-trip：纯样式记录不丢
+    const restored = new Sheet()
+    restored.restoreContent(sheet.snapshot())
+    expect(restored.getCellData(B2)).toEqual({ s: 1 })
+    expect(restored.getCellStyle(B2)).toEqual(fill)
   })
 
   it('setCell 显式带 s 时覆盖既有样式（不带则保留）', () => {

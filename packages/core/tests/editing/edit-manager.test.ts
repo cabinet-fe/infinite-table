@@ -226,15 +226,58 @@ describe('EditManager 编辑生命周期', () => {
   it('Enter 提交并选区下移；Tab 提交并选区右移（编辑器按键语义）', () => {
     const down = createManager()
     down.manager.startEdit(0, 0)
+    down.created[0]!.value = 'b'
     down.created[0]!.dispatchKey('Enter')
-    expect(down.writes).toEqual([{ col: 0, row: 0, value: 'a' }])
+    expect(down.writes).toEqual([{ col: 0, row: 0, value: 'b' }])
     expect(down.moves).toEqual([{ col: 0, row: 0, move: 'down' }])
     expect(down.focusRestores()).toBe(1)
 
     const right = createManager()
     right.manager.startEdit(0, 0)
+    right.created[0]!.value = 'b'
     right.created[0]!.dispatchKey('Tab')
     expect(right.moves).toEqual([{ col: 0, row: 0, move: 'right' }])
+  })
+
+  it('无变化提交跳过写回/刷新/变更事件：失焦与 Enter 路径一致，end(committed=true) 与焦点/选区照常', () => {
+    // 失焦路径：不改值直接 blur——不写回不抛 change，end 照常（不抢回焦点语义不变）
+    const blur = createManager()
+    blur.manager.startEdit(0, 0)
+    blur.created[0]!.dispatchBlur()
+    expect(blur.writes).toEqual([])
+    expect(blur.refreshes).toEqual([])
+    expect(blur.changes).toEqual([])
+    expect(blur.ends).toEqual([
+      { col: 0, row: 0, initialValue: 'a', finalValue: 'a', committed: true },
+    ])
+    expect(blur.focusRestores()).toBe(0)
+    expect(blur.manager.isEditing()).toBe(false)
+
+    // Enter 路径：不改值直接 Enter——写回跳过，选区移动照常
+    const enter = createManager()
+    enter.manager.startEdit(0, 0)
+    enter.created[0]!.dispatchKey('Enter')
+    expect(enter.writes).toEqual([])
+    expect(enter.changes).toEqual([])
+    expect(enter.refreshes).toEqual([])
+    expect(enter.moves).toEqual([{ col: 0, row: 0, move: 'down' }])
+    expect(enter.focusRestores()).toBe(1)
+  })
+
+  it('空初值格无操作提交不写回（编辑初值为空串口径）：样式格防误清的编辑层守卫', () => {
+    const h = createManager({ resolveValue: () => null })
+    h.manager.startEdit(0, 0)
+    expect(h.created[0]!.value).toBe('')
+    h.created[0]!.dispatchBlur()
+    expect(h.writes).toEqual([])
+    expect(h.changes).toEqual([])
+    expect(h.ends[0]).toEqual({
+      col: 0,
+      row: 0,
+      initialValue: null,
+      finalValue: '',
+      committed: true,
+    })
   })
 
   it('cancelEdit API 与 Esc 语义一致；dispose 结束会话', () => {
