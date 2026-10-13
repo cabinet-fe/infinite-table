@@ -34,11 +34,15 @@ export type {
 export {
   EditorRegistry,
   ListTable,
+  MergeCellMap,
+  MergeOverlapError,
   SheetModel,
   extendsTheme,
   normalizeCellRange,
   normalizeRange,
   projectCellStyle,
+  sanitizeMerges,
+  warnMergeConflicts,
 } from '@infinitable/core'
 export type {
   CellBorder,
@@ -64,6 +68,7 @@ export type {
   ImageLinkClickListener,
   ListTableOptions,
   LoadedImage,
+  MergeConflict,
   OverlayPainter,
   RangeBounds,
   ResolveCellImageLink,
@@ -72,6 +77,7 @@ export type {
   // 内建滚动条配置（ListTableOptions.scrollbar 对象形态；mode: 'native' 原生滚动条档）
   ScrollbarMode,
   ScrollbarOptions,
+  SanitizedMerges,
   SelectionSnapshot,
   TableContextMenuEvent,
   TableModel,

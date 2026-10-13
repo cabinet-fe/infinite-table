@@ -5,7 +5,7 @@
 //   （对齐「选区不进 undo」「冻结与行高不进 undo」「渲染尺寸不进 undo」约定）
 // - 公式依赖图整体重建 + 跨表引用方重算（快照全部格视为变更格）
 // - content-reset 事件（执行 / undo / redo 各一次，视图层全量刷新信号）
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { parseRange } from '../../../src/core/address'
 import { RestoreSheetCommand } from '../../../src/core/command/restore-sheet'
@@ -179,5 +179,50 @@ describe('RestoreSheetCommand（整表快照替换）', () => {
     s1.undo()
     expect(s1.getCellData({ row: 0, col: 0 })).toMatchObject({ v: 5, t: 'n' })
     expect(s2.getCellData({ row: 0, col: 0 })).toMatchObject({ v: 5, t: 'n' })
+  })
+
+  it('快照含重叠合并区：规范化保留先声明并 console 提示，恢复与 undo 回放不被打断', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // 脏快照（历史模板/外部导入形态）：第二项与首项重叠于 (2,0)
+      const snapshot: SheetSnapshot = {
+        cells: [],
+        styles: [],
+        merges: [
+          { start: { row: 0, col: 0 }, end: { row: 2, col: 0 } },
+          { start: { row: 2, col: 0 }, end: { row: 3, col: 0 } },
+          { start: { row: 5, col: 5 }, end: { row: 6, col: 6 } },
+        ],
+        frozen: { rows: 0, cols: 0 },
+        rows: 8,
+        cols: 8,
+      }
+
+      // restoreContent（RestoreSheetCommand / undo 回放入口）：冲突项被拒，先声明项与无冲突项保留
+      const sheet = new Sheet('S')
+      sheet.executeCommand(RestoreSheetCommand.id, { snapshot })
+      expect(sheet.merges.getMerges()).toEqual([
+        { start: { row: 0, col: 0 }, end: { row: 2, col: 0 } },
+        { start: { row: 5, col: 5 }, end: { row: 6, col: 6 } },
+      ])
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]?.[0])).toContain('Sheet.restoreContent')
+
+      // restore（整表快照恢复入口）同语义
+      warn.mockClear()
+      const restored = new Sheet('S')
+      restored.restore(snapshot)
+      expect(restored.merges.getMerges()).toHaveLength(2)
+      expect(warn).toHaveBeenCalledTimes(1)
+
+      // 干净回放（undo 的 before 快照来自干净状态）不再触发提示
+      warn.mockClear()
+      sheet.undo()
+      sheet.redo()
+      expect(warn).not.toHaveBeenCalled()
+      expect(sheet.merges.getMerges()).toHaveLength(2)
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

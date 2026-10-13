@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { SceneNode } from '@infinitable/render'
 
@@ -254,7 +254,44 @@ describe('ListTable 合并单元格', () => {
     expect(findNode(host, 3, 2)).toBeDefined()
   })
 
-  it('合并区运行时增删：重叠或越界抛错并保持原状，跨冻结边界合法，删除按归一化匹配', () => {
+  it('脏合并区容错：构造参数与 setMergeCells 的重叠项规范化（保留先声明并提示），渲染不被打断', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // 构造参数：第二项与首项重叠，被整体丢弃；合并渲染按首项成立
+      const { host, table } = createTable({
+        records: records100(),
+        mergeCells: [
+          { startCol: 1, startRow: 1, endCol: 3, endRow: 2 },
+          { startCol: 2, startRow: 1, endCol: 4, endRow: 1 },
+        ],
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(table.mergeCells.ranges).toEqual([{ startCol: 1, startRow: 1, endCol: 3, endRow: 2 }])
+      expect(findNode(host, 1, 1)).toMatchObject({ width: 300, height: 64, text: 'r1' })
+      expect(findNode(host, 2, 1)).toBeUndefined()
+
+      // setMergeCells 整体替换：冲突项丢弃并提示，保留项照常渲染
+      warn.mockClear()
+      table.setMergeCells([
+        { startCol: 0, startRow: 0, endCol: 1, endRow: 0 },
+        { startCol: 1, startRow: 0, endCol: 2, endRow: 0 },
+      ])
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(table.mergeCells.ranges).toEqual([{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }])
+      expect(findNode(host, 0, 0)).toMatchObject({ width: 200 })
+      expect(findNode(host, 1, 0)).toBeUndefined()
+
+      // 无重叠替换无提示
+      warn.mockClear()
+      table.setMergeCells([{ startCol: 5, startRow: 5, endCol: 6, endRow: 5 }])
+      expect(warn).not.toHaveBeenCalled()
+      expect(table.mergeCells.ranges).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('合并区运行时增删：重叠抛 MergeOverlapError、越界抛错并保持原状，跨冻结边界合法，删除按归一化匹配', () => {
     const { host, table } = createTable({ records: records100(), frozenColCount: 1 })
     table.addMergeCell({ startCol: 2, startRow: 1, endCol: 3, endRow: 2 })
     expect(findNode(host, 2, 1)).toMatchObject({ width: 200, height: 64 })

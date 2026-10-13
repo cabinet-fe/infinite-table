@@ -58,9 +58,111 @@ export function cellKey(col: number, row: number): number {
   return row * 2 ** CELL_KEY_COL_BITS + col
 }
 
+/** 合并区重叠冲突（sanitizeMerges 逐条上报；MergeOverlapError 携带同一结构） */
+export interface MergeConflict {
+  /** 首个冲突格坐标 */
+  coord: { col: number; row: number }
+  /** 与既有区间重叠而被拒的区间（归一化后） */
+  range: CellRange
+  /** 先声明并已生效的冲突区间（归一化后） */
+  existing: CellRange
+}
+
+/** 重叠合并区的类型化错误：携带冲突坐标与两条区间原文，宿主可 instanceof 定位 */
+export class MergeOverlapError extends Error {
+  readonly coord: MergeConflict['coord']
+  /** 与既有区间重叠而被拒的区间 */
+  readonly range: CellRange
+  /** 先声明并已生效的冲突区间 */
+  readonly existing: CellRange
+
+  constructor(conflict: MergeConflict) {
+    super(
+      `merge ranges overlap at (${conflict.coord.col}, ${conflict.coord.row}): ` +
+        `existing [${conflict.existing.startCol},${conflict.existing.startRow} ~ ${conflict.existing.endCol},${conflict.existing.endRow}] ` +
+        `vs incoming [${conflict.range.startCol},${conflict.range.startRow} ~ ${conflict.range.endCol},${conflict.range.endRow}]`,
+    )
+    this.name = 'MergeOverlapError'
+    this.coord = conflict.coord
+    this.range = conflict.range
+    this.existing = conflict.existing
+  }
+}
+
+export interface SanitizedMerges {
+  /** 规范化后互不重叠的区间（丢弃单格与冲突的后到项） */
+  ranges: CellRange[]
+  /** 被拒的重叠区间及冲突详情 */
+  conflicts: MergeConflict[]
+}
+
+/**
+ * 归一化 + 重叠消解（纯函数，不改输入）：逐条归一化、丢弃单格区间；
+ * 重叠按声明序保留先到项、整体丢弃后到的冲突项（不裁剪、不改写区间），
+ * 与 MergeCellMap 同一套归一化语义。宿主在写快照前可用它自救脏数据。
+ */
+export function sanitizeMerges(ranges: readonly CellRange[] = []): SanitizedMerges {
+  const kept: CellRange[] = []
+  const conflicts: MergeConflict[] = []
+  const byCoord = new Map<number, CellRange>()
+  for (const raw of ranges) {
+    const range = normalizeCellRange(raw)
+    if (isSingleCell(range)) {
+      continue
+    }
+    let conflict: MergeConflict | null = null
+    scan: for (let row = range.startRow; row <= range.endRow; row++) {
+      for (let col = range.startCol; col <= range.endCol; col++) {
+        const existing = byCoord.get(cellKey(col, row))
+        if (existing) {
+          conflict = { coord: { col, row }, range, existing }
+          break scan
+        }
+      }
+    }
+    if (conflict) {
+      conflicts.push(conflict)
+      continue
+    }
+    for (let row = range.startRow; row <= range.endRow; row++) {
+      for (let col = range.startCol; col <= range.endCol; col++) {
+        byCoord.set(cellKey(col, row), range)
+      }
+    }
+    kept.push(range)
+  }
+  return { ranges: kept, conflicts }
+}
+
+const warnedMergeConflicts = new Set<string>()
+
+/**
+ * 规范化冲突的 console 提示：报出调用来源、被丢区间与保留区间原文。
+ * 同一冲突只提示一次（数据入口路径在 resync/undo 回放中反复进入，防刷屏）。
+ */
+export function warnMergeConflicts(conflicts: readonly MergeConflict[], source: string): void {
+  for (const conflict of conflicts) {
+    const { coord, range, existing } = conflict
+    const signature = `${source} [${existing.startCol},${existing.startRow} ~ ${existing.endCol},${existing.endRow}]×[${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}]`
+    if (warnedMergeConflicts.has(signature)) {
+      continue
+    }
+    warnedMergeConflicts.add(signature)
+    console.warn(
+      `[infinitable] ${source}: dropped overlapping merge range ` +
+        `[${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}] ` +
+        `at (${coord.col}, ${coord.row}), kept ` +
+        `[${existing.startCol},${existing.startRow} ~ ${existing.endCol},${existing.endRow}] ` +
+        `(sanitize input merges via sanitizeMerges() or fix the data source)`,
+    )
+  }
+}
+
 /**
  * 合并区集合：按覆盖格索引到所属区间。
- * 构造时归一化并校验互不重叠（重叠属配置错误，直接抛错而非静默错绘）。
+ * 构造时归一化并校验互不重叠——重叠属配置错误，抛 MergeOverlapError
+ * （携带两条冲突区间与冲突坐标）；批量数据入口（ListTable 构造参数 /
+ * setMergeCells / 快照恢复）应先经 sanitizeMerges 宽容消解，勿直接喂脏数据。
  */
 export class MergeCellMap {
   /** 归一化后的合并区列表 */
@@ -78,10 +180,11 @@ export class MergeCellMap {
         for (let col = range.startCol; col <= range.endCol; col++) {
           const key = cellKey(col, row)
           if (this.byCoord.has(key)) {
-            throw new Error(
-              `merge ranges overlap at (${col}, ${row}): ` +
-                `[${range.startCol},${range.startRow} ~ ${range.endCol},${range.endRow}]`,
-            )
+            throw new MergeOverlapError({
+              coord: { col, row },
+              range,
+              existing: this.byCoord.get(key)!,
+            })
           }
           this.byCoord.set(key, range)
         }

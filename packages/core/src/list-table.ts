@@ -42,7 +42,7 @@ import {
 } from '@infinitable/render'
 
 import { TextAdvanceTable, type CellNode } from './cell-node'
-import { MergeCellMap, normalizeCellRange } from './cell-range'
+import { MergeCellMap, normalizeCellRange, sanitizeMerges, warnMergeConflicts } from './cell-range'
 import type { CellRange } from './cell-range'
 import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
 import { CellValuePipeline } from './cell-value'
@@ -512,7 +512,10 @@ export class ListTable {
     this.frozenRowCount = clampFrozenCount(options.frozenRowCount ?? 0, this.pipeline.rowCount)
     this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
     this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
-    this.mergeCells = new MergeCellMap(options.mergeCells)
+    // 批量数据入口宽容：重叠项保留先声明、丢弃冲突项并 console 提示（脏数据不打断构造）
+    const sanitizedMerges = sanitizeMerges(options.mergeCells)
+    warnMergeConflicts(sanitizedMerges.conflicts, 'ListTable constructor')
+    this.mergeCells = new MergeCellMap(sanitizedMerges.ranges)
     assertMergesWithinTable(this.mergeCells.ranges, this.columns.length, this.pipeline.rowCount)
     this.host =
       options.host ??
@@ -1482,14 +1485,21 @@ export class ListTable {
   }
 
   /**
-   * 运行时整体替换合并区：重叠/模型越界等校验全部通过才生效（否则抛错保持原状），
-   * 生效即全量重建，合并渲染与命中即时反映新集合；跨冻结边界的合并区合法。
+   * 运行时整体替换合并区：重叠项规范化（保留先声明、丢弃冲突项并 console 提示，
+   * 不打断渲染）；模型越界校验不通过仍抛错保持原状。生效即全量重建，合并渲染
+   * 与命中即时反映新集合；跨冻结边界的合并区合法。
    */
   setMergeCells(ranges: readonly CellRange[]): void {
-    this.replaceMergeCells(new MergeCellMap(ranges))
+    const sanitized = sanitizeMerges(ranges)
+    warnMergeConflicts(sanitized.conflicts, 'ListTable.setMergeCells')
+    this.replaceMergeCells(new MergeCellMap(sanitized.ranges))
   }
 
-  /** 运行时新增一个合并区：与既有区间重叠或越出表格时抛错并保持原状；跨冻结边界合法 */
+  /**
+   * 运行时新增一个合并区：程序化单命令保持 fail-fast——与既有区间重叠抛
+   * MergeOverlapError（含两条冲突区间原文）、越出表格抛错，均保持原状；
+   * 跨冻结边界合法。
+   */
   addMergeCell(range: CellRange): void {
     this.replaceMergeCells(new MergeCellMap([...this.mergeCells.ranges, range]))
   }

@@ -2,7 +2,7 @@
 title: ListTable 表格主类
 description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions：mode 原生/画布双档、显隐档与主题 token 三态样式、原生档 scrollbar-gutter 预留与宿主滚轮让位）。含 TableModel/SheetModel。
 aliases: [Table, DataTable, Grid, 表格, ListTable]
-keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
+keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, sanitizeMerges, MergeOverlapError, onCellChange, onSelectionChange, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
 ---
 
 # ListTable 表格主类
@@ -223,7 +223,7 @@ ListTableOptions 全部字段（五要素）：
 | `imageServiceOptions` | 图片服务配置对象 | `maxCacheBytes: 256MB`、`maxCacheCount: 1000`、`concurrency: 10`、`placeholderDelay: 80` | 否 | 位图 LRU 预算/并发/占位延迟/加载器注入（字段见 `apis/media-float.md`；类型未导出） |
 | `frozenColCount` | `number` | `0` | 否 | 左侧冻结列数（数据列，不含行号列），构造时夹取到 [0, 列数] |
 | `frozenRowCount` | `number` | `0` | 否 | 顶部冻结行数（数据行，不含列头），构造时夹取到 [0, 行数] |
-| `mergeCells` | `readonly CellRange[]` | `[]` | 否 | 闭区间；重叠抛错、越出表格抛错；跨冻结边界合法 |
+| `mergeCells` | `readonly CellRange[]` | `[]` | 否 | 闭区间；重叠项自动规范化（0.2.0 起：保留先声明、丢弃冲突项并 console 提示，不抛错）、越出表格抛错；跨冻结边界合法 |
 | `rowHeight` | `number` | 主题 `rowHeight`（32） | 否 | 全表行高基准；逐行覆盖走 `setRowHeight` |
 | `defaultColWidth` | `number` | 主题 `defaultColWidth`（100） | 否 | 列未给 width 时的列宽 |
 | `headerHeight` | `number` | 主题 `headerHeight`（36） | 否 | 列头高度；`showColHeader: false` 时归一化为 0（忽略显式值） |
@@ -260,7 +260,7 @@ ListTableOptions 全部字段（五要素）：
 - `resize(width, height): void` — 原地调整视口（不重建实例）；滚动位置与选区保留。
 - `getColWidth(col)` / `setColWidth(col, width)` / `getRowHeight(row)` / `setRowHeight(row, height)` — 越界索引为空操作/返回 0；宽度夹取最小 20px。
 - `getFrozenColCount()` / `setFrozenColCount(count)` / `getFrozenRowCount()` / `setFrozenRowCount(count)` — 运行时修改夹取到 [0, 列数/行数]。
-- `setMergeCells(ranges)` / `addMergeCell(range)` / `removeMergeCell(range)` — 运行时整体替换/新增/移除合并区；重叠或越界抛错并保持原状；`removeMergeCell` 按归一化后精确匹配，未命中为空操作。
+- `setMergeCells(ranges)` / `addMergeCell(range)` / `removeMergeCell(range)` — 运行时整体替换/新增/移除合并区。`setMergeCells` 重叠项规范化（保留先声明、丢弃冲突项并 console 提示）、越界抛错保持原状；`addMergeCell` 重叠抛 `MergeOverlapError`、越界抛错并保持原状；`removeMergeCell` 按归一化后精确匹配，未命中为空操作。
 - `getCellRelativeRect(col, row): Region | null` — 数据格视口矩形（CSS 像素）；窗口外返回 null。
 - `getCellAtRelativePosition(x, y): CellRef | null` — 视口坐标命中数据格；点在行列头/空白处返回 null。
 - `getDrawRange(): Region` — 内容区矩形（扣除行号列与列头）。
@@ -396,7 +396,7 @@ table.setFrozenColCount(2) // 运行时改冻结（跨冻结边界的既有合�
 > - 原生滚动条模式（`scrollbar: { mode: 'native' }`，0.1.4 起）：**由浏览器原生渲染的真实滚动条**——引擎在挂载容器内装配真实 DOM 滚动容器（`overflow` 滚动 + `scrollbar-gutter: stable`），非 canvas 自绘、非 DOM 模拟假滚动条；外观/显隐/触控板惯性/系统辅助功能完全随 OS，`visibility`/`hideDelay` 不适用（给出即忽略）。**gutter 口径**：横向、纵向（含右下角 corner）独立预留、从视口布局扣除、永不覆盖任何单元格（含行号列/列头/冻结区）；视口口径取滚动容器 `clientWidth`/`clientHeight`（已含原生 gutter 扣除），`table.width`/`height` 语义不变。**宿主滚轮接线让位**：原生档下引擎滚轮/触控板由原生滚动容器接管，宿主既有 wheel 接线不得造成双滚——引擎提供只读判定 `table.usesNativeScrollbar`，宿主接线处按 `if (table.usesNativeScrollbar) return` 让位（playground `attachWheel` 即此模式）。程序化滚动（`scrollTo`/`scrollBy`/键盘导航 `ensureCellVisible`）与原生容器双向同步，`ScrollManager` 仍是唯一滚动状态源；canvas 滚动条不再绘制、右/下缘条带不拦截指针。不支持 `scrollbar-gutter` 的旧浏览器回落为原生覆盖式行为（仅滚动显隐时短暂覆盖），不做 polyfill。
 > - 内建滚动条（0.1.2 重构，canvas 档）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。
 > - `CellRef` 在统一入口有两个：core 的格坐标以 `GridCellRef` 导出，`CellRef` 是 formulas 层的 A1 引用（含 `colAbsolute`/`rowAbsolute`/`sheet` 字段）。
-> - 合并区重叠构造即抛错：`merge ranges overlap at (col, row): [startCol,startRow ~ endCol,endRow]`；越出表格抛 `assertMergesWithinTable` 系列错误。跨冻结边界的合并区合法（主格按冻结带钉固绘制）。
+> - 合并区重叠分两层（0.2.0 起）：批量入口（构造 `mergeCells` / `setMergeCells`）自动规范化——保留先声明区间、丢弃冲突项并 console.warn（`[infinitable] <来源>: dropped overlapping merge range ...`），不再抛错打断渲染；程序化单命令（`addMergeCell`）抛 `MergeOverlapError`（携带 `coord`/`range`/`existing`，报错原文 `merge ranges overlap at (col, row): existing [...] vs incoming [...]`）。越出表格抛 `assertMergesWithinTable` 系列错误。跨冻结边界的合并区合法（主格按冻结带钉固绘制）。
 > - `updateCell` 只对 model 形态生效；records 形态直接改行对象字段后调 `refreshCell`。
 > - `updateTheme` 不重算已生效的 rowHeight/headerHeight/rowHeaderWidth/defaultColWidth 几何值；运行时改行列尺寸走 `setRowHeight`/`setColWidth`。
 > - 表头层数恒 1：`getHeaderLevelCount()` 固定返回 1，多级表头不在当前版本能力内。
@@ -404,20 +404,26 @@ table.setFrozenColCount(2) // 运行时改冻结（跨冻结边界的既有合�
 
 ## 常见问题
 
-### 报错 `merge ranges overlap at (2, 2): [1,1 ~ 3,3]`
+### 报错 `merge ranges overlap at (2, 2): existing [1,1 ~ 3,3] vs incoming [...]`（0.1.x 为 `[...]` 单区间形态）
 
-原因：`mergeCells`（或 `setMergeCells`/`addMergeCell`）传入的区间互相重叠。修复：区间互斥后再传入。
+原因：`addMergeCell` 传入的区间与既有区间重叠（程序化单命令 fail-fast，抛 `MergeOverlapError`；批量入口 `mergeCells`/`setMergeCells` 0.2.0 起重叠自动规范化不抛错）。修复：先用 `sanitizeMerges` 消解（与引擎同语义：保留先声明、丢弃冲突项）再传入，或保证区间互斥。
 
 ```ts
-import { ListTable } from 'infinitable'
+import { ListTable, sanitizeMerges } from 'infinitable'
+
+// 脏数据：两条区间互相重叠
+const dirty = [
+  { startCol: 1, startRow: 1, endCol: 3, endRow: 3 },
+  { startCol: 2, startRow: 2, endCol: 2, endRow: 2 }, // 1×1 单格（会被丢弃）
+]
+const { ranges } = sanitizeMerges(dirty)
 
 const table = new ListTable({
   width: 400,
   height: 300,
   columns: [{ title: 'A' }, { title: 'B' }, { title: 'C' }, { title: 'D' }],
   rowCount: 10,
-  // 修复前：[{ startCol: 1, startRow: 1, endCol: 3, endRow: 3 }, { startCol: 2, startRow: 2, endCol: 2, endRow: 2 }]
-  mergeCells: [{ startCol: 1, startRow: 1, endCol: 3, endRow: 3 }], // 只保留互斥区间
+  mergeCells: ranges, // 只保留互斥区间；含重叠时批量入口也会自动规范化
   hostOptions: { container: document.querySelector<HTMLDivElement>('#table')! },
 })
 ```

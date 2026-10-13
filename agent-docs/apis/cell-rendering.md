@@ -1,13 +1,13 @@
 ---
 title: CellRenderer 自定义单元格渲染与合并区
-description: infinitable 单元格渲染：CellRenderer 自定义渲染器（resolveCellRenderer 按格接管内容绘制）、内置 text/checkbox 渲染行为（对齐/溢出/换行/修饰线与勾选态方框）、CellRange 合并单元格区间模型与 normalizeCellRange 归一化。渲染器在格内局部坐标系绘制，背景与边框由引擎节点负责。
-aliases: [CellRenderer, 自定义渲染, MergeCellMap, 合并单元格, BUILTIN_CELL_RENDERERS, 渲染器]
-keywords: [CellRenderer, resolveCellRenderer, cellType, checkbox, textOverflow, textWrap, CellRange, normalizeCellRange, mergeCells, setMergeCells, addMergeCell, removeMergeCell, textAlign, verticalAlign, 自定义渲染, 合并单元格, 复选框, 斑马纹]
+description: infinitable 单元格渲染：CellRenderer 自定义渲染器（resolveCellRenderer 按格接管内容绘制）、内置 text/checkbox 渲染行为（对齐/溢出/换行/修饰线与勾选态方框）、CellRange 合并单元格区间模型、normalizeCellRange 归一化、sanitizeMerges 重叠消解与 MergeOverlapError 类型化报错。渲染器在格内局部坐标系绘制，背景与边框由引擎节点负责。
+aliases: [CellRenderer, 自定义渲染, MergeCellMap, 合并单元格, BUILTIN_CELL_RENDERERS, 渲染器, MergeOverlapError, sanitizeMerges]
+keywords: [CellRenderer, resolveCellRenderer, cellType, checkbox, textOverflow, textWrap, CellRange, normalizeCellRange, sanitizeMerges, MergeCellMap, MergeOverlapError, merge ranges overlap, mergeCells, setMergeCells, addMergeCell, removeMergeCell, textAlign, verticalAlign, 自定义渲染, 合并单元格, 复选框, 斑马纹]
 ---
 
 # CellRenderer 自定义单元格渲染与合并区
 
-`infinitable`（core 层）导出单元格渲染与合并区两族 API：`CellRenderer`（自定义渲染器契约：在格内局部坐标系绘制内容，经 `ListTableOptions.resolveCellRenderer` 按格接管）、`CellRange`（合并单元格区间模型）与 `normalizeCellRange`（区间归一化）。内置渲染按列 `cellType`（`'text'`/`'checkbox'`）分派（内置渲染实现与场景节点、网格布局纯函数族 0.1.2 起不再导出，为引擎内部实现）。
+`infinitable`（core 层）导出单元格渲染与合并区两族 API：`CellRenderer`（自定义渲染器契约：在格内局部坐标系绘制内容，经 `ListTableOptions.resolveCellRenderer` 按格接管）、`CellRange`（合并单元格区间模型）、`normalizeCellRange`（区间归一化）、`sanitizeMerges`（重叠消解纯函数）与 `MergeOverlapError`（重叠类型化报错）。内置渲染按列 `cellType`（`'text'`/`'checkbox'`）分派（内置渲染实现与场景节点、网格布局纯函数族 0.1.2 起不再导出，为引擎内部实现）。
 
 ## 快速上手
 
@@ -105,7 +105,9 @@ export function normalizeCellRange(range: CellRange): CellRange
 
 `CellRange`：闭区间（end 可比 start 小，`normalizeCellRange` 归一化；构造 `mergeCells` 时引擎自动归一化）；1×1 单格区间不算合并（被丢弃）。
 
-合并区约束：`ListTableOptions.mergeCells` / `setMergeCells` / `addMergeCell` 传入重叠区间抛 `merge ranges overlap at (col, row): [startCol,startRow ~ endCol,endRow]`；越出表格抛 `assertMergesWithinTable` 系列错误；跨冻结边界的合并区合法。
+合并区约束（0.2.0 起分两层）：批量数据入口（`ListTableOptions.mergeCells` / `setMergeCells`）重叠项自动规范化——保留先声明区间、整体丢弃后到的冲突项（不裁剪不改写），每条冲突 console.warn 一次（`[infinitable] <来源>: dropped overlapping merge range ...`），不抛错不打断渲染；程序化单命令 `addMergeCell` 重叠保持 fail-fast，抛 `MergeOverlapError`（`name: 'MergeOverlapError'`，携带 `coord: { col, row }`、`range`、`existing` 三个字段，即两条冲突区间与冲突坐标，均为归一化后闭区间），报错原文 `merge ranges overlap at (col, row): existing [startCol,startRow ~ endCol,endRow] vs incoming [startCol,startRow ~ endCol,endRow]`。越出表格两类入口都抛 `assertMergesWithinTable` 系列错误并保持原状；跨冻结边界的合并区合法。
+
+`sanitizeMerges(ranges)`：重叠消解纯函数（0.2.0 起导出），与引擎内部同一套语义：逐条归一化 → 丢弃 1×1 单格区间 → 按声明序保留先到项、整体丢弃后到的冲突项；返回 `{ ranges: CellRange[], conflicts: MergeConflict[] }`，`conflicts` 逐条含 `{ coord, range, existing }`。宿主在写快照前可用它自救脏数据；`warnMergeConflicts(conflicts, source)` 是配套的 console 提示工具（同一冲突只提示一次）。
 
 ## 方法与事件
 
@@ -120,7 +122,7 @@ export function normalizeCellRange(range: CellRange): CellRange
 
 内置 checkbox 渲染行为（`cellType: 'checkbox'`）：14px 方框（细线 `fillRect` 保证像素对齐，边框色 `#8f959e`）+ 勾选态实心块（`#3370ff`）；`value` 为 truthy 即勾选；水平位置跟随 `textAlign` 与 padding 内缩，不绘制取值文本。
 
-`ListTable` 合并区运行时 API：`setMergeCells(ranges)`（整体替换）/ `addMergeCell(range)` / `removeMergeCell(range)`（按归一化后精确匹配，未命中为空操作）；重叠或越界抛错并保持原状。被合并覆盖的格取主格文本（`getCellText` 同口径）。
+`ListTable` 合并区运行时 API：`setMergeCells(ranges)`（整体替换；重叠项规范化保留先声明并 console 提示，模型越界抛错保持原状）/ `addMergeCell(range)`（重叠抛 `MergeOverlapError`、越界抛错，均保持原状）/ `removeMergeCell(range)`（按归一化后精确匹配，未命中为空操作）。被合并覆盖的格取主格文本（`getCellText` 同口径）。
 
 ## 典型示例
 
@@ -143,7 +145,13 @@ const table = new ListTable({
 ### 合并区构造与运行时变更
 
 ```ts
-import { ListTable, normalizeCellRange, type CellRange } from 'infinitable'
+import {
+  ListTable,
+  MergeOverlapError,
+  normalizeCellRange,
+  sanitizeMerges,
+  type CellRange,
+} from 'infinitable'
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const table = new ListTable({
@@ -160,7 +168,29 @@ const raw: CellRange = { startCol: 3, startRow: 3, endCol: 2, endRow: 2 }
 console.log(normalizeCellRange(raw)) // => { startCol: 2, startRow: 2, endCol: 3, endRow: 3 }
 
 table.addMergeCell({ startCol: 0, startRow: 0, endCol: 1, endRow: 0 })
-// 传入与既有区重叠的区间 => 抛 Error: merge ranges overlap at (0, 0): [0,0 ~ 1,0]
+// 程序化单命令重叠保持 fail-fast：抛 MergeOverlapError（coord/range/existing 携带两条冲突区间原文）
+try {
+  table.addMergeCell({ startCol: 0, startRow: 0, endCol: 1, endRow: 0 })
+} catch (error) {
+  if (error instanceof MergeOverlapError) {
+    console.log(error.coord) // => { col: 0, row: 0 }
+    console.log(error.existing) // => { startCol: 0, startRow: 0, endCol: 1, endRow: 0 }
+  }
+}
+
+// 批量入口（构造参数 / setMergeCells）重叠不打断渲染：保留先声明、丢弃冲突项并 console 提示
+const dirty: CellRange[] = [
+  { startCol: 0, startRow: 5, endCol: 1, endRow: 5 },
+  { startCol: 1, startRow: 5, endCol: 2, endRow: 5 }, // 与首项重叠，将被丢弃
+]
+table.setMergeCells(dirty)
+// console: [infinitable] ListTable.setMergeCells: dropped overlapping merge range [1,5 ~ 2,5] ...
+console.log(table.mergeCells.ranges) // => [{ startCol: 0, startRow: 5, endCol: 1, endRow: 5 }]
+
+// 宿主写快照前自救脏数据：与引擎同语义的重叠消解
+const clean = sanitizeMerges(dirty)
+console.log(clean.ranges) // => [{ startCol: 0, startRow: 5, endCol: 1, endRow: 5 }]
+console.log(clean.conflicts[0]!.coord) // => { col: 1, row: 5 }
 // 1×1 单格区间（如 1,1 ~ 1,1）被引擎自动丢弃，不算合并
 ```
 
@@ -198,6 +228,7 @@ new ListTable({
 > - `resolveCellRenderer` 要求纯函数、同步、O(1)：渲染器在滚动帧建格/重投影时高频调用，禁止在其中做异步或重计算。
 > - `checkbox` 的勾选态取 `value`（基础值），不是 `text`；`cellType: 'checkbox'` 不改变点击交互——点选仍是选区语义，改值走编辑提交。
 > - 内置渲染实现、场景格节点（原 `renderTextCell`/`renderCheckboxCell`/`BUILTIN_CELL_RENDERERS`/`CellNode`）与网格布局纯函数族（原 `computeColOffsets`/`computeRowWindow` 等，0.1.2 起不再导出）为引擎内部实现：坐标换算走 `table.getCellRelativeRect`/`getCellAtRelativePosition`，窗口查询走 `table.getVisibleRange`/`getBodyVisibleCellRange`。
+> - 0.2.0 起合并区重叠分两层处理：批量入口（构造 `mergeCells` / `setMergeCells`）规范化不打断渲染（保留先声明 + console 提示），程序化单命令（`addMergeCell` / `new MergeCellMap`）抛 `MergeOverlapError`——0.1.x 中三类入口全部抛裸 `Error` 的行为不再存在。
 
 ## 常见问题
 
@@ -215,12 +246,12 @@ const badgeRenderer: CellRenderer = ({ ctx, width, height, value }) => {
 }
 ```
 
-### 合并区显示重叠/错乱
+### 报错 `merge ranges overlap at (2, 2): existing [...] vs incoming [...]`（0.1.x 为 `[...]` 单区间形态）
 
-原因：传入 `ListTableOptions.mergeCells`（或 `setMergeCells`/`addMergeCell`）的区间互相重叠。修复：保证区间互斥；运行时新增用 `addMergeCell`（重叠抛错保持原状，不会静默错绘）。
+原因：`addMergeCell`（或直接 `new MergeCellMap`）传入的区间与既有区间重叠——程序化单命令保持 fail-fast，抛 `MergeOverlapError`（`instanceof` 可识别，`coord`/`range`/`existing` 携带冲突坐标与两条区间原文）。修复：先 `sanitizeMerges` 消解或保证区间互斥；批量替换改用 `setMergeCells`（重叠自动规范化不打断渲染）。
 
 ```ts
-import { ListTable } from 'infinitable'
+import { ListTable, sanitizeMerges } from 'infinitable'
 
 const container = document.querySelector<HTMLDivElement>('#table')!
 const table = new ListTable({
@@ -228,12 +259,19 @@ const table = new ListTable({
   height: 300,
   columns: [{ title: 'A' }, { title: 'B' }, { title: 'C' }],
   rowCount: 10,
-  // 修复前：[{ 0,0 ~ 2,0 }, { 1,0 ~ 1,1 }] 重叠抛错
+  // 脏数据（0.2.0 起）：构造参数重叠不打断构造——后到的冲突项被丢弃并 console 提示
   mergeCells: [
     { startCol: 0, startRow: 0, endCol: 2, endRow: 0 },
     { startCol: 1, startRow: 1, endCol: 1, endRow: 1 }, // 1×1 单格会被自动丢弃（不算合并）
   ],
   hostOptions: { container },
 })
-// 区间互斥后正常构造；运行时读回合并区无公共 API，由宿主自行维护数据源
+// 历史快照/外部数据入表前可先行自救：与引擎同语义消解重叠
+const { ranges, conflicts } = sanitizeMerges([
+  { startCol: 0, startRow: 0, endCol: 2, endRow: 0 },
+  { startCol: 1, startRow: 0, endCol: 3, endRow: 0 },
+])
+console.log(ranges) // => [{ startCol: 0, startRow: 0, endCol: 2, endRow: 0 }]
+console.log(conflicts[0]!.coord) // => { col: 1, row: 0 }
+table.setMergeCells(ranges)
 ```

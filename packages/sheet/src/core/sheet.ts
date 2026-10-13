@@ -49,7 +49,7 @@ import type {
 import { TypedEventEmitter } from './events'
 import { FormulaEngine } from './formula-engine'
 import { cloneSheetImage, imageAnchorsEqual, type ImageInput, type SheetImage } from './image'
-import { MergeManager, type CellInfo } from './merge-manager'
+import { MergeManager, sanitizeSnapshotMerges, type CellInfo } from './merge-manager'
 import { SelectionModel, type SelectionState } from './selection'
 import { composeCellStyles } from './style/compose'
 import { StylePool } from './style/style-pool'
@@ -1142,7 +1142,9 @@ export class Sheet {
     this.store.restore(snapshot.cells)
     this.stylePool.restore(snapshot.styles)
     this.merges.clear()
-    for (const range of snapshot.merges) this.merges.addMerge(range)
+    for (const range of sanitizeSnapshotMerges(snapshot.merges, 'Sheet.restore')) {
+      this.merges.addMerge(range)
+    }
     this.setFrozen(snapshot.frozen.rows, snapshot.frozen.cols)
     this._rows = snapshot.rows ?? 0
     this._cols = snapshot.cols ?? 0
@@ -1168,7 +1170,9 @@ export class Sheet {
     this.store.restore(snapshot.cells)
     this.stylePool.restore(snapshot.styles)
     this.merges.clear()
-    for (const range of snapshot.merges) this.merges.addMerge(range)
+    for (const range of sanitizeSnapshotMerges(snapshot.merges, 'Sheet.restoreContent')) {
+      this.merges.addMerge(range)
+    }
     this.restoreAxisStyles(snapshot)
     this.replaceImages(snapshot.images, true)
     this.replaceMeta(snapshot.meta, true)

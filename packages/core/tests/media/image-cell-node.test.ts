@@ -37,13 +37,7 @@ describe('ImageCellNode 绘制', () => {
     expect(ctx.callsOf('drawImage')).toHaveLength(1)
     // 10×10 位图 contain 进 100×32：等比 32×32 居中，白底与位图同矩形（留白透出网格线）
     expect(ctx.callsOf('fillRect')[0]?.args).toEqual([34, 0, 32, 32])
-    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([
-      expect.anything(),
-      34,
-      0,
-      32,
-      32,
-    ])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([expect.anything(), 34, 0, 32, 32])
 
     const pending = new ImageCellNode({
       col: 0,
@@ -64,13 +58,7 @@ describe('ImageCellNode 绘制', () => {
     node.fit = 'fill'
     node.paint(ctx)
     expect(ctx.callsOf('fillRect')[0]?.args).toEqual([0, 0, 100, 32])
-    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([
-      expect.anything(),
-      0,
-      0,
-      100,
-      32,
-    ])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([expect.anything(), 0, 0, 100, 32])
   })
 
   it('未提供 bodyViewport：绘制不裁剪（行为不变）', () => {

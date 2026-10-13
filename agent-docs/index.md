@@ -2,7 +2,7 @@
 title: infinitable 总览
 description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。含四层模块（render/core/formulas/plugins）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、经 infinitable 的 ./sheet 子路径转出。导出面判据与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
 aliases: [infinitable, infinite-table, InfiniTable, 表格引擎, canvas 表格]
-keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, @infinitable/sheet, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
+keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
 ---
 
 # infinitable 总览
@@ -41,7 +41,7 @@ bun add infinitable @cat-kit/core
 | `HighlightRange` / `FillDragEndEvent` | sky 浮层高亮区与填充柄拖拽结束事件 | `apis/interaction-selection.md` |
 | `EditorRegistry` | 编辑器注册表与格级路由 | `apis/editing.md` |
 | `CellRenderer` | 自定义单元格渲染器（`resolveCellRenderer` hook） | `apis/cell-rendering.md` |
-| `CellRange` / `normalizeCellRange` | 合并单元格区间模型 | `apis/cell-rendering.md` |
+| `CellRange` / `normalizeCellRange` / `sanitizeMerges` / `MergeCellMap` / `MergeOverlapError` | 合并单元格区间模型与重叠消解（`sanitizeMerges` 纯函数 + `MergeOverlapError` 类型化报错 + `warnMergeConflicts` 提示工具；`MergeConflict`/`SanitizedMerges` 类型同行） | `apis/cell-rendering.md` |
 | `LoadedImage` / `CellChartMedia` | 加载完成的位图（图片加载器注入面）与图表格媒体描述 | `apis/media-float.md` |
 | `FloatObject` / `FloatTransformEndEvent` / `FloatTransformHandle` / `FloatContextMenuEvent` / `ImageLinkClickEvent` / `ImageLinkClickListener` | 浮动对象与变换/右键事件（`table.floatObjects` 实例面）、浮动与嵌入图片链接点击事件（`onImageLinkClick`） | `apis/media-float.md` |
 | `createRenderHost` / `RenderHostOptions` / `RenderHost` | 渲染宿主（窄接口唯一实现入口） | `apis/render-engine.md` |

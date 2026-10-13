@@ -66,19 +66,19 @@ function run(cmd: string, args: readonly string[], opts: SpawnSyncOptions = {}):
   return {
     code: res.status ?? -1,
     stdout: typeof res.stdout === 'string' ? res.stdout : '',
-    stderr: typeof res.stderr === 'string' ? res.stderr : ''
+    stderr: typeof res.stderr === 'string' ? res.stderr : '',
   }
 }
 
 function runInherit(
   cmd: string,
   args: readonly string[],
-  extraEnv: Record<string, string> | null = null
+  extraEnv: Record<string, string> | null = null,
 ): number {
   const res = spawnSync(cmd, args as string[], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
-    env: extraEnv ? { ...process.env, ...extraEnv } : process.env
+    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
   })
   return res.status ?? -1
 }
@@ -106,7 +106,9 @@ async function collectChangesetPkgs(files: readonly string[]): Promise<string[]>
     for (const line of (match[1] ?? '').split(/\r?\n/)) {
       const m = line
         .trim()
-        .match(/^['"]?(@[^'":\s]+\/[^'":\s]+|[^'":\s@][^'":\s]*)['"]?\s*:\s*(patch|minor|major)\s*$/)
+        .match(
+          /^['"]?(@[^'":\s]+\/[^'":\s]+|[^'":\s@][^'":\s]*)['"]?\s*:\s*(patch|minor|major)\s*$/,
+        )
       if (m && m[1]) pkgs.add(m[1])
     }
   }
@@ -218,11 +220,13 @@ async function main(): Promise<void> {
   const head = run('git', ['rev-parse', '--short', 'HEAD'])
   const sha = head.stdout.trim()
   console.log(
-    `\n✓ 已推送发布 commit，远端 release workflow 将由 packages/*/CHANGELOG.md 变更自动触发`
+    `\n✓ 已推送发布 commit，远端 release workflow 将由 packages/*/CHANGELOG.md 变更自动触发`,
   )
   console.log(`  分支:   ${RELEASE_BRANCH}`)
   console.log(`  提交:   ${sha}`)
-  console.log(`  查看:   https://github.com/cabinet-fe/infinite-table/actions/workflows/release.yml`)
+  console.log(
+    `  查看:   https://github.com/cabinet-fe/infinite-table/actions/workflows/release.yml`,
+  )
 }
 
 main().catch((err: unknown) => {

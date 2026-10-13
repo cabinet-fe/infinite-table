@@ -7,6 +7,7 @@ import {
   type CellAddress,
   type CellRange,
 } from './address'
+import { sanitizeMerges, warnMergeConflicts } from '@infinitable/core'
 
 /**
  * 合并单元格管理器（只管几何，不管数据）。
@@ -18,6 +19,28 @@ import {
 
 /** 单元格在合并语义下的种类 */
 export type MergedCellKind = 'normal' | 'merged-anchor' | 'merged-covered'
+
+/**
+ * 快照合并区容错规范化（sheet 区间形态适配 core 的 sanitizeMerges）：
+ * 重叠项保留先声明、丢弃冲突项并 console 提示——历史模板/外部快照的单条脏
+ * 合并区不再打断恢复与渲染（engine 侧 MergeCellMap 对重叠仍 fail-fast）。
+ * undo/redo 回放的快照来自干净状态，此处为无冲突直通。
+ */
+export function sanitizeSnapshotMerges(merges: readonly CellRange[], source: string): CellRange[] {
+  const sanitized = sanitizeMerges(
+    merges.map((range) => ({
+      startCol: range.start.col,
+      startRow: range.start.row,
+      endCol: range.end.col,
+      endRow: range.end.row,
+    })),
+  )
+  warnMergeConflicts(sanitized.conflicts, source)
+  return sanitized.ranges.map((range) => ({
+    start: { row: range.startRow, col: range.startCol },
+    end: { row: range.endRow, col: range.endCol },
+  }))
+}
 
 export interface CellInfo {
   kind: MergedCellKind
