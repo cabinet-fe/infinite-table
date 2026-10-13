@@ -34,7 +34,10 @@ import {
   type ResolveDisplayValue,
 } from './grid-model'
 import { GridRowHeightEngine } from './grid-row-height-engine'
-import { GridSelectionController } from './grid-selection-controller'
+import {
+  GridSelectionController,
+  type SelectionInterceptMeta,
+} from './grid-selection-controller'
 import {
   SHEET_DEFAULT_COL_WIDTH,
   SHEET_DEFAULT_ROW_HEIGHT,
@@ -89,8 +92,8 @@ export interface SheetGridOptions {
   colResize?: boolean
   /** 列宽拖拽落定回调（拖拽写模型之后触发；载荷含列索引与最终宽度） */
   onColResizeEnd?: (event: { col: number; width: number }) => void
-  interceptSelection?: () => boolean
-  onSelectionIntercept?: (range: CellRange) => void
+  interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
+  onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
   readonly?: boolean
   /** 是否显示行号列，默认 true */
   showRowHeader?: boolean
@@ -289,6 +292,9 @@ export class SheetGrid {
       // Excel 键位组合（Enter 进编辑 / 关闭 Ctrl 加选）：本仓引擎两开关缺省即关，
       // 由下方两项显式表达（只读覆盖为关闭），无需外部键位预设展开
       ctrlMultiSelect: false,
+      // shift+点选扩展锚点：引用拾取手势期以「上次拾取段锚点」扩展（画布选区在拾取期
+      // 被回推为被编辑格，引擎缺省锚点取不到拾取段）；非拾取期返回 undefined 交引擎缺省
+      resolveShiftSelectAnchor: () => this.selectionController.resolveShiftExtendAnchor(),
       editCellOnEnter: !this.isReadonly,
       hostOptions: { container: this.container },
     } satisfies ListTableOptions)

@@ -177,10 +177,10 @@ describe('引用选择拦截', () => {
     try {
       fire(container, 'pointerdown', { clientX: cellX(2), clientY: cellY(2) })
       fire(container, 'pointerup', { clientX: cellX(2), clientY: cellY(2) })
-      expect(onSelectionIntercept).toHaveBeenCalledWith({
-        start: { row: 2, col: 2 },
-        end: { row: 2, col: 2 },
-      })
+      expect(onSelectionIntercept).toHaveBeenCalledWith(
+        { start: { row: 2, col: 2 }, end: { row: 2, col: 2 } },
+        { shiftKey: false, extend: false },
+      )
       // 模型选区保持 A1（公式目标格高亮语义）
       expect(sheet.getSelection().activeCell).toEqual({ row: 0, col: 0 })
     } finally {
@@ -201,12 +201,88 @@ describe('引用选择拦截', () => {
       expect(onSelectionIntercept).not.toHaveBeenCalled()
       fire(container, 'pointerup', { clientX: cellX(3), clientY: cellY(3) })
       expect(onSelectionIntercept).toHaveBeenCalledTimes(1)
-      expect(onSelectionIntercept).toHaveBeenCalledWith({
-        start: { row: 1, col: 1 },
-        end: { row: 3, col: 3 },
-      })
+      expect(onSelectionIntercept).toHaveBeenCalledWith(
+        { start: { row: 1, col: 1 }, end: { row: 3, col: 3 } },
+        { shiftKey: false, extend: false },
+      )
       // 模型选区保持 A1（公式目标格高亮语义）
       expect(sheet.getSelection().activeCell).toEqual({ row: 0, col: 0 })
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('shift+点选扩展：锚点恒为首次拾取锚点，抬手回交 extend（连续扩展不重置锚点）', () => {
+    const onSelectionIntercept = vi.fn<
+      (range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void
+    >()
+    const { grid, container } = createGrid({
+      interceptSelection: () => true,
+      onSelectionIntercept,
+    })
+    try {
+      // 首次拾取 (1,1)：普通点选，extend=false
+      fire(container, 'pointerdown', { clientX: cellX(1), clientY: cellY(1) })
+      fire(container, 'pointerup', { clientX: cellX(1), clientY: cellY(1) })
+      expect(onSelectionIntercept).toHaveBeenLastCalledWith(
+        { start: { row: 1, col: 1 }, end: { row: 1, col: 1 } },
+        { shiftKey: false, extend: false },
+      )
+      // shift+点击 (3,3)：以上次拾取锚点扩展
+      fire(container, 'pointerdown', { clientX: cellX(3), clientY: cellY(3), shiftKey: true })
+      fire(container, 'pointerup', { clientX: cellX(3), clientY: cellY(3), shiftKey: true })
+      expect(onSelectionIntercept).toHaveBeenLastCalledWith(
+        { start: { row: 1, col: 1 }, end: { row: 3, col: 3 } },
+        { shiftKey: true, extend: true },
+      )
+      // 继续 shift+点击 (4,2)：锚点仍是首次拾取锚点（1,1），而非上一段末角
+      fire(container, 'pointerdown', { clientX: cellX(4), clientY: cellY(2), shiftKey: true })
+      fire(container, 'pointerup', { clientX: cellX(4), clientY: cellY(2), shiftKey: true })
+      expect(onSelectionIntercept).toHaveBeenLastCalledWith(
+        { start: { row: 1, col: 1 }, end: { row: 2, col: 4 } },
+        { shiftKey: true, extend: true },
+      )
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('首次拾取即 shift：无上次拾取锚点，按普通拾取回交（extend=false）', () => {
+    const onSelectionIntercept = vi.fn<
+      (range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void
+    >()
+    const { grid, container } = createGrid({
+      interceptSelection: () => true,
+      onSelectionIntercept,
+    })
+    try {
+      fire(container, 'pointerdown', { clientX: cellX(2), clientY: cellY(2), shiftKey: true })
+      fire(container, 'pointerup', { clientX: cellX(2), clientY: cellY(2), shiftKey: true })
+      expect(onSelectionIntercept).toHaveBeenLastCalledWith(
+        { start: { row: 2, col: 2 }, end: { row: 2, col: 2 } },
+        { shiftKey: true, extend: false },
+      )
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('interceptSelection 收到 shift 修饰键：仅 shift 按下时进入拾取手势', () => {
+    const onSelectionIntercept = vi.fn<(range: CellRange) => void>()
+    const { grid, container, sheet } = createGrid({
+      interceptSelection: (meta) => meta?.shiftKey === true,
+      onSelectionIntercept,
+    })
+    try {
+      // 无 shift 点击：不拦截，走普通选区落模型
+      fire(container, 'pointerdown', { clientX: cellX(1), clientY: cellY(1) })
+      fire(container, 'pointerup', { clientX: cellX(1), clientY: cellY(1) })
+      expect(onSelectionIntercept).not.toHaveBeenCalled()
+      expect(sheet.getSelection().activeCell).toEqual({ row: 1, col: 1 })
+      // shift 点击：拦截拾取
+      fire(container, 'pointerdown', { clientX: cellX(2), clientY: cellY(2), shiftKey: true })
+      fire(container, 'pointerup', { clientX: cellX(2), clientY: cellY(2), shiftKey: true })
+      expect(onSelectionIntercept).toHaveBeenCalledTimes(1)
     } finally {
       grid.release()
     }

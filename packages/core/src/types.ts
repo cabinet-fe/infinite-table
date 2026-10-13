@@ -265,9 +265,12 @@ export interface ListTableOptions {
   imageServiceOptions?: ImageServiceOptions
   /** 左侧冻结列数（数据列，不含行号列；缺省 0） */
   frozenColCount?: number
-  /** 顶部冻结行数（数据行，不含列头；缺省 0）。合并区不允许跨冻结边界 */
+  /** 顶部冻结行数（数据行，不含列头；缺省 0）。合并区跨冻结边界合法（主格按冻结带钉固） */
   frozenRowCount?: number
-  /** 合并单元格区间列表（闭区间；不允许重叠、不允许跨冻结边界） */
+  /**
+   * 合并单元格区间列表（闭区间；跨冻结边界合法）。重叠项构造时规范化：
+   * 保留先声明、丢弃冲突项并 console 提示，不抛错
+   */
   mergeCells?: readonly CellRange[]
   rowHeight?: number
   defaultColWidth?: number
@@ -301,6 +304,13 @@ export interface ListTableOptions {
   canResizeRow?: (row: number) => boolean
   /** Ctrl/Cmd 点选多选：开启后 Ctrl/Cmd 点数据格在既有选区上追加选区段（缺省 false，点选替换选区） */
   ctrlMultiSelect?: boolean
+  /**
+   * shift+点选扩展的锚点解析 hook：按住 shift 点数据格时以返回格为锚开启拖选扩展
+   * （选区段从锚点延伸到点击格，继续拖拽/连续 shift 点选均以它为锚）。返回 undefined
+   * 用引擎缺省（画布选区末段 start）；返回 null 不扩展（回落普通点选）。引用拾取等
+   * 「画布选区不随拾取流动」的宿主经此自持锚点。
+   */
+  resolveShiftSelectAnchor?: (target: CellRef) => CellRef | null | undefined
   /**
    * 内建滚动条：false 整体关闭（不绘制、右/下缘条带不拦截指针）；缺省 hover 档
    * （悬停表格内或滚动时显示、静止 hideDelay 后隐藏）；显式 true 常驻（旧语义）；

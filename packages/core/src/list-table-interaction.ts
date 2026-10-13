@@ -256,8 +256,17 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     table.pointerDownCell = cell
     // 合并区整体作为选区单元：点按即全选包围盒（锚定主格，焦点随主格，编辑/取值都走主格）
     const extent = dragExtentRange(table, cell, cell)
+    // shift+点选扩展：锚点解析 hook 优先（引用拾取等宿主自持「上次拾取锚点」的场景，
+    // 画布选区已被回推、不含拾取段），缺省取画布选区末段 start（键盘 shift 扩展的
+    // 同语义指针版）；无锚点（无选区/hook 明确 null）回落普通点选
+    const shiftAnchor = event.shiftKey ? resolveShiftAnchor(table, cell) : null
     // ctrlMultiSelect：Ctrl/Cmd 点选在既有选区上追加选区段（后续拖拽扩展该段）；缺省替换选区
-    if (table.options.ctrlMultiSelect === true && (event.ctrlKey || event.metaKey)) {
+    if (shiftAnchor) {
+      const anchorExtent = dragExtentRange(table, shiftAnchor, shiftAnchor)
+      table.selection.beginDragRange(anchorExtent.start, extent.end)
+      // 锚点定格解析后的锚点格：后续拖拽/连续 shift 点选恒以它扩展
+      table.dragAnchor = { ...anchorExtent.start }
+    } else if (table.options.ctrlMultiSelect === true && (event.ctrlKey || event.metaKey)) {
       table.selection.addRange(extent)
     } else {
       table.selection.beginDragRange(extent.start, extent.end)
@@ -267,6 +276,19 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     }
     table.selecting = true
   }
+}
+
+/**
+ * shift+点选的锚点格：宿主 hook 优先；未配置回落画布选区末段 start（shift 扩展语义，
+ * 与键盘 shift+方向键以末段 start 为锚一致）；无选区或 hook 明确 null 均无锚点。
+ */
+function resolveShiftAnchor(table: ListTable, target: CellRef): CellRef | null {
+  const hooked = table.options.resolveShiftSelectAnchor?.(target)
+  if (hooked !== undefined) {
+    return hooked
+  }
+  const ranges = table.selection.snapshot.ranges
+  return ranges[ranges.length - 1]?.start ?? null
 }
 
 function onPointerMove(table: ListTable, event: SceneEvent): void {

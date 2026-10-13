@@ -10,16 +10,23 @@ import { computeFillTargetRange, generateFill, type FillDirection } from '../cor
 import type { SelectionState } from '../core/selection'
 import type { Sheet } from '../core/sheet'
 
+/** 选区拦截回调元信息：shiftKey 为本次按下/手势携带的 shift 修饰键，extend 表示
+ * 本次范围是对上次拾取段的 shift 扩展（宿主可据此替换上次插入的引用而非追加） */
+export interface SelectionInterceptMeta {
+  shiftKey?: boolean
+  extend?: boolean
+}
+
 export interface GridSelectionControllerOptions {
   /** 整表只读：禁用填充柄写入口（选区照常） */
   isReadonly?: boolean
-  interceptSelection?: () => boolean
-  onSelectionIntercept?: (range: CellRange) => void
+  interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
+  onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
   /** 引擎容器：引用拾取手势接线（pointerdown 起手置位 / window 抬手收敛） */
   container?: HTMLElement
 }
 
-/** 引擎选区段 → 模型区域（min/max 归一，闭区间） */
+  /** 引擎选区段 → 模型区域（min/max 归一，闭区间） */
 function boundsToSheetRange(bounds: RangeBounds): CellRange {
   return {
     start: { row: bounds.minRow, col: bounds.minCol },
@@ -70,13 +77,18 @@ export class GridSelectionController {
   private readonly sheet: Sheet
   private readonly table: ListTable
   private readonly isReadonly: boolean
-  private readonly interceptSelection?: () => boolean
-  private readonly onSelectionIntercept?: (range: CellRange) => void
+  private readonly interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
+  private readonly onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
   private readonly container?: HTMLElement
   /** 引用拾取手势期（pointerdown 起手 → pointerup 收敛）：选区变更只记录不回交 */
   private picking = false
   /** 手势期最新拦截范围（引擎连续发射，抬手取末值） */
   private gestureRange: CellRange | null = null
+  /** 手势期 shift 修饰键（pointerdown 时定格）：抬手收敛判定 extend 用 */
+  private gestureShift = false
+  /** 最近一次回交宿主的拦截范围：shift+点选扩展的锚点来源（拾取期画布选区被回推为
+   * 被编辑格、不含拾取段，引擎缺省锚点取不到「上次拾取的锚点」，由本类自持） */
+  private lastPickedRange: CellRange | null = null
   /** 画布选区回写模型的自传播期：由此引发的 selection-change 回推不滚动视口
    *  （画布侧选区本就来自可视交互/宿主 canvas API，焦点可见性由引擎原生路径
    *  自理；程序化整列选区的焦点落段末，回推若滚动会把视口拉走——右键列头
@@ -100,8 +112,9 @@ export class GridSelectionController {
     // 的目标监听，保证首个选区发射前 picking 已就位），window 级抬起收敛
     // （拖出容器也兜底）；无容器（单测直挂）退化为即时拦截
     if (this.container) {
-      const onPointerDown = (): void => {
-        if (this.interceptSelection?.()) this.picking = true
+      const onPointerDown = (event: PointerEvent): void => {
+        this.gestureShift = event.shiftKey
+        if (this.interceptSelection?.({ shiftKey: event.shiftKey })) this.picking = true
       }
       this.container.addEventListener('pointerdown', onPointerDown, true)
       disposers.push(() => this.container?.removeEventListener('pointerdown', onPointerDown, true))
@@ -118,7 +131,7 @@ export class GridSelectionController {
         // 若逐事件回交，首个引用插入后 fx 光标离开引用触发位、上下文断裂，
         // 拖选余段会跌落普通选区路径污染模型；抬手后一次回交最终范围。
         // 非手势选区变更（程序化 selectCells / 键盘）走下方即时拦截路径
-        if (this.picking && this.interceptSelection?.()) {
+        if (this.picking && this.interceptSelection?.({ shiftKey: this.gestureShift })) {
           this.gestureRange = range
           return
         }
@@ -217,10 +230,18 @@ export class GridSelectionController {
     this.pushSelectionToTable(this.sheet.getSelection(), { scroll: false })
   }
 
-  /** 引用选择拦截：宿主 hook 命中即拦截画布选区回写并抛拦截区域 */
-  private tryInterceptSelection(range: CellRange): boolean {
-    if (!this.interceptSelection?.()) return false
-    this.onSelectionIntercept?.(range)
+  /** 引擎 shift+点选锚点解析（ListTable `resolveShiftSelectAnchor` 注入源）：引用拾取
+   * 手势期以上次拾取段锚点为扩展起点；非拾取期返回 undefined 交引擎缺省（画布末段 start） */
+  resolveShiftExtendAnchor(): CellAddress | null | undefined {
+    if (!this.picking) return undefined
+    return this.lastPickedRange ? { ...this.lastPickedRange.start } : null
+  }
+
+  /** 引用选择拦截：宿主 hook 命中即拦截画布选区回写并抛拦截区域（记录为 shift 扩展锚点） */
+  private tryInterceptSelection(range: CellRange, meta: SelectionInterceptMeta = {}): boolean {
+    if (!this.interceptSelection?.(meta)) return false
+    this.lastPickedRange = range
+    this.onSelectionIntercept?.(range, meta)
     return true
   }
 
@@ -230,7 +251,16 @@ export class GridSelectionController {
     this.picking = false
     const range = this.gestureRange
     this.gestureRange = null
-    if (range) this.onSelectionIntercept?.(range)
+    if (range) {
+      // extend：本次手势带 shift 且此前已有拾取记录（引擎以「上次拾取锚点 → 本次点击格」
+      // 扩展了范围）；首拾取即 shift 时锚点不成立，按普通拾取回交
+      const meta: SelectionInterceptMeta = {
+        shiftKey: this.gestureShift,
+        extend: this.gestureShift && this.lastPickedRange !== null,
+      }
+      this.tryInterceptSelection(range, meta)
+    }
+    this.gestureShift = false
     this.restoreInterceptedSelection()
   }
 
