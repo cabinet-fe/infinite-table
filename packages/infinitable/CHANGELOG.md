@@ -5,7 +5,7 @@
 ### Minor Changes
 
 - a87051d: 合并区重叠不再打断渲染：脏合并区（历史模板/外部导入/程序化拼装）在批量数据入口自动规范化——保留先声明区间、丢弃冲突项并 console 提示，不再以未捕获异常打断网格重建与快照恢复
-  
+
   - 新增类型化错误 `MergeOverlapError`：`MergeCellMap` 构造与 `addMergeCell`（程序化单命令 fail-fast 层）重叠时抛出，携带冲突坐标与两条冲突区间原文，宿主可 `instanceof` 定位
   - 新增 `sanitizeMerges(ranges)` 纯函数导出：与 `MergeCellMap` 同一套归一化语义，宿主可在写快照前自救脏数据；`ListTable` 构造参数与 `setMergeCells` 内部同源消解（附带 `warnMergeConflicts` 与 `MergeConflict`/`SanitizedMerges` 类型导出）
   - sheet 快照恢复（`restore` / `restoreContent`，含 RestoreSheetCommand 与 undo/redo 回放）对重叠合并区先规范化再入模型，脏快照的单条重叠不再污染合并索引
@@ -14,7 +14,7 @@
 ### Patch Changes
 
 - e014376: fix(core,media): 同格替换或移除后再嵌入图片，不再始终显示第一张图——`refreshImageCell` 在换 URL / 移除时同步失效 cell 级位图缓存（缓存 key 不含 URL，旧条目残留会让新 URL 永不发起加载）；undo/redo 回放 clone 载荷换 URL 的同源场景一并修复
-  
+
   feat(core,sheet): 函数参数格支持 shift+点选批量扩展——新增 `resolveShiftSelectAnchor` 锚点解析 hook 与选区拦截回交元信息 `SelectionInterceptMeta`（shiftKey/extend），引用拾取手势以上次拾取锚点连续扩展（宿主据此替换上次插入的引用）；普通模式 shift+点选按画布选区末段锚点扩展（键盘 shift 扩展的同语义指针版）
 
 ## 0.1.8

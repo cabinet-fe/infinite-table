@@ -123,7 +123,9 @@ export type {
   FormulaRefCoord,
   FormulaResolver,
   FormulaShiftResult,
+  RangeRef,
   ScalarValue,
+  ScannedReference,
   SheetCellCoord,
 } from '@infinitable/formulas'
 

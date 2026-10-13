@@ -26,7 +26,7 @@ export interface GridSelectionControllerOptions {
   container?: HTMLElement
 }
 
-  /** 引擎选区段 → 模型区域（min/max 归一，闭区间） */
+/** 引擎选区段 → 模型区域（min/max 归一，闭区间） */
 function boundsToSheetRange(bounds: RangeBounds): CellRange {
   return {
     start: { row: bounds.minRow, col: bounds.minCol },

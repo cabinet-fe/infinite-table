@@ -794,3 +794,34 @@ describe('SheetGrid 滚动近端动态增长（WPS 式无限表格）', () => {
     }
   })
 })
+
+describe('SheetGrid 引用拾取染色框', () => {
+  it('setHighlightRanges：模型区域换算引擎 min/max 边界逐条落 table，空数组清除', () => {
+    const { grid, table } = createGrid()
+    try {
+      grid.setHighlightRanges([
+        { range: { start: { row: 2, col: 3 }, end: { row: 1, col: 5 } }, color: '#2563eb' },
+        { range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } }, color: '#dc2626' },
+      ])
+      expect(table.highlightRanges).toEqual([
+        { bounds: { minCol: 3, minRow: 1, maxCol: 5, maxRow: 2 }, color: '#2563eb' },
+        { bounds: { minCol: 0, minRow: 0, maxCol: 0, maxRow: 0 }, color: '#dc2626' },
+      ])
+      grid.setHighlightRanges([])
+      expect(table.highlightRanges).toEqual([])
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('release 后调用静默无操作（不抛错）', () => {
+    const { grid, table } = createGrid()
+    grid.release()
+    expect(() =>
+      grid.setHighlightRanges([
+        { range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } }, color: '#000' },
+      ]),
+    ).not.toThrow()
+    expect(table.highlightRanges).toEqual([])
+  })
+})

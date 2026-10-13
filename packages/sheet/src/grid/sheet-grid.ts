@@ -34,10 +34,7 @@ import {
   type ResolveDisplayValue,
 } from './grid-model'
 import { GridRowHeightEngine } from './grid-row-height-engine'
-import {
-  GridSelectionController,
-  type SelectionInterceptMeta,
-} from './grid-selection-controller'
+import { GridSelectionController, type SelectionInterceptMeta } from './grid-selection-controller'
 import {
   SHEET_DEFAULT_COL_WIDTH,
   SHEET_DEFAULT_ROW_HEIGHT,
@@ -51,6 +48,12 @@ export type ResolveCellRenderer = (
   addr: CellAddress,
   base: CellValue | undefined,
 ) => CellRenderer | undefined
+
+/** 公式引用拾取染色框条目：模型区域 + 边框颜色（宿主循环色板逐条指定） */
+export interface SheetGridHighlight {
+  range: CellRange
+  color: string
+}
 
 /** 容器未布局时的视口兜底尺寸（happy-dom / 隐藏挂载场景） */
 const FALLBACK_VIEW_W = 960
@@ -374,6 +377,26 @@ export class SheetGrid {
   setSelectionAnchor(addr: CellAddress | null): void {
     if (this.released) return
     this.table.setSelectionAnchor(addr)
+  }
+
+  /**
+   * 公式引用拾取染色框（Excel 点选反馈）：每个引用段一圈彩色细边框（颜色由宿主
+   * 循环色板逐条指定），随滚动/选区同内容源重绘；空数组清除。纯视图态，不写模型、
+   * 不拦截事件。
+   */
+  setHighlightRanges(items: readonly SheetGridHighlight[]): void {
+    if (this.released) return
+    this.table.setHighlightRanges(
+      items.map(({ range, color }) => ({
+        bounds: {
+          minCol: Math.min(range.start.col, range.end.col),
+          minRow: Math.min(range.start.row, range.end.row),
+          maxCol: Math.max(range.start.col, range.end.col),
+          maxRow: Math.max(range.start.row, range.end.row),
+        },
+        color,
+      })),
+    )
   }
 
   /**

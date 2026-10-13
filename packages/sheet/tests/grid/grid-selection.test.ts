@@ -213,9 +213,8 @@ describe('引用选择拦截', () => {
   })
 
   it('shift+点选扩展：锚点恒为首次拾取锚点，抬手回交 extend（连续扩展不重置锚点）', () => {
-    const onSelectionIntercept = vi.fn<
-      (range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void
-    >()
+    const onSelectionIntercept =
+      vi.fn<(range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void>()
     const { grid, container } = createGrid({
       interceptSelection: () => true,
       onSelectionIntercept,
@@ -248,9 +247,8 @@ describe('引用选择拦截', () => {
   })
 
   it('首次拾取即 shift：无上次拾取锚点，按普通拾取回交（extend=false）', () => {
-    const onSelectionIntercept = vi.fn<
-      (range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void
-    >()
+    const onSelectionIntercept =
+      vi.fn<(range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void>()
     const { grid, container } = createGrid({
       interceptSelection: () => true,
       onSelectionIntercept,

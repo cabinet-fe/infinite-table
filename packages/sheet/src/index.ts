@@ -204,7 +204,12 @@ export { TypedEventEmitter } from './core/events'
 // ---- grid 适配层（SheetGrid 装配：与 src/grid/index.ts 同一公共面） ----
 
 export type { CellRenderer, CellRenderTarget } from './grid/index'
-export { SheetGrid, type ResolveCellRenderer, type SheetGridOptions } from './grid/sheet-grid'
+export {
+  SheetGrid,
+  type ResolveCellRenderer,
+  type SheetGridHighlight,
+  type SheetGridOptions,
+} from './grid/sheet-grid'
 // 选区拦截回调元信息（shiftKey / extend）：引用拾取 shift+点选扩展的宿主消费形态
 export type { SelectionInterceptMeta } from './grid/grid-selection-controller'
 // SheetGridOptions.scrollbar 对象形态（core 同形再导出；mode: 'native' 原生滚动条档）

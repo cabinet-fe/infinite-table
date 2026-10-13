@@ -17,7 +17,7 @@
 import './functions'
 
 export { colLetters, createRangeRef, formatCellRef, formatRangeRef, parseCellRef } from './address'
-export type { CellRef } from './address'
+export type { CellRef, RangeRef } from './address'
 
 export { formulaError, isFormulaError, isFormulaErrorCode } from './errors'
 export type { FormulaError } from './errors'
@@ -34,6 +34,7 @@ export { DependencyGraph } from './dependency-graph'
 export type { FormulaRefCoord, SheetCellCoord } from './dependency-graph'
 
 export { scanFormulaReferences } from './scan-refs'
+export type { ScannedReference } from './scan-refs'
 
 export { shiftFormulaText, shiftFormulaRefs } from './shift'
 export type { FormulaShiftResult } from './shift'
