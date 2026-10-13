@@ -145,6 +145,42 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
     expect(loader.started).toEqual(['r5.png'])
   })
 
+  it('替换图片 URL：cell 级位图缓存同步失效，新 URL 发起真实加载', async () => {
+    let url: string | null = 'a.png'
+    const { host, loader, table } = createImageTable({ resolveCellImage: () => url })
+    loader.resolveAll()
+    await flush()
+    expect(imageNodeAt(host, 0, 0)?.hasBitmap).toBe(true)
+    // 换图：同格同尺寸的缓存 key 不含 URL，若不失效旧位图，新 URL 永不加载
+    url = 'b.png'
+    table.refreshCell(0, 0)
+    expect(loader.started).toContain('b.png')
+    loader.resolveAll(fakeImage(20, 20))
+    await flush()
+    const node = imageNodeAt(host, 0, 0)
+    expect(node?.url).toBe('b.png')
+    expect(node?.hasBitmap).toBe(true)
+  })
+
+  it('移除图片后再嵌入：重嵌入按新 URL 加载，不命中旧位图缓存', async () => {
+    let url: string | null = 'a.png'
+    const { host, loader, table } = createImageTable({ resolveCellImage: () => url })
+    loader.resolveAll()
+    await flush()
+    // 移除：节点摘除且缓存条目失效
+    url = null
+    table.refreshCell(0, 0)
+    expect(imageNodeAt(host, 0, 0)).toBeUndefined()
+    expect(table.mediaCache.get('image:0:0:100x32')).toBeUndefined()
+    // 重嵌入新图：补建分支不得命中残留位图
+    url = 'b.png'
+    table.refreshCell(0, 0)
+    expect(loader.started).toContain('b.png')
+    loader.resolveAll()
+    await flush()
+    expect(imageNodeAt(host, 0, 0)?.hasBitmap).toBe(true)
+  })
+
   it('滚动更新窗口：滚出余量的 loading 请求被取消，滚回后重新加载', async () => {
     const loader = controllableLoader()
     const host = new StubHost()

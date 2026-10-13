@@ -116,9 +116,14 @@ export function refreshImageCell(table: ListTable, col: number, row: number): vo
   }
   const region = node.getGlobalBounds()
   if (!url) {
+    // 摘节点同时失效 cell 级位图缓存：key 不含 URL，「移除后重嵌入」走补建分支时
+    // 同 key 命中的必须是新图，旧位图残留会让新图永远不被加载
+    table.mediaCache.invalidateKey(imageCacheKey(col, row, node.width, node.height))
     table.media.root.removeChild(node)
     table.imageCellNodes.delete(key)
   } else if (url !== node.url) {
+    // 换 URL 即失效旧位图（key 不含 URL，同格替换/undo 回放 clone 载荷均会换 URL）
+    table.mediaCache.invalidateKey(imageCacheKey(col, row, node.width, node.height))
     table.media.root.removeChild(node)
     table.imageCellNodes.delete(key)
     appendImageCell(table, col, row, url, node.x, node.y, node.width, node.height)
