@@ -20,6 +20,9 @@
 ## 测试
 
 - vitest（`bun run test` = `vp test run`，一律吃 workspace 源码不吃 dist）；单测放包内 `tests/` 目录，测试专用辅助（fake/stub）放 `tests/testing/`
+- 测试环境默认 node（根配置统一声明）；需要 DOM 的测试文件在文件头加 `// @vitest-environment happy-dom`（happy-dom 比 jsdom 快，禁止改回全量 DOM 默认）
+- 增量：`bun run test:changed`（按 git 改动映射受影响包；根级文件回退全量；纯文档改动跳过）
+- 任务收尾：`bun run lint` 全过 + `bun run test:changed` 绿即可；全量 `bun run test` 不在收尾跑，留给发版前（本仓 release.yml 发布链不跑测试，发布前须手动全量回归）
 - 性能基准回归并入统一测试入口：`playground/src/bench/headless.test.ts`（浏览器入口仍是 `bench.html`），未达标即测试失败，性能回归不许进 main
 - 渲染相关行为用浏览器冒烟验证：`node playground/scripts/smoke.mjs`（构建 + preview + 页内断言，依赖全局 playwright-cli）
 - 类型检查走 `bun run check`（vp check：oxfmt + oxlint + tsgolint 三合一）；`tsc -b` 仅在 build 链产出 d.ts
