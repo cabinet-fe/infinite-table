@@ -131,7 +131,8 @@ export interface SheetGridOptions {
   /**
    * 滚动近端动态增长（WPS 式无限表格，缺省 true）：滚动缓冲末端触到当前行列数时，
    * 模型与引擎同步扩容（初始尺寸 = 宿主下限或缺省 100×26 与「可视 + 缓冲」的较大者，
-   * 滚动触界后每次扩「一幅可视 + 缓冲」）。false 为固定尺寸网格。
+   * 滚动触界后每次扩「一幅可视 + 缓冲」）。false 为固定尺寸网格：滚动与容器 resize
+   * 均不增长（容器放大超出当前行列数的部分为空白区）。
    */
   growOnScroll?: boolean
 }
@@ -156,6 +157,8 @@ export class SheetGrid {
   private readonly isReadonly: boolean
   private readonly showRowHeader: boolean
   private readonly showColHeader: boolean
+  /** 滚动近端动态增长开关（growOnScroll，缺省 true；false 固定尺寸网格，滚动/resize 均不增长） */
+  private readonly growOnScroll: boolean
   private readonly headerLayer: GridHeaderLayer | undefined
   private readonly editorRouting: GridEditorRouting | undefined
   private readonly rowHeightEngine: GridRowHeightEngine
@@ -186,6 +189,7 @@ export class SheetGrid {
     this.isReadonly = options.readonly ?? false
     this.showRowHeader = options.showRowHeader ?? true
     this.showColHeader = options.showColHeader ?? true
+    this.growOnScroll = options.growOnScroll !== false
     // 列头机制先于列装配创建（colTitle 决定引擎列定义标题）
     this.headerLayer = options.header ? new GridHeaderLayer(options.header) : undefined
     // 编辑器机制：仅非只读时接管引擎会话（会话回调对齐 onEditStart / onEditEnd 口径）
@@ -211,12 +215,11 @@ export class SheetGrid {
       Math.max(0, viewWidth - (this.showRowHeader ? SHEET_ROW_HEADER_WIDTH : 0)) /
         this.defaultColWidth,
     )
-    const grow = options.growOnScroll !== false
     // 宿主显式声明行列数时按声明（固定网格意图），未声明才按「可视 + 缓冲」给足初始网格
     const initialRows =
-      options.rows ?? (grow ? Math.max(100, fitRows + DEFAULT_OVERSCAN_ROWS + 1) : 100)
+      options.rows ?? (this.growOnScroll ? Math.max(100, fitRows + DEFAULT_OVERSCAN_ROWS + 1) : 100)
     const initialCols =
-      options.cols ?? (grow ? Math.max(26, fitCols + DEFAULT_OVERSCAN_COLS + 1) : 26)
+      options.cols ?? (this.growOnScroll ? Math.max(26, fitCols + DEFAULT_OVERSCAN_COLS + 1) : 26)
     this.sheet.ensureTableSize(
       Math.max(initialRows, this.sheet.rowCount),
       Math.max(initialCols, this.sheet.colCount),
@@ -329,7 +332,7 @@ export class SheetGrid {
       }),
     )
     // 滚动近端动态增长（WPS 式无限表格；growOnScroll: false 固定尺寸网格）
-    if (options.growOnScroll !== false) {
+    if (this.growOnScroll) {
       this.disposers.push(this.table.onScrollFrame(() => this.growOnNearEdge()))
     }
 
@@ -876,8 +879,8 @@ export class SheetGrid {
           const height = this.container.clientHeight
           if (width <= 0 || height <= 0) return
           this.table.resize(width, height)
-          // 容器放大后初始网格可能不足：按新视口补增长
-          this.growOnNearEdge()
+          // 容器放大后初始网格可能不足：按新视口补增长（growOnScroll: false 固定网格不增长）
+          if (this.growOnScroll) this.growOnNearEdge()
         })
       })
     })

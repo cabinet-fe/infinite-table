@@ -720,6 +720,50 @@ describe('SheetGrid 容器 resize 自适应', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('缺省 growOnScroll：容器放大后可视超出当前行列数，按新视口补增长', () => {
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const { flushFrame } = stubRaf()
+    const { grid, table, sheet, container } = createGrid({ rows: 20, cols: 6 })
+    try {
+      Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 2400 })
+      Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 2000 })
+      ResizeObserverStub.lastCallback?.([], {})
+      flushFrame()
+      flushFrame()
+      expect(sheet.rows).toBeGreaterThan(20)
+      expect(sheet.cols).toBeGreaterThan(6)
+      expect(table.rowCount).toBe(sheet.rows)
+      expect(table.colCount).toBe(sheet.cols)
+    } finally {
+      grid.release()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('growOnScroll: false：容器放大不增长（固定尺寸网格语义，与滚动接线同门控）', () => {
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const { flushFrame } = stubRaf()
+    const { grid, table, sheet, container } = createGrid({
+      rows: undefined,
+      cols: undefined,
+      growOnScroll: false,
+    })
+    try {
+      Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 2400 })
+      Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 2000 })
+      ResizeObserverStub.lastCallback?.([], {})
+      flushFrame()
+      flushFrame()
+      expect(sheet.rows).toBe(100)
+      expect(sheet.cols).toBe(26)
+      expect(table.rowCount).toBe(100)
+      expect(table.colCount).toBe(26)
+    } finally {
+      grid.release()
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe('SheetGrid 滚动近端动态增长（WPS 式无限表格）', () => {
