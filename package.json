@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -b && bun run --filter './packages/*' build",
     "test": "vp test run",
+    "test:changed": "bun scripts/test-changed.ts",
     "check": "vp check",
     "lint": "vp lint && bun run check:deps",
     "fmt": "vp fmt --write .",
