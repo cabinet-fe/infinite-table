@@ -23,10 +23,6 @@ export class EditorRegistry {
     this.editors.set(name, editor)
   }
 
-  getEditor(name: string): CellEditor | undefined {
-    return this.editors.get(name)
-  }
-
   /**
    * 格级路由：按格解析应使用的编辑器。
    * 路由名先走 route hook，回退列定义 editor；未注册的名字解析为 undefined。

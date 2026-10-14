@@ -40,16 +40,6 @@ export class CellMetaStore {
     this.data.set(key, cloneCellMetaPayload(payload))
   }
 
-  /** 删除指定地址与 namespace 的 meta */
-  delete(addr: CellAddress, namespace: string): void {
-    this.data.delete(cellMetaKeyFrom(addr, namespace))
-  }
-
-  /** 是否存在指定 meta */
-  has(addr: CellAddress, namespace: string): boolean {
-    return this.data.has(cellMetaKeyFrom(addr, namespace))
-  }
-
   /** 解析存储键为 row / col / namespace */
   private parseKey(key: string): { row: number; col: number; namespace: string } {
     const nullIdx = key.indexOf('\0')
@@ -82,14 +72,6 @@ export class CellMetaStore {
         cellMetaKey(item.row, item.col, item.namespace),
         cloneCellMetaPayload(item.payload),
       )
-    }
-  }
-
-  /** 迭代所有条目（内部结构变更用） */
-  *entries(): Generator<[CellAddress, string, unknown]> {
-    for (const [key, payload] of this.data) {
-      const { row, col, namespace } = this.parseKey(key)
-      yield [{ row, col }, namespace, payload]
     }
   }
 

@@ -1,8 +1,10 @@
 # 替换路线图：ultra-ui `sheet-core/src/grid/` 重写为 infinitable 底座
 
+> 状态：S1–S7 已全部完成，本文留作历史记录。
+
 > 定位：本文是 ultra-ui 侧执行「重写 `packages/sheet-core/src/grid/`（VTable 适配层，10 文件 2919 行）」的**操作手册**。
 > 接口面的权威清单是 [`docs/plugin-interface-map.md`](./plugin-interface-map.md)（下称「清单」）；本文按替换执行视角组织，与之冲突处以清单为准。
-> 历史背景与依赖面提取见 `.agents/analysis/ultra-ui-sheet-gap.md`（其差距清单已全部闭环，仅作素材来源）。
+> 历史背景与依赖面提取的素材源已归档删除（其差距清单已全部闭环，仅作素材来源）。
 
 ## 〇、前置条件核对清单（全部满足才开工）
 
@@ -90,7 +92,7 @@
 | `defaultStyle` | `body` 分区 | — |
 | `headerStyle` / `cornerHeaderStyle` / `rowHeaderStyle` | `header` / `corner` / `rowHeader` 分区 | corner/rowHeader 缺省随生效 header 派生；显式覆盖键优先生效 |
 | hover 关闭/变色 | 无对应 | hover 行列高亮已移除（表头选区高亮足够，body 悬停无视觉反馈） |
-| `cellBorderClipDirection: 'bottom-right'` | 无对应 token（逐边边框语义已可表达） | 替换时按 ultra-ui 视觉核对邻格覆盖表现（`.agents/analysis/ultra-ui-sheet-gap.md` P1 清单第 12 项注记） |
+| `cellBorderClipDirection: 'bottom-right'` | 无对应 token（逐边边框语义已可表达） | 替换时按 ultra-ui 视觉核对邻格覆盖表现（原差距分析 P1 清单第 12 项注记，素材源已归档删除） |
 
 ### 5. 编辑器契约（`grid-editor-router.ts` → `EditorRegistry` + 插件）
 

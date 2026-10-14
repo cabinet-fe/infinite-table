@@ -95,7 +95,7 @@ export function paginate(source: PrintSource, config: PrintConfig): PrintPage[] 
 }
 
 /** headerRepeatRows 归一：负数/缺省 0；超行数夹到行数（整表皆表头 → 数据行数为 0） */
-function clampHeaderRepeatRows(value: number | undefined, rowCount: number): number {
+export function clampHeaderRepeatRows(value: number | undefined, rowCount: number): number {
   return Math.max(0, Math.min(value ?? 0, rowCount))
 }
 

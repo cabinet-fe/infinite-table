@@ -8,7 +8,8 @@
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": []
   },
   "files": [],
   "references": [
@@ -17,10 +18,12 @@
     { "path": "packages/formulas" },
     { "path": "packages/plugins" },
     { "path": "packages/sheet" },
+    { "path": "packages/infinitable" },
     { "path": "packages/render/tsconfig.tests.json" },
     { "path": "packages/core/tsconfig.tests.json" },
     { "path": "packages/formulas/tsconfig.tests.json" },
     { "path": "packages/plugins/tsconfig.tests.json" },
-    { "path": "packages/sheet/tsconfig.tests.json" }
+    { "path": "packages/sheet/tsconfig.tests.json" },
+    { "path": "packages/infinitable/tsconfig.tests.json" }
   ]
 }

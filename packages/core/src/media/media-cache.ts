@@ -35,10 +35,6 @@ export class MediaCache<T = RenderImageSource> {
     return this.entries.size
   }
 
-  get totalBytes(): number {
-    return this.bytes
-  }
-
   /** 命中则提升为最近使用 */
   get(key: string): T | undefined {
     const entry = this.entries.get(key)
@@ -64,17 +60,6 @@ export class MediaCache<T = RenderImageSource> {
       this.entries.delete(key)
       this.bytes -= entry.bytes
     }
-  }
-
-  invalidateAll(): void {
-    this.entries.clear()
-    this.bytes = 0
-  }
-
-  configure(options: MediaCacheOptions): void {
-    this.maxBytes = options.maxBytes ?? this.maxBytes
-    this.maxCount = options.maxCount ?? this.maxCount
-    this.evictWithinBudget()
   }
 
   /** 从最久未用端逐出，直到回落进 bytes/count 预算 */

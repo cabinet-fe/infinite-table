@@ -22,7 +22,7 @@ export interface FormulaShiftResult {
 }
 
 /** 平移后的引用区间（0 基闭区间坐标；broken 时保留原区间） */
-export interface ShiftedRange {
+interface ShiftedRange {
   start: CellCoord
   end: CellCoord
   broken: boolean

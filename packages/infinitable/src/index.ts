@@ -143,7 +143,6 @@ export type {
   PrintConfig,
   PrintHeaderFooterConfig,
   PrintHeaderFooterSection,
-  PrintImagePayload,
   PrintMargin,
   PrintOrientation,
   PrintPagingMode,

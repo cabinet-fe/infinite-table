@@ -13,6 +13,7 @@ import type {
 } from './fill-handle'
 import type { FloatTransformHandle } from './float/float-object-layer'
 import {
+  clampToAnchorAxis,
   hitFillHandle,
   resolveFillPreview,
   resolveFillTarget,
@@ -529,20 +530,9 @@ function extendHeaderDrag(table: ListTable, x: number, y: number): void {
   table.selection.updateDragRange(start, end)
 }
 
-/**
- * 填充拖拽终点更新：轴锁定（副轴夹回锚定段跨度）。
- * 柄方点骑在角点上，裸命中即右/下一格；副轴漂移不应产生侧向填充。
- */
+/** 填充拖拽终点更新：轴锁定（副轴夹回锚定段跨度，语义见 clampToAnchorAxis） */
 function updateFillCurrent(drag: FillDragState, cell: CellRef): void {
-  const anchor = normalizeRange(drag.range)
-  let col = cell.col
-  let row = cell.row
-  if (Math.abs(cell.row - drag.origin.row) >= Math.abs(cell.col - drag.origin.col)) {
-    col = Math.min(Math.max(col, anchor.minCol), anchor.maxCol)
-  } else {
-    row = Math.min(Math.max(row, anchor.minRow), anchor.maxRow)
-  }
-  drag.current = { col, row }
+  drag.current = clampToAnchorAxis(drag.origin, cell, normalizeRange(drag.range))
 }
 
 /** 指针在视口边缘区内的自动滚动速度（px/帧）；不在边缘区为 0（右/下界避开预留轨道） */

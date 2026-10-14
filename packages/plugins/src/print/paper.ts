@@ -29,20 +29,19 @@ export function pxToMm(px: number): number {
  * 纸张预设尺寸表（mm，portrait 口径宽×高）：
  * ISO A 系列标准值；Letter 为美制 8.5×11 inch（215.9×279.4mm）。
  */
-export const PAPER_PRESETS_MM: Readonly<
-  Record<PrintPaperPreset, { widthMm: number; heightMm: number }>
-> = Object.freeze({
-  A3: Object.freeze({ widthMm: 297, heightMm: 420 }),
-  A4: Object.freeze({ widthMm: 210, heightMm: 297 }),
-  A5: Object.freeze({ widthMm: 148, heightMm: 210 }),
-  Letter: Object.freeze({ widthMm: 215.9, heightMm: 279.4 }),
-})
+const PAPER_PRESETS_MM: Readonly<Record<PrintPaperPreset, { widthMm: number; heightMm: number }>> =
+  Object.freeze({
+    A3: Object.freeze({ widthMm: 297, heightMm: 420 }),
+    A4: Object.freeze({ widthMm: 210, heightMm: 297 }),
+    A5: Object.freeze({ widthMm: 148, heightMm: 210 }),
+    Letter: Object.freeze({ widthMm: 215.9, heightMm: 279.4 }),
+  })
 
 /** 页边距缺省值（px，四边同距；≈12.7mm / 0.5 inch） */
-export const DEFAULT_PRINT_MARGIN_PX = 48
+const DEFAULT_PRINT_MARGIN_PX = 48
 
 /** 页眉/页脚缺省预留高（px；section 存在且未显式给高时预留） */
-export const DEFAULT_HEADER_FOOTER_HEIGHT_PX = 32
+const DEFAULT_HEADER_FOOTER_HEIGHT_PX = 32
 
 /** 归一化页边距：单值展开四边、缺边回落缺省值 */
 function normalizeMargin(margin: number | PrintMargin | undefined): Required<PrintMargin> {

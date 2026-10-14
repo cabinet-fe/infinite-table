@@ -5,7 +5,7 @@ const CHROME_BG = '#F5F5F5'
 /** body 纯白 */
 const BODY_BG = '#FFF'
 /** 网格线 / 外框：浅灰 */
-export const GRID_BORDER = '#E1E4E8'
+const GRID_BORDER = '#E1E4E8'
 /** 选区边框：清晰蓝 */
 const SELECTION_BORDER = '#2170E7'
 /** 选区填充 */

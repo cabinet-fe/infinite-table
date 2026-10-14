@@ -35,7 +35,7 @@ export interface FormulaResolver {
 }
 
 /** evaluate 的可选上下文 */
-export interface EvaluateOptions {
+interface EvaluateOptions {
   /** 公式所在表名：填入缺省 sheet 的引用后传给 resolver（缺省保持 undefined，由 resolver 自定） */
   sheet?: string
   /** 公式所在格（ROW()/COLUMN() 省参语义）；缺省 { col: 0, row: 0 } */
@@ -217,7 +217,7 @@ function typeRank(type: string): number {
 const COMPARISON_OPS = new Set(['=', '<>', '<', '<=', '>', '>='])
 
 /** AST 求值 */
-export function evaluateAst(node: AstNode, ctx: FormulaEvalContext): EvalValue {
+function evaluateAst(node: AstNode, ctx: FormulaEvalContext): EvalValue {
   switch (node.kind) {
     case 'number':
     case 'string':

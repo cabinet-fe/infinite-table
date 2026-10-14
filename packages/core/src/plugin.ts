@@ -1,5 +1,5 @@
 // 插件统一注册路径（预留）：插件接口与挂载/卸载生命周期，注册即生效。
-// 具体插件实现（custom-cell-style、invert-highlight 等）在 packages/plugins（规划包）落地。
+// 具体插件实现在 packages/plugins（@infinitable/plugins：chart、print、watermark）。
 
 import type { ListTable } from './list-table'
 

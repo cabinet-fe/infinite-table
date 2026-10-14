@@ -117,11 +117,6 @@ export class SelectionState {
     this.emit()
   }
 
-  /** 拖选开始：锚定单格 */
-  beginDrag(col: number, row: number): void {
-    this.beginDragRange({ col, row }, { col, row })
-  }
-
   /**
    * 拖选开始（合并区整体）：锚定 start、初值即整段（点按合并区即全选包围盒），焦点同步 start（主格）。
    * 显式传 focus 时焦点取传入值（表头点击的交互可视位：活动格落当前可视带内，宿主以

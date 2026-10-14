@@ -7,7 +7,7 @@ import { $n } from '@cat-kit/core'
 import { isFormulaError, type FormulaError } from '../errors'
 import { coerceToBoolean, coerceToNumber, type EvalValue, type ScalarValue } from '../evaluator'
 
-export interface FlatArg {
+interface FlatArg {
   value: ScalarValue | FormulaError
   /** 来自区域展开（区别于直接参数：区域内文本/布尔被聚合函数忽略） */
   fromRange: boolean

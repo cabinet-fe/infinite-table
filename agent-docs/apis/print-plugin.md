@@ -7,28 +7,24 @@ keywords: [createPrintPlugin, PrintPluginOptions, PrintPluginHandle, paginate, b
 
 # createPrintPlugin 打印插件
 
-`infinitable`（plugins 层）导出 `createPrintPlugin(options)` 工厂（ureport2 双模式移植）：返回值同时是 `TablePlugin`（可经构造 `plugins` / `table.use()` 注册；mount 为契约占位，注册与销毁均无表侧副作用）与运行时 handle——打印链路本身 headless（不接线表格任何挂点），`paginate`（分页纯函数零 DOM）、`buildDocumentHtml`（页面 HTML 构建：页眉页脚占位符求值 + 表格页 + 水印平铺）、`print`（隐藏 iframe 装载 → 调起打印）与 `openPreview`（DOM 预览薄壳）全部经 handle 方法达成，可脱离表格直接以 handle 形态消费。供数走 `PrintSource` 窄接口（适配 sheet 插件 Store 或任意模型）；配置走 `PrintConfig`（纸张/方向/边距/缩放/分页/重复表头/分组换页/页眉页脚/水印），方法调用可逐次覆盖插件 options 的基线 config。原散装函数（`paginate`/`printPages`/`openPrintPreview` 等，0.1.2 起不再导出）收敛为 handle 方法。
+`infinitable`（plugins 层）导出 `createPrintPlugin(options)` 工厂（ureport2 双模式移植）：返回值同时是 `TablePlugin`（可经构造 `plugins` / `table.use()` 注册；mount 为契约占位，注册与销毁均无表侧副作用）与运行时 handle——打印链路本身 headless（不接线表格任何挂点），`paginate`（分页纯函数零 DOM）、`buildDocumentHtml`（页面 HTML 构建：页眉页脚占位符求值 + 表格页 + 水印平铺）、`print`（隐藏 iframe 装载 → 调起打印）与 `openPreview`（DOM 预览薄壳）全部经 handle 方法达成，可脱离表格直接以 handle 形态消费。供数走 `PrintSource` 窄接口（普通对象字面量或宿主模型适配器均可）；配置走 `PrintConfig`（纸张/方向/边距/缩放/分页/重复表头/分组换页/页眉页脚/水印），方法调用可逐次覆盖插件 options 的基线 config。原散装函数（`paginate`/`printPages`/`openPrintPreview` 等，0.1.2 起不再导出）收敛为 handle 方法。
 
 ## 快速上手
 
 ```ts
 import { createPrintPlugin, type PrintConfig, type PrintSource } from 'infinitable'
-import type { SheetPluginHandle } from 'infinitable'
 
-declare const sheet: SheetPluginHandle
-const store = sheet.activeStore()!
-
-// Store → PrintSource 适配（宿主/适配器供数形态）
+// PrintSource 是宿主供数的窄接口：普通对象字面量即可装配（行高/列宽 px，96dpi）
 const source: PrintSource = {
   name: '销售明细',
-  rowCount: store.getRowCount(),
-  colCount: store.getColCount(),
-  rowHeight: (row) => store.getRowHeight(row),
-  colWidth: (col) => store.getColWidth(col),
-  merges: () => store.getMerges(),
-  cellValue: (col, row) => store.getValue(col, row),
-  cellStyle: (col, row) => store.getEffectiveStyle(col, row),
-  displayValue: (col, row) => store.getDisplayValue(col, row),
+  rowCount: 20,
+  colCount: 4,
+  rowHeight: () => 28,
+  colWidth: (col) => [120, 160, 140, 140][col] ?? 100,
+  merges: () => [{ startCol: 0, startRow: 0, endCol: 3, endRow: 0 }], // 首行合并作表头
+  cellValue: (col, row) => (row === 0 ? '表头' : `${col}-${row}`),
+  cellStyle: () => undefined,
+  displayValue: (col, row) => (row === 0 ? '表头' : `${col}-${row}`),
 }
 
 const print = createPrintPlugin({
@@ -63,13 +59,6 @@ export interface PrintSource {
   cellValue(col: number, row: number): unknown
   cellStyle(col: number, row: number): CellStyle | undefined
   displayValue(col: number, row: number): unknown
-  images?: readonly FloatObject[]
-  imageData?: (object: FloatObject) => PrintImagePayload | undefined
-}
-
-export interface PrintImagePayload {
-  mime: string
-  data: Uint8Array
 }
 
 // ---- 配置 ----
@@ -299,7 +288,7 @@ await print.print(config) // 桩接管打印触发
 > - 行高/列宽单位是 px（96dpi），与引擎行列尺寸同口径；mm 纸张换算由内核处理，宿主不要二次换算。
 > - `groupBreakBy` 按 `cellValue`（原始值）判定分组，显示链（numFmt 等）不影响换页。
 > - 占位符求值对未识别的 `{...}` 原样保留——宿主自定义文案里的花括号不会被清空。
-> - `PrintSource.images` 为浮动图列表（与 sheet 插件导出通道的 images 同构），`kind === 'image'` 且 `imageData` 解析到字节才进打印输出。
+> - `PrintSource` 是纯表格供数接口（值/样式/合并/行列几何）：浮动图不进打印输出（浮动图收数口随死代码清理整体删除——渲染口从未实现）。
 
 ## 常见问题
 

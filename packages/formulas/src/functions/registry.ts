@@ -30,13 +30,13 @@ export const FORMULA_FUNCTION_CATEGORIES: readonly FormulaFunctionCategory[] = [
 ]
 
 /** 函数参数元数据（`name: '...'` 表示可变参数尾巴） */
-export interface FormulaFunctionParam {
+interface FormulaFunctionParam {
   name: string
   optional?: boolean
 }
 
 /** 注册时携带的函数元数据（第三方函数可省略，省略后不出现在分类面板、补全仅显示名称） */
-export interface FormulaFunctionMeta {
+interface FormulaFunctionMeta {
   description: string
   category: FormulaFunctionCategory
   params: FormulaFunctionParam[]

@@ -31,12 +31,12 @@ const PRESET_LINKS: ReadonlyArray<{ col: number; row: number; link: CellLinkPayl
 /** 演示列名（第 0 行表内标题与数据格默认标签共用） */
 const LINK_TITLES = ['名称', '链接', '说明', '备注'] as const
 
-export interface LinkDemoState {
+interface LinkDemoState {
   /** 目标格当前是否有链接 */
   hasLink: boolean
 }
 
-export interface LinkDemo {
+interface LinkDemo {
   container: HTMLElement
   grid: SheetGrid
   sheet: Sheet
@@ -107,7 +107,7 @@ function mountLinkDemo(section: HTMLElement): LinkDemo {
 const EMBED_ROWS = 14
 const EMBED_COLS = 8
 /** 嵌入图初始锚点（按钮重新插入时也回到该格） */
-export const EMBED_IMAGE_START = { row: 3, col: 2 } as const
+const EMBED_IMAGE_START = { row: 3, col: 2 } as const
 /** 嵌入图扫描行列数上限（插入行列后模型行列数增长，扫描范围封顶防失控） */
 const EMBED_SCAN_ROW_CAP = 100
 
@@ -121,14 +121,14 @@ const EMBED_IMAGE_SRC = `data:image/svg+xml,${encodeURIComponent(
     '</svg>',
 )}`
 
-export interface EmbedDemoState {
+interface EmbedDemoState {
   /** 嵌入图当前坐标（按格查询 API 扫描所得；无图为 null） */
   image: { row: number; col: number } | null
   /** 当前缩放模式 */
   fit: ImageFitMode
 }
 
-export interface EmbedDemo {
+interface EmbedDemo {
   container: HTMLElement
   grid: SheetGrid
   sheet: Sheet
@@ -238,7 +238,7 @@ const FLOAT_MENU_SRC = `data:image/svg+xml,${encodeURIComponent(
     '</svg>',
 )}`
 
-export interface FloatMenuDemo {
+interface FloatMenuDemo {
   container: HTMLElement
   grid: SheetGrid
   /** 浮动图模型 id（右键事件载荷对照用） */

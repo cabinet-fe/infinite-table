@@ -104,15 +104,11 @@ export type FillDragEndListener = (event: FillDragEndEvent) => void
 export type FillHandleDoubleClickListener = (event: FillHandleDoubleClickEvent) => void
 
 /**
- * 轴锁定后的拖拽目标范围：行/列位移绝对值大者为主轴（相等取纵向），
+ * 轴锁定钳制（填充拖拽共享内核）：行/列位移绝对值大者为主轴（相等取纵向），
  * 副轴夹回锚定段跨度内——柄方点骑在角点上，裸命中会落到右/下一格，
- * 且拖拽中的横向漂移不应产生侧向填充。目标始终为 origin..current 的 min/max 序。
+ * 且拖拽中的横向漂移不应产生侧向填充。
  */
-export function resolveFillTarget(
-  anchor: RangeBounds,
-  origin: CellRef,
-  current: CellRef,
-): RangeBounds {
+export function clampToAnchorAxis(origin: CellRef, current: CellRef, anchor: RangeBounds): CellRef {
   let col = current.col
   let row = current.row
   if (Math.abs(current.row - origin.row) >= Math.abs(current.col - origin.col)) {
@@ -120,11 +116,21 @@ export function resolveFillTarget(
   } else {
     row = Math.min(Math.max(row, anchor.minRow), anchor.maxRow)
   }
+  return { col, row }
+}
+
+/** 轴锁定后的拖拽目标范围：始终为 origin..current 的 min/max 序 */
+export function resolveFillTarget(
+  anchor: RangeBounds,
+  origin: CellRef,
+  current: CellRef,
+): RangeBounds {
+  const locked = clampToAnchorAxis(origin, current, anchor)
   return {
-    minCol: Math.min(origin.col, col),
-    minRow: Math.min(origin.row, row),
-    maxCol: Math.max(origin.col, col),
-    maxRow: Math.max(origin.row, row),
+    minCol: Math.min(origin.col, locked.col),
+    minRow: Math.min(origin.row, locked.row),
+    maxCol: Math.max(origin.col, locked.col),
+    maxRow: Math.max(origin.row, locked.row),
   }
 }
 

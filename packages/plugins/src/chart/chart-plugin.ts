@@ -1,5 +1,5 @@
 // 图表插件工厂：实现 core TablePlugin 契约，经既有插件注册路径挂载
-// （构造 options.plugins 或 table.use()，与 sheet 插件族同一注册方式）。
+// （构造 options.plugins 或 table.use()，与 @infinitable/sheet 插件同一注册方式）。
 // 格声明解析 + Chart.js 按需加载封装 + 离屏出图路由注入：mount 时把「格 → 图表媒体」
 // 解析器写入 table（core L2 media 的 chart 预留位），位图经 cell 级 MediaCache blit 上屏。
 

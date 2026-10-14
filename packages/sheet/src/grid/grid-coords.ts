@@ -20,7 +20,7 @@ export interface SheetGridContextMenuInfo {
 }
 
 /** 引擎事件层坐标（相对容器）→ 客户端坐标（供 UContextmenu.pop mousePosition） */
-export function clientPointFromTableEvent(
+function clientPointFromTableEvent(
   container: HTMLElement,
   x: number,
   y: number,
@@ -72,7 +72,7 @@ export function buildContextMenuInfo(
 }
 
 /** 引擎格引用 → 模型地址（行列头 / 空白为 null） */
-export function cellRefToAddr(cell: CellRef | null): CellAddress | null {
+function cellRefToAddr(cell: CellRef | null): CellAddress | null {
   return cell ? { row: cell.row, col: cell.col } : null
 }
 

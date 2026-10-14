@@ -9,9 +9,7 @@
     "preview": "vp preview"
   },
   "dependencies": {
-    "@cat-kit/core": "^1.2.1",
     "@infinitable/core": "workspace:*",
-    "@infinitable/formulas": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@infinitable/sheet": "workspace:*",
@@ -22,8 +20,6 @@
     "radix-ui": "^1.7.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "shadcn": "^4.21.4",
-    "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3"
   },
@@ -31,6 +27,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.2"
+    "@vitejs/plugin-react": "^6.1.2",
+    "shadcn": "^4.21.4"
   }
 }

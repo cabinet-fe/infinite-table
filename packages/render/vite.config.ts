@@ -1,1 +1,3 @@
-export { default } from '../../vite.lib.config'
+import { createLibConfig } from '../../vite.lib.config'
+
+export default createLibConfig()

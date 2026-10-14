@@ -102,14 +102,13 @@ export class CanvasLayer implements LayerHandle {
     }
   }
 
-  /** 帧末消费：取出重绘计划并执行；本帧无失效返回 false */
-  flush(): boolean {
+  /** 帧末消费：取出重绘计划并执行 */
+  flush(): void {
     const plan = this.queue.drain()
     if (!plan) {
-      return false
+      return
     }
     this.render(plan)
-    return true
   }
 
   private render(plan: RepaintPlan): void {

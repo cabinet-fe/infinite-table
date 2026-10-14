@@ -19,7 +19,7 @@ export function formatCommitStatus(change: CellChangeEvent): string {
 }
 
 /** 最近一次提交 / API 动作的回执文本（冒烟断言消费；页面状态行另有 React state） */
-export interface EditingStatus {
+interface EditingStatus {
   text: string
 }
 

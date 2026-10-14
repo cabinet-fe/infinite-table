@@ -19,13 +19,6 @@ export function normalizeCellRange(range: CellRange): CellRange {
   }
 }
 
-/** (col, row) 是否落在区间内 */
-export function rangeContains(range: CellRange, col: number, row: number): boolean {
-  return (
-    col >= range.startCol && col <= range.endCol && row >= range.startRow && row <= range.endRow
-  )
-}
-
 /**
  * 区间是否跨越冻结边界（纯谓词）：跨冻结边界的合并区合法——场景侧按主格所在
  * 冻结带钉固、整块绘制在滚动内容之上（list-table-scene 增量重挂）；

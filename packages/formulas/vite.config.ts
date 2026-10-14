@@ -1,16 +1,5 @@
-import { defineConfig } from 'vite-plus'
+import { createLibConfig } from '../../vite.lib.config'
 
-// 库构建配置：与 vite.lib.config.ts 同形态（entry/formats/emptyOutDir 对齐），
+// 库构建配置：复用 vite.lib.config.ts 的共享工厂（entry/formats/emptyOutDir 对齐），
 // 另把运行时依赖 @cat-kit/core 外部化（与 @infinitable/* 一样不进产物）
-export default defineConfig({
-  build: {
-    emptyOutDir: false,
-    lib: {
-      entry: 'src/index.ts',
-      formats: ['es'],
-    },
-    rollupOptions: {
-      external: [/^@infinitable\//, /^@cat-kit\//],
-    },
-  },
-})
+export default createLibConfig({ extraExternals: [/^@cat-kit\//] })

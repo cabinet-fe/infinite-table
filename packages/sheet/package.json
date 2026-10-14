@@ -18,7 +18,7 @@
     "@infinitable/formulas": "workspace:*",
     "hucre": "^1.2.0"
   },
-  "peerDependencies": {
+  "devDependencies": {
     "@cat-kit/core": "^1.2.1"
   }
 }

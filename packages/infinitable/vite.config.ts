@@ -6,7 +6,7 @@ import { defineConfig } from 'vite-plus'
 // chart.js 保持源码内动态分包形态出独立 chunk，仅 @cat-kit/core 与 formulas 同口径外部化（运行时依赖）。
 export default defineConfig({
   build: {
-    emptyOutDir: false,
+    emptyOutDir: true,
     lib: {
       entry: {
         infinitable: 'src/index.ts',

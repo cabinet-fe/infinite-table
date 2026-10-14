@@ -7,6 +7,7 @@
 
 import { createRangeRef, parseCellRef, type CellRef } from './address'
 import type { AstNode, BinaryOperator } from './ast'
+import { CELL_REF_RE } from './lexicon'
 import { FormulaParseError, tokenizeFormula, type FormulaToken } from './tokenizer'
 
 /** 中缀运算符绑定力 [左, 右]；右结合运算符右绑定力 = 左 - 1 */
@@ -28,9 +29,6 @@ const INFIX_BP: Record<string, readonly [number, number]> = {
 const PERCENT_BP = 7
 /** 一元 +/- 操作数的绑定力：紧于 ^（6），松于 %（7） */
 const UNARY_OPERAND_BP = 6
-
-/** 单元格引用形态（列限 3 字母；超出按未知名称处理，如 Sheet2） */
-const CELL_REF_RE = /^\$?[A-Za-z]{1,3}\$?[1-9]\d*$/
 
 class Parser {
   private pos = 0

@@ -13,7 +13,7 @@ keywords: [TablePlugin, mount, unmount, table.use, plugins, createChartPlugin, r
 
 - 已按 `guide/quick-start.md` 完成安装与基础挂载（`infinitable` + `@cat-kit/core`）。
 - 图表插件：`bun add chart.js`（Chart.js v4；不用图表可不装，插件按需动态加载不进主产物）。
-- sheet 插件（`createSheetPlugin`：Store 参考模型 + 多 sheet + 撤销/填充/公式显示等）属 plugins 包导出，本指南不展开，见 `apis/sheet-plugin.md`。
+- sheet 能力（`@infinitable/sheet`：Sheet/Workbook 模型 + SheetGrid 装配 + xlsx/csv IO）不是插件形态，经 `infinitable` 的 `./sheet` 子路径消费，本指南不展开，见 `apis/sheet.md`。
 
 ## 步骤
 

@@ -132,16 +132,6 @@ export class CellStore {
     this._colCount = Math.max(this._colCount, addr.col + 1)
   }
 
-  /** 便捷写入原始值，类型自动推断；空值等价于删除 */
-  setCellValue(addr: CellAddress, value: CellValue): void {
-    if (value == null || value === '') {
-      this.deleteCell(addr)
-      return
-    }
-    const normalized = normalizeInputValue(value)
-    this.setCell(addr, { v: normalized, t: inferCellType(normalized) })
-  }
-
   deleteCell(addr: CellAddress): boolean {
     const rowMap = this.cells.get(addr.row)
     if (!rowMap) return false
@@ -186,15 +176,6 @@ export class CellStore {
   /** 只读访问内部引用（渲染层热路径用；调用方不得修改返回对象，#11） */
   peekCell(addr: CellAddress): CellData | undefined {
     return this.cells.get(addr.row)?.get(addr.col)
-  }
-
-  /** 只读遍历已存格（不拷贝 data；调用方不得修改返回对象） */
-  *peekEntries(): Generator<[CellAddress, CellData], void, undefined> {
-    for (const [row, rowMap] of this.cells) {
-      for (const [col, data] of rowMap) {
-        yield [{ row, col }, data]
-      }
-    }
   }
 
   /** 只读遍历某行已存格 [col, data]（不拷贝） */

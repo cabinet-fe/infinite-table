@@ -13,13 +13,13 @@ export function fontSizePtToPx(pt: number): number {
 }
 
 /** 默认字号（pt，对齐 Excel 常见默认） */
-export const DEFAULT_FONT_SIZE_PT = 11
+const DEFAULT_FONT_SIZE_PT = 11
 
 /** 字宽近似系数（相对字号 px；混合中西文折中） */
-export const CHAR_WIDTH_RATIO = 0.6
+const CHAR_WIDTH_RATIO = 0.6
 
 /** 行高相对字号的行距系数 */
-export const LINE_HEIGHT_RATIO = 1.25
+const LINE_HEIGHT_RATIO = 1.25
 
 /** 线型 → 引擎边框线型（thin/medium/thick 为实线粗细分级，宽度独立携带） */
 const BORDER_STYLE_MAP: Record<BorderLineStyle, EngineBorderStyle> = {

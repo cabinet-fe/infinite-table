@@ -12,14 +12,14 @@ keywords: [虚拟滚动, 性能, 100万行, rowCount, records, model, 模型直�
 ## 前置条件
 
 - 已按 `guide/quick-start.md` 完成安装（`infinitable` + `@cat-kit/core`）与基础挂载。
-- 大数据量来源：内存数组（records）或坐标模型（`SheetModel`；sheet 插件 Store 经 `handle.store.asModel()` 同样产出模型直挂形态）；远程分页数据用 `rowCount` + `resolveDisplayValue` 钩子按格取数。
+- 大数据量来源：内存数组（records）或坐标模型（`SheetModel`；电子表格场景用 `infinitable/sheet` 的 `SheetGrid` 装配即模型直挂形态）；远程分页数据用 `rowCount` + `resolveDisplayValue` 钩子按格取数。
 
 ## 步骤
 
 1. 选数据形态（决策规则）：
 
    - 只读展示 10 万行以上：`records` 数组或 `rowCount` + `resolveDisplayValue`（纯 hook 形态零行对象分配，最快）。
-   - 需要编辑回写：`model` 模型直挂（`SheetModel` 或 sheet 插件 `handle.store.asModel()`）——按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法。
+   - 需要编辑回写：`model` 模型直挂（`SheetModel`；电子表格场景用 `SheetGrid` 装配）——按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法。
    - 三形态可叠加 `resolveDisplayValue`（作用于取值管线末端）。
 
    纯 hook 形态构造 100 万行：

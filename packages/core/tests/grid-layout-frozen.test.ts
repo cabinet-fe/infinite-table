@@ -3,10 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   clampFrozenCount,
   computeColOffsets,
+  computeRowOffsets,
   computeScrollableColWindow,
-  computeScrollableRowWindow,
+  computeScrollableRowWindowFromOffsets,
   resolveCellX,
-  resolveCellY,
+  resolveCellYFromOffsets,
 } from '../src/grid-layout'
 
 describe('clampFrozenCount', () => {
@@ -17,20 +18,22 @@ describe('clampFrozenCount', () => {
   })
 })
 
-describe('computeScrollableRowWindow（冻结行下的滚动区行窗口）', () => {
-  it('无冻结：退化为 computeRowWindow', () => {
-    expect(computeScrollableRowWindow(50, 64, 1000, 32, 0)).toEqual({ start: 1, end: 4 })
+describe('computeScrollableRowWindowFromOffsets（冻结行下的滚动区行窗口，等行高口径）', () => {
+  const offsets = computeRowOffsets(1000, 32)
+
+  it('无冻结：滚动区窗口即全量行窗口', () => {
+    expect(computeScrollableRowWindowFromOffsets(50, 64, offsets, 0)).toEqual({ start: 1, end: 4 })
   })
 
   it('冻结 2 行：窗口不含冻结行，随滚动位置滑动', () => {
-    // 冻结行高 64；scrollTop 0 时滚动区顶部即行 2
-    expect(computeScrollableRowWindow(0, 96, 1000, 32, 2)).toEqual({ start: 2, end: 5 })
+    // 期望值为等行高参照口径的字面量：冻结行高 64；scrollTop 0 时滚动区顶部即行 2
+    expect(computeScrollableRowWindowFromOffsets(0, 96, offsets, 2)).toEqual({ start: 2, end: 5 })
     // scrollTop 32：行 2 滚出，窗口从行 3 起
-    expect(computeScrollableRowWindow(32, 96, 1000, 32, 2)).toEqual({ start: 3, end: 6 })
+    expect(computeScrollableRowWindowFromOffsets(32, 96, offsets, 2)).toEqual({ start: 3, end: 6 })
   })
 
   it('滚动位置不超过滚动区：窗口不会回退进冻结行', () => {
-    expect(computeScrollableRowWindow(0, 96, 1000, 32, 2).start).toBe(2)
+    expect(computeScrollableRowWindowFromOffsets(0, 96, offsets, 2).start).toBe(2)
   })
 })
 
@@ -48,7 +51,7 @@ describe('computeScrollableColWindow（冻结列下的滚动区列窗口）', ()
   })
 })
 
-describe('resolveCellX / resolveCellY（冻结区固定、滚动区平移）', () => {
+describe('resolveCellX / resolveCellYFromOffsets（冻结区固定、滚动区平移）', () => {
   const offsets = computeColOffsets([100, 100, 100])
 
   it('冻结列不随 scrollLeft 移动', () => {
@@ -57,7 +60,8 @@ describe('resolveCellX / resolveCellY（冻结区固定、滚动区平移）', (
   })
 
   it('冻结行不随 scrollTop 移动', () => {
-    expect(resolveCellY(0, 500, 32, 1, 36)).toBe(36)
-    expect(resolveCellY(1, 500, 32, 1, 36)).toBe(36 + 32 - 500)
+    // 期望值为等行高参照口径的字面量（行高 32）
+    expect(resolveCellYFromOffsets(0, 500, computeRowOffsets(3, 32), 1, 36)).toBe(36)
+    expect(resolveCellYFromOffsets(1, 500, computeRowOffsets(3, 32), 1, 36)).toBe(36 + 32 - 500)
   })
 })

@@ -1,12 +1,12 @@
 // 容错引用扫描器：供公式编辑染色框用。输入可以是编辑中的半截公式（含/不含前导 `=`），永不抛错。
-// 消歧规则对齐 tokenizer/parser：
+// 消歧规则与 tokenizer/parser 同源（词法原语复用 lexicon）：
 // - ident 字符集同 tokenizer（首字符 字母/_/$/非 ASCII；后续加 数字/.），贪婪读取（A1B 整体不是引用）；
 // - ident 后随 `(` → 函数名跳过（LOG10( 不是引用）；后随 `!` → 表名前缀；匹配单元格形态 → 引用；
 // - 引号表名 '...'（'' 转义）+ `!` 前缀；字符串字面量 "..."（"" 转义）内不扫描；错误字面量跳过。
 // 与 parser 的差异是容错：未闭合的字符串/引号表名/区域尾巴不抛错，退化为「扫到多少算多少」。
 
 import { createRangeRef, parseCellRef, type CellRef, type RangeRef } from './address'
-import { FORMULA_ERROR_CODES } from './errors'
+import { CELL_REF_RE, NUMBER_RE, isIdentPart, isIdentStart, matchErrorLiteral } from './lexicon'
 
 /** 扫描到的引用：ref 为解析结果；start/end 为原文本字符偏移（end 排他），span 含表名前缀 */
 export interface ScannedReference {
@@ -14,23 +14,6 @@ export interface ScannedReference {
   isRange: boolean
   start: number
   end: number
-}
-
-/** 与 parser 一致的单元格形态（列限 1-3 字母；再交 parseCellRef 产出坐标） */
-const CELL_REF_RE = /^\$?[A-Za-z]{1,3}\$?[1-9]\d*$/
-
-/** 与 tokenizer 相同的数字形态：避免把 1E5 的 E5 误判为引用 */
-const NUMBER_RE = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/
-
-// 长的错误码在前，避免前缀误匹配（同 tokenizer）
-const ERROR_LITERALS = [...FORMULA_ERROR_CODES].sort((a, b) => b.length - a.length)
-
-function isIdentStart(char: string): boolean {
-  return /[A-Za-z_$]/.test(char) || char.charCodeAt(0) >= 0x80
-}
-
-function isIdentPart(char: string): boolean {
-  return /[A-Za-z0-9_.$]/.test(char) || char.charCodeAt(0) >= 0x80
 }
 
 function isWhitespace(char: string): boolean {
@@ -73,13 +56,8 @@ function skipString(text: string, start: number): number {
 
 /** 跳过错误字面量（#DIV/0! 等，大小写不敏感）；无法识别 → 只跳过 '#'。返回结束后的位置 */
 function skipErrorLiteral(text: string, start: number): number {
-  const rest = text.slice(start).toUpperCase()
-  for (const code of ERROR_LITERALS) {
-    if (rest.startsWith(code)) {
-      return start + code.length
-    }
-  }
-  return start + 1
+  const code = matchErrorLiteral(text, start)
+  return code === null ? start + 1 : start + code.length
 }
 
 /**

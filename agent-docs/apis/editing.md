@@ -55,7 +55,6 @@ export class EditorRegistry {
   constructor(route?: (col: number, row: number) => string | undefined)
   /** 注册编辑器（editor 形态 `{ readonly name?: string }`，未导出为独立类型） */
   registerEditor(name: string, editor: { readonly name?: string }): void
-  getEditor(name: string): { readonly name?: string } | undefined
   /** 路由名先走 route hook，回退列定义 editor；未注册的名字解析为 undefined */
   resolveEditor(
     columns: readonly ColumnDefine[],
@@ -98,7 +97,6 @@ export class ListTable {
 | 方法 | 返回 | 约束 |
 | --- | --- | --- |
 | `registerEditor(name, editor)` | `void` | 同名重复注册覆盖 |
-| `getEditor(name)` | 编辑器或 `undefined` | 未注册的名字返回 undefined（该格不可编） |
 | `resolveEditor(columns, col, row)` | 编辑器或 `undefined` | 路由序：`route(col, row)` 返回的名字优先；未给（undefined）回退 `columns[col].editor`；最终名字未注册返回 undefined |
 
 `ListTableOptions` 编辑字段（五要素）：
@@ -248,7 +246,7 @@ table.onEditEnd((event) => {
 ## 注意事项
 
 > [!WARNING]
-> - 编辑初值是基础值口径（未过 `resolveDisplayValue`）：公式格显示值与编辑值不一致时，编辑拿到的是原始值——公式感知显示由 sheet 插件的 `evaluate` 注入达成（见 `apis/sheet-plugin.md`）。
+> - 编辑初值是基础值口径（未过 `resolveDisplayValue`）：公式格显示值与编辑值不一致时，编辑拿到的是原始值——公式感知显示由 `@infinitable/sheet` 的 `SheetGrid` 显示链达成（模型 `getDisplayValue` 返回公式计算缓存，见 `apis/sheet.md`）。
 > - 注册表是实例级（`ListTableOptions.editorRegistry` 或 `table.editorRegistry`），不是全局注册表；跨表复用须传同一实例或各自注册。
 > - 编辑器字符上限优先级：列 `editorMaxLength` > options `editorMaxLength` > 不截断。
 > - 多行形态（`editorMultiline: true`）下 Enter 仍是提交并下移（引擎内 Enter 恒提交语义）；需要「多行内换行」的宿主须自行接管键位。

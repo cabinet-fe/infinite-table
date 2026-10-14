@@ -10,9 +10,9 @@ import { MergeManager } from '../../src/core/merge-manager'
 describe('CellStore 行列平移', () => {
   function seeded(): CellStore {
     const store = new CellStore()
-    store.setCellValue({ row: 0, col: 0 }, 'a')
-    store.setCellValue({ row: 2, col: 1 }, 'b')
-    store.setCellValue({ row: 5, col: 3 }, 'c')
+    store.setCell({ row: 0, col: 0 }, { v: 'a' })
+    store.setCell({ row: 2, col: 1 }, { v: 'b' })
+    store.setCell({ row: 5, col: 3 }, { v: 'c' })
     return store
   }
 

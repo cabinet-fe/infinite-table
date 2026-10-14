@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types-tests",
+    "tsBuildInfoFile": "dist/types-tests/.tsbuildinfo",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src", "tests"],
+  "references": [
+    { "path": "../render" },
+    { "path": "../core" },
+    { "path": "../formulas" },
+    { "path": "../plugins" },
+    { "path": "../sheet" }
+  ]
+}

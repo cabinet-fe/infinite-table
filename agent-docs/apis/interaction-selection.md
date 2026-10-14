@@ -112,7 +112,7 @@ export interface FillDragEndEvent {
 | `onSelectionChange` | 选区变更（拖选过程每帧触发） | `SelectionSnapshot`；适配层自行节流 |
 | `onFillHandleDown` | 填充柄按下 | `{ range }`（柄所在选区段，start/end 可反向） |
 | `onFillDragEnd` | 填充柄拖拽结束 | `{ anchor, target }`（均 min/max 序）；轴锁定：行/列位移绝对值大者为主轴（相等取纵向），副轴夹回锚定段跨度内 |
-| `onFillHandleDoubleClick` | 填充柄双击（与拖拽结束互斥） | `{ range }`；Excel 语义为按相邻列连续数据块向下自动填充，写入由宿主或 sheet 插件完成 |
+| `onFillHandleDoubleClick` | 填充柄双击（与拖拽结束互斥） | `{ range }`；Excel 语义为按相邻列连续数据块向下自动填充，写入由宿主完成（`infinitable/sheet` 的 `generateFill` 是配套写入面，见 `apis/sheet.md`） |
 | `onColResizeEnd` / `onRowResizeEnd` | 列宽/行高拖拽会话结束 | `{ col, width }` / `{ row, height }`（夹取后生效值，宽高下限 20px） |
 
 引擎内置交互（无需宿主接线）：指针拖选、Ctrl/Cmd 加选（`ctrlMultiSelect: true`）、表头拖选整列/行号列拖选整行、填充柄拖拽与双击事件、行列 resize 手柄（列手柄在列头区列右缘、行手柄在行号列区行下缘；`canResizeCol`/`canResizeRow` 返回 false 的行列不可拖）、触控惯性滚动、方向键/Tab 键盘导航。
@@ -202,16 +202,16 @@ function syncFromExternal(): void {
 
 > [!WARNING]
 > - `SelectionRange.start/end` 可反向（拖选反向时 start 是锚点、end 是焦点）；读取边界必须先 `normalizeRange`，直接读 start/end 当 min 角会得到反向区间。
-> - 填充生成算法不在内核：引擎只画柄与抛 `onFillHandleDown`/`onFillDragEnd`/`onFillHandleDoubleClick` 事件，写入由宿主完成（sheet 插件的填充生成接线是参考实现，见 `apis/sheet-plugin.md`）。
+> - 填充生成算法不在内核：引擎只画柄与抛 `onFillHandleDown`/`onFillDragEnd`/`onFillHandleDoubleClick` 事件，写入由宿主完成（`infinitable/sheet` 的 `computeFillTargetRange` + `generateFill` 纯函数是配套写入面，见 `apis/sheet.md`）。
 > - 选区状态机与交互浮层（原 `SelectionState`/`InteractionOverlay`，0.1.2 起不再导出）为引擎内部实现：选区读写只走 `table.select*/getSelection/applyExternalSelection`；拖拽进行中收到与当前拖拽段归一化边界等值的外部快照时，引擎只同步焦点不替换段（保拖拽锚点），宿主不需要也不应该绕过。
 > - 列头关闭（`showColHeader: false`）后列 resize 手柄不可命中；行号列关闭后行 resize 手柄不可命中——没有表头带就没有可抓的边缘。
-> - 本库 `ctrlMultiSelect` 缺省 false（点选替换选区）；Excel 式 Ctrl 加选须显式开启（sheet 插件构造期默认注入 `ctrlMultiSelect: false` 的 Excel 键位底座）。
+> - 本库 `ctrlMultiSelect` 缺省 false（点选替换选区）；Excel 式 Ctrl 加选须显式开启 `ctrlMultiSelect: true`（引擎缺省即关；`SheetGrid` 装配固定传 `ctrlMultiSelect: false`——电子表格形态 Ctrl 加选不可用）。
 
 ## 常见问题
 
 ### 拖填充柄松手后表格数据没变
 
-原因：填充生成不在内核，`onFillDragEnd` 只是事件通知。修复：订阅事件并写入模型，或接入 sheet 插件（其构造期自动接线填充生成与双击自动填充）。
+原因：填充生成不在内核，`onFillDragEnd` 只是事件通知。修复：订阅事件并写入模型（配合 `infinitable/sheet` 的 `computeFillTargetRange` + `generateFill`，见 `apis/sheet.md`），或改用 `SheetGrid` 装配（其自动接线填充生成与双击自动填充）。
 
 ```ts
 import { ListTable, SheetModel } from 'infinitable'

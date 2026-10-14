@@ -62,6 +62,59 @@ function synthesizeMergeBorder(
 }
 
 /**
+ * 收集单区域合并补丁（MergeCellsCommand 与 MergeCellsBatchCommand 共用，行为一致）：
+ * - merge 补丁：解除被包围的既有合并 + 登记新区域（相交取包围盒）
+ * - cell 补丁：捕获包围盒内各格 before；值保留规则同 Excel/univer——行主序
+ *   第一个有值格的值写入新锚点，其余清空；边框规则：合成区域边界上的外边框
+ *   写入新锚点；过滤无实际变化的补丁（如被覆盖格本就为空）
+ */
+function collectMergeRangePatches(
+  sheet: Sheet,
+  range: CellRange,
+): { finalRange: CellRange; patches: Patch[] } {
+  const { range: finalRange, removed } = sheet.merges.computeMerge(range)
+
+  // 捕获包围盒内各格 before；同时按行主序找出第一个有值格
+  const cellPatches: CellPatch[] = []
+  let retained: CellData | undefined
+  let anchorPatch: CellPatch | undefined
+  for (const addr of iterateRange(finalRange)) {
+    const before = sheet.store.getCell(addr)
+    if (before && !retained && !isEmptyCellData(before)) retained = before
+    const patch: CellPatch = { kind: 'cell', addr, before, after: undefined }
+    if (addr.row === finalRange.start.row && addr.col === finalRange.start.col) {
+      anchorPatch = patch
+    }
+    cellPatches.push(patch)
+  }
+
+  const baseStyle = retained?.s != null ? sheet.stylePool.get(retained.s) : undefined
+  const finalStyle = synthesizeMergeBorder(sheet, finalRange, baseStyle)
+  let styleId = retained?.s
+  if (finalStyle && finalStyle !== baseStyle) {
+    styleId = sheet.stylePool.intern(finalStyle)
+  }
+
+  if (anchorPatch && (retained || styleId != null)) {
+    anchorPatch.after = { ...retained, ...(styleId != null ? { s: styleId } : {}) }
+  }
+
+  return {
+    finalRange,
+    patches: [
+      ...removed.map((mergeRange): MergePatch => ({
+        kind: 'merge',
+        range: mergeRange,
+        before: true,
+        after: false,
+      })),
+      { kind: 'merge', range: finalRange, before: false, after: true },
+      ...cellPatches.filter((patch) => !cellDataEqual(patch.before, patch.after)),
+    ],
+  }
+}
+
+/**
  * 合并命令。Patch 捕获完整 before 状态：
  * - 被解除的既有合并记录（undo 时逐一恢复）
  * - 包围盒内每一格的原数据（undo 时连被清空的值一起还原）
@@ -72,46 +125,8 @@ export const MergeCellsCommand: Command<MergeCellsParams, CellRange> = {
   id: 'sheet.command.merge-cells',
 
   handler(ctx, params): CommandResult<CellRange> {
-    const { sheet } = ctx
-    const { range: finalRange, removed } = sheet.merges.computeMerge(params.range)
-
-    // 捕获包围盒内各格 before；同时按行主序找出第一个有值格
-    const cellPatches: CellPatch[] = []
-    let retained: CellData | undefined
-    let anchorPatch: CellPatch | undefined
-    for (const addr of iterateRange(finalRange)) {
-      const before = sheet.store.getCell(addr)
-      if (before && !retained && !isEmptyCellData(before)) retained = before
-      const patch: CellPatch = { kind: 'cell', addr, before, after: undefined }
-      if (addr.row === finalRange.start.row && addr.col === finalRange.start.col) {
-        anchorPatch = patch
-      }
-      cellPatches.push(patch)
-    }
-
-    const baseStyle = retained?.s != null ? sheet.stylePool.get(retained.s) : undefined
-    const finalStyle = synthesizeMergeBorder(sheet, finalRange, baseStyle)
-    let styleId = retained?.s
-    if (finalStyle && finalStyle !== baseStyle) {
-      styleId = sheet.stylePool.intern(finalStyle)
-    }
-
-    if (anchorPatch && (retained || styleId != null)) {
-      anchorPatch.after = { ...retained, ...(styleId != null ? { s: styleId } : {}) }
-    }
-
-    const mergePatches: MergePatch[] = [
-      ...removed.map((range): MergePatch => ({ kind: 'merge', range, before: true, after: false })),
-      { kind: 'merge', range: finalRange, before: false, after: true },
-    ]
-
-    // 过滤无实际变化的 cell 补丁（如被覆盖格本就为空）
-    const patches: Patch[] = [
-      ...mergePatches,
-      ...cellPatches.filter((patch) => !cellDataEqual(patch.before, patch.after)),
-    ]
+    const { finalRange, patches } = collectMergeRangePatches(ctx.sheet, params.range)
     for (const patch of patches) ctx.applyPatch(patch, 'redo')
-
     return { mutations: [{ redo: patches, undo: [...patches].reverse() }], result: finalRange }
   },
 }
@@ -152,51 +167,15 @@ export const MergeCellsBatchCommand: Command<MergeCellsBatchParams> = {
   id: 'sheet.command.merge-cells-batch',
 
   handler(ctx, params): CommandResult {
-    const { sheet } = ctx
     const patches: Patch[] = []
     for (const range of params.ranges) {
-      const { range: finalRange, removed } = sheet.merges.computeMerge(range)
-
-      // 捕获包围盒内各格 before；同时按行主序找出第一个有值格
-      const cellPatches: CellPatch[] = []
-      let retained: CellData | undefined
-      let anchorPatch: CellPatch | undefined
-      for (const addr of iterateRange(finalRange)) {
-        const before = sheet.store.getCell(addr)
-        if (before && !retained && !isEmptyCellData(before)) retained = before
-        const patch: CellPatch = { kind: 'cell', addr, before, after: undefined }
-        if (addr.row === finalRange.start.row && addr.col === finalRange.start.col) {
-          anchorPatch = patch
-        }
-        cellPatches.push(patch)
-      }
-      const baseStyle = retained?.s != null ? sheet.stylePool.get(retained.s) : undefined
-      const finalStyle = synthesizeMergeBorder(sheet, finalRange, baseStyle)
-      let styleId = retained?.s
-      if (finalStyle && finalStyle !== baseStyle) {
-        styleId = sheet.stylePool.intern(finalStyle)
-      }
-
-      if (anchorPatch && (retained || styleId != null)) {
-        anchorPatch.after = { ...retained, ...(styleId != null ? { s: styleId } : {}) }
-      }
+      const collected = collectMergeRangePatches(ctx.sheet, range)
 
       // 立即应用本区域的补丁后再处理下一个：批量内相交时 computeMerge 能看到
       // 前一个合并（与逐条 mergeCells 语义一致：相交 → 包围盒）；undo 逆序回放
       // 仍自洽（后应用的先撤销）
-      const rangePatches: Patch[] = [
-        ...removed.map((range): MergePatch => ({
-          kind: 'merge',
-          range,
-          before: true,
-          after: false,
-        })),
-        { kind: 'merge', range: finalRange, before: false, after: true },
-        // 过滤无实际变化的 cell 补丁（如被覆盖格本就为空）
-        ...cellPatches.filter((patch) => !cellDataEqual(patch.before, patch.after)),
-      ]
-      for (const patch of rangePatches) ctx.applyPatch(patch, 'redo')
-      patches.push(...rangePatches)
+      for (const patch of collected.patches) ctx.applyPatch(patch, 'redo')
+      patches.push(...collected.patches)
     }
     if (patches.length === 0) return { mutations: [] }
     return { mutations: [{ redo: patches, undo: [...patches].reverse() }] }

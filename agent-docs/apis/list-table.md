@@ -7,7 +7,7 @@ keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, 
 
 # ListTable 表格主类
 
-`infinitable`（core 层）导出表格主类 `ListTable` 与构造选项 `ListTableOptions`。构造时按可视窗口建场景（窗口外行列不进入场景树），滚动由引擎内部唯一状态源驱动并按方向提交 band 失效；数据供给三形态任选其一：`records` 数组、`model`（TableModel，如 sheet 插件的 `store.asModel()` 或 `SheetModel`）、`rowCount` + `resolveDisplayValue` 钩子。内建滚动条经 `scrollbar` 选项开关与配档（`boolean | ScrollbarOptions`），样式全部走主题 interaction token。
+`infinitable`（core 层）导出表格主类 `ListTable` 与构造选项 `ListTableOptions`。构造时按可视窗口建场景（窗口外行列不进入场景树），滚动由引擎内部唯一状态源驱动并按方向提交 band 失效；数据供给三形态任选其一：`records` 数组、`model`（TableModel，如内置 `SheetModel` 或自实现 `TableModel`）、`rowCount` + `resolveDisplayValue` 钩子。内建滚动条经 `scrollbar` 选项开关与配档（`boolean | ScrollbarOptions`），样式全部走主题 interaction token。
 
 ## 快速上手
 

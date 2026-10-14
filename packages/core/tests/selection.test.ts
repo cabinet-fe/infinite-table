@@ -8,12 +8,12 @@ import {
 } from '../src/selection'
 
 describe('SelectionState 拖选与整行整列', () => {
-  it('拖选：beginDrag 锚定单格，updateDrag 扩展并同步焦点，支持反向拖拽', () => {
+  it('拖选：beginDragRange 锚定单格，updateDrag 扩展并同步焦点，支持反向拖拽', () => {
     const selection = new SelectionState()
     const seen: SelectionSnapshot[] = []
     selection.onChange((snapshot) => seen.push(snapshot))
 
-    selection.beginDrag(2, 3)
+    selection.beginDragRange({ col: 2, row: 3 }, { col: 2, row: 3 })
     expect(selection.snapshot.ranges).toEqual([
       { start: { col: 2, row: 3 }, end: { col: 2, row: 3 } },
     ])
@@ -178,7 +178,7 @@ describe('SelectionState 拖拽中外部回写保持锚点', () => {
   it('拖拽中等值边界回写（模型归一化 min 角序）：段 start 仍为按下格锚点，仅焦点同步', () => {
     const selection = new SelectionState()
     // 从下方格按下，向上拖到反向目标：锚点在下方，焦点侧在上方
-    selection.beginDrag(2, 5)
+    selection.beginDragRange({ col: 2, row: 5 }, { col: 2, row: 5 })
     selection.updateDrag(2, 2)
     // 模型归一化回写：段 start 被重写为 min 角（row2），边界与当前拖拽段等值
     selection.applyExternal({
@@ -197,7 +197,7 @@ describe('SelectionState 拖拽中外部回写保持锚点', () => {
 
     // 直接反向路径（spec 问题 1 复现）：从下方格按下、向上拖，模型回写后继续上拖。
     // 锚点侧（row12）不动、上缘跟随指针；缺陷态以被重写的 min 角为锚继续上拖会塌缩丢段
-    selection.beginDrag(2, 12)
+    selection.beginDragRange({ col: 2, row: 12 }, { col: 2, row: 12 })
     selection.updateDrag(2, 8)
     selection.applyExternal({
       ranges: [{ start: { col: 2, row: 8 }, end: { col: 2, row: 12 } }],
@@ -215,7 +215,7 @@ describe('SelectionState 拖拽中外部回写保持锚点', () => {
     })
 
     // 先下后上越过锚点路径：越过锚点后选区在锚点与指针之间连续变化，不跳变
-    selection.beginDrag(2, 5)
+    selection.beginDragRange({ col: 2, row: 5 }, { col: 2, row: 5 })
     selection.updateDrag(2, 8)
     selection.applyExternal({
       ranges: [{ start: { col: 2, row: 5 }, end: { col: 2, row: 8 } }],
@@ -254,7 +254,7 @@ describe('SelectionState 拖拽中外部回写保持锚点', () => {
 
   it('拖拽中非等值边界回写（如越界钳制后的段）：仍整段替换', () => {
     const selection = new SelectionState()
-    selection.beginDrag(2, 5)
+    selection.beginDragRange({ col: 2, row: 5 }, { col: 2, row: 5 })
     selection.updateDrag(2, 2)
     // 边界与当前拖拽段不等值：维持既有整段替换行为
     selection.applyExternal({
@@ -345,7 +345,7 @@ describe('SelectionState 外部回写钳制', () => {
   it('拖拽中越界段等值回写（先钳制再比对）：保锚点分支照常生效，焦点取钳制值', () => {
     const selection = new SelectionState()
     // 拖到数据区左缘：锚点在 col2，焦点侧在 col0
-    selection.beginDrag(2, 5)
+    selection.beginDragRange({ col: 2, row: 5 }, { col: 2, row: 5 })
     selection.updateDrag(0, 5)
     // 外部模型把行头列归一化进段（col=-1）：钳制后边界与拖拽段等值，锚点不丢
     selection.applyExternal(
@@ -370,7 +370,7 @@ describe('SelectionState 外部回写钳制', () => {
 
   it('钳制后仍不等值的拖拽中回写：整段替换为钳制后的段', () => {
     const selection = new SelectionState()
-    selection.beginDrag(2, 5)
+    selection.beginDragRange({ col: 2, row: 5 }, { col: 2, row: 5 })
     selection.updateDrag(2, 2)
     // 模型段越界，钳制后边界与拖拽段不等值：维持既有整段替换行为
     selection.applyExternal(

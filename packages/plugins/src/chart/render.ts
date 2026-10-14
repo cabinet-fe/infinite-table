@@ -34,7 +34,7 @@ function paletteColor(index: number): string {
 /** 面积填充透明度（hex8 后缀，25%） */
 const AREA_FILL_ALPHA = '40'
 
-export interface ChartRenderOptions {
+interface ChartRenderOptions {
   spec: ChartSpec
   /** 格 CSS 宽高（物理分辨率 = CSS × dpr，由 chart.js devicePixelRatio 落地） */
   width: number

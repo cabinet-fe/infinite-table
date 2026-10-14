@@ -26,19 +26,6 @@ describe('CellData 类型判别', () => {
     expect(normalizeInputValue(42)).toBe(42)
   })
 
-  it('写入读出保持类型；数字文本写入为 number', () => {
-    const store = new CellStore()
-    store.setCellValue({ row: 0, col: 0 }, 42)
-    store.setCellValue({ row: 0, col: 1 }, 'hello')
-    store.setCellValue({ row: 0, col: 2 }, true)
-    store.setCellValue({ row: 0, col: 3 }, '10')
-
-    expect(store.getCell({ row: 0, col: 0 })).toEqual({ v: 42, t: 'n' })
-    expect(store.getCell({ row: 0, col: 1 })).toEqual({ v: 'hello', t: 's' })
-    expect(store.getCell({ row: 0, col: 2 })).toEqual({ v: true, t: 'b' })
-    expect(store.getCell({ row: 0, col: 3 })).toEqual({ v: 10, t: 'n' })
-  })
-
   it('空数据判定', () => {
     expect(isEmptyCellData(undefined)).toBe(true)
     expect(isEmptyCellData({})).toBe(true)
@@ -50,18 +37,18 @@ describe('CellData 类型判别', () => {
 })
 
 describe('稀疏性', () => {
-  it('空值写入即删除', () => {
+  it('空数据写入即删除', () => {
     const store = new CellStore()
     const addr = { row: 0, col: 0 }
-    store.setCellValue(addr, 1)
+    store.setCell(addr, { v: 1 })
     expect(store.size).toBe(1)
 
-    store.setCellValue(addr, null)
+    store.setCell(addr, undefined)
     expect(store.size).toBe(0)
     expect(store.getCell(addr)).toBeUndefined()
 
-    store.setCellValue(addr, 'x')
-    store.setCellValue(addr, '')
+    store.setCell(addr, { v: 'x' })
+    store.setCell(addr, { v: '' })
     expect(store.size).toBe(0)
 
     store.setCell(addr, { v: 1 })
@@ -71,7 +58,7 @@ describe('稀疏性', () => {
 
   it('store 大小不随行列数增长', () => {
     const store = new CellStore()
-    store.setCellValue({ row: 99_999, col: 100 }, 'sparse')
+    store.setCell({ row: 99_999, col: 100 }, { v: 'sparse' })
     expect(store.rowCount).toBe(100_000)
     expect(store.colCount).toBe(101)
     expect(store.size).toBe(1)
@@ -79,9 +66,9 @@ describe('稀疏性', () => {
 
   it('10⁵ 行高水位 + 200 个真实格：迭代与序列化只含 200 格', () => {
     const store = new CellStore()
-    store.setCellValue({ row: 99_999, col: 0 }, 'tail')
+    store.setCell({ row: 99_999, col: 0 }, { v: 'tail' })
     for (let i = 0; i < 199; i++) {
-      store.setCellValue({ row: i, col: 0 }, i)
+      store.setCell({ row: i, col: 0 }, { v: i })
     }
 
     expect(store.rowCount).toBe(100_000)
@@ -93,7 +80,7 @@ describe('稀疏性', () => {
 describe('snapshot / restore', () => {
   it('往返一致并重算高水位', () => {
     const store = new CellStore()
-    store.setCellValue({ row: 0, col: 0 }, 1)
+    store.setCell({ row: 0, col: 0 }, { v: 1, t: 'n' })
     store.setCell({ row: 2, col: 3 }, { v: 'x', f: 'A1' })
 
     const restored = new CellStore()
@@ -113,10 +100,10 @@ describe('snapshot / restore', () => {
     expect(store.getCell({ row: 0, col: 0 })!.v).toBe(1)
   })
 
-  it('peekEntries / peekRow 不拷贝，外部修改会影响存储', () => {
+  it('peekRow / peekCell 不拷贝，外部修改会影响存储', () => {
     const store = new CellStore()
     store.setCell({ row: 1, col: 2 }, { v: 1 })
-    const peeked = [...store.peekEntries()]
+    const peeked = [...store.peekRow(1)]
     expect(peeked).toHaveLength(1)
     peeked[0]![1].v = 999
     expect(store.peekCell({ row: 1, col: 2 })!.v).toBe(999)

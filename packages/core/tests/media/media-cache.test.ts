@@ -18,7 +18,6 @@ describe('MediaCache 容量淘汰', () => {
     expect(cache.get('a')).toBeUndefined()
     expect(cache.get('b')).toBeDefined()
     expect(cache.get('c')).toBeDefined()
-    expect(cache.totalBytes).toBe(80)
   })
 
   it('get 命中提升为最近使用，淘汰顺序随之变化', () => {
@@ -46,26 +45,30 @@ describe('MediaCache 容量淘汰', () => {
     cache.put('a', fakeBitmap('a'), 40)
     cache.put('a', fakeBitmap('a2'), 50)
     expect(cache.size).toBe(1)
-    expect(cache.totalBytes).toBe(50)
+    // 覆盖后计 50：再入 40 未超预算，a 不被淘汰（旧账未扣则 90 + 40 超预算逐出 a）
+    cache.put('b', fakeBitmap('b'), 40)
+    expect(cache.get('a')).toBeDefined()
+    expect(cache.get('b')).toBeDefined()
   })
 
-  it('configure 收紧预算立即触发淘汰', () => {
-    const cache = new MediaCache()
+  it('bytes 预算内放不下两条 60（预算 80）：保留最新一条', () => {
+    const cache = new MediaCache({ maxBytes: 80 })
     cache.put('a', fakeBitmap('a'), 60)
     cache.put('b', fakeBitmap('b'), 60)
-    cache.configure({ maxBytes: 80 })
     expect(cache.get('a')).toBeUndefined()
-    expect(cache.totalBytes).toBe(60)
+    expect(cache.get('b')).toBeDefined()
   })
 
-  it('invalidateKey / invalidateAll 释放计量', () => {
-    const cache = new MediaCache()
+  it('invalidateKey 释放计量', () => {
+    const cache = new MediaCache({ maxBytes: 100 })
     cache.put('a', fakeBitmap('a'), 40)
     cache.put('b', fakeBitmap('b'), 40)
     cache.invalidateKey('a')
-    expect(cache.totalBytes).toBe(40)
-    cache.invalidateAll()
-    expect(cache.size).toBe(0)
-    expect(cache.totalBytes).toBe(0)
+    expect(cache.get('a')).toBeUndefined()
+    expect(cache.size).toBe(1)
+    // 计量已释放（余 40）：再入 50 未超预算，不触发淘汰（未释放则 80 + 50 逐出 b）
+    cache.put('c', fakeBitmap('c'), 50)
+    expect(cache.get('b')).toBeDefined()
+    expect(cache.get('c')).toBeDefined()
   })
 })

@@ -2,7 +2,8 @@
 // 不做语义消歧：`A1`（引用）、`SUM`（函数名）、`Sheet2`（表名）统一产出 ident，
 // 由 parser 依据后随 token（`(` / `!` / `:` / 运算位）判定。
 
-import { FORMULA_ERROR_CODES, type FormulaErrorCode } from './errors'
+import type { FormulaErrorCode } from './errors'
+import { NUMBER_RE, isIdentPart, isIdentStart, matchErrorLiteral } from './lexicon'
 
 /** 解析失败异常（evaluate 捕获 → 求值结果为 #ERROR!） */
 export class FormulaParseError extends Error {
@@ -12,7 +13,7 @@ export class FormulaParseError extends Error {
   }
 }
 
-export type FormulaOperator =
+type FormulaOperator =
   | '+'
   | '-'
   | '*'
@@ -43,18 +44,6 @@ export type FormulaToken =
   | { type: 'error'; code: FormulaErrorCode }
   | { type: 'op'; op: FormulaOperator }
 
-const NUMBER_RE = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/
-
-/** 标识符首字符：字母 / _ / $ / 非 ASCII（中文表名等） */
-function isIdentStart(char: string): boolean {
-  return /[A-Za-z_$]/.test(char) || char.charCodeAt(0) >= 0x80
-}
-
-/** 标识符后续字符：首字符集 + 数字 + . */
-function isIdentPart(char: string): boolean {
-  return /[A-Za-z0-9_.$]/.test(char) || char.charCodeAt(0) >= 0x80
-}
-
 const TWO_CHAR_OPS = ['<>', '<=', '>='] as const
 const ONE_CHAR_OPS = [
   '+',
@@ -73,20 +62,6 @@ const ONE_CHAR_OPS = [
   '<',
   '>',
 ] as const
-
-// 长的错误码在前，避免前缀误匹配（如 #N/A 与 #NAME? 无公共前缀，此处为防御性排序）
-const ERROR_LITERALS = [...FORMULA_ERROR_CODES].sort((a, b) => b.length - a.length)
-
-/** 匹配错误字面量（大小写不敏感）；命中返回错误码，未命中返回 null */
-function matchErrorLiteral(text: string, at: number): FormulaErrorCode | null {
-  const rest = text.slice(at).toUpperCase()
-  for (const code of ERROR_LITERALS) {
-    if (rest.startsWith(code)) {
-      return code
-    }
-  }
-  return null
-}
 
 /** 公式文本（不含 '='）→ token 序列；非法输入抛 FormulaParseError */
 export function tokenizeFormula(text: string): FormulaToken[] {

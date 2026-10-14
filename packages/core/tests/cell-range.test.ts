@@ -4,13 +4,12 @@ import {
   MergeCellMap,
   MergeOverlapError,
   normalizeCellRange,
-  rangeContains,
   rangeCrossesBoundary,
   sanitizeMerges,
   warnMergeConflicts,
 } from '../src/cell-range'
 
-describe('normalizeCellRange / rangeContains', () => {
+describe('normalizeCellRange', () => {
   it('归一化：start/end 乱序时交换', () => {
     expect(normalizeCellRange({ startCol: 3, startRow: 2, endCol: 1, endRow: 0 })).toEqual({
       startCol: 1,
@@ -18,14 +17,6 @@ describe('normalizeCellRange / rangeContains', () => {
       endCol: 3,
       endRow: 2,
     })
-  })
-
-  it('rangeContains：闭区间含边界', () => {
-    const range = { startCol: 1, startRow: 1, endCol: 3, endRow: 2 }
-    expect(rangeContains(range, 1, 1)).toBe(true)
-    expect(rangeContains(range, 3, 2)).toBe(true)
-    expect(rangeContains(range, 0, 1)).toBe(false)
-    expect(rangeContains(range, 2, 3)).toBe(false)
   })
 })
 

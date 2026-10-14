@@ -7,7 +7,7 @@ import type { AstNode } from './ast'
 import { isVolatileFormulaFunction } from './functions/registry'
 
 /** AST 中出现的引用（cell 或 range；sheet 缺省 = 公式所在表，归一是宿主职责） */
-export type AstReference = { kind: 'cell'; ref: CellRef } | { kind: 'range'; ref: RangeRef }
+type AstReference = { kind: 'cell'; ref: CellRef } | { kind: 'range'; ref: RangeRef }
 
 /** 遍历 AST 收集全部引用（含 call args / unary / percent / binary 操作数） */
 export function collectAstReferences(node: AstNode): AstReference[] {

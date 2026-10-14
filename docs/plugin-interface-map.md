@@ -2,7 +2,7 @@
 
 > 定位：本清单是「以插件化形态把 infinitable 做到可替换 ultra-ui 底层引擎」的**验收红线文档**。
 > S3（sheet 插件）、S4（demo sheet）、S5（工程化收口）以此为准逐条对照；S6（替换路线图）以它为输入。
-> 映射来源：`.agents/analysis/ultra-ui-sheet-gap.md` 第二节（ultra-ui `sheet-core/src/grid/` 逐文件提取的 VTable 依赖面）。
+> 映射来源：ultra-ui `sheet-core/src/grid/` 逐文件提取的 VTable 依赖面（素材源已归档删除）。
 >
 > **口径更新（migrate-sheet-core P12）**：S3 落地的 sheet 插件族（`packages/plugins/src/sheet`，`createSheetPlugin`）已整体迁入 `@infinitable/sheet` 并从插件包删除——下文表格中标注「S3 已落地」的 sheet 插件落点，现均由 `@infinitable/sheet`（sheet 模型 / 命令 / IO / SheetGrid 装配）承载，`hucre` 依赖随之归属 sheet 包。插件包接口面口径更新为剩余插件：**chart / print / watermark**。
 

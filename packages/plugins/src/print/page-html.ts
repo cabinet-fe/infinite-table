@@ -9,7 +9,7 @@ import type { CellStyle } from '@infinitable/core'
 
 import { escapeAttr, escapeHtml } from './escape'
 import { renderHeaderFooter, type PlaceholderContext } from './header-footer'
-import { paginate, type PrintPage } from './paginate'
+import { clampHeaderRepeatRows, paginate, type PrintPage } from './paginate'
 import { derivePrintableArea, pxToMm, resolvePaperSizeMm, type PrintableArea } from './paper'
 import {
   WATERMARK_TEXT_DEFAULTS,
@@ -339,7 +339,7 @@ function buildDocumentCss(config: PrintConfig, area: PrintableArea): string {
 
 /** 空表兜底页：重复表头照常输出、无数据行（打印空表仍出一页带页眉页脚的空白纸） */
 function emptyPage(config: PrintConfig, rowCount: number): PrintPage {
-  const headerRepeat = Math.max(0, Math.min(config.headerRepeatRows ?? 0, rowCount))
+  const headerRepeat = clampHeaderRepeatRows(config.headerRepeatRows, rowCount)
   return {
     rowRange: { start: 0, end: 0 },
     headerRows: headerRepeat > 0 ? { start: 0, end: headerRepeat } : null,

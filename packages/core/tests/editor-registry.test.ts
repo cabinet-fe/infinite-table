@@ -9,14 +9,6 @@ const columns: ColumnDefine[] = [
 ]
 
 describe('编辑器注册表与格级路由', () => {
-  it('注册即可按名取回（可注册即通过）', () => {
-    const registry = new EditorRegistry()
-    const editor: CellEditor = { name: 'text-editor' }
-    registry.registerEditor('text-editor', editor)
-    expect(registry.getEditor('text-editor')).toBe(editor)
-    expect(registry.getEditor('missing')).toBeUndefined()
-  })
-
   it('按列定义 editor 做格级路由', () => {
     const registry = new EditorRegistry()
     const editor: CellEditor = {}

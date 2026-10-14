@@ -272,18 +272,6 @@ export class ImageService {
     this.resolver = resolver
   }
 
-  configure(options: ImageServiceOptions): void {
-    this.maxCacheBytes = options.maxCacheBytes ?? this.maxCacheBytes
-    this.maxCacheCount = options.maxCacheCount ?? this.maxCacheCount
-    this.concurrency = options.concurrency ?? this.concurrency
-    this.placeholderDelay = options.placeholderDelay ?? this.placeholderDelay
-    if (options.crossOrigin !== undefined) {
-      this.crossOrigin = options.crossOrigin
-    }
-    this.evictWithinBudget()
-    this.pump()
-  }
-
   dispose(): void {
     this.disposed = true
     for (const entry of this.entries.values()) {

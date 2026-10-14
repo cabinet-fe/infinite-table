@@ -103,7 +103,7 @@ const table = new ListTable({
 
 ```
 packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（图表/打印/水印）· formulas（公式引擎）· sheet（电子表格核心：模型/命令/IO/SheetGrid 适配）· infinitable（统一发布包，单包 re-export 五层）
-playground/  唯一应用：示例总览（显示/交互/编辑/sheet/报表/图表/图片）+ 页内 vs VTable 对比 + 量化基准（bench.html）+ 冒烟自检
+playground/  唯一应用：示例总览（显示/交互/编辑/报表/图表/图片）+ 页内 vs VTable 对比 + 量化基准（bench.html）+ 冒烟自检
 ```
 
 ## 开发

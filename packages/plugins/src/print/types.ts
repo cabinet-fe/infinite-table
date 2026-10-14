@@ -4,18 +4,19 @@
 // 打印输出）；P3 = DOM 薄壳预览（openPrintPreview）。P1/P2 均不依赖引擎内部 API，
 // 只依赖 @infinitable/core 公共类型。
 
-import type { CellRange, CellStyle, FloatObject } from '@infinitable/core'
+import type { CellRange, CellStyle } from '@infinitable/core'
 
 // ---- 打印数据源（数据面抽象） ----
 
 /**
- * 打印数据源：宿主/适配器供数的窄接口，签名以能同时适配 plugins 侧 SheetStore 与
- * meta 侧 SheetSnapshot 为准（适配层做字段映射，本接口不绑定任何具体模型类）。
- * - SheetStore 适配：rowCount/colCount → getRowCount/getColCount、rowHeight/colWidth
+ * 打印数据源：宿主/适配器供数的窄接口，签名以能同时适配宿主侧 sheet 模型快照
+ * （如 @infinitable/sheet 的 SheetSnapshot）为准（适配层做字段映射，本接口不绑定
+ * 任何具体模型类）。
+ * - getter 形态适配：rowCount/colCount → getRowCount/getColCount、rowHeight/colWidth
  *   → getRowHeight/getColWidth、merges → getMerges、cellValue → getValue、
  *   cellStyle → getEffectiveStyle、displayValue → getDisplayValue。
- * - meta SheetSnapshot 适配：cells 稀疏条目映射为 cellValue/displayValue、
- *   rowHeights/colWidths 元组映射为 rowHeight/colWidth、images 映射为 FloatObject 形态。
+ * - meta 快照适配：cells 稀疏条目映射为 cellValue/displayValue、
+ *   rowHeights/colWidths 元组映射为 rowHeight/colWidth。
  * 单位约定：行高/列宽一律 px（96dpi，与引擎行列尺寸同口径）。
  */
 export interface PrintSource {
@@ -37,18 +38,6 @@ export interface PrintSource {
   cellStyle(col: number, row: number): CellStyle | undefined
   /** 显示值（P2 页面构建消费；经显示链产出展示形态） */
   displayValue(col: number, row: number): unknown
-  /** 浮动图列表（与 xlsx 导出 SheetExportSource.images 同构；P2 绝对定位渲染） */
-  images?: readonly FloatObject[]
-  /** 浮动图字节解析（kind === 'image' 且解析到字节才进打印输出；src 形态由宿主决定） */
-  imageData?: (object: FloatObject) => PrintImagePayload | undefined
-}
-
-/** 打印浮动图字节载荷（页面构建编码为 data URL 内嵌） */
-export interface PrintImagePayload {
-  /** 图片 MIME 类型（如 image/png） */
-  mime: string
-  /** 字节内容 */
-  data: Uint8Array
 }
 
 // ---- 纸张与布局 ----

@@ -605,11 +605,6 @@ export class Sheet {
     this.executeCommand(ClearCellMetaCommand.id, { addr: resolved, namespace })
   }
 
-  /** 迭代所有 Cell Meta 条目（视图层占位覆盖等场景） */
-  *entriesCellMeta(): Generator<[CellAddress, string, unknown]> {
-    yield* this.cellMeta.entries()
-  }
-
   /**
    * 读取指定地址与 namespace 的 Cell Meta 原始引用（不拷贝）：渲染热路径内部用
    * （grid 层逐格拉取嵌入图载荷），返回值不得持有或修改。

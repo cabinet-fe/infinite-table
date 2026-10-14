@@ -76,10 +76,6 @@ export class SelectionModel {
     }
   }
 
-  clear(): void {
-    this.setState({ activeCell: null, ranges: [] })
-  }
-
   on(handler: (state: SelectionState) => void): () => void {
     return this.emitter.on('change', handler)
   }

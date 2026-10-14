@@ -13,13 +13,13 @@ import { mountTable, type DemoMount } from '../mount'
 export const NATIVE_LIST_VIEW_WIDTH = 880
 export const NATIVE_LIST_VIEW_HEIGHT = 420
 /** ListTable 列宽：冻结第 0 列 120，其余 110（14 列合计 1550 ≫ 视口，横向可滚） */
-export const NATIVE_LIST_COL_WIDTH = 110
-export const NATIVE_LIST_FROZEN_COL_WIDTH = 120
-export const NATIVE_LIST_COL_COUNT = 14
-export const NATIVE_LIST_ROW_COUNT = 1_200
+const NATIVE_LIST_COL_WIDTH = 110
+const NATIVE_LIST_FROZEN_COL_WIDTH = 120
+const NATIVE_LIST_COL_COUNT = 14
+const NATIVE_LIST_ROW_COUNT = 1_200
 /** ListTable 冻结行列（行号列与列头缺省开启） */
 export const NATIVE_LIST_FROZEN_COLS = 1
-export const NATIVE_LIST_FROZEN_ROWS = 1
+const NATIVE_LIST_FROZEN_ROWS = 1
 
 /** SheetGrid 原生实例视口（不指定行列数：growOnScroll 缺省开，初始 100×26 起步） */
 export const NATIVE_SHEET_VIEW_WIDTH = 880

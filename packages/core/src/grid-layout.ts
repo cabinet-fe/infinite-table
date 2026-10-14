@@ -8,24 +8,6 @@ export interface WindowRange {
   end: number
 }
 
-/** 等行高下按滚动位置求可见行窗口（含边缘部分可见行） */
-export function computeRowWindow(
-  scrollTop: number,
-  viewportHeight: number,
-  rowCount: number,
-  rowHeight: number,
-): WindowRange {
-  if (rowCount <= 0 || rowHeight <= 0 || viewportHeight <= 0) {
-    return { start: 0, end: 0 }
-  }
-  const start = Math.min(Math.max(Math.floor(scrollTop / rowHeight), 0), rowCount - 1)
-  const end = Math.min(
-    Math.max(Math.ceil((scrollTop + viewportHeight) / rowHeight), start),
-    rowCount,
-  )
-  return { start, end }
-}
-
 /** 列宽前缀和：offsets[i] 为第 i 列左缘的内容坐标，length = 列数 + 1 */
 export function computeColOffsets(colWidths: readonly number[]): number[] {
   const offsets: number[] = [0]
@@ -90,7 +72,7 @@ export function computeRowOffsets(
   return offsets
 }
 
-/** 按行高前缀和求可见行窗口（含边缘部分可见行），语义同 computeRowWindow */
+/** 按行高前缀和求可见行窗口（含边缘部分可见行） */
 export function computeRowWindowFromOffsets(
   scrollTop: number,
   viewportHeight: number,
@@ -157,33 +139,10 @@ export function findColAt(colOffsets: readonly number[], contentX: number): numb
 // ---- 冻结：冻结行/列的区域划分（冻结区固定，滚动区随滚动位置平移） ----
 
 /**
- * 非冻结行的可见窗口（数据行索引区间）。
- * 滚动位置定义在「可滚动内容」（总内容扣除冻结区）上，换算回全量内容坐标后复用
- * computeRowWindow，再把窗口夹取到滚动区（不含冻结行）。
+ * 非冻结列的可见窗口（列索引区间）：滚动位置定义在「可滚动内容」（总内容扣除
+ * 冻结区）上，换算回全量内容坐标后复用 computeColWindow，再把窗口夹取到滚动区
+ * （不含冻结列）。
  */
-export function computeScrollableRowWindow(
-  scrollTop: number,
-  viewportHeight: number,
-  rowCount: number,
-  rowHeight: number,
-  frozenRowCount: number,
-): WindowRange {
-  if (frozenRowCount === 0) {
-    return computeRowWindow(scrollTop, viewportHeight, rowCount, rowHeight)
-  }
-  const window = computeRowWindow(
-    scrollTop + frozenRowCount * rowHeight,
-    viewportHeight,
-    rowCount,
-    rowHeight,
-  )
-  return {
-    start: Math.max(window.start, frozenRowCount),
-    end: Math.max(window.end, frozenRowCount),
-  }
-}
-
-/** 非冻结列的可见窗口（列索引区间），语义同 computeScrollableRowWindow */
 export function computeScrollableColWindow(
   scrollLeft: number,
   viewportWidth: number,
@@ -212,20 +171,9 @@ export function resolveCellX(
   return rowHeaderWidth + (colOffsets[col] ?? 0) - (col < frozenColCount ? 0 : scrollLeft)
 }
 
-/** 数据行上缘的层坐标 y：冻结行固定，非冻结行随 scrollTop 平移 */
-export function resolveCellY(
-  row: number,
-  scrollTop: number,
-  rowHeight: number,
-  frozenRowCount: number,
-  headerHeight: number,
-): number {
-  return headerHeight + row * rowHeight - (row < frozenRowCount ? 0 : scrollTop)
-}
-
 /**
- * 非冻结行的可见窗口（逐行高度版）：语义同 computeScrollableRowWindow，
- * 滚动位置定义在「可滚动内容」上，换算时冻结区高度取行高前缀和。
+ * 非冻结行的可见窗口（逐行高度版）：滚动位置定义在「可滚动内容」（总内容扣除
+ * 冻结区）上，换算时冻结区高度取行高前缀和，再把窗口夹取到滚动区（不含冻结行）。
  */
 export function computeScrollableRowWindowFromOffsets(
   scrollTop: number,

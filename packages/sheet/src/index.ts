@@ -1,6 +1,6 @@
 // 聚合导出为公开 API 白名单（迁移自 sheet-core 主入口，P9 定稿）：
-// 仅测试引用的内部符号（如 rangeContainsRange、formatByNumFmt、mergeCellStyle、
-// TypedEventEmitter）不在此导出，测试一律深导入 src 子路径。
+// 仅测试引用的内部符号（如 rangeContainsRange、formatByNumFmt、mergeCellStyle）
+// 不在此导出，测试一律深导入 src 子路径（TypedEventEmitter 例外，见下方具名导出）。
 // 公式引擎 API 不从本包转售——sheet 模型消费 @infinitable/formulas（FormulaEngine
 // 为组合门面），下游直接 import '@infinitable/formulas'。
 // grid 适配层（SheetGrid）随本包主入口一并具名导出（spec 口径：完整 sheet API 单入口）。

@@ -4,7 +4,6 @@ import {
   computeColOffsets,
   computeColWindow,
   computeRowOffsets,
-  computeRowWindow,
   computeRowWindowFromOffsets,
   expandWindowRange,
   findColAt,
@@ -12,24 +11,40 @@ import {
   type WindowRange,
 } from '../src/grid-layout'
 
-describe('computeRowWindow', () => {
+describe('computeRowWindowFromOffsets（等行高可见行窗口）', () => {
+  // 期望值为等行高参照口径的字面量：窗口含上下边缘部分可见行
   it('顶部起点：含底部部分可见行', () => {
     // 视口 100px、行高 32：行 0..3（第 4 行部分可见）
-    expect(computeRowWindow(0, 100, 1000, 32)).toEqual({ start: 0, end: 4 })
+    expect(computeRowWindowFromOffsets(0, 100, computeRowOffsets(1000, 32))).toEqual({
+      start: 0,
+      end: 4,
+    })
   })
 
   it('滚动到中间：含上下边缘部分可见行', () => {
-    expect(computeRowWindow(50, 64, 1000, 32)).toEqual({ start: 1, end: 4 })
+    expect(computeRowWindowFromOffsets(50, 64, computeRowOffsets(1000, 32))).toEqual({
+      start: 1,
+      end: 4,
+    })
   })
 
   it('滚动到底部：夹取到最后一行', () => {
     const maxTop = 1000 * 32 - 100
-    expect(computeRowWindow(maxTop, 100, 1000, 32)).toEqual({ start: 996, end: 1000 })
+    expect(computeRowWindowFromOffsets(maxTop, 100, computeRowOffsets(1000, 32))).toEqual({
+      start: 996,
+      end: 1000,
+    })
   })
 
   it('空数据或零尺寸：空窗口', () => {
-    expect(computeRowWindow(0, 100, 0, 32)).toEqual({ start: 0, end: 0 })
-    expect(computeRowWindow(0, 0, 100, 32)).toEqual({ start: 0, end: 0 })
+    expect(computeRowWindowFromOffsets(0, 100, computeRowOffsets(0, 32))).toEqual({
+      start: 0,
+      end: 0,
+    })
+    expect(computeRowWindowFromOffsets(0, 0, computeRowOffsets(100, 32))).toEqual({
+      start: 0,
+      end: 0,
+    })
   })
 })
 

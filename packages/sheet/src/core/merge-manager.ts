@@ -76,14 +76,6 @@ export class MergeManager {
     return { range: finalRange, removed }
   }
 
-  /** 合并区域（解除相交既有合并 + 包围盒，见 computeMerge） */
-  merge(range: CellRange): MergeResult {
-    const result = this.computeMerge(range)
-    for (const item of result.removed) this.unregister(item)
-    this.register(result.range)
-    return result
-  }
-
   /**
    * 精确登记一个合并区域（不做相交解除与包围盒）。
    * 低层接口，供命令系统回放补丁使用；调用方需保证不与既有合并相交。
@@ -97,30 +89,10 @@ export class MergeManager {
     this.unregister(range)
   }
 
-  /** 解除所有与 range 相交的合并，返回被解除的区域 */
-  unmerge(range: CellRange): CellRange[] {
-    const removed: CellRange[] = []
-    for (const existing of this.merges.values()) {
-      if (rangesIntersect(existing, range)) removed.push(existing)
-    }
-    for (const item of removed) this.unregister(item)
-    return removed
-  }
-
   /** 地址解析到锚点：被覆盖格 → 锚点；锚点/普通格 → 自身 */
   resolveAnchor(addr: CellAddress): CellAddress {
     const merge = this.getMergeAt(addr)
     return merge ? { ...merge.start } : { ...addr }
-  }
-
-  /** 是否在任意合并区域内（含锚点） */
-  isMerged(addr: CellAddress): boolean {
-    return this.getMergeAt(addr) !== undefined
-  }
-
-  /** 是否为被覆盖的非锚点格 */
-  isCovered(addr: CellAddress): boolean {
-    return this.coverIndex.has(cellKey(addr))
   }
 
   /** 所在合并区域（锚点与被覆盖格均可查）；不在任何合并内返回 undefined */

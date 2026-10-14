@@ -8,7 +8,7 @@ import { Sheet, SheetGrid } from '@infinitable/sheet'
 const VIEW_WIDTH = 880
 const VIEW_HEIGHT = 420
 
-export interface InfiniteSheetDemo {
+interface InfiniteSheetDemo {
   container: HTMLElement
   grid: SheetGrid
   sheet: Sheet

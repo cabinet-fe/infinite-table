@@ -102,34 +102,7 @@ export function rebuildScene(table: ListTable): void {
   underlay.height = table.height
   root.appendChild(underlay)
   const { left, top } = table.scroll.state
-  // 滚动带窗口两端扩 overscan（滚动缓冲：只扩场景装配窗口，滚动边界不变），
-  // 扩展后回收冻结带边界（见 clampWindowToScrollableBand）
-  const scrollableRows = clampWindowToScrollableBand(
-    expandWindowRange(
-      computeScrollableRowWindowFromOffsets(
-        top,
-        table.viewportHeight - table.frozenRowsHeight,
-        table.rowOffsets,
-        table.frozenRowCount,
-      ),
-      table.overscanRows,
-      table.rowCount,
-    ),
-    table.frozenRowCount,
-  )
-  const scrollableCols = clampWindowToScrollableBand(
-    expandWindowRange(
-      computeScrollableColWindow(
-        left,
-        table.viewportWidth - table.frozenColsWidth,
-        table.colOffsets,
-        table.frozenColCount,
-      ),
-      table.overscanCols,
-      table.colCount,
-    ),
-    table.frozenColCount,
-  )
+  const { rows: scrollableRows, cols: scrollableCols } = computeAssemblyWindow(table, left, top)
   table.rows = scrollableRows
   table.cols = scrollableCols
   // 分层顺序：滚动区在最下，部分可见合并区同属滚动层，冻结条带居中，冻结角最上
@@ -219,34 +192,7 @@ export function updateSceneWindow(table: ListTable): void {
   const { left, top } = table.scroll.state
   const prevRows = table.rows
   const prevCols = table.cols
-  // 滚动带窗口两端扩 overscan + 回收冻结带边界（同 rebuildScene，见
-  // clampWindowToScrollableBand）
-  const scrollableRows = clampWindowToScrollableBand(
-    expandWindowRange(
-      computeScrollableRowWindowFromOffsets(
-        top,
-        table.viewportHeight - table.frozenRowsHeight,
-        table.rowOffsets,
-        table.frozenRowCount,
-      ),
-      table.overscanRows,
-      table.rowCount,
-    ),
-    table.frozenRowCount,
-  )
-  const scrollableCols = clampWindowToScrollableBand(
-    expandWindowRange(
-      computeScrollableColWindow(
-        left,
-        table.viewportWidth - table.frozenColsWidth,
-        table.colOffsets,
-        table.frozenColCount,
-      ),
-      table.overscanCols,
-      table.colCount,
-    ),
-    table.frozenColCount,
-  )
+  const { rows: scrollableRows, cols: scrollableCols } = computeAssemblyWindow(table, left, top)
   table.rows = scrollableRows
   table.cols = scrollableCols
   const frozenRows: WindowRange = { start: 0, end: table.frozenRowCount }
@@ -739,6 +685,46 @@ export function appendCell(
     appendChartCell(table, col, row, chartMedia, node.x, node.y, node.width, node.height)
   }
   return true
+}
+
+/**
+ * 场景装配窗口（rebuildScene 与 updateSceneWindow 共用）：滚动带窗口两端扩 overscan
+ * （滚动缓冲：只扩场景装配窗口，滚动边界不变），扩展后回收冻结带边界
+ * （见 clampWindowToScrollableBand）。
+ */
+function computeAssemblyWindow(
+  table: ListTable,
+  left: number,
+  top: number,
+): { rows: WindowRange; cols: WindowRange } {
+  return {
+    rows: clampWindowToScrollableBand(
+      expandWindowRange(
+        computeScrollableRowWindowFromOffsets(
+          top,
+          table.viewportHeight - table.frozenRowsHeight,
+          table.rowOffsets,
+          table.frozenRowCount,
+        ),
+        table.overscanRows,
+        table.rowCount,
+      ),
+      table.frozenRowCount,
+    ),
+    cols: clampWindowToScrollableBand(
+      expandWindowRange(
+        computeScrollableColWindow(
+          left,
+          table.viewportWidth - table.frozenColsWidth,
+          table.colOffsets,
+          table.frozenColCount,
+        ),
+        table.overscanCols,
+        table.colCount,
+      ),
+      table.frozenColCount,
+    ),
+  }
 }
 
 /**

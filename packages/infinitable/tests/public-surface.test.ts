@@ -27,13 +27,15 @@ function parseNamedExports(source: string): NamedExports {
   const block = /export\s+(type\s+)?\{([^}]*)\}(?:\s*from\s+['"][^'"]+['"])?/gs
   for (const match of cleaned.matchAll(block)) {
     const isTypeBlock = Boolean(match[1])
-    for (let item of match[2].split(',')) {
+    const body = match[2]
+    if (body === undefined) continue
+    for (let item of body.split(',')) {
       item = item.replace(/\/\/[^\n]*/g, '').trim()
       if (!item) continue
       const isTypeItem = isTypeBlock || item.startsWith('type ')
       const spec = item.replace(/^type\s+/, '').trim()
       const asMatch = /(\S+)\s+as\s+(\S+)$/.exec(spec)
-      const name = asMatch ? asMatch[2] : spec
+      const name = asMatch?.[2] ?? spec
       ;(isTypeItem ? types : values).push(name)
     }
   }
@@ -170,7 +172,6 @@ const MAIN_ENTRY_TYPES = [
   'PrintConfig',
   'PrintHeaderFooterConfig',
   'PrintHeaderFooterSection',
-  'PrintImagePayload',
   'PrintMargin',
   'PrintOrientation',
   'PrintPagingMode',
@@ -332,6 +333,7 @@ const SHEET_ENTRY_TYPES = [
   'ResolveCellStyleHook',
   'ResolveDisplayValue',
   'ScrollbarOptions',
+  'SelectionInterceptMeta',
   'SelectionState',
   'SetAxisStyleItem',
   'SetAxisStyleParams',
