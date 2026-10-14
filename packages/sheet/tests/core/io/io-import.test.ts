@@ -254,8 +254,11 @@ describe('hucreStyleToModel / dateToSerial1900', () => {
     expect(
       hucreStyleToModel({ numFmt: '_ * #,##0.00_ ;_ * -#,##0.00_ ;_ * "-"??_ ;_ @_ ' }),
     ).toEqual({ numFmt: { type: 'thousands' } })
-    // 大写金额（Excel DBNum2 内建机制）
+    // 大写金额（Excel DBNum2 内建机制；导出侧写跨 locale 的 General 关键字）
     expect(hucreStyleToModel({ numFmt: '[DBNum2][$-804]G/通用格式' })).toEqual({
+      numFmt: { type: 'cnUpper' },
+    })
+    expect(hucreStyleToModel({ numFmt: '[DBNum2][$-804]General' })).toEqual({
       numFmt: { type: 'cnUpper' },
     })
     // 小数位数（位数 = 0 的个数；0 位 = 整数）

@@ -102,7 +102,7 @@ describe('styleToHucre / rangeToHucre / imageToHucre（样式与合并与图片�
     expect(styleToHucre({ numFmt: { type: 'date' } })).toEqual({ numFmt: 'yyyy-mm-dd' })
     expect(styleToHucre({ numFmt: { type: 'thousands' } })).toEqual({ numFmt: '#,##0.00' })
     expect(styleToHucre({ numFmt: { type: 'cnUpper' } })).toEqual({
-      numFmt: '[DBNum2][$-804]G/通用格式',
+      numFmt: '[DBNum2][$-804]General',
     })
     expect(styleToHucre({ numFmt: { type: 'fixed', digits: 2 } })).toEqual({ numFmt: '0.00' })
     expect(styleToHucre({ numFmt: { type: 'fixed', digits: 0 } })).toEqual({ numFmt: '0' })
@@ -242,7 +242,7 @@ describe('exportWorkbookXlsx 映射（hucre 输入结构）', () => {
     const cells = sheetOut.cells!
     expect(cells.get('0,0')?.style?.numFmt).toBe('yyyy-mm-dd')
     expect(cells.get('0,1')?.style?.numFmt).toBe('#,##0.00')
-    expect(cells.get('0,2')?.style?.numFmt).toBe('[DBNum2][$-804]G/通用格式')
+    expect(cells.get('0,2')?.style?.numFmt).toBe('[DBNum2][$-804]General')
     expect(cells.get('0,3')?.style?.numFmt).toBe('0.00')
     expect(cells.get('1,0')).toMatchObject({ formula: 'B1', style: { numFmt: '#,##0.00' } })
   })

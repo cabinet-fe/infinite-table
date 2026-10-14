@@ -63,7 +63,8 @@ export function buildColumnDefs(
  * 模型 numFmt → xlsx 格式码（Excel 规范）：
  * - date → `yyyy-mm-dd`
  * - thousands → `#,##0.00`（千分位金额，两位小数）
- * - cnUpper → `[DBNum2][$-804]G/通用格式`（Excel 中文大写数字内建机制）
+ * - cnUpper → `[DBNum2][$-804]General`（Excel 中文大写数字内建机制；通用格式关键字必须写
+ *   `General`，中文 UI 关键字 `G/通用格式` 在非中文 locale 的 Excel 里不识别，尾部会被当字面量显示）
  * - fixed(digits) → `0.00…`（digits 个 0；0 位退化为 `0`）
  */
 export function numFmtToXlsx(numFmt: NumFmt): string {
@@ -73,7 +74,7 @@ export function numFmtToXlsx(numFmt: NumFmt): string {
     case 'thousands':
       return '#,##0.00'
     case 'cnUpper':
-      return '[DBNum2][$-804]G/通用格式'
+      return '[DBNum2][$-804]General'
     case 'fixed': {
       const digits = Math.max(0, Math.trunc(numFmt.digits))
       return digits > 0 ? `0.${'0'.repeat(digits)}` : '0'
