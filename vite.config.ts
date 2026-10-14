@@ -38,6 +38,11 @@ export default defineConfig({
   },
   test: {
     include: ['packages/*/tests/**/*.test.ts', 'playground/src/bench/*.test.ts'],
+    // 默认 node 环境；需要 DOM 的测试文件在文件头加 // @vitest-environment happy-dom
+    // （happy-dom 比 jsdom 快，避免全量默认挂 DOM）
+    environment: 'node',
+    // 转换占运行耗时大头，缓存转换产物供下次运行复用
+    fsModuleCache: true,
     // bench 场景做性能采样，须独占 CPU（其余单测也快，串行无感）
     fileParallelism: false,
   },
