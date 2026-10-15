@@ -9,7 +9,7 @@ import type { CellStyle } from '@infinitable/core'
 
 import { escapeAttr, escapeHtml } from './escape'
 import { renderHeaderFooter, type PlaceholderContext } from './header-footer'
-import { clampHeaderRepeatRows, paginate, type PrintPage } from './paginate'
+import { clampHeaderRepeatRows, paginate, type PrintPage, type PrintRowRange } from './paginate'
 import { derivePrintableArea, pxToMm, resolvePaperSizeMm, type PrintableArea } from './paper'
 import {
   WATERMARK_TEXT_DEFAULTS,
@@ -41,8 +41,12 @@ function formatPrintTime(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-/** 页级聚合取数：页内数据行在指定列上的有限数值（非数值项滤除，原始值口径） */
+/** 页级聚合取数：页内数据行在指定列上的有限数值（非数值项滤除，原始值口径；
+ * 列不在本页列区间（横向分页/打印区域）时返回空集——页级聚合按页内实际可见列计算） */
 function collectColumnNumbers(source: PrintSource, page: PrintPage, col: number): number[] {
+  if (col < page.colRange.start || col >= page.colRange.end) {
+    return []
+  }
   const values: number[] = []
   for (let row = page.rowRange.start; row < page.rowRange.end; row++) {
     const value = source.cellValue(col, row)
@@ -87,15 +91,27 @@ interface PageMergeIndex {
 
 /**
  * 构建本页合并索引：
- * - 主格（合并区左上）在本页渲染行内 → 输出 rowspan（沿本页连续渲染行截断）+ colspan；
- * - 合并区覆盖的其余格全部记为客格（跳过渲染），含主格不在本页（在前页）的合并区残段。
+ * - 主格（合并区左上）在本页渲染行内 → 输出 rowspan（沿本页连续渲染行截断——跨页续排
+ *   属非目标）+ colspan（沿本页列区间截断——横向分页/打印区域裁剪属常态）；
+ * - 合并区覆盖的其余格全部记为客格（跳过渲染），含主格不在本页（在前页/前列带）的
+ *   合并区残段；与本页列区间无交集的合并区整段跳过。
  */
-function buildPageMergeIndex(source: PrintSource, renderedRows: readonly number[]): PageMergeIndex {
+function buildPageMergeIndex(
+  source: PrintSource,
+  renderedRows: readonly number[],
+  colRange: PrintRowRange,
+): PageMergeIndex {
   const positionOf = new Map<number, number>()
   renderedRows.forEach((row, index) => positionOf.set(row, index))
   const spans = new Map<string, { rowspan: number; colspan: number }>()
   const covered = new Set<string>()
   for (const range of source.merges()) {
+    // 列方向裁剪：合并区 ∩ 本页列区间（空交集整段跳过）
+    const colStart = Math.max(range.startCol, colRange.start)
+    const colEnd = Math.min(range.endCol, colRange.end - 1)
+    if (colStart > colEnd) {
+      continue
+    }
     const anchorPosition = positionOf.get(range.startRow)
     let rowspan = 0
     if (anchorPosition !== undefined) {
@@ -111,17 +127,17 @@ function buildPageMergeIndex(source: PrintSource, renderedRows: readonly number[
       if (!positionOf.has(row)) {
         continue
       }
-      for (let col = range.startCol; col <= range.endCol; col++) {
-        if (rowspan > 0 && row === range.startRow && col === range.startCol) {
-          continue // 主格本页输出
+      for (let col = colStart; col <= colEnd; col++) {
+        if (rowspan > 0 && row === range.startRow && col === colStart) {
+          continue // 主格本页输出（锚点列随裁剪移到本页首列）
         }
         covered.add(cellKeyOf(row, col))
       }
     }
     if (rowspan > 0) {
-      spans.set(cellKeyOf(range.startRow, range.startCol), {
+      spans.set(cellKeyOf(range.startRow, colStart), {
         rowspan,
-        colspan: range.endCol - range.startCol + 1,
+        colspan: colEnd - colStart + 1,
       })
     }
   }
@@ -190,12 +206,14 @@ function cellText(value: unknown): string {
   return value == null ? '' : escapeHtml(String(value))
 }
 
-/** 本页表格体：colgroup（列宽 × 本页缩放）+ 重复表头行 + 数据行 + 空白行补齐 */
+/** 本页表格体：colgroup（本页列区间 × 缩放）+ 重复表头行 + 数据行 + 空白行补齐 */
 function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
   const scale = page.scale
+  const { start: colStart, end: colEnd } = page.colRange
+  const pageColCount = colEnd - colStart
   const parts: string[] = ['<table class="print-table">']
   parts.push('<colgroup>')
-  for (let col = 0; col < source.colCount; col++) {
+  for (let col = colStart; col < colEnd; col++) {
     parts.push(`<col style="width:${round2(source.colWidth(col) * scale)}px">`)
   }
   parts.push('</colgroup>')
@@ -210,11 +228,11 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
   for (let row = page.rowRange.start; row < page.rowRange.end; row++) {
     renderedRows.push(row)
   }
-  const merges = buildPageMergeIndex(source, renderedRows)
+  const merges = buildPageMergeIndex(source, renderedRows, page.colRange)
 
   for (const row of renderedRows) {
     parts.push(`<tr style="height:${round2(source.rowHeight(row) * scale)}px">`)
-    for (let col = 0; col < source.colCount; col++) {
+    for (let col = colStart; col < colEnd; col++) {
       const key = cellKeyOf(row, col)
       if (merges.covered.has(key)) {
         continue
@@ -239,11 +257,11 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
     parts.push('</tr>')
   }
 
-  // fixrows 末页空白行：高度取表末行高（行栅格口径与数据行一致），单格跨全列
+  // fixrows 末页空白行：高度取表末行高（行栅格口径与数据行一致），单格跨本页全列
   if (page.blankRows > 0 && source.rowCount > 0) {
     const blankHeight = round2(source.rowHeight(source.rowCount - 1) * scale)
     for (let i = 0; i < page.blankRows; i++) {
-      parts.push(`<tr style="height:${blankHeight}px"><td colspan="${source.colCount}"></td></tr>`)
+      parts.push(`<tr style="height:${blankHeight}px"><td colspan="${pageColCount}"></td></tr>`)
     }
   }
 
@@ -338,13 +356,14 @@ function buildDocumentCss(config: PrintConfig, area: PrintableArea): string {
 }
 
 /** 空表兜底页：重复表头照常输出、无数据行（打印空表仍出一页带页眉页脚的空白纸） */
-function emptyPage(config: PrintConfig, rowCount: number): PrintPage {
-  const headerRepeat = clampHeaderRepeatRows(config.headerRepeatRows, rowCount)
+function emptyPage(source: PrintSource, config: PrintConfig): PrintPage {
+  const headerRepeat = clampHeaderRepeatRows(config.headerRepeatRows, source.rowCount)
   return {
     rowRange: { start: 0, end: 0 },
     headerRows: headerRepeat > 0 ? { start: 0, end: headerRepeat } : null,
     blankRows: 0,
     scale: 1,
+    colRange: { start: 0, end: source.colCount },
   }
 }
 
@@ -359,7 +378,7 @@ export function buildPrintDocumentHtml(source: PrintSource, config: PrintConfig)
   const now = new Date()
   const date = formatPrintDate(now)
   const time = formatPrintTime(now)
-  const pageList = pages.length > 0 ? pages : [emptyPage(config, source.rowCount)]
+  const pageList = pages.length > 0 ? pages : [emptyPage(source, config)]
   const parts: string[] = []
   parts.push('<!doctype html><html><head><meta charset="utf-8">')
   parts.push(`<title>${escapeHtml(source.name)}</title>`)

@@ -265,3 +265,120 @@ describe('paginate：fit-width 缩放', () => {
     expect(unscaled[0]!.rowRange.end).toBe(9)
   })
 })
+
+describe('paginate：自定义百分比缩放', () => {
+  /** 内容宽 1840px（10 列 × 184）× 50% = 920px = 可用页宽（单列带不切） */
+  const WIDE_SOURCE = makeSource({
+    rowHeights: Array.from({ length: 20 }, () => 100),
+    colWidths: Array.from({ length: 10 }, () => 184),
+  })
+
+  it('percent=50：行高按半幅折算（每页行数翻倍），内容宽减半不切列带', () => {
+    const pages = paginate(WIDE_SOURCE, { ...PAPER_254, scale: { percent: 50 } })
+    expect(pages[0]!.scale).toBeCloseTo(0.5)
+    expect(rowRanges(pages)).toEqual([
+      { start: 0, end: 18 },
+      { start: 18, end: 20 },
+    ])
+    expect(pages[0]!.colRange).toEqual({ start: 0, end: 10 })
+  })
+
+  it('percent 非法值快速失败：非有限 / <1 / >1000', () => {
+    for (const percent of [Number.NaN, 0, 0.5, 1001, Number.POSITIVE_INFINITY]) {
+      expect(() => paginate(WIDE_SOURCE, { ...PAPER_254, scale: { percent } })).toThrow(/1–1000/)
+    }
+  })
+})
+
+describe('paginate：打印区域（rowRange/colRange）', () => {
+  it('rowRange 夹取：越界端点收进表内，起点落在表头带内时数据域从表头带后起', () => {
+    const source = makeSource({
+      rowHeights: Array.from({ length: 10 }, () => 100),
+      colWidths: [100],
+    })
+    // 表头带 2×100px 占可用页高 → 每页数据行 [2,9) / [9,10)；区间端点 99 夹到 10
+    const pages = paginate(source, {
+      ...PAPER_254,
+      headerRepeatRows: 2,
+      rowRange: { start: 1, end: 99 },
+    })
+    expect(rowRanges(pages)).toEqual([
+      { start: 2, end: 9 },
+      { start: 9, end: 10 },
+    ])
+  })
+
+  it('rowRange 空/倒置/整段落在表头带内 → 空页列表', () => {
+    const source = makeSource({ rowHeights: [100, 100, 100], colWidths: [100] })
+    expect(paginate(source, { ...PAPER_254, rowRange: { start: 2, end: 2 } })).toEqual([])
+    expect(paginate(source, { ...PAPER_254, rowRange: { start: 3, end: 1 } })).toEqual([])
+    expect(
+      paginate(source, { ...PAPER_254, headerRepeatRows: 2, rowRange: { start: 0, end: 2 } }),
+    ).toEqual([])
+  })
+
+  it('colRange 限定打印列：fit-width 内容宽只算区间内列', () => {
+    const source = makeSource({ rowHeights: [100], colWidths: [920, 460] })
+    const full = paginate(source, { ...PAPER_254, scale: 'fit-width' })
+    expect(full[0]!.scale).toBeCloseTo(920 / 1380)
+    const sliced = paginate(source, {
+      ...PAPER_254,
+      scale: 'fit-width',
+      colRange: { start: 1, end: 2 },
+    })
+    expect(sliced[0]!.scale).toBe(1)
+    expect(sliced[0]!.colRange).toEqual({ start: 1, end: 2 })
+  })
+})
+
+describe('paginate：横向分页（列带切分）', () => {
+  /** 10 列 × 184px = 1840px，可用页宽 920px → 每带 5 列 */
+  const WIDE_SOURCE = makeSource({
+    rowHeights: Array.from({ length: 4 }, () => 100),
+    colWidths: Array.from({ length: 10 }, () => 184),
+  })
+
+  it('列带按可用页宽切分；行带在外列带在内（先下后右）', () => {
+    const pages = paginate(WIDE_SOURCE, PAPER_254)
+    expect(pages.map((page) => [page.rowRange, page.colRange])).toEqual([
+      [
+        { start: 0, end: 4 },
+        { start: 0, end: 5 },
+      ],
+      [
+        { start: 0, end: 4 },
+        { start: 5, end: 10 },
+      ],
+    ])
+  })
+
+  it('行×列叉乘：多行带 × 多列带全展开', () => {
+    const source = makeSource({
+      rowHeights: Array.from({ length: 20 }, () => 100),
+      colWidths: Array.from({ length: 10 }, () => 184),
+    })
+    const pages = paginate(source, PAPER_254)
+    expect(
+      pages.map(
+        (page) =>
+          `${page.rowRange.start}-${page.rowRange.end}:${page.colRange.start}-${page.colRange.end}`,
+      ),
+    ).toEqual(['0-9:0-5', '0-9:5-10', '9-18:0-5', '9-18:5-10', '18-20:0-5', '18-20:5-10'])
+  })
+
+  it('fit-width 缩放后全表不超页宽 → 不切列带', () => {
+    const pages = paginate(WIDE_SOURCE, { ...PAPER_254, scale: 'fit-width' })
+    expect(pages).toHaveLength(1)
+    expect(pages[0]!.colRange).toEqual({ start: 0, end: 10 })
+    expect(pages[0]!.scale).toBeCloseTo(0.5)
+  })
+
+  it('单列超可用页宽：独占一带按原样输出（不截断列）', () => {
+    const source = makeSource({ rowHeights: [100], colWidths: [1000, 100] })
+    const pages = paginate(source, PAPER_254)
+    expect(pages.map((page) => page.colRange)).toEqual([
+      { start: 0, end: 1 },
+      { start: 1, end: 2 },
+    ])
+  })
+})

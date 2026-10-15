@@ -62,6 +62,15 @@ export interface PrintMargin {
 /** 缩放模式：origin 原始尺寸（缺省）/ fit-width 按可用页宽等比缩放（只缩不放） */
 export type PrintScaleMode = 'origin' | 'fit-width'
 
+/** 缩放规格：模式代号，或自定义百分比（相对原始尺寸，有效区间 1–1000；与 fit-width 互斥，对象形态即自定义档） */
+export type PrintScale = PrintScaleMode | { percent: number }
+
+/** 打印区间（源表行/列号，含 start 不含 end；越界夹取，空/倒置区间按空处理） */
+export interface PrintRange {
+  start: number
+  end: number
+}
+
 /** 分页模式：fitpage 按行高累加分页（缺省）/ fixrows 固定行数分页（套打） */
 export type PrintPagingMode = 'fitpage' | 'fixrows'
 
@@ -141,14 +150,19 @@ export interface PrintConfig {
   orientation?: PrintOrientation
   /** 页边距 px（缺省四边 paper.ts DEFAULT_PRINT_MARGIN_PX；单值四边同距） */
   margin?: number | PrintMargin
-  /** 缩放模式（缺省 origin） */
-  scale?: PrintScaleMode
+  /** 缩放规格（缺省 origin）：模式代号，或 { percent } 自定义百分比 */
+  scale?: PrintScale
   /** 分页模式（缺省 fitpage） */
   paging?: PrintPagingMode
   /** fixrows 模式必填：每页总行数（含重复表头行；须大于 headerRepeatRows） */
   fixRows?: number
   /** 每页重复的表头行数（取源表前 N 行；缺省 0 不重复） */
   headerRepeatRows?: number
+  /** 打印行区间（数据行域，缺省全表。与 headerRepeatRows 正交：重复表头恒取源表前
+   * N 行；区间起点落在表头带内时数据域从表头带之后开始） */
+  rowRange?: PrintRange
+  /** 打印列区间（缺省全列；fit-width 缩放与横向分页按区间内列宽计算） */
+  colRange?: PrintRange
   /** 分组换页列索引（单个或多个；列值变化处强制换页，与分页模式正交组合） */
   groupBreakBy?: number | readonly number[]
   /** 页眉页脚（P1 消费高度，P2 求值渲染） */

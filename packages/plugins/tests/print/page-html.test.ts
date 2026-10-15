@@ -176,6 +176,58 @@ describe('页面构建：fixrows 末页空白行与重复表头', () => {
   })
 })
 
+describe('页面构建：打印区域与横向分页', () => {
+  it('colRange 页只出区间内列（colgroup 与格均裁剪），页级聚合对区间外列出空集', () => {
+    const source = makeSource({
+      rowHeights: [30],
+      colWidths: [100, 100, 100],
+      values: [['A', 5, 'C']],
+    })
+    const config: PrintConfig = {
+      ...PAPER_254,
+      colRange: { start: 1, end: 3 },
+      headerFooter: { footer: { left: '小计:{pageSum:0}' } },
+    }
+    const html = buildPrintDocumentHtml(source, config)
+    expect(countOf(html, '<col ')).toBe(2)
+    expect(html).toContain('>5<')
+    expect(html).not.toContain('>A<')
+    // 列 0 不在本页列区间 → 小计空集出 0
+    expect(html).toContain('小计:0')
+  })
+
+  it('跨列带合并格：前列带锚点原位，后列带锚点移到带首列且 colspan 按带内列数截断', () => {
+    const source = makeSource({
+      rowHeights: [30, 30],
+      colWidths: [500, 500, 100],
+      values: [
+        ['A', 'B', 'C'],
+        ['a', 'b', 'c'],
+      ],
+      merges: [{ startCol: 0, startRow: 0, endCol: 2, endRow: 0 }],
+    })
+    // 可用页宽 920：列带 [0,1)（500，收不进第二列）/ [1,3)（500+100）
+    const pages = paginate(source, PAPER_254)
+    expect(pages.map((page) => page.colRange)).toEqual([
+      { start: 0, end: 1 },
+      { start: 1, end: 3 },
+    ])
+    const firstBand = buildPrintPageHtml(source, PAPER_254, pages[0]!, 1, 2)
+    const secondBand = buildPrintPageHtml(source, PAPER_254, pages[1]!, 2, 2)
+    // 前带：锚点 col0 原位（colspan 截为 1 不出属性），带外格 B/C 不渲染
+    expect(firstBand).toContain('<td>A</td>')
+    expect(firstBand).not.toContain('>B<')
+    expect(firstBand).not.toContain('>C<')
+    // 后带：锚点随裁剪移到带首列 col1，colspan = 带内列数 2；客格 C 跳过渲染
+    expect(secondBand).toContain('<td colspan="2">B</td>')
+    expect(secondBand).not.toContain('>C<')
+    // 非合并行各带渲染本带列（行不裁剪、列随带）
+    expect(firstBand).toContain('>a<')
+    expect(secondBand).toContain('>b<')
+    expect(secondBand).toContain('>c<')
+  })
+})
+
 describe('页面构建：页眉页脚与页级聚合集成', () => {
   const CONFIG: PrintConfig = {
     ...PAPER_254,
@@ -196,6 +248,63 @@ describe('页面构建：页眉页脚与页级聚合集成', () => {
     expect(html).toContain('小计:36')
     expect(html).toContain('小计:109')
     expect(html).toContain('<td class="hf-center">测试表</td>')
+  })
+})
+
+describe('文档产物契约（下游 PDF 渲染输入，见 docs/print.md）', () => {
+  /**
+   * 代表性报表源：两行表头带（纵合并 + 横跨）+ 数据行 + 页眉页脚占位符 + 水印。
+   * 本组断言锁定产物结构骨架：headless Chrome 渲染 PDF 依赖的正是这些关键串，
+   * 变更即 breaking（docs/print.md 契约）。
+   */
+  const CONTRACT_SOURCE = makeSource({
+    rowHeights: Array.from({ length: 8 }, () => 30),
+    colWidths: [80, 80, 80],
+    values: [
+      ['序号', '指标', null],
+      ...Array.from({ length: 7 }, (_, row) => [row + 1, `v${row}`, 'x']),
+    ],
+    merges: [
+      { startCol: 0, startRow: 0, endCol: 0, endRow: 1 },
+      { startCol: 1, startRow: 0, endCol: 2, endRow: 0 },
+    ],
+  })
+  const CONTRACT_CONFIG: PrintConfig = {
+    paperSize: 'A4',
+    orientation: 'portrait',
+    margin: 48,
+    headerRepeatRows: 2,
+    headerFooter: {
+      header: { left: '{title}' },
+      footer: { center: '第 {page} 页 / 共 {pageCount} 页' },
+    },
+    watermark: { enabled: true, text: 'CONFIDENTIAL' },
+  }
+
+  it('单页产物骨架：@page 规则 / 页容器 / colgroup / 合并格 / 占位符求值 / 水印层', () => {
+    const html = buildPrintDocumentHtml(CONTRACT_SOURCE, CONTRACT_CONFIG)
+    // 纸张与边距（A4 210×297mm，48px = 12.7mm 四边）
+    expect(html).toContain('@page { size: 210mm 297mm; margin: 12.7mm 12.7mm 12.7mm 12.7mm; }')
+    // 单页（8 行 × 30px ≤ 可用页高）
+    expect(countOf(html, '<div class="print-page">')).toBe(1)
+    expect(countOf(html, '</div><table class="print-footer">')).toBe(1)
+    // 列骨架：3 列 colgroup
+    expect(countOf(html, '<col style="width:')).toBe(3)
+    // 合并格：序号纵跨 2 行、指标横跨 2 列（无样式主格不出 style 属性）
+    expect(html).toContain('<td rowspan="2">序号</td>')
+    expect(html).toContain('<td colspan="2">指标</td>')
+    // 占位符已求值（不再残留模板串）
+    expect(html).toContain('第 1 页 / 共 1 页')
+    expect(html).not.toContain('{page}')
+    // 水印层节点与打印背景色声明（headless Chrome printBackground 的前提）
+    expect(html).toContain('<div class="print-watermark"')
+    expect(html).toContain('print-color-adjust: exact')
+  })
+
+  it('默认配置产物：A4 纵向 + 12.7mm 边距（缺省字段口径锁定），无水印层节点', () => {
+    const html = buildPrintDocumentHtml(CONTRACT_SOURCE, {})
+    expect(html).toContain('@page { size: 210mm 297mm; margin: 12.7mm 12.7mm 12.7mm 12.7mm; }')
+    expect(html).not.toContain('<div class="print-watermark"')
   })
 })
 
