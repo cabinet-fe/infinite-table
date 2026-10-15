@@ -63,7 +63,8 @@ jobs:
         run: bun run scripts/release/normalize-manifest.ts
 
       - name: 发布到 npm
-        id: changesets
+        # action v1 的 published 输出按 `New tag: pkg@version` 行解析（changesets v2 格式）；
+        # 本仓库 changesets v3 输出 `Successfully published:`，该输出恒为 false，勿作下游条件。
         uses: changesets/action@v1
         with:
           publish: bun run changeset publish
@@ -73,5 +74,6 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'true'
 
       - name: 推送版本 tag
-        if: steps.changesets.outputs.published == 'true'
-        run: git push origin --tags
+        # changeset publish 成功后才打 infinitable@* 本地 tag；checkout fetch-depth: 0 已取回
+        # 远端存量 tag，按 pattern 推送对已存在/零匹配均为 no-op，重跑安全，不依赖 published 输出。
+        run: git push origin 'refs/tags/infinitable@*'

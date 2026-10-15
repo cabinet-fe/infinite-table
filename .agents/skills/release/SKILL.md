@@ -29,7 +29,7 @@ description: infinite-table 发版操作（发版规范 A：公开 npm · CI · 
 
 - 唯一发布物：`infinitable`（packages/infinitable，已统一打包内部 @infinitable/* 模块）；其余子包与 playground 私有不发。
 - CI（release.yml）：build → check:exports → normalize-manifest.ts（剥离 workspace devDependencies，CI 专用，勿在本地跑）→ changesets/action publish，npm OIDC 免 token + provenance + 固定 npm@11；幂等，同版本重跑自动跳过。
-- tag 由 CI 自动打 `infinitable@X.Y.Z`（不再用 `vX.Y.Z`）。
+- tag：changeset publish 成功后打 `infinitable@X.Y.Z` 本地 tag（不再用 `vX.Y.Z`），由 workflow「推送版本 tag」步骤按 `refs/tags/infinitable@*` pattern 推送。changesets/action@v1 的 `published` 输出按 v2 时代 `New tag:` 行解析，在 changesets v3 下恒为 false，**勿作任何下游条件**（2026-10-15 修复 0.3.1 前 tag 全漏推的缺陷）。
 - 若 `agent-docs/index.md` 引用版本号，发版时一并同步。
 - 禁止：本地 `npm publish`；推 `v*` tag 触发发版（旧路径）；watch CI；交互式 changeset CLI。
 
