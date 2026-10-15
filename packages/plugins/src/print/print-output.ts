@@ -9,6 +9,10 @@ import type { PrintConfig, PrintSource } from './types'
 /** iframe load 等待上限：load 事件缺失的环境（部分测试引擎）降级直通，不永久挂起 */
 const IFRAME_LOAD_TIMEOUT_MS = 5_000
 
+/** afterprint 兜底清理时限：Firefox/Safari 的 print() 异步返回且部分环境不触发
+ * afterprint，届时由本定时器回收 iframe（printThis 的 printDelay + 删除兜底同思路） */
+const CLEANUP_FALLBACK_MS = 60_000
+
 /** print 钩子（均可选；测试注入桩断言真实调用，宿主可接管打印对话框） */
 export interface PrintHooks {
   /**
@@ -36,8 +40,13 @@ function loadIframe(iframe: HTMLIFrameElement, html: string): Promise<void> {
 
 /**
  * 打印输出（触 DOM 环节）：分页 + 页面构建（headless）→ 隐藏 iframe 装载 → 调起打印
- * → afterprint / print 返回后清理 iframe（幂等，先到先清理）。
+ * → afterprint / 兜底定时器清理 iframe（幂等，先到先清理）。
  * 无 DOM 环境（SSR/纯测试）直接抛错——headless 消费方请用 buildPrintDocumentHtml。
+ *
+ * 清理时机按路径区分：print() 在 Chrome 同步阻塞到对话框关闭，但在 Firefox/Safari
+ * 异步返回——返回即移除 iframe 会截断未完成的打印任务打出空白（printThis /
+ * react-to-print 的既有坑）。故真实打印路径不在返回时清理，交给 afterprint +
+ * 兜底定时器；钩子路径（测试/宿主接管）保持钩子返回/抛错后立即清理。
  */
 export async function printPages(
   source: PrintSource,
@@ -51,30 +60,37 @@ export async function printPages(
 
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
-  iframe.setAttribute(
-    'style',
-    'position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;visibility:hidden;',
-  )
+  // 离屏定位而非 visibility/display 隐藏：隐藏态 iframe 在部分 WebKit 版本打印为空白
+  iframe.setAttribute('style', 'position:fixed;left:-10000px;top:0;width:1px;height:1px;border:0;')
   document.body.appendChild(iframe)
 
   let cleaned = false
+  let fallbackTimer: ReturnType<typeof setTimeout> | undefined
   const cleanup = (): void => {
-    if (!cleaned) {
-      cleaned = true
-      iframe.remove()
+    if (cleaned) {
+      return
     }
+    cleaned = true
+    if (fallbackTimer !== undefined) {
+      clearTimeout(fallbackTimer)
+    }
+    iframe.remove()
+  }
+  const armCleanup = (): void => {
+    iframe.contentWindow?.addEventListener?.('afterprint', cleanup, { once: true })
+    fallbackTimer = setTimeout(cleanup, CLEANUP_FALLBACK_MS)
   }
 
-  try {
-    await loadIframe(iframe, html)
-    // afterprint 到点即清理；桩替换 print（无 afterprint）时由 finally 兜底，幂等不重复
-    iframe.contentWindow?.addEventListener?.('afterprint', cleanup, { once: true })
-    if (hooks?.print) {
+  await loadIframe(iframe, html)
+  armCleanup()
+  if (hooks?.print) {
+    try {
       await hooks.print(iframe)
-    } else {
-      iframe.contentWindow?.print?.()
+    } finally {
+      cleanup()
     }
-  } finally {
-    cleanup()
+    return
   }
+  iframe.contentWindow?.focus?.()
+  iframe.contentWindow?.print?.()
 }

@@ -56,4 +56,14 @@ describe('printPages：iframe 装载与清理', () => {
     ).rejects.toThrow('打印取消')
     expect(document.body.querySelector('iframe')).toBeNull()
   })
+
+  it('缺省 print 路径延迟清理：printPages 返回时 iframe 仍在，afterprint 后移除', async () => {
+    // Firefox/Safari 的 print() 异步返回，返回即移除 iframe 会截断打印任务——
+    // 缺省路径的回收必须晚于 printPages 返回（afterprint 或兜底定时器先到先清）
+    await printPages(SOURCE, {})
+    const iframe = document.body.querySelector('iframe')
+    expect(iframe).not.toBeNull()
+    iframe?.contentWindow?.dispatchEvent(new Event('afterprint'))
+    expect(document.body.querySelector('iframe')).toBeNull()
+  })
 })
