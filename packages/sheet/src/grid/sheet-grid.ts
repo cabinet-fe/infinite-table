@@ -135,6 +135,11 @@ export interface SheetGridOptions {
    * 均不增长（容器放大超出当前行列数的部分为空白区）。
    */
   growOnScroll?: boolean
+  /**
+   * 渲染设备像素比（core hostOptions.dpr 透传，缺省 window.devicePixelRatio）：
+   * 像素断言/截图对比等确定性场景锁定 1，画布背板与 CSS 坐标系 1:1。
+   */
+  dpr?: number
 }
 
 /**
@@ -310,7 +315,10 @@ export class SheetGrid {
       // 被回推为被编辑格，引擎缺省锚点取不到拾取段）；非拾取期返回 undefined 交引擎缺省
       resolveShiftSelectAnchor: () => this.selectionController.resolveShiftExtendAnchor(),
       editCellOnEnter: !this.isReadonly,
-      hostOptions: { container: this.container },
+      hostOptions: {
+        container: this.container,
+        ...(options.dpr !== undefined ? { dpr: options.dpr } : {}),
+      },
     } satisfies ListTableOptions)
 
     // 构造期一次落地行列尺寸覆盖（列宽已随列定义写入，行为运行时 API）

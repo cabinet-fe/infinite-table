@@ -16,7 +16,7 @@ export function isSmokeMode(): boolean {
 }
 
 /** dpr 解析：冒烟模式锁 1（页内像素断言确定性），否则取设备 dpr */
-function resolveDpr(): number {
+export function resolveDpr(): number {
   return isSmokeMode() ? 1 : window.devicePixelRatio || 1
 }
 

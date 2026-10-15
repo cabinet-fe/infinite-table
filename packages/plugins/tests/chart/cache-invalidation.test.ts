@@ -25,8 +25,12 @@ interface ChartHarness {
   flushAsync: () => Promise<void>
 }
 
-/** 建表 + 图表插件（注入假 Chart.js 模块与录制画布），resolveCellChart 读 records[row].chart */
-function setupChartTable(records: DataRecord[]): ChartHarness {
+/**
+ * 建表 + 图表插件（注入假 Chart.js 模块与录制画布），resolveCellChart 读 records[row].chart。
+ * hostDpr 缺省钉 1（断言确定性）；传 null 构造不钉 dpr 的表（hostOptions.dpr 缺省，
+ * resize 跟随宿主环境——DPR 变化用例消费此档）。
+ */
+function setupChartTable(records: DataRecord[], hostDpr: number | null = 1): ChartHarness {
   resetFakeChart()
   const host = new StubHost()
   const plugin = createChartPlugin({
@@ -43,7 +47,7 @@ function setupChartTable(records: DataRecord[]): ChartHarness {
     columns: [{ field: 'name' }, { field: 'chart' }],
     records,
     host,
-    hostOptions: { dpr: 1 },
+    hostOptions: hostDpr === null ? {} : { dpr: hostDpr },
     plugins: [plugin],
   })
   return {
@@ -161,8 +165,10 @@ describe('图表格缓存失效与数据/尺寸变更重绘', () => {
     table.destroy()
   })
 
-  it('DPR 变化（resize 通道）：出图随新 DPR 重做，缓存 key 携带新 DPR', async () => {
-    const { table, flushAsync } = setupChartTable([chartRecord(BAR_DECLARATION)])
+  it('DPR 变化（resize 通道）：非钉 dpr 宿主出图随新 DPR 重做，缓存 key 携带新 DPR', async () => {
+    // 显式注入的 hostOptions.dpr 在 resize 沿构造值（确定性场景锁 dpr）——
+    // 环境跟随语义由「不注入 dpr」的表承担
+    const { table, flushAsync } = setupChartTable([chartRecord(BAR_DECLARATION)], null)
     await flushAsync()
     const originalNode = chartNodeAt(table, 1, 0)!
     expect(originalNode.hasBitmap).toBe(true)

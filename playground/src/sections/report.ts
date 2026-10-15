@@ -10,6 +10,8 @@
 import type { ListTable } from '@infinitable/core'
 import { Sheet, SheetGrid, type SheetSnapshot } from '@infinitable/sheet'
 
+import { resolveDpr } from '../mount'
+
 // ---- 报表维度与口径常量（smoke 断言与快照 fixture 共用） ----
 
 const REPORT_ROW_COUNT = 36
@@ -334,6 +336,8 @@ export function mountReport(root: HTMLElement): ReportDemo {
     readonly: true,
     showColHeader: false,
     showRowHeader: false,
+    // 与 mountTable 同源 dpr 通道：冒烟锁 1，像素断言坐标 1:1（其余演示区一致口径）
+    dpr: resolveDpr(),
   })
 
   return {

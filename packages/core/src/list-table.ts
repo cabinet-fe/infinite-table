@@ -285,6 +285,8 @@ export class ListTable {
   readonly chartRenderTasks = new Map<string, Promise<LoadedImage | null>>()
   /** @internal 出图设备像素比（构造/resize 随宿主刷新；出图物理分辨率与显示层一致） */
   hostDpr: number
+  /** 构造期显式注入的 hostOptions.dpr（resize 沿用不随环境刷新；undefined=随宿主环境） */
+  private readonly explicitHostDpr: number | undefined
   /**
    * @internal 浮动对象层（首次访问 floatObjects 时惰性建承载容器，挂在已用的 sky 层最顶）。
    * 原始字段供交互路由读写（未挂载为 null 时不强建层）；宿主面走 floatObjects getter。
@@ -535,8 +537,10 @@ export class ListTable {
         // 透传值，与展开缺省取 container 的既有行为一致，零变化）
         eventsTarget: this.nativeScrollbar?.eventsTarget ?? options.hostOptions?.eventsTarget,
       })
-    // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先，缺省取宿主环境值（resize 随宿主刷新）
-    this.hostDpr = options.hostOptions?.dpr ?? resolveHostDpr()
+    // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先（resize 沿用，确定性场景锁 dpr
+    // 不被环境值覆盖），缺省取宿主环境值（resize 随宿主刷新）
+    this.explicitHostDpr = options.hostOptions?.dpr
+    this.hostDpr = this.explicitHostDpr ?? resolveHostDpr()
     this.ownHost = !options.host
     // 快路径字符推进宽经宿主测量画布逐字符首见测量（与精测同源），此后整表命中
     this.textAdvances = new TextAdvanceTable((char, font) => this.host.measure(char, font).width)
@@ -1376,9 +1380,10 @@ export class ListTable {
     }
     this.tableWidth = nextWidth
     this.tableHeight = nextHeight
-    // 透传当前宿主环境 dpr：core 侧几何变更路径与运行期 DPR 保持一致
-    this.hostDpr = resolveHostDpr()
-    this.host.resize(nextWidth, nextHeight, resolveHostDpr())
+    // 透传当前 dpr：显式注入沿构造值（确定性场景锁 dpr），否则随宿主环境刷新
+    const dpr = this.explicitHostDpr ?? resolveHostDpr()
+    this.hostDpr = dpr
+    this.host.resize(nextWidth, nextHeight, dpr)
     // 原生滚动容器 CSS 尺寸随视口原地调整（滚动范围随后的几何变更重算）
     this.nativeScrollbar?.resize(nextWidth, nextHeight)
     // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
