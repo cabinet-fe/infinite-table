@@ -312,7 +312,7 @@ const buffer = await file.arrayBuffer() // <input type="file"> 读入的 .xlsx
 const workbook = await importXlsx(buffer)
 console.log(workbook.sheetCount) // => 文件内 sheet 数
 
-// 导出：整簿 → xlsx 字节（值/公式/合并/样式/冻结/行列尺寸/浮动图）
+// 导出：整簿 → xlsx 字节（值/公式/合并/样式（覆盖格自动物化锚点有效样式）/冻结/行列尺寸/浮动图）
 const bytes = await exportWorkbookXlsx(workbook)
 void bytes // 交宿主下载/上传
 
@@ -365,7 +365,7 @@ if (hit) sheet.selectRange({ start: hit.addr, end: hit.addr })
 > - 合并值保留规则（同 Excel）：仅保留包围盒内按行主序第一个有值格的值写入新锚点，其余被覆盖格清空；相交合并自动取包围盒。
 > - `SheetGrid` 的 `theme`/`scrollbar`/`editorInsideBorder`/`openCellLinkOnClick` 均为引擎 `ListTable` 同形透传：主题以内置 `SHEET_GRID_THEME` 为底经 `extendsTheme` 深覆盖；`mode: 'native'` 原生滚动条档下内建滚轮接线自动让位（引擎 `table.usesNativeScrollbar` 判定）。
 > - 默认行列尺寸：`sheet.setDefaultRowHeight`/`setDefaultColWidth` 声明（px，不进 undo）后 `SheetGrid` 全部默认尺寸消费点优先读模型，未声明回落内置缺省 28px / 80px。xlsx 导入按文件声明写入：行高 pt→px `Math.round(v * 4 / 3)`（缺省 15pt→20px），列宽字符→px `Math.round(v * 7 + 5)`（缺省 8.43→64px）。
-> - IO 映射：xlsx 往返日期用 1900 系序列数（`t: 'd'`）保真；`importCsv` 从 A1 覆盖写入既有表（空格不覆盖既有格，空串清除目标格）；`exportSheetCsv` 合并覆盖格输出空（同 Excel）、带 UTF-8 BOM。
+> - IO 映射：xlsx 往返日期用 1900 系序列数（`t: 'd'`）保真；`exportWorkbookXlsx`/`exportSheetXlsx` 对合并区覆盖格按有效样式（覆盖格解析到锚点，列 → 行 → 格叠加）自动物化纯样式格（值仍空），多行/列合并的外边框在 Excel 端完整渲染；`importCsv` 从 A1 覆盖写入既有表（空格不覆盖既有格，空串清除目标格）；`exportSheetCsv` 合并覆盖格输出空（同 Excel）、带 UTF-8 BOM。
 > - 本库 A1 坐标系统有两套：本子路径的 `parseAddress`/`formatAddress`/`CellRange`（0 基格坐标域）与 formulas 层的 `parseCellRef`/`CellRef`（公式引用域）分立，禁止混用。
 
 ## 常见问题

@@ -262,6 +262,29 @@ describe('exportWorkbookXlsx 映射（hucre 输入结构）', () => {
       fgColor: { rgb: '00FF00' },
     })
   })
+
+  it('合并区覆盖格按 getEffectiveStyle 物化纯样式格：锚点解析 + 列默认叠加；无样式不物化', async () => {
+    const workbook = new Workbook()
+    const sheet = workbook.activeSheet
+    sheet.setCellValue({ row: 0, col: 0 }, 'title')
+    sheet.setCellStyle(parseRange('A1')!, { fill: { color: '#FF0000' } })
+    sheet.mergeCells(parseRange('A1:B2')!) // 覆盖格 B1/A2/B2 被清空（无存储位）
+    sheet.setColStyle(0, { align: { horizontal: 'right' } }) // 锚点所在列的默认样式随解析叠加
+    sheet.setCellValue({ row: 4, col: 2 }, 'plain')
+    sheet.mergeCells(parseRange('C5:D5')!) // 锚点（C 列无列默认、格无样式）→ 覆盖格不物化
+
+    await exportWorkbookXlsx(workbook)
+    const cells = lastOptions!.sheets[0]!.cells!
+    // 覆盖格 = 锚点有效样式（fill + A 列右对齐）；仅 style 无值/formula 字段
+    const fill = { type: 'pattern', pattern: 'solid', fgColor: { rgb: 'FF0000' } } as const
+    expect(cells.get('0,1')?.style).toEqual({ fill, alignment: { horizontal: 'right' } })
+    expect(cells.get('1,0')?.style).toEqual({ fill, alignment: { horizontal: 'right' } })
+    expect(cells.get('1,1')?.style).toEqual({ fill, alignment: { horizontal: 'right' } })
+    expect(Object.keys(cells.get('0,1')!)).toEqual(['style']) // 纯样式格：无值/formula 字段
+    // 锚点条目不受影响；无有效样式的覆盖格不写条目
+    expect(cells.get('0,0')?.style?.fill).toEqual(fill)
+    expect(cells.get('4,3')).toBeUndefined()
+  })
 })
 
 describe('buildColumnDefs / pxToExcelColWidth', () => {

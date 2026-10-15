@@ -11,6 +11,7 @@ import type {
 import { writeCsv } from 'hucre/csv'
 import { writeXlsx } from 'hucre/xlsx'
 
+import { iterateRange, type CellRange } from '../address'
 import type { SheetImage } from '../image'
 import type { Sheet } from '../sheet'
 import { BORDER_SIDES, type CellStyle, type NumFmt } from '../style/types'
@@ -24,7 +25,8 @@ import type { Workbook } from '../workbook'
  *   f → formula（不带 '='，与 hucre 约定一致），v（计算缓存）→ formulaResult
  * - 日期 t='d'：模型存 1900 系统序列数，导出为数字 + 日期 numFmt（hucre 读回判为 Date，
  *   导入端再转回序列数——round-trip 保真）
- * - 合并：模型 CellRange（闭区间 start/end）→ hucre MergeRange（startRow/startCol/endRow/endCol）
+ * - 合并：模型 CellRange（闭区间 start/end）→ hucre MergeRange（startRow/startCol/endRow/endCol）；
+ *   覆盖格按 getEffectiveStyle 物化纯样式格（值仍空），保证合并区外边框在 xlsx 端完整渲染
  * - 样式：模型 { fill, border, font, align, numFmt } → hucre CellStyle（fill=solid pattern +
  *   fgColor（去 '#'），四边 border { style, color }；hucre 无边宽字段，width 丢弃；
  *   font.size pt 直存；align.vertical middle ↔ hucre center；wrap ↔ wrapText；
@@ -180,6 +182,28 @@ function cellToHucreCell(
 }
 
 /**
+ * 合并区覆盖格样式物化：覆盖格不占存储位，样式只存在锚点上；而 xlsx 端渲染合并区
+ * 边框取区域周边格的外侧边，仅锚点带边框时多行/列合并的外边框不完整。导出时对覆盖格
+ * 按 getEffectiveStyle（覆盖格解析到锚点，列 → 行 → 格叠加）补写纯样式格（rows 不落值，
+ * hucre 对无值样式格输出 `<c s="…"/>`）。已有 cells 条目不覆盖（显式格优先）。
+ */
+function materializeMergeCoverStyles(
+  sheet: Sheet,
+  merges: readonly CellRange[],
+  cells: Map<string, Partial<HucreCell>>,
+): void {
+  for (const range of merges) {
+    for (const addr of iterateRange(range)) {
+      if (addr.row === range.start.row && addr.col === range.start.col) continue
+      const key = `${addr.row},${addr.col}`
+      if (cells.has(key)) continue
+      const style = sheet.getEffectiveStyle(addr)
+      if (style) cells.set(key, { style: styleToHucre(style) })
+    }
+  }
+}
+
+/**
  * 单 Sheet → hucre WriteSheet（exportWorkbookXlsx / exportSheetXlsx 共用）。
  * 行范围 = 数据行 ∪ rowDefs 行 ∪ 列宽列；稠密数组（hucre 写侧只遍历 rows 范围内的行，
  * rowDefs 覆盖的无数据行必须出现在 rows 中，否则行高丢失）。
@@ -219,12 +243,13 @@ function sheetToHucreWriteSheet(sheet: Sheet, name: string): HucreWriteSheet {
     if (detail) cells.set(key, detail)
   }
 
+  const merges = sheet.merges.getMerges()
+  materializeMergeCoverStyles(sheet, merges, cells)
+
   const sheetOut: HucreWriteSheet = Object.assign(
     { name, rows },
     cells.size > 0 ? { cells } : {},
-    sheet.merges.size > 0
-      ? { merges: sheet.merges.getMerges().map((range) => rangeToHucre(range)) }
-      : {},
+    merges.length > 0 ? { merges: merges.map((range) => rangeToHucre(range)) } : {},
   )
   const frozen = sheet.frozen
   if (frozen.rows > 0 || frozen.cols > 0) {

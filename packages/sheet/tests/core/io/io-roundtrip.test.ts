@@ -149,6 +149,28 @@ describe('XLSX round-trip（导出 → 导入）', () => {
     expect(s1.merges.size).toBe(1)
   })
 
+  it('合并区覆盖格样式物化：带样式合并区导出后再导入，锚点样式与合并一致', async () => {
+    const source = new Workbook()
+    const s = source.activeSheet
+    s.setCellValue({ row: 0, col: 0 }, 'band')
+    s.setCellStyle(parseRange('A1')!, {
+      fill: { color: '#FF0000' },
+      border: { bottom: { style: 'thin', width: 1, color: '#000000' } },
+    })
+    s.mergeCells(parseRange('A1:C1')!)
+
+    const buffer = await exportWorkbookXlsx(source)
+    const imported = await importXlsx(buffer)
+    const t = imported.getSheet('Sheet1')!
+    // 导入端把覆盖格的边缘边框汇总回锚点：样式应与源锚点完全一致
+    expect(t.getCellStyle({ row: 0, col: 0 })).toEqual({
+      fill: { color: '#FF0000' },
+      border: { bottom: { style: 'thin', width: 1, color: '#000000' } },
+    })
+    expect(t.getCellData({ row: 0, col: 0 })).toMatchObject({ v: 'band', t: 's' })
+    expect(t.getDisplayValue({ row: 0, col: 2 })).toBe('band')
+  })
+
   it('浮动图：字节 / 类型 / 锚点 / 尺寸 round-trip 一致', async () => {
     const source = new Workbook()
     source.activeSheet.setCellValue({ row: 0, col: 0 }, 'with-image')
