@@ -41,7 +41,9 @@ import { mountPrint, PRINT_HEADER_ROWS, type PrintDemo } from '../../sections/pr
 interface PrintSettings {
   paper: PrintPaperPreset
   orientation: PrintOrientation
-  scale: PrintScaleMode
+  /** 缩放档位：内核两模式 + custom（走 scalePercent 自定义百分比） */
+  scale: PrintScaleMode | 'custom'
+  scalePercent: number
   paging: PrintPagingMode
   fixRows: number
 }
@@ -50,6 +52,7 @@ const DEFAULT_SETTINGS: PrintSettings = {
   paper: 'A4',
   orientation: 'portrait',
   scale: 'origin',
+  scalePercent: 100,
   paging: 'fitpage',
   fixRows: 12,
 }
@@ -76,12 +79,23 @@ function paperLabel(paper: PrintConfig['paperSize']): string {
   return typeof paper === 'object' ? `自定义 ${paper.widthMm}×${paper.heightMm}mm` : paper
 }
 
+/** 缩放标注（状态行显示用；模式代号或自定义百分比） */
+function scaleLabel(scale: PrintConfig['scale']): string {
+  if (scale === undefined) {
+    return 'origin'
+  }
+  return typeof scale === 'object' ? `自定义 ${scale.percent}%` : scale
+}
+
 /** 面板当前值 → 完整打印配置（每次打开预览/打印时合成，逐次传入插件方法） */
 function buildPrintConfig(settings: PrintSettings): PrintConfig {
   return {
     paperSize: settings.paper,
     orientation: settings.orientation,
-    scale: settings.scale,
+    scale:
+      settings.scale === 'custom'
+        ? { percent: settings.scalePercent }
+        : (settings.scale as PrintScaleMode),
     paging: settings.paging,
     fixRows:
       settings.paging === 'fixrows'
@@ -149,7 +163,10 @@ export function PrintPage() {
   useEffect(() => {
     const el = mountRef.current
     if (!el) return
-    setDemo(mountPrint(el))
+    const demo = mountPrint(el)
+    // 页面文案承诺 window.__DEMO__.print 可读调起计数——单演示页只挂自己那一片
+    window.__DEMO__ = { print: demo }
+    setDemo(demo)
   }, [])
 
   /** 打开预览弹层：按面板当前值合成配置，分页结果与逐页文档一次构建 */
@@ -241,7 +258,7 @@ export function PrintPage() {
               <Label className="text-xs text-muted-foreground">缩放</Label>
               <Select
                 value={settings.scale}
-                onValueChange={(value) => updateSetting('scale', value as PrintScaleMode)}
+                onValueChange={(value) => updateSetting('scale', value as PrintSettings['scale'])}
               >
                 <SelectTrigger size="sm" className="w-full">
                   <SelectValue />
@@ -249,8 +266,25 @@ export function PrintPage() {
                 <SelectContent>
                   <SelectItem value="origin">原始尺寸</SelectItem>
                   <SelectItem value="fit-width">适配页宽</SelectItem>
+                  <SelectItem value="custom">自定义百分比</SelectItem>
                 </SelectContent>
               </Select>
+              {settings.scale === 'custom' && (
+                <Input
+                  aria-label="自定义缩放百分比"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={settings.scalePercent}
+                  onChange={(event) => {
+                    const parsed = Number(event.target.value)
+                    if (Number.isFinite(parsed)) {
+                      updateSetting('scalePercent', Math.min(1000, Math.max(1, Math.trunc(parsed))))
+                    }
+                  }}
+                  className="h-8 text-[13px]"
+                />
+              )}
             </div>
 
             <div className="grid gap-1.5">
@@ -304,7 +338,7 @@ export function PrintPage() {
               ? `；最近：${paperLabel(lastPrinted.paperSize)} ${lastPrinted.orientation ?? 'portrait'}` +
                 ` ${lastPrinted.paging ?? 'fitpage'}` +
                 `${lastPrinted.paging === 'fixrows' ? `（每页 ${lastPrinted.fixRows ?? '-'} 行）` : ''}` +
-                ` ${lastPrinted.scale ?? 'origin'}`
+                ` ${scaleLabel(lastPrinted.scale)}`
               : '；尚未打印（打开预览后点打印按钮）'}
           </p>
         </div>
