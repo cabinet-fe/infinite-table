@@ -1,5 +1,11 @@
 # infinitable
 
+## 0.3.2
+
+### Patch Changes
+
+- ad92ae3: fix: 修复 xlsx 导出后行高整体偏小及单元格垂直对齐与 UI 不一致
+
 ## 0.3.1
 
 ### Patch Changes
