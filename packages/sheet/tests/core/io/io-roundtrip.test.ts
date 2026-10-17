@@ -61,6 +61,9 @@ function buildWorkbook(): Workbook {
   s1.setFrozen(1, 2)
   s1.setRowHeight(1, 40)
   s1.setRowHeight(5, 24)
+  // 默认尺寸（选用换算对称的像素值）
+  s1.setDefaultRowHeight(32) // 24pt
+  s1.setDefaultColWidth(89) // 12 chars（px' = chars*7+5 对称）
   // 选用换算对称的像素值：chars = round((px-5)/7)，px' = chars*7+5
   s1.setColWidth(0, 117) // 16 chars
   s1.setColWidth(2, 145) // 20 chars
@@ -127,6 +130,9 @@ describe('XLSX round-trip（导出 → 导入）', () => {
     // 列宽（117px ↔ 16 chars；145px ↔ 20 chars）
     expect(s1.getColWidth(0)).toBe(117)
     expect(s1.getColWidth(2)).toBe(145)
+    // 默认尺寸（32px ↔ 24pt；89px ↔ 12 chars）
+    expect(s1.defaultRowHeight).toBe(32)
+    expect(s1.defaultColWidth).toBe(89)
     // 跨表公式
     expect(s2.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'Sheet1!A1+1', v: 43 })
     // 触发跨表重算仍正确
@@ -147,6 +153,16 @@ describe('XLSX round-trip（导出 → 导入）', () => {
     expect(s1.redo()).toBe(true)
     expect(s1.getCellData({ row: 0, col: 0 })).toMatchObject({ v: 42 })
     expect(s1.merges.size).toBe(1)
+  })
+
+  it('未声明默认行高：导出回落 UI 缺省 21pt，导入物化 28px（与 UI 渲染一致）', async () => {
+    const source = new Workbook()
+    source.activeSheet.setCellValue({ row: 0, col: 0 }, 'x')
+
+    const buffer = await exportWorkbookXlsx(source)
+    const imported = await importXlsx(buffer)
+    // 导出 28px → 21pt（sheetFormatPr）；导入 21pt × 4/3 = 28px
+    expect(imported.getSheet('Sheet1')!.defaultRowHeight).toBe(28)
   })
 
   it('合并区覆盖格样式物化：带样式合并区导出后再导入，锚点样式与合并一致', async () => {

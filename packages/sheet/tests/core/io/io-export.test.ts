@@ -187,10 +187,28 @@ describe('exportWorkbookXlsx 映射（hucre 输入结构）', () => {
     expect(sheet.freezePane).toEqual({ rows: 1, columns: 2 })
     // 行高：px → points（30 * 0.75 = 22.5）
     expect(sheet.rowDefs?.get(1)).toEqual({ height: 22.5 })
+    // 默认行高：未声明回落 UI 内置缺省 28px → 21pt（否则 Excel 以 15pt 打开，行高偏小）
+    expect(sheet.defaultRowHeight).toBe(21)
+    // 默认列宽：未声明不写（Excel 用内建缺省）
+    expect(sheet.defaultColWidth).toBeUndefined()
 
     // ── Sheet2
     expect(options.sheets[1]!.name).toBe('S2')
     expect(options.sheets[1]!.rows![0]).toMatchObject(['x'])
+    expect(options.sheets[1]!.defaultRowHeight).toBe(21)
+  })
+
+  it('默认行高 / 列宽：声明值导出（px → pt / px → 字符宽）', async () => {
+    const workbook = new Workbook()
+    const s1 = workbook.activeSheet
+    s1.setDefaultRowHeight(32)
+    s1.setDefaultColWidth(89) // round((89-5)/7) = 12 字符
+
+    await exportWorkbookXlsx(workbook)
+
+    const sheet = lastOptions!.sheets[0]!
+    expect(sheet.defaultRowHeight).toBe(24) // 32 * 0.75
+    expect(sheet.defaultColWidth).toBe(12)
   })
 
   it('浮动图写入 images（剥离 id）', async () => {

@@ -1,5 +1,8 @@
 import type { ThemeOverride } from '@infinitable/core'
 
+/** 缺省行高 / 列宽真相在 core（xlsx 导出与视图层共用）；此处 re-export 保持 grid 引用路径 */
+export { SHEET_DEFAULT_COL_WIDTH, SHEET_DEFAULT_ROW_HEIGHT } from '../core/defaults'
+
 /** 行号 / 列头浅底（canvas 主题无法读 CSS 变量，固定色贴近 Excel） */
 const CHROME_BG = '#F5F5F5'
 /** body 纯白 */
@@ -59,17 +62,8 @@ export const SHEET_GRID_THEME: ThemeOverride = {
   frameStyle: { lineWidth: 1, color: GRID_BORDER, shadow: false },
 }
 
-/** 默认行高（贴近表格密度；与 SHEET_CELL_PADDING 搭配） */
-export const SHEET_DEFAULT_ROW_HEIGHT = 28
-
 /** 列头带高（对齐替换前行高密度） */
 export const SHEET_HEADER_HEIGHT = 28
 
 /** 行号列宽（对齐替换前 rowSeriesNumber.width） */
 export const SHEET_ROW_HEADER_WIDTH = 46
-
-/**
- * 默认列宽（px），对齐替换前默认值。
- * 未设置自定义列宽时网格使用此默认值；模型稀疏 colWidths 经列定义构造期写入。
- */
-export const SHEET_DEFAULT_COL_WIDTH = 80

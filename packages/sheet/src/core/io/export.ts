@@ -12,6 +12,7 @@ import { writeCsv } from 'hucre/csv'
 import { writeXlsx } from 'hucre/xlsx'
 
 import { iterateRange, type CellRange } from '../address'
+import { SHEET_DEFAULT_ROW_HEIGHT } from '../defaults'
 import type { SheetImage } from '../image'
 import type { Sheet } from '../sheet'
 import { BORDER_SIDES, type CellStyle, type NumFmt } from '../style/types'
@@ -32,7 +33,9 @@ import type { Workbook } from '../workbook'
  *   font.size pt 直存；align.vertical middle ↔ hucre center；wrap ↔ wrapText；
  *   numFmt → Excel 格式码，见 numFmtToXlsx）
  * - 冻结：Sheet.frozen → freezePane { rows, columns }
- * - 行高：模型像素 → hucre RowDef.height（points，×0.75）
+ * - 行高：模型像素 → hucre RowDef.height（points，×0.75）；默认行高 → sheetFormatPr
+ *   defaultRowHeight（未声明回落 UI 内置缺省 28px，否则 Excel 以内建 15pt 打开，行高
+ *   比 UI 少 8px——上下留白消失）；默认列宽（已声明）→ defaultColWidth（px → 字符宽）
  * - 图片：模型 SheetImage → hucre SheetImage（剥离 id；data/type/anchor/宽高/alt/title 直写）
  * - CSV：活动表从 A1 到最后一个有值行/列的矩形，公式格导计算缓存值（getDisplayValue），
  *   合并格显示锚点值（同 Excel），带 UTF-8 BOM；不支持图片（忽略，不报错）
@@ -260,6 +263,11 @@ function sheetToHucreWriteSheet(sheet: Sheet, name: string): HucreWriteSheet {
     rowDefs.set(row, { height: pxToPt(height) })
   }
   if (rowDefs.size > 0) sheetOut.rowDefs = rowDefs
+  // 默认行高必写（未声明回落 UI 缺省）；默认列宽仅声明时写（未声明用 Excel 内建缺省）
+  sheetOut.defaultRowHeight = pxToPt(sheet.defaultRowHeight ?? SHEET_DEFAULT_ROW_HEIGHT)
+  if (sheet.defaultColWidth != null) {
+    sheetOut.defaultColWidth = pxToExcelColWidth(sheet.defaultColWidth)
+  }
   if (sheet.getColWidths().size > 0) {
     sheetOut.columns = buildColumnDefs([...sheet.getColWidths()])
   }
