@@ -16,6 +16,7 @@ import {
   pxToExcelColWidth,
   rangeToHucre,
   styleToHucre,
+  withUiVerticalDefault,
 } from '../../../src/core/io/export'
 
 const xlsxMock = vi.hoisted(() => ({
@@ -108,6 +109,19 @@ describe('styleToHucre / rangeToHucre / imageToHucre（样式与合并与图片�
     expect(styleToHucre({ numFmt: { type: 'fixed', digits: 0 } })).toEqual({ numFmt: '0' })
   })
 
+  it('withUiVerticalDefault：未声明 vertical 补 center，已声明尊重原值', () => {
+    // 空样式 → 仅缺省居中（视图引擎 middle 缺省 ↔ Excel bottom 缺省）
+    expect(withUiVerticalDefault({})).toEqual({ alignment: { vertical: 'center' } })
+    // 已有 alignment 保留其余字段
+    expect(withUiVerticalDefault({ alignment: { horizontal: 'center' } })).toEqual({
+      alignment: { horizontal: 'center', vertical: 'center' },
+    })
+    // 显式声明 vertical 不覆盖
+    expect(withUiVerticalDefault({ alignment: { vertical: 'top' } })).toEqual({
+      alignment: { vertical: 'top' },
+    })
+  })
+
   it('imageToHucre 剥离 id，保留 data/type/anchor/尺寸/alt/title', () => {
     expect(
       imageToHucre({
@@ -176,11 +190,14 @@ describe('exportWorkbookXlsx 映射（hucre 输入结构）', () => {
     const dateCell = sheet.cells?.get('0,5')
     expect(dateCell).toMatchObject({ value: 45000, type: 'number' })
     expect(dateCell?.style?.numFmt).toBe('yyyy-mm-dd')
-    // 样式：fill + border（A1）
+    // 样式：fill + border（A1）+ UI 缺省垂直居中（模型未声明 vertical）
     expect(sheet.cells?.get('0,0')?.style).toMatchObject({
       fill: { type: 'pattern', pattern: 'solid', fgColor: { rgb: 'FF0000' } },
       border: { top: { style: 'thin', color: { rgb: '000000' } } },
+      alignment: { vertical: 'center' },
     })
+    // 无样式值格也落 cells 条目携带缺省居中（否则 Excel 按 bottom 渲染）
+    expect(sheet.cells?.get('0,1')).toEqual({ style: { alignment: { vertical: 'center' } } })
     // 合并：0-based 闭区间
     expect(sheet.merges).toEqual([{ startRow: 1, startCol: 0, endRow: 2, endCol: 1 }])
     // 冻结

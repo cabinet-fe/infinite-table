@@ -31,6 +31,8 @@ import type { Workbook } from '../workbook'
  * - 样式：模型 { fill, border, font, align, numFmt } → hucre CellStyle（fill=solid pattern +
  *   fgColor（去 '#'），四边 border { style, color }；hucre 无边宽字段，width 丢弃；
  *   font.size pt 直存；align.vertical middle ↔ hucre center；wrap ↔ wrapText；
+ *   模型未声明 vertical 的内容格补 UI 缺省 center（xlsx 无工作表级缺省对齐，Excel 对
+ *   无 alignment 的格一律 bottom 渲染，与视图引擎的 middle 缺省不一致，见 withUiVerticalDefault）；
  *   numFmt → Excel 格式码，见 numFmtToXlsx）
  * - 冻结：Sheet.frozen → freezePane { rows, columns }
  * - 行高：模型像素 → hucre RowDef.height（points，×0.75）；默认行高 → sheetFormatPr
@@ -124,6 +126,17 @@ export function styleToHucre(style: CellStyle): HucreCellStyle {
   return hucre
 }
 
+/**
+ * UI 缺省垂直居中物化：视图引擎对未声明 vertical 的格按 middle 渲染（textBaselineY 缺省），
+ * 而 xlsx 没有工作表级缺省对齐、无 alignment 的格 Excel 一律 bottom——不补写则导出后
+ * 文字全部沉底。模型已声明 vertical 时尊重声明；只应由导出组装层对内容格调用，
+ * 纯映射 styleToHucre 不掺缺省（空样式仍映射空对象）。
+ */
+export function withUiVerticalDefault(hucre: HucreCellStyle): HucreCellStyle {
+  if (hucre.alignment?.vertical) return hucre
+  return { ...hucre, alignment: { ...hucre.alignment, vertical: 'center' } }
+}
+
 /** 模型合并区域 → hucre MergeRange */
 export function rangeToHucre(range: {
   start: { row: number; col: number }
@@ -159,36 +172,35 @@ function cellToHucreCell(
   sheet: Sheet,
   addr: { row: number; col: number },
   data: NonNullable<ReturnType<Sheet['getCellData']>>,
-): Partial<HucreCell> | undefined {
+): Partial<HucreCell> {
   const cell: Partial<HucreCell> = {}
-  // 有值格用有效样式（列 → 行 → 格叠加），保证行列默认样式可见内容保真
+  // 有值格用有效样式（列 → 行 → 格叠加），保证行列默认样式可见内容保真；
+  // 内容格必落 cells 条目（至少携带 UI 缺省垂直居中，Excel 端才有居中观感）
   const style = sheet.getEffectiveStyle(addr)
-  if (style) cell.style = styleToHucre(style)
+  cell.style = style
+    ? withUiVerticalDefault(styleToHucre(style))
+    : { alignment: { vertical: 'center' } }
   if (data.f != null && data.f !== '') {
     cell.formula = data.f
     if (data.v != null) cell.formulaResult = data.v as HucreCellValue
-    return cell
-  }
-  if (data.t === 'e') {
+  } else if (data.t === 'e') {
     cell.value = data.v as string
     cell.type = 'error'
-    return cell
-  }
-  if (data.t === 'd') {
+  } else if (data.t === 'd') {
     // 模型日期序列（1900 系统）→ 数字 + 日期 numFmt（hucre 读回判为 Date，导入端转回）
     cell.value = data.v as number
     cell.type = 'number'
     cell.style = { ...cell.style, numFmt: numFmtToXlsx({ type: 'date' }) }
-    return cell
   }
-  return Object.keys(cell).length > 0 ? cell : undefined
+  return cell
 }
 
 /**
  * 合并区覆盖格样式物化：覆盖格不占存储位，样式只存在锚点上；而 xlsx 端渲染合并区
  * 边框取区域周边格的外侧边，仅锚点带边框时多行/列合并的外边框不完整。导出时对覆盖格
  * 按 getEffectiveStyle（覆盖格解析到锚点，列 → 行 → 格叠加）补写纯样式格（rows 不落值，
- * hucre 对无值样式格输出 `<c s="…"/>`）。已有 cells 条目不覆盖（显式格优先）。
+ * hucre 对无值样式格输出 `<c s="…"/>`；覆盖格无文字，不掺 UI 垂直居中缺省）。
+ * 已有 cells 条目不覆盖（显式格优先）。
  */
 function materializeMergeCoverStyles(
   sheet: Sheet,
@@ -229,21 +241,19 @@ function sheetToHucreWriteSheet(sheet: Sheet, name: string): HucreWriteSheet {
   for (const [addr, data] of sheet.store.entries()) {
     const row = rows[addr.row]!
     const key = `${addr.row},${addr.col}`
-    const detail = cellToHucreCell(sheet, addr, data)
+    // 内容格恒有覆盖项（至少 UI 缺省垂直居中）
+    cells.set(key, cellToHucreCell(sheet, addr, data))
     if (data.f != null && data.f !== '') {
       // 公式格：计算值进 rows，公式/样式进 cells
       row[addr.col] = (data.v as HucreCellValue) ?? null
-      if (detail) cells.set(key, detail)
       continue
     }
     if (data.t === 'd' || data.t === 'e') {
       // 日期 / 错误格：值由 cells 覆盖（rows 置 null，避免双写歧义）
       row[addr.col] = null
-      if (detail) cells.set(key, detail)
       continue
     }
     row[addr.col] = (data.v as HucreCellValue) ?? null
-    if (detail) cells.set(key, detail)
   }
 
   const merges = sheet.merges.getMerges()

@@ -100,13 +100,15 @@ describe('XLSX round-trip（导出 → 导入）', () => {
     // 合并（A3:B4 → 覆盖格 B4 显示锚点值）
     expect(s1.getCellInfo({ row: 3, col: 1 }).kind).toBe('merged-covered')
     expect(s1.getDisplayValue({ row: 3, col: 1 })).toBe('merged')
-    // 样式（fill + 四边 border；同样式共享一份定义）
+    // 样式（fill + 四边 border；同样式共享一份定义）。
+    // 模型未声明 vertical 的样式导出时补 UI 缺省 center → 导入读回显式 middle
     expect(s1.getCellStyle({ row: 0, col: 0 })).toEqual({
       fill: { color: '#FF0000' },
       border: {
         top: { style: 'thin', width: 1, color: '#000000' },
         bottom: { style: 'dashed', width: 1, color: '#00FF00' },
       },
+      align: { vertical: 'middle' },
     })
     expect(s1.getCellStyle({ row: 0, col: 1 })).toEqual(s1.getCellStyle({ row: 0, col: 0 }))
     expect(s1.getCellData({ row: 0, col: 0 })!.s).toBe(s1.getCellData({ row: 0, col: 1 })!.s)
@@ -178,13 +180,25 @@ describe('XLSX round-trip（导出 → 导入）', () => {
     const buffer = await exportWorkbookXlsx(source)
     const imported = await importXlsx(buffer)
     const t = imported.getSheet('Sheet1')!
-    // 导入端把覆盖格的边缘边框汇总回锚点：样式应与源锚点完全一致
+    // 导入端把覆盖格的边缘边框汇总回锚点：样式应与源锚点一致（含导出补的 UI 缺省居中）
     expect(t.getCellStyle({ row: 0, col: 0 })).toEqual({
       fill: { color: '#FF0000' },
       border: { bottom: { style: 'thin', width: 1, color: '#000000' } },
+      align: { vertical: 'middle' },
     })
     expect(t.getCellData({ row: 0, col: 0 })).toMatchObject({ v: 'band', t: 's' })
     expect(t.getDisplayValue({ row: 0, col: 2 })).toBe('band')
+  })
+
+  it('无样式值格：导出补 UI 缺省垂直居中，导入读回显式 middle（观感与 UI 一致）', async () => {
+    const source = new Workbook()
+    source.activeSheet.setCellValue({ row: 0, col: 0 }, 'plain')
+
+    const buffer = await exportWorkbookXlsx(source)
+    const imported = await importXlsx(buffer)
+    expect(imported.getSheet('Sheet1')!.getCellStyle({ row: 0, col: 0 })).toEqual({
+      align: { vertical: 'middle' },
+    })
   })
 
   it('浮动图：字节 / 类型 / 锚点 / 尺寸 round-trip 一致', async () => {
