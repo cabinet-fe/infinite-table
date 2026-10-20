@@ -666,101 +666,149 @@ class ResizeObserverStub {
 }
 
 describe('SheetGrid 容器 resize 自适应', () => {
-  /** 手动排程的 requestAnimationFrame：flushFrame 推进一帧（帧内新排程落入下一帧） */
-  function stubRaf(): { flushFrame: () => void } {
-    const queue: FrameRequestCallback[] = []
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback): number => {
-      queue.push(callback)
-      return queue.length
-    })
-    return {
-      flushFrame: () => {
-        const frame = queue.splice(0)
-        for (const callback of frame) callback(0)
-      },
-    }
+  /** 与 sheet-grid RESIZE_DEBOUNCE_MS 对齐：未满此时长不落地 */
+  const RESIZE_DEBOUNCE_MS = 100
+
+  function beginResizeClock(): void {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  }
+
+  function settleResize(): void {
+    vi.advanceTimersByTime(RESIZE_DEBOUNCE_MS)
   }
 
   it('布局过渡期量到 0 尺寸：跳过 resize 保留现值（不写 0 致画布塌陷自锁）', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-    const { flushFrame } = stubRaf()
     const { grid, table } = createGrid()
+    beginResizeClock()
     try {
       // happy-dom 无布局：clientWidth/clientHeight 恒 0，即容器未布局的过渡形态
       const resize = vi.spyOn(table, 'resize')
       ResizeObserverStub.lastCallback?.([], {})
-      flushFrame()
-      flushFrame()
+      settleResize()
       expect(resize).not.toHaveBeenCalled()
       expect(table.width).toBe(VIEW_W)
       expect(table.height).toBe(VIEW_H)
     } finally {
       grid.release()
+      vi.useRealTimers()
       vi.unstubAllGlobals()
     }
   })
 
-  it('布局稳定后量到真实尺寸：双层 RAF 后才 resize（首帧不量取）', () => {
+  it('布局稳定后量到真实尺寸：防抖结束后才 resize（窗口期内不量取）', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-    const { flushFrame } = stubRaf()
     const { grid, table, container } = createGrid()
+    beginResizeClock()
     try {
       Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 940 })
       Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 520 })
       const resize = vi.spyOn(table, 'resize')
       ResizeObserverStub.lastCallback?.([], {})
-      flushFrame()
-      // 首帧仅排程第二帧，量取尚未发生
+      vi.advanceTimersByTime(RESIZE_DEBOUNCE_MS - 1)
       expect(resize).not.toHaveBeenCalled()
-      flushFrame()
+      vi.advanceTimersByTime(1)
       expect(resize).toHaveBeenCalledTimes(1)
       expect(resize).toHaveBeenCalledWith(940, 520)
     } finally {
       grid.release()
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('连续触发只落地最后一次尺寸（拖动宽度不逐帧 resize）', () => {
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const { grid, table, container } = createGrid()
+    beginResizeClock()
+    try {
+      let width = 900
+      let height = 500
+      Object.defineProperty(container, 'clientWidth', {
+        configurable: true,
+        get: () => width,
+      })
+      Object.defineProperty(container, 'clientHeight', {
+        configurable: true,
+        get: () => height,
+      })
+      const resize = vi.spyOn(table, 'resize')
+      ResizeObserverStub.lastCallback?.([], {})
+      vi.advanceTimersByTime(40)
+      width = 1100
+      height = 640
+      ResizeObserverStub.lastCallback?.([], {})
+      vi.advanceTimersByTime(40)
+      expect(resize).not.toHaveBeenCalled()
+      settleResize()
+      expect(resize).toHaveBeenCalledTimes(1)
+      expect(resize).toHaveBeenCalledWith(1100, 640)
+    } finally {
+      grid.release()
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('release 取消尚未落地的 resize', () => {
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const { grid, table, container } = createGrid()
+    beginResizeClock()
+    try {
+      Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 940 })
+      Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 520 })
+      const resize = vi.spyOn(table, 'resize')
+      ResizeObserverStub.lastCallback?.([], {})
+      grid.release()
+      settleResize()
+      expect(resize).not.toHaveBeenCalled()
+    } finally {
+      grid.release()
+      vi.useRealTimers()
       vi.unstubAllGlobals()
     }
   })
 
   it('缺省 growOnScroll：容器放大后可视超出当前行列数，按新视口补增长', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-    const { flushFrame } = stubRaf()
     const { grid, table, sheet, container } = createGrid({ rows: 20, cols: 6 })
+    beginResizeClock()
     try {
       Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 2400 })
       Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 2000 })
       ResizeObserverStub.lastCallback?.([], {})
-      flushFrame()
-      flushFrame()
+      settleResize()
       expect(sheet.rows).toBeGreaterThan(20)
       expect(sheet.cols).toBeGreaterThan(6)
       expect(table.rowCount).toBe(sheet.rows)
       expect(table.colCount).toBe(sheet.cols)
     } finally {
       grid.release()
+      vi.useRealTimers()
       vi.unstubAllGlobals()
     }
   })
 
   it('growOnScroll: false：容器放大不增长（固定尺寸网格语义，与滚动接线同门控）', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-    const { flushFrame } = stubRaf()
     const { grid, table, sheet, container } = createGrid({
       rows: undefined,
       cols: undefined,
       growOnScroll: false,
     })
+    beginResizeClock()
     try {
       Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 2400 })
       Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 2000 })
       ResizeObserverStub.lastCallback?.([], {})
-      flushFrame()
-      flushFrame()
+      settleResize()
       expect(sheet.rows).toBe(100)
       expect(sheet.cols).toBe(26)
       expect(table.rowCount).toBe(100)
       expect(table.colCount).toBe(26)
     } finally {
       grid.release()
+      vi.useRealTimers()
       vi.unstubAllGlobals()
     }
   })

@@ -64,6 +64,12 @@ const FALLBACK_VIEW_H = 420
  */
 const DEFAULT_OVERSCAN_ROWS = 10
 const DEFAULT_OVERSCAN_COLS = 4
+/**
+ * 容器 resize 尾部防抖（毫秒）。拖动浏览器宽度时 ResizeObserver 几乎每帧触发，
+ * 每次都改 canvas 尺寸会立刻清空位图，重绘又要等下一帧，画面会一直闪。
+ * 连续观察只重置计时，停手后再量一次真实尺寸。
+ */
+const RESIZE_DEBOUNCE_MS = 100
 
 export interface SheetGridOptions {
   container: HTMLElement
@@ -180,6 +186,8 @@ export class SheetGrid {
   private pendingWrapRows = new Set<number>()
   private released = false
   private resizeObserver: ResizeObserver | undefined
+  /** 容器 resize 防抖计时；release 时清掉，避免销毁后仍改画布 */
+  private resizeTimer: ReturnType<typeof setTimeout> | undefined
   /** 已应用到引擎的合并区签名（判重跳过） */
   private lastMergeSignature = ''
 
@@ -451,6 +459,10 @@ export class SheetGrid {
     this.disposers.length = 0
     this.resizeObserver?.disconnect()
     this.resizeObserver = undefined
+    if (this.resizeTimer !== undefined) {
+      clearTimeout(this.resizeTimer)
+      this.resizeTimer = undefined
+    }
     this.table.destroy()
   }
 
@@ -874,25 +886,34 @@ export class SheetGrid {
   private bindResize(): void {
     if (typeof ResizeObserver === 'undefined') return
     this.resizeObserver = new ResizeObserver(() => {
-      // 回调时点容器可能仍处布局过渡（挂载同帧 / flex 未稳定）：双层 RAF 把量取
-      // 推迟到布局稳定之后，不把过渡期中间值写进引擎
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (this.released) return
-          // 读原始 clientWidth/clientHeight（不走构造兜底）：触发 resize 观察说明
-          // 布局正在变化，0 是过渡态而非「未布局」，正确动作是跳过并保留现值，
-          // 等下一次观察拿稳定尺寸。若把 0 写给引擎，画布塌陷会连带容器塌陷，
-          // 尺寸自此不再变化、观察永不再触发，只能靠手动 window resize 解锁
-          const width = this.container.clientWidth
-          const height = this.container.clientHeight
-          if (width <= 0 || height <= 0) return
-          this.table.resize(width, height)
-          // 容器放大后初始网格可能不足：按新视口补增长（growOnScroll: false 固定网格不增长）
-          if (this.growOnScroll) this.growOnNearEdge()
-        })
-      })
+      this.scheduleContainerResize()
     })
     this.resizeObserver.observe(this.container)
+  }
+
+  /**
+   * 尾部防抖：拖动过程中只重置计时，停手后再量尺寸。
+   * 不在观察回调里直接 resize——那会每帧清空画布位图。
+   */
+  private scheduleContainerResize(): void {
+    if (this.resizeTimer !== undefined) clearTimeout(this.resizeTimer)
+    this.resizeTimer = setTimeout(() => {
+      this.resizeTimer = undefined
+      this.applyContainerResize()
+    }, RESIZE_DEBOUNCE_MS)
+  }
+
+  /** 防抖落地：跳过 0 尺寸（布局过渡态），避免把画布写成 0 后容器塌陷、观察不再触发 */
+  private applyContainerResize(): void {
+    if (this.released) return
+    // 读原始 clientWidth/clientHeight（不走构造兜底）：0 是过渡态而非「未布局」，
+    // 跳过并保留现值，等下一次观察拿稳定尺寸
+    const width = this.container.clientWidth
+    const height = this.container.clientHeight
+    if (width <= 0 || height <= 0) return
+    this.table.resize(width, height)
+    // 容器放大后初始网格可能不足：按新视口补增长（growOnScroll: false 固定网格不增长）
+    if (this.growOnScroll) this.growOnNearEdge()
   }
 
   /**

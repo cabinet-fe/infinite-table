@@ -361,6 +361,7 @@ if (hit) sheet.selectRange({ start: hit.addr, end: hit.addr })
 > - 一切写操作（值/公式/样式/合并/图片/meta/结构）都经命令系统执行并进入撤销栈；**不进 undo** 的清单：冻结、行列尺寸、默认行列尺寸、选区、`restore()` 全量灌回（对齐 Excel 有意为之）。
 > - `sheet.rows`/`cols` 为 0 = 未声明（`SheetGrid` 构造期写入渲染尺寸）；行列插入/删除后模型行列数变化超出发擎适配面（引擎维度构造期固定），宿主必须重建 `SheetGrid` 实例——模型事件 `structure-change` 即此信号。
 > - `growOnScroll` 缺省 `true`（WPS 式无限表格：初始网格按「可视+缓冲」给足，滚动触界后扩容）；`false` 为固定尺寸网格，滚动与容器 resize 均不增长。
+> - v0.3.3 起，容器尺寸连续变化时，`SheetGrid` 在最后一次变化后 100ms 才按容器 `clientWidth`/`clientHeight` 调整视口（拖动期间保持上一尺寸，停手后落地一次）。宽或高为 0 时跳过，保留当前视口。
 > - 公式口径：`setCellValue` 识别 `'='` 前缀转公式；解析失败记 `#ERROR!`；循环引用记 `#CYCLE!`；被引表删除后引用方记 `#REF!`（不入 undo）；公式原文存 `CellData.f`（不带 `'='`），`getDisplayValue` 返回计算缓存。
 > - 合并值保留规则（同 Excel）：仅保留包围盒内按行主序第一个有值格的值写入新锚点，其余被覆盖格清空；相交合并自动取包围盒。
 > - `SheetGrid` 的 `theme`/`scrollbar`/`editorInsideBorder`/`openCellLinkOnClick` 均为引擎 `ListTable` 同形透传：主题以内置 `SHEET_GRID_THEME` 为底经 `extendsTheme` 深覆盖；`mode: 'native'` 原生滚动条档下内建滚轮接线自动让位（引擎 `table.usesNativeScrollbar` 判定）。
