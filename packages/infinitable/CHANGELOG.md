@@ -1,5 +1,11 @@
 # infinitable
 
+## 0.3.3
+
+### Patch Changes
+
+- 9c79d35: fix: 容器宽度连续变化时防抖后再调整表格视口，避免拖动浏览器宽度时画布反复清空闪烁
+
 ## 0.3.2
 
 ### Patch Changes
