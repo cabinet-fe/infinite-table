@@ -1,4 +1,5 @@
 // ImageCellNode 单测：无闪协议占位延迟 + body 视口裁剪（边缘半格不画进表头/行号列）
+// + 边框内缩绘制（media 层在 body 之上，内缩保持画在本格矩形内的边框可见）
 
 import type { RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
@@ -52,13 +53,67 @@ describe('ImageCellNode 绘制', () => {
     expect(ctx.callsOf('fillRect')).toHaveLength(1)
   })
 
-  it('fill 缩放：白底铺满整格（位图覆盖整格时盖住网格线属预期）', () => {
+  it('fill 缩放：未提供内缩时白底铺满整格（直接构造缺省口径）', () => {
     const ctx = new RecordingContext()
     const node = readyNode()
     node.fit = 'fill'
     node.paint(ctx)
     expect(ctx.callsOf('fillRect')[0]?.args).toEqual([0, 0, 100, 32])
     expect(ctx.callsOf('drawImage')[0]?.args).toEqual([expect.anything(), 0, 0, 100, 32])
+  })
+
+  it('默认网格线内缩（右/下 1px）：绘制区缩到 99×31，不盖本格下/右边框', () => {
+    const ctx = new RecordingContext()
+    const node = readyNode({ borderInset: { top: 0, right: 1, bottom: 1, left: 0 } })
+    node.fit = 'fill'
+    node.paint(ctx)
+    expect(ctx.callsOf('fillRect')[0]?.args).toEqual([0, 0, 99, 31])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([expect.anything(), 0, 0, 99, 31])
+    // 左/上内缩为 0：不引入 translate/save（默认网格线内缩零额外状态开销）
+    expect(ctx.callsOf('translate')).toHaveLength(0)
+    expect(ctx.callsOf('save')).toHaveLength(0)
+  })
+
+  it('contain 内缩：位图等比居中在内缩盒内（白底只垫位图区域，留白透出网格线）', () => {
+    const ctx = new RecordingContext()
+    readyNode({ borderInset: { top: 0, right: 1, bottom: 1, left: 0 } }).paint(ctx)
+    // 10×10 位图 contain 进 99×31：等比 31×31 居中（x=34），白底与位图同矩形
+    expect(ctx.callsOf('fillRect')[0]?.args).toEqual([34, 0, 31, 31])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([expect.anything(), 34, 0, 31, 31])
+  })
+
+  it('四边内缩（含左/上）：经 translate 偏移绘制区，contain 位图在内缩盒内居中', () => {
+    const ctx = new RecordingContext()
+    // 首列/首行格的显式左/上边框：盒 96×29，translate(3,2)；10×10 位图 → 29×29 居中 x=33.5
+    readyNode({ borderInset: { top: 2, right: 1, bottom: 1, left: 3 } }).paint(ctx)
+    expect(ctx.callsOf('translate')[0]?.args).toEqual([3, 2])
+    expect(ctx.callsOf('fillRect')[0]?.args).toEqual([33.5, 0, 29, 29])
+    expect(ctx.callsOf('drawImage')[0]?.args).toEqual([expect.anything(), 33.5, 0, 29, 29])
+    expect(ctx.calls.filter((call) => call.name === 'save').length).toBe(1)
+    expect(ctx.calls.filter((call) => call.name === 'restore').length).toBe(1)
+  })
+
+  it('占位绘制同样内缩（占位不盖本格边框）', () => {
+    const ctx = new RecordingContext()
+    const node = new ImageCellNode({
+      col: 0,
+      row: 0,
+      width: 100,
+      height: 32,
+      url: 'b.png',
+      placeholderAfter: 0,
+      borderInset: { top: 0, right: 1, bottom: 1, left: 0 },
+    })
+    node.paint(ctx)
+    expect(ctx.callsOf('fillRect')[0]?.args).toEqual([0, 0, 99, 31])
+  })
+
+  it('内缩超过格尺寸：绘制区夹到零，不绘制', () => {
+    const ctx = new RecordingContext()
+    readyNode({ borderInset: { top: 20, right: 60, bottom: 20, left: 60 } }).paint(ctx)
+    expect(ctx.callsOf('fillRect')).toHaveLength(0)
+    expect(ctx.callsOf('drawImage')).toHaveLength(0)
+    expect(ctx.callsOf('translate')).toHaveLength(0)
   })
 
   it('未提供 bodyViewport：绘制不裁剪（行为不变）', () => {

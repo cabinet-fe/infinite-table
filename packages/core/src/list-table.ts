@@ -77,6 +77,7 @@ import {
   onImageServiceLoad,
   refreshChartCell,
   refreshImageCell,
+  syncImageCellInset,
   updateImageWindow,
 } from './list-table-media'
 import {
@@ -922,6 +923,8 @@ export class ListTable {
     node.style = this.resolveStyle(masterCol, masterRow)
     // 生效边框随样式重算（共享边裁决：本格 right/bottom 与右/下邻居对侧边取强）
     node.border = effectiveBorder(this, masterCol, masterRow, node.style)
+    // 边框联动图片格：绘制内缩随新边框同步（media 层画在 body 之上，不内缩盖边框）
+    syncImageCellInset(this, masterCol, masterRow)
     node.renderer = this.options.resolveCellRenderer?.(masterCol, masterRow) ?? null
     const limits = textOverflowLimits(
       this,

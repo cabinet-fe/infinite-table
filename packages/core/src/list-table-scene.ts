@@ -8,7 +8,13 @@ import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 import { CellNode } from './cell-node'
 import { cellTextAnchorX } from './cell-renderer'
 import { rangeCrossesBoundary } from './cell-range'
-import { cellStyleFont, type CellBorder, type CellBorderEdge, type CellStyle } from './cell-style'
+import {
+  cellStyleFont,
+  type BorderInset,
+  type CellBorder,
+  type CellBorderEdge,
+  type CellStyle,
+} from './cell-style'
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
@@ -592,7 +598,7 @@ export function editorBorderInsets(
   col: number,
   row: number,
   style: CellStyle,
-): { top: number; right: number; bottom: number; left: number } {
+): BorderInset {
   const range = table.mergeCells.rangeAt(col, row)
   const endCol = range?.endCol ?? col
   const endRow = range?.endRow ?? row

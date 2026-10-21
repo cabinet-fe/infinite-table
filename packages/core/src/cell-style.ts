@@ -28,6 +28,24 @@ export interface CellBorder {
   left?: CellBorderEdge
 }
 
+/** 四边边框线宽（以生效边框为口径的几何内缩输入：媒体格绘制内缩、编辑浮层内缩） */
+export interface BorderInset {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+/** 生效绘制边框的四边线宽（未设置的边为 0） */
+export function borderInset(border: CellBorder | null | undefined): BorderInset {
+  return {
+    top: border?.top?.width ?? 0,
+    right: border?.right?.width ?? 0,
+    bottom: border?.bottom?.width ?? 0,
+    left: border?.left?.width ?? 0,
+  }
+}
+
 /** 水平对齐 */
 export type CellTextAlign = 'left' | 'center' | 'right'
 

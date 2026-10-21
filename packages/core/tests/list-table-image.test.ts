@@ -111,6 +111,23 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
     expect(ctx.callsOf('clip')).toHaveLength(1)
   })
 
+  it('装配接线默认网格线内缩：图片格绘制内缩为右/下 1px（不盖本格下/右边框）', () => {
+    const { host } = createImageTable({ resolveCellImage: () => 'a.png' })
+    expect(imageNodeAt(host, 0, 0)?.borderInset).toEqual({ top: 0, right: 1, bottom: 1, left: 0 })
+  })
+
+  it('显式边框变化联动：refreshCell 后图片格绘制内缩随新边框同步', () => {
+    let thick = false
+    const { host, table } = createImageTable({
+      resolveCellImage: () => 'a.png',
+      resolveCellStyle: () => (thick ? { border: { bottom: { width: 3, color: '#f00' } } } : null),
+    })
+    expect(imageNodeAt(host, 0, 0)?.borderInset.bottom).toBe(1)
+    thick = true
+    table.refreshCell(0, 0)
+    expect(imageNodeAt(host, 0, 0)?.borderInset.bottom).toBe(3)
+  })
+
   it('位图就绪后滚回：cell 级 LRU / ImageService 命中，首帧直接持图（无闪），不重复加载', async () => {
     const { host, loader, table } = createImageTable({
       resolveCellImage: (_col, row) => (row < 20 ? `r${row}.png` : null),

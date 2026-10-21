@@ -269,6 +269,7 @@ table.floatObjects.onDragEnd((event) => {
 
 > [!WARNING]
 > - 图片格渲染在 L2 media 层（首个图片/图表格出现时惰性创建），不在 body 文本层；两种渲染不能叠加在同一格——`resolveCellImage` 返回 URL 即整格按图片渲染。
+> - 格内图片的绘制区（位图与占位）按本格生效边框线宽内缩（0.3.4 起，默认网格线右/下各 1px），不覆盖画在本格矩形内的边框；显式边框变化经 `refreshCell` 后自动同步内缩。图片按 fit 语义在内缩后的绘制区内缩放。
 > - `CellChartMedia` 的图表语义（类型/数据/库）全部在插件侧：core 只认内容 key 与位图生产者。使用方接图表格用 chart 插件（`createChartPlugin`，见 `apis/chart-watermark-plugin.md`），不要自行实现图表媒体解析器除非自建出图管线。
 > - 浮动对象拖拽/变换过程只改渲染态，结束才抛事件——宿主必须在 `onDragEnd`/`onTransformEnd` 里写回模型，否则下一次滚动跟随回到旧锚点。
 > - `FloatObject.rotation` 单位是顺时针度数（不是弧度），归一化 0–360。

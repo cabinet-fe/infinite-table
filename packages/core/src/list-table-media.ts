@@ -7,6 +7,7 @@
 import type { LayerHandle, Region } from '@infinitable/render'
 
 import { computeScrollableColWindow, computeScrollableRowWindowFromOffsets } from './grid-layout'
+import { borderInset } from './cell-style'
 import { ChartCellNode } from './media/chart-cell-node'
 import { ImageCellNode } from './media/image-cell-node'
 import type { ImageLoadEvent, LoadedImage } from './media/image-service'
@@ -69,6 +70,9 @@ export function appendImageCell(
     url,
     // 缩放语义：按格 hook 覆盖，缺省 contain 保比例
     fit: table.options.resolveCellImageFit?.(col, row) ?? 'contain',
+    // 绘制区内缩本格生效边框线宽（默认网格线右/下 1px）：media 层画在 body 之上，
+    // 不内缩会盖住画在本格矩形内的边框。body 格节点先于本调用注册，边框已定
+    borderInset: borderInset(table.cellNodes.get(cellKey(col, row))?.border),
     placeholderAfter: Date.now() + table.imageService.placeholderDelay,
     // 边缘半格图片经 body 视口裁剪，不越界画进表头/行号列区域；滚动区格再钳掉
     // 冻结带（滑入冻结带的部分不画，见 mediaViewport）
@@ -134,6 +138,18 @@ export function refreshImageCell(table: ListTable, col: number, row: number): vo
     }
   }
   table.host.submitInvalidation('media', { type: 'cell', region })
+}
+
+/**
+ * body 格生效边框重算后的图片格联动：绘制内缩随新边框原地同步（与 fit 更新同构，
+ * 不重建节点）。refreshCellNodeContents 在边框重投影后调用；节点 bounds 不变，
+ * refreshImageCell 已提交的 media cell 失效区（整格 bounds）覆盖内缩前后绘制区。
+ */
+export function syncImageCellInset(table: ListTable, col: number, row: number): void {
+  const node = table.imageCellNodes.get(cellKey(col, row))
+  if (node) {
+    node.borderInset = borderInset(table.cellNodes.get(cellKey(col, row))?.border)
+  }
 }
 
 /** 图片加载完成：位图写回引用它的可见格节点 + cell 级 LRU，并逐格定向失效 */
