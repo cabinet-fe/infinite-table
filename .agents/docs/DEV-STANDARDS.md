@@ -2,14 +2,14 @@
 
 ## 命名
 
-- 包名：`@infinitable/<name>`；目录 `packages/<name>`（render、core、formulas、plugins、sheet）
+- 包名：`@infinitable/<name>`；目录 `packages/<name>`（render、grid、table、formulas、plugins、sheet、infinitable）
 - 文件 kebab-case；类型/类 PascalCase；变量/函数 camelCase
 - 测试文件 `*.test.ts`，统一放包内 `tests/` 目录（与 `src/` 平级、子目录结构镜像），禁止与源码混放
 
 ## 目录与代码结构
 
 - 每个包 `src/index.ts` 为唯一公共入口，公共 API 从此处显式导出（禁止 `export *` 全量转售依赖——旧代码 `src/vrender.ts` 的教训）
-- `packages/core` 禁止 import 任何 `@visactor/*`；渲染一律走 `@infinitable/render` 的窄接口
+- `packages/grid` 与 `packages/table` 禁止 import 任何 `@visactor/*`；渲染一律走 `@infinitable/render` 的窄接口
 - 通用工具优先取 `@cat-kit/core`（原 `packages/utils` 空壳包已删，表格域专用工具出现时再议落地处）
 
 ## 代码风格

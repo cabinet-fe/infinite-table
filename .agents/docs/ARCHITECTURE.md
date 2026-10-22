@@ -18,7 +18,7 @@
 - 原 `vtable-core/`（迁移参考与 API 行为基准）已删除：迁移已完成，代码全部在 `packages/`
 - `@infinitable/render` 为通用渲染工具包（即 perf-redesign 08 决策的 vtable-engine 目标态）：场景树 + 分层渲染器 + 多 region 失效 + federated 事件 + canvas 池化；通用化补齐路径原语（moveTo/lineTo/曲线/stroke/fill）、内建图元节点集（至少矩形/文本/路径/图片），paintTree/hitTest/region 工具进公共导出面，失效档名与各层失效消费策略去表格语义（策略建层参数化）；目标引擎核心 ≤60KB gzip
 - `@infinitable/grid`（共享网格内核，自旧 core 拆出的通用网格机器纯搬运：ScrollManager、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影）仅依赖 render 的窄接口（RenderHost 风格：创建层/提交失效/请求帧/读测量）与 `@cat-kit/core`，不依赖任何 vrender 系列包
-- `@infinitable/table`（ListTable 引擎：溢出走廊、填充柄、表头装配、取值三形态、编辑链路等领域代码原样搬运）依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位）；`packages/core` 拆毕删除
+- `@infinitable/table`（ListTable 引擎：溢出走廊、填充柄、表头装配、取值三形态、编辑链路等领域代码原样搬运）依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位）
 - `@infinitable/sheet`（电子表格核心：sheet 模型/命令/IO/SheetGrid 适配，自 plugins 的 sheet 插件族整体迁入，`createSheetPlugin` 已删）依赖 table 与 formulas（SheetGrid 经引擎装配协议消费 table 引擎）；infinitable 发布形态新增 `./sheet` 子路径
 - 四层 canvas 自下而上：L0 ground（underlay painter 预留层，默认无内容，可用于衬底水印）→ L1 body（单元格背景、网格线/边框与滚动窗口）→ L2 media（chart/图片，cell 级位图缓存 LRU）→ L3 sky（选区/滚动条/编辑器）；所有层由唯一 ScrollManager 状态机驱动
 - 失效模型三档统一：原 `cell` 档更名去表格语义（如 `region`）/ row-band / full；滚动、交互、图片加载、批量更新共用同一失效语言
