@@ -294,7 +294,7 @@ export class ListTable {
   readonly imageCellNodes = new Map<number, ImageCellNode>()
   /** @internal 当前窗口内的图表格节点，key 见 cellKey（随窗口重建；位图经 cell 级缓存直贴） */
   readonly chartCellNodes = new Map<number, ChartCellNode>()
-  /** @internal 图表媒体解析器（chart 插件 mount 注入；null=无图表格能力，core 不含图表语义） */
+  /** @internal 图表媒体解析器（chart 插件 mount 注入；null=无图表格能力，table 不含图表语义） */
   chartMediaResolver: ResolveCellChart | null = null
   /** @internal 出图单飞：同缓存 key 的并发出图收敛为一次 produce */
   readonly chartRenderTasks = new Map<string, Promise<LoadedImage | null>>()

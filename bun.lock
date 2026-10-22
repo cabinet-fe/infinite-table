@@ -18,7 +18,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinitable/grid": "workspace:*",
-        "@infinitable/render": "workspace:*",
+        "@infinitable/table": "workspace:*",
       },
     },
     "packages/formulas": {
@@ -75,6 +75,14 @@
       },
       "devDependencies": {
         "@cat-kit/core": "^1.2.1",
+      },
+    },
+    "packages/table": {
+      "name": "@infinitable/table",
+      "version": "0.0.0",
+      "dependencies": {
+        "@infinitable/grid": "workspace:*",
+        "@infinitable/render": "workspace:*",
       },
     },
     "playground": {
@@ -354,6 +362,8 @@
     "@infinitable/render": ["@infinitable/render@workspace:packages/render"],
 
     "@infinitable/sheet": ["@infinitable/sheet@workspace:packages/sheet"],
+
+    "@infinitable/table": ["@infinitable/table@workspace:packages/table"],
 
     "@infinitable/website": ["@infinitable/website@workspace:website"],
 

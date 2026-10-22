@@ -15,6 +15,7 @@
   "references": [
     { "path": "packages/render" },
     { "path": "packages/grid" },
+    { "path": "packages/table" },
     { "path": "packages/core" },
     { "path": "packages/formulas" },
     { "path": "packages/plugins" },
@@ -22,7 +23,7 @@
     { "path": "packages/infinitable" },
     { "path": "packages/render/tsconfig.tests.json" },
     { "path": "packages/grid/tsconfig.tests.json" },
-    { "path": "packages/core/tsconfig.tests.json" },
+    { "path": "packages/table/tsconfig.tests.json" },
     { "path": "packages/formulas/tsconfig.tests.json" },
     { "path": "packages/plugins/tsconfig.tests.json" },
     { "path": "packages/sheet/tsconfig.tests.json" },

@@ -1,5 +1,6 @@
-// core 公共类型：数据供给三形态（records/columns、按格 hook、模型事件订阅）与 ListTable 配置
-// 几何/滚动向词汇（格坐标、滚动条配置）定义在 @infinitable/grid，此处转出维持既有 import 路径。
+// table 公共类型：数据供给三形态（records/columns、按格 hook、模型事件订阅）与 ListTable 配置，
+// 自 core types.ts 随迁；几何/滚动向词汇（格坐标、滚动条配置）定义在 @infinitable/grid，
+// 此处转出维持既有 import 路径。
 
 import type { CellRange, CellRef, ScrollbarOptions, ThemeOverride } from '@infinitable/grid'
 import type { ImageFit } from '@infinitable/grid/src/media/draw-image'
@@ -189,14 +190,14 @@ export interface CellChartMediaSize {
 }
 
 /**
- * 格内图表媒体描述（L2 media 的 chart 预留位）：core 只认内容 key 与位图生产者，
+ * 格内图表媒体描述（L2 media 的 chart 预留位）：table 只认内容 key 与位图生产者，
  * 图表语义（类型/数据/库）全部在插件侧（chart 插件 mount 时注入解析器）。
  * 位图经 cell 级 MediaCache LRU 缓存，滚动滚回命中即首帧直贴（无闪协议同图片）。
  */
 export interface CellChartMedia {
-  /** 内容 key：按图表声明内容生成（内容变更自然换 key）；core 叠加格尺寸与 DPR 成完整缓存 key */
+  /** 内容 key：按图表声明内容生成（内容变更自然换 key）；table 叠加格尺寸与 DPR 成完整缓存 key */
   key: string
-  /** 位图生产：未命中 cell 级缓存时调用；首次含库加载为异步，同 key 并发出图由 core 单飞收敛 */
+  /** 位图生产：未命中 cell 级缓存时调用；首次含库加载为异步，同 key 并发出图由 table 单飞收敛 */
   produce(size: CellChartMediaSize): Promise<LoadedImage> | LoadedImage
 }
 

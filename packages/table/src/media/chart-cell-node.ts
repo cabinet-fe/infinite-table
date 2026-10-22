@@ -1,5 +1,5 @@
 // 格内图表格场景节点（L2 media 层，chart 预留位落地）：
-// 位图由 chart 插件在离屏 canvas 同步出图（core 不含图表语义），本节点只做位图 blit。
+// 位图由 chart 插件在离屏 canvas 同步出图（table 不含图表语义），本节点只做位图 blit。
 // 无闪协议同图片格：cell 级缓存命中即首帧直贴真实位图；未命中在 placeholderDelay 之前
 // 连占位都不画，出图完成由 ListTable 定向失效本格、单帧切换。
 // 不可拾取：同 ImageCellNode——装饰层不可截胡跨层命中，指针事件穿透到 body 数据格。
