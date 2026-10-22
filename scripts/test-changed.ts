@@ -43,7 +43,9 @@ for (const file of changed) {
 }
 
 const dryRun = process.argv.includes('--dry-run')
-const cmd = `bunx vp test run ${[...scopes].join(' ')} --passWithNoTests`.trim()
+// ALL 回退全量时不传过滤器：字面量 'ALL' 会被 vitest 当文件名过滤，零匹配 + --passWithNoTests 假绿
+const filter = scopes.has('ALL') ? '' : [...scopes].join(' ')
+const cmd = `bunx vp test run ${filter} --passWithNoTests`.trim()
 
 if (scopes.has('ALL')) {
   console.log('根级文件有改动，跑全量测试')
