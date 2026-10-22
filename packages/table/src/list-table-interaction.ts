@@ -54,6 +54,7 @@ import type {
   CellLinkLeaveEvent,
   CellRef,
   ImageLinkClickEvent,
+  PointerEventHost,
   TableContextMenuEvent,
 } from './types'
 
@@ -1078,16 +1079,24 @@ function dispatchCellLinkClick(table: ListTable, event: SceneEvent): void {
     }
   }
   if (table.options.openCellLinkOnClick !== false) {
-    openCellLinkDefault(link.url)
+    openCellLinkDefault(table, link.url)
   }
 }
 
-/** 链接默认打开：window.open 新标签 + noopener；无 window 环境（离屏/SSR/测试）静默跳过 */
-function openCellLinkDefault(url: string): void {
-  if (typeof window === 'undefined') {
-    return
-  }
-  window.open(url, '_blank', 'noopener')
+/** 链接默认打开的浏览器实现（注入缺省值）：window.open 新标签 + noopener；无 window 环境（离屏/SSR/测试）静默跳过 */
+function openCellLinkInBrowser(url: string): void {
+  const win = (
+    globalThis as {
+      window?: { open(url: string, target: string, features: string): unknown } | undefined
+    }
+  ).window
+  win?.open(url, '_blank', 'noopener')
+}
+
+/** 链接默认打开：宿主注入实现（options.openCellLink）优先，缺省浏览器实现 */
+function openCellLinkDefault(table: ListTable, url: string): void {
+  const open = table.options.openCellLink ?? openCellLinkInBrowser
+  open(url)
 }
 
 /**
@@ -1101,7 +1110,7 @@ function emitImageLinkClick(table: ListTable, event: ImageLinkClickEvent): void 
     }
   }
   if (table.options.openCellLinkOnClick !== false) {
-    openCellLinkDefault(event.url)
+    openCellLinkDefault(table, event.url)
   }
 }
 
@@ -1289,13 +1298,15 @@ function endScrollbarDrag(table: ListTable, event: SceneEvent): void {
 /**
  * 滚动条拖拽的画布外指针接续（setPointerCapture 的等价机制）：场景事件只在容器
  * （EventSystem 事件源）内派发，指针移出画布后 move/up 丢失——原「移出画布会话
- * 悬挂、回画布未按住仍滚动」缺陷的根因。会话期间在 window 挂 pointermove/pointerup，
- * 画布外事件按容器矩形换算回层坐标后直接喂交互处理；目标仍在容器内的事件跳过
- * （已经场景系统派发，重复喂会双触发）。无 window 环境（离屏/无 DOM）不挂。
+ * 悬挂、回画布未按住仍滚动」缺陷的根因。会话期间在事件宿主（options.pointerEventHost
+ * 注入，缺省运行环境 window）挂 pointermove/pointerup，画布外事件按容器矩形换算回
+ * 层坐标后直接喂交互处理；目标仍在容器内的事件跳过（已经场景系统派发，重复喂会
+ * 双触发）。无事件宿主（离屏/无 DOM 且未注入）不挂。
  */
 function bindScrollbarPointerCapture(table: ListTable): void {
   releaseScrollbarCapture(table)
-  if (typeof window === 'undefined') {
+  const eventHost = table.options.pointerEventHost ?? defaultPointerEventHost()
+  if (!eventHost) {
     return
   }
   const container = table.getContainer()
@@ -1331,12 +1342,20 @@ function bindScrollbarPointerCapture(table: ListTable): void {
     }
     onPointerUp(table, synthesize('pointerup', dom))
   }
-  window.addEventListener('pointermove', onMove)
-  window.addEventListener('pointerup', onUp)
+  eventHost.addEventListener('pointermove', onMove)
+  eventHost.addEventListener('pointerup', onUp)
   table.scrollbarReleaseCapture = () => {
-    window.removeEventListener('pointermove', onMove)
-    window.removeEventListener('pointerup', onUp)
+    eventHost.removeEventListener('pointermove', onMove)
+    eventHost.removeEventListener('pointerup', onUp)
   }
+}
+
+/**
+ * 缺省指针事件宿主（注入缺省值实现处）：取运行环境 window（真实 Window 天然满足
+ * 最小监听面）；无 window 环境（离屏/SSR/无 DOM 测试）为 null，不挂接续。
+ */
+function defaultPointerEventHost(): PointerEventHost | null {
+  return (globalThis as { window?: PointerEventHost | undefined }).window ?? null
 }
 
 /** 解绑画布外指针接续（会话结束/表销毁；幂等） */

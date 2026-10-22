@@ -216,9 +216,14 @@ class OverlayPainterNode extends SceneNode {
   }
 }
 
-/** 宿主环境 dpr：存在全局 window 时取运行环境值，无 window 环境（headless/离屏测试）回落 1 */
+/**
+ * 宿主环境 dpr 缺省读取（注入缺省值实现处）：存在全局 window 时取运行环境
+ * devicePixelRatio，无 window 环境（headless/离屏测试）回落 1；经
+ * options.resolveDevicePixelRatio 注入替换。
+ */
 function resolveHostDpr(): number {
-  return typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+  const win = (globalThis as { window?: { devicePixelRatio?: number } | undefined }).window
+  return win?.devicePixelRatio || 1
 }
 
 /**
@@ -308,6 +313,11 @@ export class ListTable implements TableEngine {
   hostDpr: number
   /** 构造期显式注入的 hostOptions.dpr（resize 沿用不随环境刷新；undefined=随宿主环境） */
   private readonly explicitHostDpr: number | undefined
+  /**
+   * @internal 宿主环境 dpr 读取链：options.resolveDevicePixelRatio 注入优先，缺省
+   * 浏览器实现（resolveHostDpr，无 window 回落 1）；显式 hostOptions.dpr 仍最优先
+   */
+  private readonly resolveDpr: () => number
   /**
    * @internal 浮动对象层（首次访问 floatObjects 时惰性建承载容器，挂在已用的 sky 层最顶）。
    * 原始字段供交互路由读写（未挂载为 null 时不强建层）；宿主面走 floatObjects getter。
@@ -540,13 +550,14 @@ export class ListTable implements TableEngine {
     warnMergeConflicts(sanitizedMerges.conflicts, 'ListTable constructor')
     this.mergeCells = new MergeCellMap(sanitizedMerges.ranges)
     assertMergesWithinTable(this.mergeCells.ranges, this.columns.length, this.pipeline.rowCount)
+    this.resolveDpr = options.resolveDevicePixelRatio ?? resolveHostDpr
     this.host =
       options.host ??
       createRenderHost({
         width: this.width,
         height: this.height,
         // 缺省透传宿主环境 dpr（hostOptions.dpr 显式注入优先）：Retina 下不再 1× 被放大上屏
-        dpr: resolveHostDpr(),
+        dpr: this.resolveDpr(),
         ...options.hostOptions,
         // 原生模式层 canvas（与编辑浮层挂载点）挂滚动容器的 sticky 视口：坐标口径与画布层对齐
         container: this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container,
@@ -561,7 +572,7 @@ export class ListTable implements TableEngine {
     // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先（resize 沿用，确定性场景锁 dpr
     // 不被环境值覆盖），缺省取宿主环境值（resize 随宿主刷新）
     this.explicitHostDpr = options.hostOptions?.dpr
-    this.hostDpr = this.explicitHostDpr ?? resolveHostDpr()
+    this.hostDpr = this.explicitHostDpr ?? this.resolveDpr()
     this.ownHost = !options.host
     // 快路径字符推进宽经宿主测量画布逐字符首见测量（与精测同源），此后整表命中
     this.textAdvances = new TextAdvanceTable((char, font) => this.host.measure(char, font).width)
@@ -1435,8 +1446,8 @@ export class ListTable implements TableEngine {
     }
     this.tableWidth = nextWidth
     this.tableHeight = nextHeight
-    // 透传当前 dpr：显式注入沿构造值（确定性场景锁 dpr），否则随宿主环境刷新
-    const dpr = this.explicitHostDpr ?? resolveHostDpr()
+    // 透传当前 dpr：显式注入沿构造值（确定性场景锁 dpr），否则随注入/浏览器读取链刷新
+    const dpr = this.explicitHostDpr ?? this.resolveDpr()
     this.hostDpr = dpr
     this.host.resize(nextWidth, nextHeight, dpr)
     // 原生滚动容器 CSS 尺寸随视口原地调整（滚动范围随后的几何变更重算）

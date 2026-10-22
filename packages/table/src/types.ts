@@ -205,6 +205,18 @@ export interface CellChartMedia {
 export type ResolveCellChart = (col: number, row: number) => CellChartMedia | null | undefined
 
 /**
+ * 指针捕获接续的事件宿主最小面（真实 Window 天然满足，无头/测试注入替身）：
+ * 滚动条拖拽等画布外指针接续会话在它上面挂/解 pointermove/pointerup 监听。
+ */
+export interface PointerEventHost {
+  addEventListener(type: 'pointermove' | 'pointerup', listener: (event: PointerEvent) => void): void
+  removeEventListener(
+    type: 'pointermove' | 'pointerup',
+    listener: (event: PointerEvent) => void,
+  ): void
+}
+
+/**
  * 外部数据模型（模型事件订阅形态）：
  * 表格经 onCellChange 订阅外部变更做局部刷新；可选 setCellValue 为表格回驱入口，
  * 回驱时模型同步 echo 回来的事件由 ModelBinding 吞掉，防回环。
@@ -243,10 +255,16 @@ export interface ListTableOptions {
   resolveCellImageLink?: ResolveCellImageLink
   /**
    * 链接单击默认打开开关：true（缺省）单击命中链接格或带链接图片（浮动图/嵌入图）时
-   * 引擎在派发对应链接点击事件后默认打开 URL（window.open 新标签 + noopener；
-   * 无 window 环境静默跳过）；false 关闭默认打开，打开行为由宿主经事件接管。
+   * 引擎在派发对应链接点击事件后默认打开 URL（缺省浏览器实现 window.open 新标签 +
+   * noopener，无 window 环境静默跳过；可经 openCellLink 注入替身）；false 关闭默认
+   * 打开，打开行为由宿主经事件接管。
    */
   openCellLinkOnClick?: boolean
+  /**
+   * 链接默认打开实现（注入缺省浏览器 window.open）：openCellLinkOnClick 未关闭时
+   * 引擎在派发链接点击事件后调用它打开 URL。无头/SSR 宿主注入替身接管打开行为。
+   */
+  openCellLink?: (url: string) => void
   /** 格级可编判定：返回 false 该格不可编（缺省全部可编） */
   resolveEditable?: (col: number, row: number) => boolean
   /**
@@ -297,6 +315,19 @@ export interface ListTableOptions {
   host?: RenderHost
   /** 未注入 host 时创建 RenderHost 的参数（width/height 取上面的视口尺寸） */
   hostOptions?: Omit<RenderHostOptions, 'width' | 'height'>
+  /**
+   * 指针捕获接续的事件宿主（注入缺省运行环境 window）：滚动条拖拽等画布外指针会话
+   * 在它上面挂 pointermove/pointerup 接续监听。真实 Window 天然满足；无 window 环境
+   * （无头/SSR）不注入也不缺省可得不挂接续（画布内会话不受影响），测试注入替身可
+   * 直接驱动画布外接续。
+   */
+  pointerEventHost?: PointerEventHost
+  /**
+   * 宿主环境 dpr 读取源（注入缺省浏览器实现 window.devicePixelRatio，无 window 回落
+   * 1）：构造与 resize 每次读取。hostOptions.dpr 显式注入仍优先（确定性场景锁值，
+   * 不随本读取源刷新）；无头测试注入固定值驱动像素相关路径。
+   */
+  resolveDevicePixelRatio?: () => number
   /** 主题覆盖：基于默认主题 extends 派生（缺省用默认主题） */
   theme?: ThemeOverride
   /** 插件：构造即挂载生效，销毁时逆序卸载 */

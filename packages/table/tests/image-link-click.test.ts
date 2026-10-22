@@ -271,4 +271,23 @@ describe('图片链接默认打开（对齐单元格链接单击通道）', () =
 
     vi.unstubAllGlobals()
   })
+
+  it('openCellLink 注入：浮动图与嵌入图默认打开都走注入实现（无头接管）', () => {
+    const opened: string[] = []
+    const floatOpened = mountTable({
+      openCellLinkOnClick: undefined,
+      openCellLink: (url) => opened.push(url),
+    })
+    floatOpened.table.floatObjects.update('fx', { link: 'https://example.com/inject-float' })
+    clickAt(floatOpened.host, FLOAT_CENTER.x, FLOAT_CENTER.y)
+    expect(opened).toEqual(['https://example.com/inject-float'])
+
+    const cellOpened = mountTable({
+      resolveCellImageLink: () => 'https://example.com/inject-cell',
+      openCellLinkOnClick: undefined,
+      openCellLink: (url) => opened.push(url),
+    })
+    clickAt(cellOpened.host, cellX(1), cellY(2))
+    expect(opened).toEqual(['https://example.com/inject-float', 'https://example.com/inject-cell'])
+  })
 })

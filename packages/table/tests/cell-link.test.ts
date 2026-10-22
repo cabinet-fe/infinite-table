@@ -274,6 +274,16 @@ describe('链接单击事件', () => {
     expect(disabledClicks).toHaveLength(1)
   })
 
+  it('openCellLink 注入：默认打开走注入实现（无头接管），不依赖全局 window', () => {
+    const opened: string[] = []
+    const { host } = mountTable({
+      resolveCellLink: resolveLink,
+      openCellLink: (url) => opened.push(url),
+    })
+    clickCell(host, LINK_CELL.col, LINK_CELL.row)
+    expect(opened).toEqual([LINK.url])
+  })
+
   it('单击非链接格：零派发', () => {
     const { host, table } = mountTable({
       resolveCellLink: resolveLink,

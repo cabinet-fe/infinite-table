@@ -34,10 +34,28 @@ export interface NativeScrollSurface {
   removeEventListener(type: 'scroll', listener: () => void): void
 }
 
+/**
+ * 原生滚动 DOM 装配文档源最小面（真实 Document 天然满足）：wrapper/spacer/viewport
+ * 三件套的元素创建来源。SSR/测试宿主可注入自有文档；缺省取 globalThis.document。
+ */
+export interface NativeScrollbarDoc {
+  createElement(tag: 'div'): HTMLElement
+}
+
+/** 缺省文档源（注入缺省值实现处）：取运行环境 globalThis.document；无 DOM 环境为 null */
+function globalThisDoc(): NativeScrollbarDoc | null {
+  return (globalThis as { document?: NativeScrollbarDoc | undefined }).document ?? null
+}
+
 /** 原生滚动条装配参数 */
 export interface NativeScrollbarHostOptions {
   /** 宿主容器（canvas 档挂层 canvas 的同一容器）；无 DOM 环境不装配（离屏空转） */
   parent?: HTMLElement
+  /**
+   * 元素创建源（注入缺省值 globalThis.document）：SSR/非全局文档环境注入宿主文档；
+   * 无 DOM 环境且未注入时不装配（离屏空转）。给出 surface 时不做 DOM 装配。
+   */
+  doc?: NativeScrollbarDoc
   /** 注入滚动元素（单测替身）；给出时不做 DOM 装配，同步协议绑定该元素 */
   surface?: NativeScrollSurface
   /** 逻辑视口尺寸（CSS 像素）：wrapper/viewport CSS 尺寸与 clientWidth 为 0 的回落口径 */
@@ -106,13 +124,14 @@ export class NativeScrollbarHost {
     this.scroll = options.scroll
     this.width = Math.max(0, options.width)
     this.height = Math.max(0, options.height)
+    const doc = options.doc ?? globalThisDoc()
     if (options.surface) {
       this.surface = options.surface
-    } else if (options.parent && typeof document !== 'undefined') {
-      this.assemble(options.parent)
+    } else if (options.parent && doc) {
+      this.assemble(options.parent, doc)
       this.surface = this.wrapper
     } else {
-      // 离屏（无 DOM 环境/未给容器）：无滚动容器，仅保留逻辑尺寸口径
+      // 离屏（无 DOM 环境且未注入文档/未给容器）：无滚动容器，仅保留逻辑尺寸口径
       this.surface = null
     }
     if (this.surface) {
@@ -222,10 +241,10 @@ export class NativeScrollbarHost {
   }
 
   /** DOM 装配：wrapper（滚动容器）→ spacer（撑滚动范围）→ viewport（sticky 层挂载点） */
-  private assemble(parent: HTMLElement): void {
-    const wrapper = document.createElement('div')
-    const spacer = document.createElement('div')
-    const viewport = document.createElement('div')
+  private assemble(parent: HTMLElement, doc: NativeScrollbarDoc): void {
+    const wrapper = doc.createElement('div')
+    const spacer = doc.createElement('div')
+    const viewport = doc.createElement('div')
     // 真实 overflow 滚动 + 两轴（含右下角 corner）gutter 常驻预留：滚动条由浏览器
     // 原生渲染，clientWidth/clientHeight 即已扣 gutter 的视口口径
     wrapper.style.overflow = 'scroll'

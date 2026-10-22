@@ -467,6 +467,64 @@ describe('拖拽会话指针捕获（画布外接续）', () => {
     expect(table.getScrollTop()).toBe(before)
     table.destroy()
   })
+
+  it('注入 pointerEventHost：接续监听挂注入宿主而非 window，画布外 move/up 驱动会话', () => {
+    /** 指针事件宿主替身：记录挂/解监听，dispatch 直接驱动（无 window/DOM 依赖路径） */
+    class FakePointerHost {
+      private readonly listeners = new Map<string, Set<(event: PointerEvent) => void>>()
+      addEventListener(
+        type: 'pointermove' | 'pointerup',
+        listener: (event: PointerEvent) => void,
+      ): void {
+        this.bucket(type).add(listener)
+      }
+      removeEventListener(
+        type: 'pointermove' | 'pointerup',
+        listener: (event: PointerEvent) => void,
+      ): void {
+        this.bucket(type).delete(listener)
+      }
+      count(type: 'pointermove' | 'pointerup'): number {
+        return this.bucket(type).size
+      }
+      dispatch(
+        type: 'pointermove' | 'pointerup',
+        init: { clientX: number; clientY: number; buttons?: number },
+      ): void {
+        const event = { button: 0, ...init } as PointerEvent
+        for (const listener of this.bucket(type)) {
+          listener(event)
+        }
+      }
+      private bucket(type: string): Set<(event: PointerEvent) => void> {
+        let bucket = this.listeners.get(type)
+        if (!bucket) {
+          bucket = new Set()
+          this.listeners.set(type, bucket)
+        }
+        return bucket
+      }
+    }
+
+    const pointerHost = new FakePointerHost()
+    const { host, table } = createTable({ pointerEventHost: pointerHost })
+
+    // 滑块上按下起拖：接续监听落在注入宿主
+    fireBody(host, 'pointerdown', { x: 795, y: 50, button: 0 })
+    expect(pointerHost.count('pointermove')).toBe(1)
+    expect(pointerHost.count('pointerup')).toBe(1)
+
+    // 画布外 move（无容器 → 判为容器外）：滚动持续
+    pointerHost.dispatch('pointermove', { clientX: 900, clientY: 300, buttons: 1 })
+    expect(table.getScrollTop()).toBeGreaterThan(0)
+
+    // 画布外 up：会话结束并解绑接续监听
+    pointerHost.dispatch('pointerup', { clientX: 900, clientY: 320 })
+    expect(table.scrollbarDrag).toBeNull()
+    expect(pointerHost.count('pointermove')).toBe(0)
+    expect(pointerHost.count('pointerup')).toBe(0)
+    table.destroy()
+  })
 })
 
 /* ---------- rAF 合帧 ---------- */
