@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import type { ListTable } from '@infinitable/table'
 import type { ImageFitMode } from '@infinitable/sheet'
 
 import {
@@ -37,7 +38,9 @@ function LinkControls({ demo }: { demo: HyperlinkImageDemo }) {
   const [lastOpen, setLastOpen] = useState<{ col: number; row: number; url: string } | null>(null)
 
   useEffect(() => {
-    const table = link.grid.getTable()
+    // SheetGrid 底层即 ListTable；超链接事件（onCellLinkHover/Leave/Click）是 ListTable
+    // 领域事件面、不在 TableEngine 协议面上——此处窄化取领域引用
+    const table = link.grid.getTable() as ListTable
     const unsubHover = table.onCellLinkHover((event) =>
       setHover({ col: event.col, row: event.row, url: event.url }),
     )

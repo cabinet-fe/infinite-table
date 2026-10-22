@@ -8,10 +8,10 @@
 
 ## 红线：零引擎内部 API
 
-**插件包（`@infinitable/plugins`，现承载 chart/print/watermark）只允许依赖 `@infinitable/core` 公共入口（`src/index.ts`）显式导出的 API，禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。电子表格能力自 migrate-sheet-core 起由 `@infinitable/sheet` 公共入口承载（其 `hucre` 依赖仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）。**（红线 = 各包公开入口 + hucre（xlsx IO，随 sheet 包），S7 P8 修订、migrate-sheet-core P12 更新）
+**插件包（`@infinitable/plugins`，现承载 chart/print/watermark）只允许依赖 `@infinitable/table` 与 `@infinitable/grid` 公共入口（`src/index.ts`）显式导出的 API，禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。电子表格能力自 migrate-sheet-core 起由 `@infinitable/sheet` 公共入口承载（其 `hucre` 依赖仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）。**（红线 = 各包公开入口 + hucre（xlsx IO，随 sheet 包），S7 P8 修订、migrate-sheet-core P12 更新；multi-engine-refactor P6：core 拆为 table + grid 后包名同步）
 
 - review 把关：S3/S4 每阶段对照本清单与两包 `src/index.ts` 导出面核查 import 语句。
-- 引擎若确需新增公开面，必须在对应阶段的 spec「影响文件」中显式列出 `packages/core/src/index.ts` 并说明新增符号（S1 的 `onEditStart/onEditEnd` 即按此先例）。
+- 引擎若确需新增公开面，必须在对应阶段的 spec「影响文件」中显式列出 `packages/table/src/index.ts`（或 `packages/grid/src/index.ts`）并说明新增符号（S1 的 `onEditStart/onEditEnd` 即按此先例）。
 
 ## 一、构造 options 回调面（`buildOptions()`）
 

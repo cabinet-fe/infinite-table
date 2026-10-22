@@ -1,7 +1,7 @@
 // 基准运行环境抽象：headless（bun，注入假画布 + 手动帧泵）与浏览器（真实 canvas + rAF）
 // 共用同一套场景逻辑，保证两处测的是同一份代码路径
 
-import type { ListTable, TableModel } from '@infinitable/core'
+import type { ListTable, TableModel } from '@infinitable/table'
 
 import type { InvalidationMeter } from './invalidation-meter'
 

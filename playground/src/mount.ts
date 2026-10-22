@@ -1,9 +1,9 @@
 // 演示区装配的引擎公共件：挂表（滚轮接线）与本地演示图片加载器。
 // 标题/描述/按钮等用户可见控件由 React 页面（src/app/views/**）承担，此处不建控件 DOM。
 
-import type { LoadedImage } from '@infinitable/core'
+import type { LoadedImage } from '@infinitable/grid'
 
-import { ListTable, type ListTableOptions } from '@infinitable/core'
+import { ListTable, type ListTableOptions } from '@infinitable/table'
 
 export interface DemoMount {
   container: HTMLElement

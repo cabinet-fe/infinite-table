@@ -1,7 +1,7 @@
 // 浏览器运行入口：真实 canvas + rAF 跑量化基准（真实 TTFF/FPS 口径以本入口为准），
 // 报告渲染到页面、打到 console，并挂 window.__BENCH_REPORT__ 供脚本化冒烟提取。
 
-import { ListTable, type DataRecord } from '@infinitable/core'
+import { ListTable, type DataRecord } from '@infinitable/table'
 import { createChartPlugin } from '@infinitable/plugins'
 import { createRenderHost, type RenderHost } from '@infinitable/render'
 

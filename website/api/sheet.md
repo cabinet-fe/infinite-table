@@ -12,7 +12,7 @@ description: infinitable/sheet 公共 API 全量参考：A1 地址、稀疏单�
 - 命令系统、补丁回放、事务与 undo/redo
 - 浮动图片、按格嵌入图、超链接、只读标记
 - xlsx / csv 导入导出
-- `SheetGrid`：把 `Sheet` 适配到 `@infinitable/core` 的 `ListTable`
+- `SheetGrid`：把 `Sheet` 适配到 `@infinitable/table` 的 `ListTable`
 
 所有符号从子路径导入：
 
@@ -1336,7 +1336,7 @@ importCsv('名称,金额\nA,100', imported.activeSheet)
 
 ## SheetGrid 适配
 
-`SheetGrid` 把 `Sheet` 包装为 `@infinitable/core` 的 `ListTable`：数据面模型直挂，样式与显示值按格拉取，选区、冻结、合并、浮动图通过公开事件与运行时 API 双向同步。
+`SheetGrid` 把 `Sheet` 包装为 `@infinitable/table` 的 `ListTable`：数据面模型直挂，样式与显示值按格拉取，选区、冻结、合并、浮动图通过公开事件与运行时 API 双向同步。
 
 ```ts
 import { SheetGrid } from 'infinitable/sheet'
@@ -1453,8 +1453,8 @@ interface SelectionInterceptMeta {
 
 | 类型                                | 说明                                                        |
 | ----------------------------------- | ----------------------------------------------------------- |
-| `CellRenderer` / `CellRenderTarget` | 引擎单元格渲染器及绘制目标（自 core 转出）                  |
-| `ScrollbarOptions`                  | 滚动条配置（自 core 转出）；`mode: 'native'` 为原生滚动条档 |
+| `CellRenderer` / `CellRenderTarget` | 引擎单元格渲染器及绘制目标（自 table 转出）                  |
+| `ScrollbarOptions`                  | 滚动条配置（自 grid 转出）；`mode: 'native'` 为原生滚动条档 |
 | `SheetGridContextMenuInfo.x/y`      | 客户端坐标                                                  |
 | `SheetGridContextMenuInfo.addr`     | body 格地址；行号列 / 列头为 `null`                         |
 | `SelectionInterceptMeta.shiftKey`   | 本次按下是否携带 Shift                                      |

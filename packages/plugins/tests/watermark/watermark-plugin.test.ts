@@ -1,11 +1,12 @@
-// 水印插件单测：mount 写顶层 overlay 预留位（承载节点挂 sky 层、滚动条浮层重置顶后
-// 为次顶子节点 + 整层失效）、unmount 还原（节点摘除 + 清屏失效）、updateConfig 变更
-// 触发 sky 整层失效（一帧内生效路径）与开关读写、滚动不波及 sky 层（水印锚定视口，
-// 对齐 table 层行为测试手法：断言失效提交的 kind 集合）、overlay 承载节点 pointer 透传。
+// 水印插件单测：mount 经引擎装配协议 overlay 槽位挂载（挂载参数为协议面
+// EngineAssembly，P7——承载节点挂 sky 层、滚动条浮层重置顶后为次顶子节点 + 整层失效）、
+// unmount 还原（节点摘除 + 清屏失效）、updateConfig 变更触发 sky 整层失效（一帧内
+// 生效路径）与开关读写、滚动不波及 sky 层（水印锚定视口，对齐 table 层行为测试手法：
+// 断言失效提交的 kind 集合）、overlay 承载节点 pointer 透传。
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable, type TablePlugin } from '@infinitable/table'
+import { ListTable, type EngineAssembly, type TablePlugin } from '@infinitable/table'
 
 import { createWatermarkPlugin } from '../../src/watermark/watermark-plugin'
 import { StubHost } from '../testing/stub-host'
@@ -47,12 +48,12 @@ function createTable(host: StubHost, plugins?: TablePlugin[]): ListTable {
   })
 }
 
-describe('createWatermarkPlugin 预留位接线', () => {
-  it('未挂水印 sky 层仅交互浮层节点；mount 挂 overlay 承载节点于最顶并整层失效', () => {
+describe('createWatermarkPlugin 协议槽位接线', () => {
+  it('未挂水印 sky 层仅交互浮层节点；mount 经协议 overlay 槽位挂承载节点于最顶并整层失效', () => {
     const bareHost = new StubHost()
     createTable(bareHost)
     expect(skyChildren(bareHost)).toBe(1)
-    // 水印改挂顶层 overlay 后不再触碰 ground 层（引擎挂点保留但本插件不用）
+    // 水印改挂顶层 overlay 后不再触碰 ground 层（协议 underlay 槽位保留但本插件不用）
     expect(bareHost.layers.has('ground')).toBe(false)
 
     const host = new StubHost()
@@ -68,7 +69,7 @@ describe('createWatermarkPlugin 预留位接线', () => {
     expect(() => table.destroy()).not.toThrow()
   })
 
-  it('table.use() 晚挂载同样即时生效（构造后注册路径）', () => {
+  it('引擎 use() 晚挂载同样即时生效（构造后注册路径）', () => {
     const host = new StubHost()
     const table = createTable(host)
     expect(skyChildren(host)).toBe(1)
@@ -77,19 +78,35 @@ describe('createWatermarkPlugin 预留位接线', () => {
     expect(paintOverlay(host).texts.length).toBeGreaterThan(0)
   })
 
-  it('unmount 还原预留位：承载节点摘除 + 整层失效清屏，绘制面干净移除', () => {
+  it('unmount 经协议槽位还原：承载节点摘除 + 整层失效清屏，绘制面干净移除', () => {
     const host = new StubHost()
     const plugin = createWatermarkPlugin({ enabled: true, text: '内部资料' })
     const table = createTable(host, [plugin])
     expect(skyChildren(host)).toBe(2)
-    plugin.unmount?.(table)
+    // 协议面口径：挂载/卸载参数只依赖 EngineAssembly（不触 ListTable 具体类型）
+    const engine: EngineAssembly = table
+    plugin.unmount?.(engine)
     expect(skyChildren(host)).toBe(1)
     // 构造期预留轨道 1 次 + mount 一次 + unmount 清屏一次
     expect(skyFullCount(host)).toBe(3)
     expect(paintOverlay(host).texts).toEqual([])
+    engine.destroy()
   })
 
-  it('enabled: false 挂载不写 painter（空置预留位，无 sky 失效）', () => {
+  it('脱离引擎实例直接以协议面挂载（仅 overlay 槽位语言即可工作）', () => {
+    const host = new StubHost()
+    const table = createTable(host)
+    host.submitted.length = 0
+    const plugin = createWatermarkPlugin({ enabled: true, text: '协议面挂载' })
+    plugin.mount(table)
+    expect(skyChildren(host)).toBe(2)
+    expect(host.submitted).toEqual([{ kind: 'sky', inv: { type: 'full' } }])
+    plugin.unmount?.(table)
+    expect(skyChildren(host)).toBe(1)
+    table.destroy()
+  })
+
+  it('enabled: false 挂载不写 painter（空置槽位，无 sky 失效）', () => {
     const host = new StubHost()
     createTable(host, [createWatermarkPlugin({ enabled: false, text: '内部资料' })])
     expect(skyChildren(host)).toBe(1)

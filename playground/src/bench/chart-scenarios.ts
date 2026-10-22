@@ -8,7 +8,7 @@ import type {
   ListTableOptions,
   ResolveDisplayValue,
   TablePlugin,
-} from '@infinitable/core'
+} from '@infinitable/table'
 import type { RenderHost } from '@infinitable/render'
 import type { ChartCellDeclaration } from '@infinitable/plugins'
 

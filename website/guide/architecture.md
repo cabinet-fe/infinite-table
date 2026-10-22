@@ -49,38 +49,44 @@ flowchart LR
 
 重写保留了原实现的行为基线（API 行为、交互口径、渲染结果作为迁移基准），但包结构、渲染引擎和失效模型是新的。
 
-## 六个包的职责与依赖
+## 七个包的职责与依赖
 
 | 包                      | 职责                                                                                                           | 主要入口                            |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
 | `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、canvas 池化、帧调度、`RenderHost` 窄接口 | `packages/render/src/index.ts`      |
-| `@infinitable/core`     | 表格主体：`ListTable`、`ScrollManager`、布局与主题、交互、编辑、合并、媒体、浮动对象、插件注册路径             | `packages/core/src/index.ts`        |
+| `@infinitable/grid`     | 共享网格内核：`ScrollManager`、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、共享边、cell-range、浮动对象层 | `packages/grid/src/index.ts`        |
+| `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径                                         | `packages/table/src/index.ts`       |
 | `@infinitable/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、`evaluate`、49 个内置函数、依赖图、容错引用扫描、引用平移     | `packages/formulas/src/index.ts`    |
 | `@infinitable/plugins`  | 官方插件：`TablePlugin` 契约转出 + chart / print / watermark 插件工厂                                          | `packages/plugins/src/index.ts`     |
 | `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层                           | `packages/sheet/src/index.ts`       |
-| `infinitable`           | 唯一 npm 发布包：主入口 re-export 五层公共 API，`./sheet` 子路径导出电子表格核心                               | `packages/infinitable/src/index.ts` |
+| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心                               | `packages/infinitable/src/index.ts` |
 
 ```mermaid
 graph TD
   infinitable --> render
-  infinitable --> core
+  infinitable --> grid
+  infinitable --> table
   infinitable --> formulas
   infinitable --> plugins
   infinitable --> sheet
-  core --> render
-  plugins --> core
-  sheet --> core
+  grid --> render
+  table --> grid
+  table --> render
+  plugins --> table
+  plugins --> grid
+  sheet --> table
+  sheet --> grid
   sheet --> formulas
 ```
 
 依赖方向是单向的：
 
-- `render` 不知道 `core` 的存在，只暴露渲染宿主、层句柄、场景树和失效类型。
-- `core` 依赖 `render` 的窄接口，不依赖 `formulas`；表格只负责显示模型给出的值。
-- `formulas` 不依赖 `core`，求值所需的取值能力由宿主以 `FormulaResolver` 形式注入。
-- `plugins` 依赖 `core` 的 `TablePlugin` 契约，官方插件与用户插件使用同一个挂载路径。
-- `sheet` 同时依赖 `core` 和 `formulas`：模型负责单元格存储与命令，公式门面负责图簿联动和增量重算，`SheetGrid` 把 `Sheet` 适配成 `ListTable` 的数据模型。
-- `infinitable` 只是发布层，构建时把五个内部包打成自包含产物，不做二次 API 扩张。
+- `render` 不知道 `grid` / `table` 的存在，只暴露渲染宿主、层句柄、场景树和失效类型。
+- `grid` 只依赖 `render`；`table` 依赖 `grid` 与 `render` 的窄接口，不依赖 `formulas`；表格只负责显示模型给出的值。
+- `formulas` 不依赖 `grid` / `table`，求值所需的取值能力由宿主以 `FormulaResolver` 形式注入。
+- `plugins` 依赖 `table` 的 `TablePlugin` 契约，官方插件与用户插件使用同一个挂载路径。
+- `sheet` 同时依赖 `table`、`grid` 和 `formulas`：模型负责单元格存储与命令，公式门面负责图簿联动和增量重算，`SheetGrid` 把 `Sheet` 适配成 `ListTable` 的数据模型。
+- `infinitable` 只是发布层，构建时把六个内部包打成自包含产物，不做二次 API 扩张。
 
 外部依赖中，`@cat-kit/core` 是公式精确计算的运行时依赖，`chart.js` 由图表插件动态加载，`hucre` 用于 sheet 的 xlsx 导出，React 技术栈只属于 playground。
 
@@ -90,7 +96,7 @@ graph TD
 
 | 层  | 名称     | 职责                                                                                    | 创建时机                             | 消费策略               |
 | --- | -------- | --------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------- |
-| L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 core 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | 只响应 `band` / `full` |
+| L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 table 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | 只响应 `band` / `full` |
 | L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                              | 构造时创建                           | 逐 region 补画         |
 | L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                          | 首次出现图片或图表格时惰性创建       | 逐 region 补画         |
 | L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                    | 构造时创建                           | 整层重画               |
@@ -123,11 +129,11 @@ export type Invalidation =
 - `full` 吸收该层所有其它失效。
 - 各层消费策略不同：`ground` 只处理 `band` / `full`，`body` / `media` 逐 region 补画，`sky` 收到任何失效都整层重画。
 
-三档失效由 `core` 的滚动、交互、图片加载、批量更新共同使用。批量更新期间 `cell` 失效先收集，结束时合并为一次 `band` 提交。
+三档失效由 `grid` 的滚动与 `table` 的交互、图片加载、批量更新共同使用。批量更新期间 `cell` 失效先收集，结束时合并为一次 `band` 提交。
 
 ## RenderHost 窄接口
 
-`core` 与 `render` 之间只有下面这组接口：
+`grid` / `table` 与 `render` 之间只有下面这组接口：
 
 ```ts
 export interface RenderHost {
@@ -149,7 +155,7 @@ export interface LayerHandle {
 }
 ```
 
-这个接口把表格主体需要的能力限制在六件事：建层、提交失效、请求帧、测量文本、调整尺寸、销毁。`core` 不需要知道画布怎么分配、场景树怎么遍历、事件怎么命中，也不会直接操作 DOM canvas。
+这个接口把表格主体需要的能力限制在六件事：建层、提交失效、请求帧、测量文本、调整尺寸、销毁。`grid` / `table` 不需要知道画布怎么分配、场景树怎么遍历、事件怎么命中，也不会直接操作 DOM canvas。
 
 - `createLayer` 对同一个 `kind` 幂等，重复调用返回同一句柄。
 - `submitInvalidation` 等价于向对应层提交失效；同帧多次提交由各层队列合并。
@@ -158,7 +164,7 @@ export interface LayerHandle {
 - `resize` 原地重设已建层尺寸并整层失效。
 - `destroy` 幂等，取消挂起帧、解绑事件、回收池化画布并移除 DOM canvas。
 
-`LayerHandle.translateBy` 是位图平移的 blit 快路径，目前作为预留能力存在；`core` 的滚动走“窗口增量重建 + band 失效”路线，没有调用它。
+`LayerHandle.translateBy` 是位图平移的 blit 快路径，目前作为预留能力存在；`grid` 的滚动走“窗口增量重建 + band 失效”路线，没有调用它。
 
 ## 插件机制
 
@@ -192,7 +198,7 @@ export interface TablePlugin {
 `@infinitable/formulas` 只做纯计算，不做表格集成：
 
 - 提供 A1 地址解析与格式化、tokenizer、Pratt parser、`evaluate`、49 个内置函数、`DependencyGraph`、容错引用扫描和引用平移。
-- 不依赖 `core`，不知道 `ListTable`、单元格样式或渲染。
+- 不依赖 `grid` / `table`，不知道 `ListTable`、单元格样式或渲染。
 - 求值由宿主驱动：`evaluate` 接受 `FormulaResolver`，由宿主决定如何取值。
 - 不支持数组公式；区域作为最终结果会求值为 `#VALUE!`。
 - 不内置循环引用检测。`#CYCLE!` 错误码保留，由宿主或适配层用递归护栏产出。
@@ -207,7 +213,7 @@ export interface TablePlugin {
 
 - 提供 `Sheet` 单表模型、`Workbook` 多表簿、`FormulaEngine` 公式门面、`HistoryManager` 撤销栈、命令族、xlsx/csv 导入导出、快照与替换。
 - 提供 `SheetGrid` 适配层，把 `Sheet` 包装成 `ListTable` 可消费的 `TableModel`，同时保留公式显示值、数字格式、样式池、合并、冻结、图片与超链接等电子表格语义。
-- 依赖 `core` 与 `formulas`；`core` 不知道 sheet 的存在。
+- 依赖 `table`、`grid` 与 `formulas`；引擎不知道 sheet 的存在。
 - 原先位于 plugins 包的 sheet 插件族已整体迁入本包，`createSheetPlugin` 已删除。
 - 发布时通过 `infinitable/sheet` 子路径导出，主入口不转售 sheet 符号。
 

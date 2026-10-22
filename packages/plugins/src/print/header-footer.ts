@@ -24,6 +24,9 @@ export interface PlaceholderContext {
    * 空页/全非数值列返回空数组（sum 出 0，avg/max/min 出空串）。
    */
   columnNumbers: (col: number) => readonly number[]
+  // 扩展位（G12-G15，保持可扩展）：自定义变量（如 {project}、{operator} 等宿主业务
+  // 占位符）后续经本上下文增字段注入——求值循环未识别占位符原样保留，新增字段即
+  // 新增可解析变量，不改占位符语法与调用方。
 }
 
 /** 占位符语法：{name} 或 {name:arg}（arg 供页级聚合携带列索引） */

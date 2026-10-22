@@ -1,4 +1,4 @@
-import type { ListTable } from '@infinitable/table'
+import type { TableEngine } from '@infinitable/table'
 
 /**
  * 列头机制（引擎无表头渲染 hook 的补偿层）：
@@ -26,7 +26,7 @@ export class GridHeaderLayer {
   private readonly options: SheetGridHeaderOptions
   private readonly customElements = new Map<number, HTMLElement | null>()
   private readonly mounted = new Map<number, HTMLElement>()
-  private table: ListTable | null = null
+  private table: TableEngine | null = null
   private root: HTMLElement | null = null
 
   constructor(options: SheetGridHeaderOptions) {
@@ -42,8 +42,8 @@ export class GridHeaderLayer {
     return this.options.resolveTitle?.(col)
   }
 
-  /** 接线引擎表与容器（ListTable 构造后调用一次）：建覆盖层并初始同步 */
-  attach(table: ListTable, container: HTMLElement): void {
+  /** 接线引擎与容器（引擎构造后调用一次）：建覆盖层并初始同步 */
+  attach(table: TableEngine, container: HTMLElement): void {
     if (this.root) return
     this.table = table
     const root = document.createElement('div')

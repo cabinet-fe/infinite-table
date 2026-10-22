@@ -11,7 +11,8 @@
   "include": ["src"],
   "references": [
     { "path": "../render" },
-    { "path": "../core" },
+    { "path": "../grid" },
+    { "path": "../table" },
     { "path": "../formulas" },
     { "path": "../plugins" },
     { "path": "../sheet" }

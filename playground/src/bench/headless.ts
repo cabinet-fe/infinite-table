@@ -3,8 +3,8 @@
 // 由 headless.test.ts 驱动（vp test run）：阈值不达标即测试失败，报告 JSON 落档 results/。
 // headless 数字只含 JS 侧成本（无真实栅格化），真实 TTFF/FPS 以浏览器入口为准，两者共用场景代码。
 
-import type { DataRecord } from '@infinitable/core'
-import { ListTable } from '@infinitable/core'
+import type { DataRecord } from '@infinitable/table'
+import { ListTable } from '@infinitable/table'
 import { createChartPlugin } from '@infinitable/plugins'
 import {
   createRenderHost,

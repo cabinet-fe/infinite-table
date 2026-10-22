@@ -19,7 +19,7 @@
 | 7 | bench sheet 口径基线与防回归阈值 | ✅ S5 | `apps/bench/results/`、`src/thresholds.ts`（切换/逐格写/粘贴/冻结切换四场景） |
 | 8 | happy-dom 挂载安全（下游测试环境前提） | ✅ S5 | `packages/core/tests/happy-dom/`、`packages/sheet/tests/grid/`（happy-dom 环境挂载） |
 
-替换红线：**grid/ 重写只允许 import `@infinitable/core` 与 `@infinitable/plugins` 两个公共入口的导出**（`hucre` 仅限 xlsx 导入导出的映射与装配用途，同清单红线修订）；清单与本文的映射表即允许面全集。发现缺口时先在本仓立项补公开面，不得绕行内部 API。
+替换红线：**grid/ 重写只允许 import `@infinitable/table`、`@infinitable/grid` 与 `@infinitable/plugins` 公共入口的导出**（`hucre` 仅限 xlsx 导入导出的映射与装配用途，同清单红线修订；原 `@infinitable/core` 公共面已由 table + grid 两入口全量承接）；清单与本文的映射表即允许面全集。发现缺口时先在本仓立项补公开面，不得绕行内部 API。
 
 ## 一、接口面逐条映射表（VTable → infinitable）
 

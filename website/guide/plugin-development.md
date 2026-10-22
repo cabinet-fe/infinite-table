@@ -219,8 +219,8 @@ interface CellChartMedia {
 }
 ```
 
-- `key` 是内容 key，core 会再叠加格尺寸与 DPR 组成完整缓存 key。
-- `produce` 在 cell 级位图缓存未命中时调用，同 key 并发出图由 core 收敛。
+- `key` 是内容 key，table 会再叠加格尺寸与 DPR 组成完整缓存 key。
+- `produce` 在 cell 级位图缓存未命中时调用，同 key 并发出图由 table 收敛。
 - 宿主应使用 `createChartPlugin`，不要自己写 `chartMediaResolver`。该字段在引擎源码中标记为内部预留位，不属于稳定宿主 API。
 
 ### 单写方槽位
@@ -308,7 +308,7 @@ table.use(rulerPlugin) // setOverlayPainter 自动提交 sky 整层失效，下�
 import type { ListTable, OverlayPainter, RenderContext, Size, TablePlugin } from 'infinitable'
 
 // 错误：深路径、内部模块、@internal 成员
-import { rebuildScene } from '@infinitable/core/src/list-table-scene'
+import { rebuildScene } from '@infinitable/table/src/list-table-scene'
 ```
 
 红线清单：

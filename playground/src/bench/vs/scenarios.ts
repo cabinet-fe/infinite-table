@@ -4,7 +4,7 @@
 // 重建 = 构造 + 首帧（销毁在计时窗外）。
 // 每个规模内跑序 [ours, vtable, vtable, ours] 两两对称，取均值抗 JIT/顺序偏差。
 
-import type { DataRecord } from '@infinitable/core'
+import type { DataRecord } from '@infinitable/table'
 import { version as vtableVersion } from '@visactor/vtable'
 
 import { BENCH_COLS, VIEWPORT_HEIGHT } from '../dataset'
@@ -427,7 +427,7 @@ export async function runComparison(
     rounds,
     writeCounts,
     versions: {
-      infinitable: `@infinitable/core（workspace 源码）`,
+      infinitable: `@infinitable/table（workspace 源码）`,
       '@visactor/vtable': `v${vtableVersion}`,
     },
     env: navigator.userAgent,

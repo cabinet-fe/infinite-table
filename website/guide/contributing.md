@@ -29,11 +29,12 @@ bun install
 infinitable/
 ├── packages/
 │   ├── render/          # 自研 canvas 渲染引擎：场景树、四层 canvas、失效、事件、canvas 池
-│   ├── core/            # 表格主体：ListTable、滚动、交互、编辑、主题、媒体、浮动对象
+│   ├── grid/            # 共享网格内核：ScrollManager、虚拟窗口/二分命中、布局与主题投影、选区、浮动对象
+│   ├── table/           # 表格引擎：ListTable、交互、编辑、主题、媒体、插件注册路径
 │   ├── formulas/        # 公式引擎：地址、tokenizer、Pratt parser、求值、内置函数、依赖图
 │   ├── plugins/         # 官方插件：TablePlugin 契约 + chart / print / watermark
 │   ├── sheet/           # 电子表格核心：Sheet/Workbook、命令、IO、SheetGrid 适配
-│   └── infinitable/     # 唯一 npm 发布包：re-export 四层 + ./sheet 子路径
+│   └── infinitable/     # 唯一 npm 发布包：re-export 五层 + ./sheet 子路径
 ├── playground/          # 唯一应用：示例总览、页内 vs VTable 对比、量化基准、冒烟自检
 ├── website/             # VitePress 文档站点
 ├── scripts/             # 依赖检查、导出检查、增量测试、发版脚本
@@ -44,14 +45,15 @@ infinitable/
 依赖方向（源码级）：
 
 ```text
-core → render
-plugins → core
-sheet → core, formulas
-infinitable → render, core, formulas, plugins, sheet
+grid → render
+table → grid, render
+plugins → table, grid
+sheet → table, grid, formulas
+infinitable → render, grid, table, formulas, plugins, sheet
 playground → 各内部包源码
 ```
 
-`render` 与 `core` 只经 `RenderHost` 窄接口耦合；`formulas` 与 `core` 互不依赖，求值接线在宿主侧。`packages/core` 禁止 import 任何 `@visactor/*`。
+`render` 与 `grid` / `table` 只经 `RenderHost` 窄接口耦合；`formulas` 与 `grid` / `table` 互不依赖，求值接线在宿主侧。`packages/grid` 与 `packages/table` 禁止 import 任何 `@visactor/*`。
 
 ## 常用命令
 
@@ -65,7 +67,7 @@ playground → 各内部包源码
 | `bun run check`                     | `vp check`：oxfmt + oxlint + tsgolint 类型检查三合一                     |
 | `bun run lint`                      | `vp lint` + `bun run check:deps`                                         |
 | `bun run fmt` / `bun run fmt:check` | 格式化写入 / 只检查                                                      |
-| `bun run check:deps`                | 校验 `packages/core` 对 `@visactor/*` 零依赖                             |
+| `bun run check:deps`                | 校验 `packages/grid` 与 `packages/table` 对 `@visactor/*` 零依赖        |
 | `bun run check:exports`             | 空项目消费冒烟：校验各包 dist、类型树与 `./sheet` 子路径；**需先 build** |
 | `bun run changeset`                 | changesets CLI（发版流程中不推荐交互式使用，见下文）                     |
 | `bun run release`                   | 发版准备：changeset version + install + commit + push                    |
@@ -178,7 +180,7 @@ node playground/scripts/smoke.mjs
 - TypeScript：`strict`、`noUncheckedIndexedAccess`、`verbatimModuleSyntax`、`noEmit`。
 - 命名：包名 `@infinitable/<name>`，目录 `packages/<name>`；文件 kebab-case；类型/类 PascalCase；变量/函数 camelCase。
 - 注释与文档用中文。
-- 禁止引入任何 `@visactor/vrender*` / `@visactor/vutils` 等旧引擎依赖；`packages/core` 对 `@visactor/*` 零依赖由 `check:deps` 双向校验。
+- 禁止引入任何 `@visactor/vrender*` / `@visactor/vutils` 等旧引擎依赖；`packages/grid` 与 `packages/table` 对 `@visactor/*` 零依赖由 `check:deps` 双向校验。
 
 提交前至少确认：
 

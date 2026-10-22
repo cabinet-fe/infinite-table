@@ -1,12 +1,12 @@
 import type { FloatObject, FloatTransformEndEvent } from '@infinitable/grid'
-import type { ListTable } from '@infinitable/table'
+import type { TableEngine } from '@infinitable/table'
 
 import { IMAGE_MIME } from '../core/image'
 import type { SheetImage, SheetImageAnchor } from '../core/image'
 import type { Sheet } from '../core/sheet'
 
 export interface GridFloatImagesOptions {
-  table: ListTable
+  table: TableEngine
   sheet: Sheet
   /** 只读模式：图片可选中查看，但禁用拖动（不写锚点） */
   readonly?: boolean
@@ -54,7 +54,7 @@ function toFloatObject(image: SheetImage, src: string): FloatObject {
  * - 只读：选中查看可用，禁拖动（引擎 isReadonly）。
  */
 export class GridFloatImages {
-  private readonly table: ListTable
+  private readonly table: TableEngine
   private readonly sheet: Sheet
   private readonly isReadonly: boolean
   /** id → objectURL（字节来源图）；同引用复用，换字节重建 */

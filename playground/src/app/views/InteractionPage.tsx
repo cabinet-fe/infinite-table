@@ -1,7 +1,7 @@
 // 交互能力：合成事件与交互管线（拖选/整行整列/键盘/resize/右键菜单/批量更新）。
 // 选区/右键菜单/滚动三条状态回显与批量更新、全选、清空按钮在本页驱动 mountInteraction 返回的句柄。
 
-import { normalizeRange } from '@infinitable/core'
+import { normalizeRange } from '@infinitable/grid'
 import { useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'

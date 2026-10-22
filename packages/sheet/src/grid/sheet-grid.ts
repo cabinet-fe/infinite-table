@@ -4,6 +4,7 @@ import {
   type CellRenderer,
   type ColumnDefine,
   type ListTableOptions,
+  type TableEngine,
 } from '@infinitable/table'
 import {
   extendsTheme,
@@ -151,7 +152,12 @@ export interface SheetGridOptions {
 }
 
 /**
- * 引擎适配层 Facade 入口类：Sheet 模型 ↔ `@infinitable/table` ListTable。
+ * 引擎适配层 Facade 入口类：Sheet 模型 ↔ table 引擎。
+ *
+ * 引擎经协议面消费（P7）：构造 ListTable（引擎唯一构造点）后，实例以 TableEngine
+ * 协议面持有并传递给全部协作模块——中立装配本体（EngineAssembly：数据面/渲染宿主/
+ * 主题/painter 槽位/生命周期）+ 表格领域公共操作增量，协作面不触碰 ListTable 具体类型，
+ * 未来平级引擎（透视/甘特）按同一协议面接入时适配层无需改消费姿势。
  *
  * 数据面模型直挂（TableModel 适配 Sheet 存储，编辑提交经引擎回写 Sheet 命令系统）；
  * 样式/显示 pull 式按格取值（引擎渲染热路径回调，模型变更无需推送）；选区/冻结/
@@ -160,7 +166,7 @@ export interface SheetGridOptions {
  */
 export class SheetGrid {
   private readonly sheet: Sheet
-  private readonly table: ListTable
+  private readonly table: TableEngine
   private readonly container: HTMLElement
   private readonly hooks: {
     resolveDisplayValue?: ResolveDisplayValue
@@ -389,8 +395,8 @@ export class SheetGrid {
     this.bindFocus()
   }
 
-  /** 底层引擎表实例（调试/测试用） */
-  getTable(): ListTable {
+  /** 底层引擎（协议面 TableEngine：装配本体 + 表格领域公共操作；调试/测试用） */
+  getTable(): TableEngine {
     return this.table
   }
 

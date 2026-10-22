@@ -2,7 +2,7 @@
 // 同数据（dataset.ts 10 万行 × 20 列）、同视口 1280×720、行高 32、列宽 100、无冻结、默认主题。
 // 只包一层最小翻译，不做任何库外缓存：测的就是各库自身的公开调用成本。
 
-import { ListTable, type ColumnDefine, type DataRecord } from '@infinitable/core'
+import { ListTable, type ColumnDefine, type DataRecord } from '@infinitable/table'
 import { createRenderHost, type RenderHost } from '@infinitable/render'
 import { ListTable as VTableListTable } from '@visactor/vtable'
 

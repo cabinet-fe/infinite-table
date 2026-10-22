@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { EditorRegistry, SheetModel } from '@infinitable/core'
+import { EditorRegistry, SheetModel } from '@infinitable/table'
 import { useDemoTable } from '../demo/use-demo-table'
 
 const HEIGHT = 320

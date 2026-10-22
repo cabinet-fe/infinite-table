@@ -30,6 +30,11 @@
 // - list-table-internal.ts：共享常量与纯辅助（cellKey/HEADER_COORD/合并区越界校验）
 // 协作模块以 ListTable 实例为参数，只触碰标注 @internal 的内部成员；
 // @internal 成员不构成公共 API（公共 API 以 src/index.ts 显式导出为准）。
+//
+// 引擎装配协议（P7）：本类实现 TableEngine（含中立本体 EngineAssembly——渲染宿主 /
+// 数据面 / 主题 / painter 槽位 / 插件槽位 / 生命周期，组成件定义见 engine.ts）。
+// 协议成员全部复用既有公共方法，仅新增导出读取面入口（read getter，组合
+// getCellText / getCellValue / getCellStyle / getMergeRanges 与行列几何读取）。
 
 import {
   createRenderHost,
@@ -99,6 +104,7 @@ import {
   updateSceneWindow,
 } from './list-table-scene'
 import type { ImageCellNode } from './media/image-cell-node'
+import type { EngineReadView, TableEngine } from './engine'
 import { ImageService, type LoadedImage } from '@infinitable/grid/src/media/image-service'
 import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
@@ -229,7 +235,7 @@ function overflowExtentRegion(node: CellNode, minX: number, maxX: number): Regio
   }
 }
 
-export class ListTable {
+export class ListTable implements TableEngine {
   /** @internal 渲染宿主（注入或缺省创建） */
   readonly host: RenderHost
   private readonly ownHost: boolean
@@ -848,6 +854,38 @@ export class ListTable {
   getCellText(col: number, row: number): string {
     const master = this.mergeCells.masterOf(col, row)
     return this.pipeline.resolveText(master?.col ?? col, master?.row ?? row)
+  }
+
+  /**
+   * 单元格原始值（数据面口径，未经显示链；协议数据面与导出读取面共用）：
+   * 合并区路由主格，与 getCellText 同一取值口径。
+   */
+  getCellValue(col: number, row: number): unknown {
+    const master = this.mergeCells.masterOf(col, row)
+    return this.pipeline.resolveValue(master?.col ?? col, master?.row ?? row)
+  }
+
+  /**
+   * 有效格样式（主题分区 token → 列级 → 链接默认外观 → 按格 hook 的投影链产物，
+   * G7/G9：样式解析链经公共面可达）；合并区路由主格。
+   */
+  getCellStyle(col: number, row: number): CellStyle {
+    const master = this.mergeCells.masterOf(col, row)
+    return this.resolveStyle(master?.col ?? col, master?.row ?? row)
+  }
+
+  /** 合并区集合（闭区间几何语言；导出读取面 G12-G15 供数，返回当前集合引用） */
+  getMergeRanges(): readonly CellRange[] {
+    return this.mergeCells.ranges
+  }
+
+  /**
+   * 引擎导出读取面（协议可选能力，table 引擎恒提供）：组合本类公共读取方法，
+   * 导出类插件（print 等）经 `engine.read` 读取有效数据 / 样式 / 几何 / 合并区，
+   * 不触碰引擎具体类型。
+   */
+  get read(): EngineReadView {
+    return this
   }
 
   /**

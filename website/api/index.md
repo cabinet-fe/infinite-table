@@ -5,7 +5,7 @@ description: infinitable 的两个发布入口、导出判据与稳定性、按�
 
 # API 导出总览
 
-`infinitable` 是单包发布的聚合入口：仓库内按 workspace 分包开发，发布时把 render、core、formulas、plugins 四层的公共 API 显式转售到主入口。另有一个子路径 `infinitable/sheet`，转售电子表格形态的 `@infinitable/sheet` 公共面。
+`infinitable` 是单包发布的聚合入口：仓库内按 workspace 分包开发，发布时把 render、grid、table、formulas、plugins 五层的公共 API 显式转售到主入口。另有一个子路径 `infinitable/sheet`，转售电子表格形态的 `@infinitable/sheet` 公共面。
 
 本页给出两个入口的边界、导出判据、按模块分组的符号速查表，以及 `CellRef` 同名消歧规则。逐项签名与默认值见各分页：
 
@@ -20,7 +20,7 @@ description: infinitable 的两个发布入口、导出判据与稳定性、按�
 
 | 入口   | 导入路径            | 转售内容                                                                                                                                         | 适用场景                                                       |
 | ------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| 主入口 | `infinitable`       | `@infinitable/render` + `@infinitable/core` + `@infinitable/formulas` + `@infinitable/plugins` 的公共 API                                        | 绘制表格、嵌入自研渲染宿主、公式计算、挂官方插件               |
+| 主入口 | `infinitable`       | `@infinitable/render` + `@infinitable/grid` + `@infinitable/table` + `@infinitable/formulas` + `@infinitable/plugins` 的公共 API                    | 绘制表格、嵌入自研渲染宿主、公式计算、挂官方插件               |
 | 子路径 | `infinitable/sheet` | `@infinitable/sheet` 白名单全量（地址系统、单元格存储、样式池、合并/选区/填充/查找、`Sheet`/`Workbook`、命令与撤销、图片、IO、`SheetGrid` 适配） | 需要电子表格模型、命令栈、xlsx/csv 导入导出或 `SheetGrid` 装配 |
 
 ```ts
@@ -56,20 +56,20 @@ import { Sheet, Workbook, SheetGrid, importXlsx } from 'infinitable/sheet'
 
 - 主入口与 `./sheet` 的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 用显式快照冻结。新增或删除导出必须同步修改快照才能通过测试，防止内部实现经星号转售泄漏成事实公共 API。
 - `packages/infinitable/src/` 内禁止 `export *` 语句；所有转售都是显式具名导出。
-- 同源符号只从定义包导出一次：`RenderContext` / `Size` 由 render 定义（core 也转出同名类型），`TablePlugin` 由 core 定义；主入口各取一处。
+- 同源符号只从定义包导出一次：`RenderContext` / `Size` 由 render 定义（table 也转出同名类型），`TablePlugin` 由 table 定义；主入口各取一处。
 - 符号被移出公共面时，会保留至少一个次版本的 deprecation 或改为包内深路径，并在发布说明中登记替代路径；不做静默移除。
 
 ::: warning
-深路径导入（如从 `@infinitable/core/src/...` 取内部模块）不属于公共契约，升级时可能直接失效。宿主代码应只依赖 `infinitable` 与 `infinitable/sheet` 的公共导出。
+深路径导入（如从 `@infinitable/table/src/...` 取内部模块）不属于公共契约，升级时可能直接失效。宿主代码应只依赖 `infinitable` 与 `infinitable/sheet` 的公共导出。
 :::
 
 ## CellRef 同名消歧
 
-render/core/formulas 三层里有两个不同的 `CellRef`。主入口做了显式消歧：
+grid/formulas 两层里有两个不同的 `CellRef`。主入口做了显式消歧：
 
 | 主入口符号    | 定义层   | 字段                                                                                           | 语义                                                                                            |
 | ------------- | -------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `GridCellRef` | core     | `col: number`、`row: number`                                                                   | 格坐标（0 基），用于命中测试、选区、图片窗口、浮动对象锚点、编辑定位                            |
+| `GridCellRef` | grid     | `col: number`、`row: number`                                                                   | 格坐标（0 基），用于命中测试、选区、图片窗口、浮动对象锚点、编辑定位                            |
 | `CellRef`     | formulas | `col: number`、`row: number`、`colAbsolute: boolean`、`rowAbsolute: boolean`、`sheet?: string` | A1 引用（含绝对/相对标记与跨表名），配 `parseCellRef` / `formatCellRef` / `createRangeRef` 使用 |
 
 ```ts
@@ -115,7 +115,7 @@ const a1: CellRef = { col: 2, row: 5, colAbsolute: false, rowAbsolute: false } /
 | `Region` / `Size`                                                        | 矩形与尺寸基础类型                                                 | [/api/render](/api/render) |
 | `RenderContext` / `RenderCanvas` / `RenderImageSource`                   | 引擎使用的 2D 上下文、canvas 与位图源的最小子集                    | [/api/render](/api/render) |
 
-### core 层（值）
+### grid / table 层（值）
 
 | 符号                 | 用途                                                                   | 详细页面                           |
 | -------------------- | ---------------------------------------------------------------------- | ---------------------------------- |
@@ -131,12 +131,12 @@ const a1: CellRef = { col: 2, row: 5, colAbsolute: false, rowAbsolute: false } /
 | `sanitizeMerges`     | 归一化并消解重叠：保留先声明、丢弃冲突项，返回 `ranges` 与 `conflicts` | [/api/core](/api/core)             |
 | `warnMergeConflicts` | 冲突的 console 提示工具，同一冲突只提示一次                            | [/api/core](/api/core)             |
 
-### core 层（类型）
+### grid / table 层（类型）
 
 | 符号                                                                                                                                    | 用途                                               | 详细页面                           |
 | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------- |
 | `ListTableOptions` / `ColumnDefine` / `DataRecord` / `TableModel` / `ResolveDisplayValue` / `CellChangeEvent` / `TableContextMenuEvent` | 表格构造、列定义、数据供给与基础事件载荷           | [/api/list-table](/api/list-table) |
-| `GridCellRef`                                                                                                                           | core 格坐标 `{ col, row }` 的消歧别名              | [/api/core](/api/core)             |
+| `GridCellRef`                                                                                                                           | grid 格坐标 `{ col, row }` 的消歧别名             | [/api/core](/api/core)             |
 | `CellRange` / `MergeConflict` / `SanitizedMerges`                                                                                       | 合并区间、冲突详情与消解结果                       | [/api/core](/api/core)             |
 | `CellStyle` / `CellBorder` / `CellBorderEdge`                                                                                           | 逐格样式与逐边边框                                 | [/api/core](/api/core)             |
 | `TableTheme` / `ThemeOverride`                                                                                                          | 生效主题结构与深覆盖入参                           | [/api/core](/api/core)             |
@@ -204,7 +204,7 @@ const a1: CellRef = { col: 2, row: 5, colAbsolute: false, rowAbsolute: false } /
 | SheetGrid 适配            | `SheetGrid`                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `ResolveCellRenderer`、`SheetGridHighlight`、`SheetGridOptions`、`SelectionInterceptMeta`、`ScrollbarOptions`、`ResolveCellStyleHook`、`ResolveDisplayValue`、`SheetGridContextMenuInfo`、`SheetGridContextMenuKind`、`SheetGridHeaderOptions`、`GridCellEditor`、`GridEditorRect`、`GridEditorSession`、`SheetGridEditorsOptions`、`CellRenderer`、`CellRenderTarget`                                                                                                                                                                                                                                                                                                                                            |
 
 ::: tip
-`infinitable/sheet` 的 `CellStyle`、`CellRange`、`CellRenderer`、`ScrollbarOptions` 与主入口同名但定义来源不同：子路径的类型来自 `@infinitable/sheet`，主入口的类型来自 core。跨入口混用同名类型时以 `import type` 的显式来源为准。
+`infinitable/sheet` 的 `CellStyle`、`CellRange`、`CellRenderer`、`ScrollbarOptions` 与主入口同名但定义来源不同：子路径的类型来自 `@infinitable/sheet`，主入口的类型来自 grid / table。跨入口混用同名类型时以 `import type` 的显式来源为准。
 :::
 
 ## 如何查类型

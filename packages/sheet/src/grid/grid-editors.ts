@@ -1,4 +1,4 @@
-import { EditorRegistry, type ListTable } from '@infinitable/table'
+import { EditorRegistry, type TableEngine } from '@infinitable/table'
 
 import type { CellAddress } from '../core/address'
 import type { CellValue } from '../core/cell-store'
@@ -77,7 +77,7 @@ export class GridEditorRouting {
   private readonly onSessionStart?: (addr: CellAddress) => void
   private readonly onSessionEnd?: (addr: CellAddress) => void
   private sheet: Sheet | null = null
-  private table: ListTable | null = null
+  private table: TableEngine | null = null
   private container: HTMLElement | null = null
   private session: ActiveSession | null = null
   /** 接管中取消文本会话的合成事件标记（SheetGrid 转发引擎编辑事件前查询抑制） */
@@ -96,7 +96,7 @@ export class GridEditorRouting {
   }
 
   /**
-   * 构造引擎注册表（ListTable 构造期装配）：文本编辑器 + 自定义编辑器注册名标记；
+   * 构造引擎注册表（引擎构造期装配）：文本编辑器 + 自定义编辑器注册名标记；
    * route 包装只放行已注册的自定义编辑器名，未命中回落列级 `sheet-text` 声明。
    */
   createRegistry(): EditorRegistry {
@@ -108,8 +108,8 @@ export class GridEditorRouting {
     return registry
   }
 
-  /** 接线引擎表与容器（ListTable 构造后调用一次） */
-  attach(sheet: Sheet, table: ListTable, container: HTMLElement): void {
+  /** 接线引擎与容器（引擎构造后调用一次） */
+  attach(sheet: Sheet, table: TableEngine, container: HTMLElement): void {
     this.sheet = sheet
     this.table = table
     this.container = container

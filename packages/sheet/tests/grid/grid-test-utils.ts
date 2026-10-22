@@ -15,6 +15,11 @@ export const cellY = (row: number) => SHEET_HEADER_HEIGHT + row * 28 + 5
 
 export interface CreatedGrid {
   grid: SheetGrid
+  /**
+   * 引擎实例（SheetGrid 内部以协议面 TableEngine 持有；测试基建标注具体类——
+   * 部分用例断言引擎内部渲染状态（media 层/位图缓存），协议面装配口径见
+   * sheet-grid.test.ts 的协议面用例）
+   */
   table: ListTable
   container: HTMLElement
   sheet: Sheet
@@ -34,7 +39,9 @@ export function createGrid(options: Partial<SheetGridOptions> = {}): CreatedGrid
     height: VIEW_H,
     ...options,
   })
-  return { grid, table: grid.getTable(), container, sheet }
+  // getTable() 为协议面（TableEngine）；本工具的用例需断言引擎内部渲染状态，
+  // 窄化回实现类（SheetGrid 内部构造的实现类，测试环境确定性成立）
+  return { grid, table: grid.getTable() as ListTable, container, sheet }
 }
 
 /** 向容器派发 DOM 指针类事件（引擎 EventSystem 归一化为场景事件） */

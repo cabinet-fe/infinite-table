@@ -1,6 +1,6 @@
 // 基准数据集：10 万行 × 20 列固定尺寸表
 
-import type { ColumnDefine, DataRecord } from '@infinitable/core'
+import type { ColumnDefine, DataRecord } from '@infinitable/table'
 
 export const BENCH_ROWS = 100_000
 export const BENCH_COLS = 20

@@ -13,14 +13,6 @@
         "vitest": "5.0.5",
       },
     },
-    "packages/core": {
-      "name": "@infinitable/core",
-      "version": "0.0.0",
-      "dependencies": {
-        "@infinitable/grid": "workspace:*",
-        "@infinitable/table": "workspace:*",
-      },
-    },
     "packages/formulas": {
       "name": "@infinitable/formulas",
       "version": "0.0.0",
@@ -92,10 +84,11 @@
       "name": "@infinitable/playground",
       "version": "0.0.0",
       "dependencies": {
-        "@infinitable/core": "workspace:*",
+        "@infinitable/grid": "workspace:*",
         "@infinitable/plugins": "workspace:*",
         "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",
+        "@infinitable/table": "workspace:*",
         "@visactor/vtable": "^1.26.8",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -119,11 +112,12 @@
       "version": "0.0.0",
       "dependencies": {
         "@cat-kit/core": "^1.2.1",
-        "@infinitable/core": "workspace:*",
         "@infinitable/formulas": "workspace:*",
+        "@infinitable/grid": "workspace:*",
         "@infinitable/plugins": "workspace:*",
         "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",
+        "@infinitable/table": "workspace:*",
         "vue": "^3.5.44",
       },
       "devDependencies": {
@@ -351,8 +345,6 @@
     "@iconify/types": ["@iconify/types@2.0.0", "", {}, "sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg=="],
 
     "@iconify/utils": ["@iconify/utils@3.1.7", "", { "dependencies": { "@antfu/install-pkg": "^2.0.1", "@iconify/types": "^2.0.0", "import-meta-resolve": "^4.2.0" } }, "sha512-JZHlwdID+dy+lTgbYC8NEC4zeugqeYsc6jewvzb4c58kHauJn+X7rNwQjxz5p2qSjqaEeQoLkCIQ9v/H4PK0/w=="],
-
-    "@infinitable/core": ["@infinitable/core@workspace:packages/core"],
 
     "@infinitable/formulas": ["@infinitable/formulas@workspace:packages/formulas"],
 

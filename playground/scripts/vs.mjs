@@ -38,7 +38,7 @@ function measureBundleSize() {
   const entries = {
     // 入口放 playground 下保证向上解析到根 node_modules 的 workspace 链接；
     // export 引用防 tree-shake 把实现摇掉
-    ours: `import { ListTable } from '@infinitable/core'\nimport { createRenderHost } from '@infinitable/render'\nexport const __keep = [ListTable, createRenderHost]\n`,
+    ours: `import { ListTable } from '@infinitable/table'\nimport { createRenderHost } from '@infinitable/render'\nexport const __keep = [ListTable, createRenderHost]\n`,
     vtable: `import { ListTable } from '@visactor/vtable'\nexport const __keep = [ListTable]\n`,
   }
   const sizes = {}

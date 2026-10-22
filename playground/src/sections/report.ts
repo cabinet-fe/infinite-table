@@ -7,7 +7,7 @@
 // 引擎级行列头对纯报表形态是多余的 Chrome。控件面（重灌按钮与状态行）由 ReportPage
 // 以 shadcn 渲染，经 demo.reloadSnapshot 驱动。
 
-import type { ListTable } from '@infinitable/core'
+import type { ListTable } from '@infinitable/table'
 import { Sheet, SheetGrid, type SheetSnapshot } from '@infinitable/sheet'
 
 import { resolveDpr } from '../mount'
@@ -354,7 +354,9 @@ export function mountReport(root: HTMLElement): ReportDemo {
 /** 调试句柄装配（SmokeMode 冒烟路径共用） */
 export function createReportHandle(demo: ReportDemo): ReportDemoHandle {
   return {
-    getTable: () => demo.grid.getTable(),
+    // 协议面 getTable() 返回 TableEngine；调试句柄消费 ListTable 领域取值面
+    // （getCellText/isEditing 等），SheetGrid 底层即 ListTable，此处窄化
+    getTable: () => demo.grid.getTable() as ListTable,
     getSheet: () => demo.sheet,
     getContainer: () => demo.container,
     reloadSnapshot: demo.reloadSnapshot,

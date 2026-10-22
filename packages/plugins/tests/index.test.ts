@@ -7,10 +7,10 @@ describe('plugins 公共入口', () => {
     const mounted: string[] = []
     const plugin: TablePlugin = {
       name: 'entry-smoke',
-      mount: (table) => {
-        // 参数类型为 ListTable（契约类型断言在编译层完成）；完整挂载链路由
-        // table 自身测试与 S3 插件测试覆盖，此处不构造真实表格（node 环境无 canvas）
-        void table
+      mount: (engine) => {
+        // 参数类型为引擎装配协议面 EngineAssembly（P7：契约类型断言在编译层完成）；
+        // 完整挂载链路由 table 自身测试与插件测试覆盖，此处不构造真实引擎（node 环境无 canvas）
+        void engine
         mounted.push('mounted')
       },
     }

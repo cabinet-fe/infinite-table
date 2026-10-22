@@ -4,7 +4,7 @@
 // P11：模型一律 @infinitable/sheet 的 Sheet（写路径走命令系统），引擎侧经 sheetTableModel
 // 结构子集绑定挂模型（不做包级硬绑定，同旧 SheetStoreLike 先例）。
 
-import type { TableModel } from '@infinitable/core'
+import type { TableModel } from '@infinitable/table'
 import {
   Sheet,
   type CellStyle as SheetCellStyle,

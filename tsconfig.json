@@ -16,7 +16,6 @@
     { "path": "packages/render" },
     { "path": "packages/grid" },
     { "path": "packages/table" },
-    { "path": "packages/core" },
     { "path": "packages/formulas" },
     { "path": "packages/plugins" },
     { "path": "packages/sheet" },

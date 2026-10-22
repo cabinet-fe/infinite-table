@@ -4,7 +4,7 @@
 // 链接 hover/leave/单击事件。写入/清除经 meta-change 定向刷新该格（引擎 resolveStyle
 // 与交互命中均为 pull 式取值，刷新即重建外观与命中态）。
 
-import type { CellLink, ListTable } from '@infinitable/table'
+import type { CellLink, TableEngine } from '@infinitable/table'
 
 import { CELL_LINK_META_NAMESPACE, type CellLinkPayload } from '../core/cell-meta'
 import type { Sheet } from '../core/sheet'
@@ -16,7 +16,7 @@ function peekCellLink(sheet: Sheet, col: number, row: number): CellLinkPayload |
 
 export class GridCellLinks {
   private readonly sheet: Sheet
-  private table: ListTable | null = null
+  private table: TableEngine | null = null
   private readonly disposers: (() => void)[] = []
   private released = false
 
@@ -25,10 +25,10 @@ export class GridCellLinks {
   }
 
   /**
-   * 注入引擎实例并开始监听模型事件（SheetGrid 在 new ListTable 之后调用；
-   * resolveLink 不依赖 table，构造期初始装配可直接调用）。
+   * 注入引擎实例并开始监听模型事件（SheetGrid 在引擎构造之后调用；
+   * resolveLink 不依赖引擎，构造期初始装配可直接调用）。
    */
-  attach(table: ListTable): void {
+  attach(table: TableEngine): void {
     this.table = table
     this.disposers.push(
       this.sheet.on('meta-change', ({ addr, namespace }) => {

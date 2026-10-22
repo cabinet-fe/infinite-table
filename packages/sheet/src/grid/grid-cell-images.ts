@@ -4,7 +4,7 @@
 // 带链接嵌入图（载荷 link）单击由引擎派发图片链接点击事件。写入/清除经 meta-change
 // 定向刷新（引擎 refreshImageCell 承担「URL 首次出现补建 / 变化重建 / 消失摘除」）。
 
-import type { ListTable } from '@infinitable/table'
+import type { TableEngine } from '@infinitable/table'
 
 import { CELL_IMAGE_META_NAMESPACE, type CellImagePayload } from '../core/cell-meta'
 import { IMAGE_MIME } from '../core/image'
@@ -29,7 +29,7 @@ function mimeOf(type: SheetImageType | undefined): string {
 
 export class GridCellImages {
   private readonly sheet: Sheet
-  private table: ListTable | null = null
+  private table: TableEngine | null = null
   /** `row,col` → objectURL（字节来源图）；peek 引用稳定，热路径命中不重建 */
   private readonly urls = new Map<string, CellImageUrlEntry>()
   private readonly disposers: (() => void)[] = []
@@ -40,10 +40,10 @@ export class GridCellImages {
   }
 
   /**
-   * 注入引擎实例并开始监听模型事件（SheetGrid 在 new ListTable 之后调用；
-   * resolveUrl / resolveFit 不依赖 table，构造期初始装配可直接调用）。
+   * 注入引擎实例并开始监听模型事件（SheetGrid 在引擎构造之后调用；
+   * resolveUrl / resolveFit 不依赖引擎，构造期初始装配可直接调用）。
    */
-  attach(table: ListTable): void {
+  attach(table: TableEngine): void {
     this.table = table
     this.disposers.push(
       this.sheet.on('meta-change', ({ addr, namespace }) => {

@@ -3,7 +3,7 @@
 // startEdit/commitEdit/cancelEdit API 按钮与提交状态行的用户可见控件由 EditingPage 承担；
 // 冒烟直接驱动本模块返回的 api 与 status 句柄断言（页面按钮与冒烟共用同一实现）。
 
-import { EditorRegistry, SheetModel, type CellChangeEvent } from '@infinitable/core'
+import { EditorRegistry, SheetModel, type CellChangeEvent } from '@infinitable/table'
 
 import { mountTable, type DemoMount } from '../mount'
 

@@ -170,7 +170,7 @@ console.log(table.getCellText(1, 0)) // => '42'
 
 ## 内置 SheetModel
 
-`SheetModel` 是 core 内置的坐标寻址内存模型，实现 `TableModel`，开箱可用于可编辑表。
+`SheetModel` 是 table 内置的坐标寻址内存模型，实现 `TableModel`，开箱可用于可编辑表。
 
 ```ts
 import { EditorRegistry, ListTable, SheetModel } from 'infinitable'
@@ -203,7 +203,7 @@ table.onCellChange(({ col, row, oldValue, newValue }) => {
 })
 ```
 
-构造重载与行为（源码 `packages/core/src/sheet-model.ts`）：
+构造重载与行为（源码 `packages/table/src/sheet-model.ts`）：
 
 ```ts
 class SheetModel implements TableModel {

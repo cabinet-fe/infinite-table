@@ -92,32 +92,38 @@ macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25`
 | 包                      | 职责                                                                                    | 用户侧使用方式                                |
 | ----------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------- |
 | `@infinitable/render`   | 自研 canvas 渲染引擎：场景树、四层画布、三档失效、federated 事件、canvas 池化           | 主入口导出 `createRenderHost`、`SceneNode` 等 |
-| `@infinitable/core`     | 表格主体：`ListTable`、滚动、布局、主题、交互、编辑、合并、媒体与浮动对象、插件注册路径 | 主入口导出 `ListTable` 等                     |
+| `@infinitable/grid`     | 共享网格内核：滚动、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、合并区、浮动对象 | 主入口导出 `normalizeRange`、`GridCellRef` 等 |
+| `@infinitable/table`    | 表格引擎：`ListTable`、交互、编辑、合并、媒体与浮动对象、插件注册路径                    | 主入口导出 `ListTable` 等                     |
 | `@infinitable/formulas` | 公式引擎：A1 地址、tokenizer、Pratt parser、求值、49 个内置函数、依赖图、引用扫描与平移 | 主入口导出解析/求值/依赖图 API                |
 | `@infinitable/plugins`  | 官方插件：图表、打印、水印，统一以 `createXxxPlugin` 工厂返回插件对象                   | 主入口导出三个插件工厂                        |
 | `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层    | 经 `infinitable/sheet` 子路径                 |
-| `infinitable`           | 唯一 npm 发布包：主入口 re-export 五层公共 API，`./sheet` 子路径导出电子表格核心        | `import { ... } from 'infinitable'`           |
+| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心        | `import { ... } from 'infinitable'`           |
 
 用户侧只需要从 `infinitable` 导入。`@infinitable/*` 是仓库内部开发时的包边界，不是给使用方的导入路径。
 
 ```mermaid
 graph TD
   infinitable --> render
-  infinitable --> core
+  infinitable --> grid
+  infinitable --> table
   infinitable --> formulas
   infinitable --> plugins
   infinitable --> sheet
-  core --> render
-  plugins --> core
-  sheet --> core
+  grid --> render
+  table --> grid
+  table --> render
+  plugins --> table
+  plugins --> grid
+  sheet --> table
+  sheet --> grid
   sheet --> formulas
 ```
 
 依赖方向的关键约束：
 
-- `core` 只通过 `RenderHost` 窄接口依赖 `render`，不接触场景树内部实现。
-- `formulas` 不依赖 `core`。求值由宿主驱动，`sheet` 包内的 `FormulaEngine` 是公式能力的组合门面。
-- `plugins` 依赖 `core` 的插件契约，官方插件与用户插件走同一条注册路径。
+- `grid` 只依赖 `render`；`table` 通过 `RenderHost` 窄接口依赖 `render`，不接触场景树内部实现。
+- `formulas` 不依赖 `grid` / `table`。求值由宿主驱动，`sheet` 包内的 `FormulaEngine` 是公式能力的组合门面。
+- `plugins` 依赖 `table` 的插件契约，官方插件与用户插件走同一条注册路径。
 - `infinitable` 是发布层，本身不承载业务逻辑。
 
 更多包职责和设计取舍见[架构总览](/guide/architecture)。

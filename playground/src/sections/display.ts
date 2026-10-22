@@ -2,7 +2,7 @@
 // text/checkbox 单元格类型、主题 extends。
 // 带像素锚点的演示取值（冒烟断言依赖的坐标/颜色）集中在文件顶部常量，便于核对。
 
-import type { CellRenderer } from '@infinitable/core'
+import type { CellRenderer } from '@infinitable/table'
 
 import { mountTable, type DemoMount } from '../mount'
 

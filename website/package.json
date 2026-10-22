@@ -10,11 +10,12 @@
   },
   "dependencies": {
     "@cat-kit/core": "^1.2.1",
-    "@infinitable/core": "workspace:*",
     "@infinitable/formulas": "workspace:*",
+    "@infinitable/grid": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@infinitable/sheet": "workspace:*",
+    "@infinitable/table": "workspace:*",
     "vue": "^3.5.44"
   },
   "devDependencies": {

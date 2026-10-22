@@ -1,6 +1,7 @@
 /**
- * 引擎适配层（SheetGrid）公共入口：深导入通道，底座为本仓 `@infinitable/table`
- * 公共面的 ListTable；引擎侧红线见 docs/plugin-interface-map.md。
+ * 引擎适配层（SheetGrid）公共入口：深导入通道。引擎消费经 table 公共面的
+ * TableEngine 协议面（装配本体 EngineAssembly + 表格领域公共操作增量，P7）；
+ * 引擎侧红线见 docs/plugin-interface-map.md。
  * 主入口 `src/index.ts` 亦具名转出同一公共面（spec 定稿：完整 sheet API 单入口）。
  */
 import type { CellRenderer } from '@infinitable/table'

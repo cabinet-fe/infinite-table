@@ -1,5 +1,5 @@
 import { normalizeRange, type RangeBounds, type SelectionSnapshot } from '@infinitable/grid'
-import type { ListTable } from '@infinitable/table'
+import type { TableEngine } from '@infinitable/table'
 
 import { createRange, type CellAddress, type CellRange } from '../core/address'
 import { computeFillTargetRange, generateFill, type FillDirection } from '../core/fill'
@@ -71,7 +71,7 @@ function unionBounds(a: RangeBounds, b: RangeBounds): RangeBounds {
  */
 export class GridSelectionController {
   private readonly sheet: Sheet
-  private readonly table: ListTable
+  private readonly table: TableEngine
   private readonly isReadonly: boolean
   private readonly interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
   private readonly onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
@@ -91,7 +91,7 @@ export class GridSelectionController {
    *  设列宽后视口跳到底部即此路径。滚动跟随只保留给模型驱动选区） */
   private echoing = false
 
-  constructor(sheet: Sheet, table: ListTable, options: GridSelectionControllerOptions = {}) {
+  constructor(sheet: Sheet, table: TableEngine, options: GridSelectionControllerOptions = {}) {
     this.sheet = sheet
     this.table = table
     this.isReadonly = options.isReadonly ?? false
@@ -226,7 +226,7 @@ export class GridSelectionController {
     this.pushSelectionToTable(this.sheet.getSelection(), { scroll: false })
   }
 
-  /** 引擎 shift+点选锚点解析（ListTable `resolveShiftSelectAnchor` 注入源）：引用拾取
+  /** 引擎 shift+点选锚点解析（引擎 `resolveShiftSelectAnchor` 注入源）：引用拾取
    * 手势期以上次拾取段锚点为扩展起点；非拾取期返回 undefined 交引擎缺省（画布末段 start） */
   resolveShiftExtendAnchor(): CellAddress | null | undefined {
     if (!this.picking) return undefined

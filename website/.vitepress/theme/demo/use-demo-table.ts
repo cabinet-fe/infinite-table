@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { ListTable, type ListTableOptions } from '@infinitable/core'
+import { ListTable, type ListTableOptions } from '@infinitable/table'
 
 type DemoOptions = Omit<ListTableOptions, 'width' | 'height' | 'hostOptions'>
 

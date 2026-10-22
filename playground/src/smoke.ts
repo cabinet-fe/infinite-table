@@ -6,7 +6,8 @@
 // （指针单击/拖选/Ctrl 加选、双击进编辑提交、焦点契约键盘导航、滚轮无双滚）。
 // 结果写 window.__SMOKE__ 与 document.title。
 
-import { normalizeRange, type CellChangeEvent, type ListTable } from '@infinitable/core'
+import { normalizeRange } from '@infinitable/grid'
+import type { CellChangeEvent, ListTable } from '@infinitable/table'
 
 import type { DemoHandles } from './app/types'
 import {
@@ -924,7 +925,10 @@ function doubleTapNativeCell(
 async function checkNativeScroll(checker: Checker, demos: DemoHandles): Promise<void> {
   const { list, sheet } = demos.nativeScroll
   const listTable = list.table
-  const sheetTable = sheet.grid.getTable()
+  // SheetGrid 底层引擎即 ListTable（sheet 适配层的引擎唯一构造点）：getTable() 经协议面
+  // 返回 TableEngine，本段冒烟断言 ListTable 领域交互面（options/clearSelection/
+  // getSelection/selectCell/getCellText/isEditing 等，不在协议面上），此处窄化取领域引用
+  const sheetTable = sheet.grid.getTable() as ListTable
   const instances = [
     { label: 'ListTable', container: list.container, table: listTable },
     { label: 'SheetGrid', container: sheet.container, table: sheetTable },

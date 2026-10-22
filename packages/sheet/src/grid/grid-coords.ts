@@ -1,5 +1,5 @@
 import type { CellRef } from '@infinitable/grid'
-import type { ListTable, TableContextMenuEvent } from '@infinitable/table'
+import type { TableEngine, TableContextMenuEvent } from '@infinitable/table'
 
 import type { CellAddress } from '../core/address'
 
@@ -31,7 +31,7 @@ function clientPointFromTableEvent(
 }
 
 /** 可视窗口内反向定位：层坐标 x 落在哪一列（窗口外 / 空白返回 undefined） */
-function findVisibleColAt(table: ListTable, x: number): number | undefined {
+function findVisibleColAt(table: TableEngine, x: number): number | undefined {
   const { cols } = table.getBodyVisibleCellRange()
   for (let col = cols.start; col < cols.end; col++) {
     const rect = table.getCellRelativeRect(col, 0)
@@ -41,7 +41,7 @@ function findVisibleColAt(table: ListTable, x: number): number | undefined {
 }
 
 /** 可视窗口内反向定位：层坐标 y 落在哪一行（窗口外 / 空白返回 undefined） */
-function findVisibleRowAt(table: ListTable, y: number): number | undefined {
+function findVisibleRowAt(table: TableEngine, y: number): number | undefined {
   const { rows } = table.getBodyVisibleCellRange()
   for (let row = rows.start; row < rows.end; row++) {
     const rect = table.getCellRelativeRect(0, row)
@@ -55,7 +55,7 @@ function findVisibleRowAt(table: ListTable, y: number): number | undefined {
  * 角点归 body 且 cell 为 null，与「保留当前选区」语义一致）。
  */
 export function buildContextMenuInfo(
-  table: ListTable,
+  table: TableEngine,
   container: HTMLElement,
   event: TableContextMenuEvent,
 ): SheetGridContextMenuInfo {
@@ -82,7 +82,7 @@ function cellRefToAddr(cell: CellRef | null): CellAddress | null {
  * 供宿主拖放等场景命中单元格。
  */
 export function hitTestSheetAddr(
-  table: ListTable,
+  table: TableEngine,
   relativeX: number,
   relativeY: number,
 ): CellAddress | null {

@@ -5,7 +5,7 @@
 
 import './setup'
 
-import type { CellRenderer } from '@infinitable/table'
+import type { CellRenderer, EngineAssembly, TablePlugin } from '@infinitable/table'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CellAddress } from '../../src/core/address'
@@ -915,5 +915,59 @@ describe('SheetGrid 引用拾取染色框', () => {
       ]),
     ).not.toThrow()
     expect(table.highlightRanges).toEqual([])
+  })
+})
+
+describe('SheetGrid 协议面装配（P7）', () => {
+  it('getTable() 为引擎协议面：装配本体（EngineAssembly）可直接承接并消费', async () => {
+    const { grid, table, sheet } = createGrid()
+    try {
+      // 编译期：TableEngine（含装配本体 EngineAssembly）承接；运行期：同一实例
+      const assembly: EngineAssembly = table
+      expect(assembly).toBe(table)
+      expect(assembly.host).toBe(table.host)
+      // 数据面（模型直挂）：rowCount 与取值随 Sheet 模型
+      sheet.setCellValue({ row: 0, col: 0 }, 'A1值')
+      await flushMicrotasks()
+      expect(assembly.rowCount).toBe(sheet.rows)
+      expect(assembly.getCellValue(0, 0)).toBe('A1值')
+      // 导出读取面：有效数据 / 几何 / 合并区（协议可选能力，table 引擎恒提供）
+      expect(assembly.read!.getCellText(0, 0)).toBe('A1值')
+      expect(assembly.read!.colCount).toBe(sheet.cols)
+      expect(assembly.read!.getColWidth(0)).toBeGreaterThan(0)
+      sheet.mergeCells({ start: { row: 1, col: 1 }, end: { row: 2, col: 2 } })
+      await flushMicrotasks()
+      expect(assembly.read!.getMergeRanges()).toContainEqual({
+        startCol: 1,
+        startRow: 1,
+        endCol: 2,
+        endRow: 2,
+      })
+    } finally {
+      grid.release()
+    }
+  })
+
+  it('插件槽位与 painter 槽位经协议面可用；release 走协议生命周期（destroy 幂等）', async () => {
+    const { grid, table } = createGrid()
+    const mounted: EngineAssembly[] = []
+    const plugin: TablePlugin = {
+      name: 'assembly-probe',
+      mount(engine) {
+        mounted.push(engine)
+        engine.setOverlayPainter(() => {})
+      },
+      unmount(engine) {
+        mounted.push(engine)
+      },
+    }
+    table.use(plugin)
+    await flushMicrotasks()
+    expect(mounted[0]).toBe(table)
+    // release 即协议 destroy：逆序卸载插件
+    grid.release()
+    expect(mounted).toEqual([table, table])
+    // destroy 幂等（协议生命周期契约）
+    expect(() => table.destroy()).not.toThrow()
   })
 })

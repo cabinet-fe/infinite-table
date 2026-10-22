@@ -1,4 +1,4 @@
-import type { ListTable } from '@infinitable/table'
+import type { TableEngine } from '@infinitable/table'
 
 import type { Sheet } from '../core/sheet'
 import type { StyleId } from '../core/style/types'
@@ -137,7 +137,7 @@ export class GridRowHeightEngine {
    * 行内无 wrap 格则跳过（保留手动/默认行高）。只升不降：
    * 已有自定义行高（导入 / 拖拽）不低于估算时保留，避免压矮。
    */
-  syncWrapRowHeight(row: number, table: ListTable): void {
+  syncWrapRowHeight(row: number, table: TableEngine): void {
     const scanned = this.scanWrapRowHeight(row, (col) => table.getColWidth(col))
     if (!scanned?.hasWrap) return
     const estimated = Math.max(SHEET_DEFAULT_ROW_HEIGHT, scanned.maxHeight)

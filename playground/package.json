@@ -9,10 +9,11 @@
     "preview": "vp preview"
   },
   "dependencies": {
-    "@infinitable/core": "workspace:*",
+    "@infinitable/grid": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@infinitable/sheet": "workspace:*",
+    "@infinitable/table": "workspace:*",
     "@visactor/vtable": "^1.26.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

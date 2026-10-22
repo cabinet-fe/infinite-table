@@ -8,7 +8,8 @@
 // demo.print 记录最近配置并累计调起次数；window.__DEMO__.print 暴露
 // getPrintCount/getLastPrintConfig 供冒烟判定。
 
-import type { CellStyle, ListTableOptions } from '@infinitable/core'
+import type { CellStyle } from '@infinitable/grid'
+import type { ListTableOptions } from '@infinitable/table'
 import {
   createPrintPlugin,
   type PrintConfig,

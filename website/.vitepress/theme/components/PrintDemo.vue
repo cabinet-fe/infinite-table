@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { CellStyle } from '@infinitable/core'
+import type { CellStyle } from '@infinitable/grid'
 import { createPrintPlugin, type PrintSource } from '@infinitable/plugins'
 import { useDemoTable } from '../demo/use-demo-table'
 

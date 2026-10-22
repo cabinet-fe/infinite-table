@@ -16,7 +16,7 @@ export type {
   ChartType,
 } from './chart/types'
 
-// ---- watermark 插件（文字平铺水印：table 顶层 overlay 预留位绘制，锚定视口不随滚动） ----
+// ---- watermark 插件（文字平铺水印：经引擎装配协议 overlay 槽位绘制，锚定视口不随滚动） ----
 export { createWatermarkPlugin } from './watermark/watermark-plugin'
 export type { WatermarkHandle } from './watermark/watermark-plugin'
 // 水印插件参数配置（与打印水印共享同一模型，经本入口一并转出）
@@ -27,6 +27,10 @@ export type { WatermarkTextConfig } from './print/types'
 // 保留在包内深路径，实现细节类型（页结构/钩子/预览句柄等）不转出
 export { createPrintPlugin } from './print/print-plugin'
 export type { PrintPluginHandle, PrintPluginOptions } from './print/print-plugin'
+// 引擎供数适配（装配协议导出读取面 → PrintSource，G12-G15）：宿主打印引擎实例的
+// 便捷入口，与 createPrintPlugin 的挂载引擎供数共用同一适配
+export { createEnginePrintSource } from './print/engine-source'
+export type { EnginePrintSourceOptions } from './print/engine-source'
 export type {
   PrintConfig,
   PrintHeaderFooterConfig,

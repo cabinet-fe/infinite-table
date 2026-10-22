@@ -1,9 +1,9 @@
-// 依赖扫描：packages/core、packages/grid 与 packages/table 禁止 import 任何 @visactor/*
+// 依赖扫描：packages/grid 与 packages/table（自 core 拆出的引擎内核）禁止 import 任何 @visactor/*
 // （DEV-STANDARDS「明确禁止」），同时校验各包的 package.json 依赖声明，双向保证对旧引擎零依赖。
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const SCAN_DIRS = ['core', 'grid', 'table'].map((name) => ({
+const SCAN_DIRS = ['grid', 'table'].map((name) => ({
   name,
   dir: new URL(`../packages/${name}`, import.meta.url).pathname,
 }))
@@ -48,4 +48,4 @@ if (offenders.length > 0) {
   process.exit(1)
 }
 
-console.log('check:deps 通过：packages/core、packages/grid 与 packages/table 对 @visactor/* 零依赖')
+console.log('check:deps 通过：packages/grid 与 packages/table 对 @visactor/* 零依赖')

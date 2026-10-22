@@ -42,7 +42,7 @@ infinitable/
 
 ### table — `packages/table/src`
 
-- ListTable 领域代码原样搬运：主体与装配 `list-table*.ts`；溢出 `cell-node.ts`、`cell-renderer.ts`（设计依据 `docs/overflow-rendering-research.md`）；交互 `list-table-interaction.ts`、`keyboard-navigation.ts`、`resize.ts`、填充柄 `fill-handle.ts`、sky 浮层 `interaction-overlay.ts`；编辑 `editing/`、`editor-registry.ts`、`sheet-model.ts`、`model-binding.ts`；图片/图表 `list-table-media.ts`、`media/`；引擎装配协议实现与插件注册路径 `plugin.ts`（插件可写引擎预留位 chartMediaResolver、underlay/overlay painter 在 `list-table.ts`）；文件清单以盘上为准
+- ListTable 领域代码原样搬运：主体与装配 `list-table*.ts`；溢出 `cell-node.ts`、`cell-renderer.ts`（设计依据 `docs/overflow-rendering-research.md`）；交互 `list-table-interaction.ts`、`keyboard-navigation.ts`、`resize.ts`、填充柄 `fill-handle.ts`、sky 浮层 `interaction-overlay.ts`；编辑 `editing/`、`editor-registry.ts`、`sheet-model.ts`、`model-binding.ts`；图片/图表 `list-table-media.ts`、`media/`；引擎装配协议 `engine.ts`（中立本体 EngineAssembly：数据面/渲染宿主/主题/painter 槽位/插件槽位/生命周期 + 可选导出读取面；表格引擎协议面 TableEngine）与插件注册路径 `plugin.ts`（插件可写引擎预留位 chartMediaResolver、underlay/overlay painter 在 `list-table.ts`）；文件清单以盘上为准
 
 ### render — `packages/render/src`
 

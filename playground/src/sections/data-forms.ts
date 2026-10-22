@@ -1,7 +1,7 @@
 // 数据供给三形态演示：records/columns 数组、按格 hook、模型事件订阅（含表格回驱防回环）。
 // 模型区的改写按钮与取值状态行由 React 页面（DataFormsPage）驱动本模块返回的句柄，不在 section 内建 DOM。
 
-import type { CellChangeEvent, TableModel } from '@infinitable/core'
+import type { CellChangeEvent, TableModel } from '@infinitable/table'
 
 import { mountTable, type DemoMount } from '../mount'
 

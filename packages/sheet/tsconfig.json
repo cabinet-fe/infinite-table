@@ -11,10 +11,13 @@
   "include": ["src"],
   "references": [
     {
-      "path": "../core"
+      "path": "../formulas"
     },
     {
-      "path": "../formulas"
+      "path": "../grid"
+    },
+    {
+      "path": "../table"
     }
   ]
 }

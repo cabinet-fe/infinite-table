@@ -3,7 +3,7 @@
 // docs/plugin-interface-map.md 红线面；布局 / 交互 / 滚动等内部原语经包内深路径消费，不占公共面。
 // 自 core 拆出（领域代码原样搬运），原 core 公共面符号集合不变：
 // 通用网格机器（滚动/几何/选区/共享边/主题投影/浮动层/合并区）经 @infinitable/grid 转出，
-// 渲染窄接口词汇（RenderContext/Size）经 @infinitable/render 转出；@infinitable/core 薄壳全量转售本入口。
+// 渲染窄接口词汇（RenderContext/Size）经 @infinitable/render 转出。
 export { ListTable } from './list-table'
 export { SheetModel } from './sheet-model'
 export { normalizeCellRange } from '@infinitable/grid'
@@ -21,6 +21,10 @@ export { extendsTheme } from '@infinitable/grid'
 export type { TableTheme, ThemeOverride } from '@infinitable/grid'
 export { EditorRegistry } from './editor-registry'
 export type { TablePlugin } from './plugin'
+// 引擎装配协议（P7）：中立本体（EngineAssembly，四类平级引擎的公共装配路径）+
+// 导出读取面（EngineReadView）+ 表格引擎协议面（TableEngine，领域公共操作增量，
+// SheetGrid 等适配层消费）；ListTable 为协议的 table 引擎实现
+export type { EngineAssembly, EngineReadView, TableEngine } from './engine'
 export { normalizeRange } from '@infinitable/grid'
 export type { RangeBounds, SelectionSnapshot } from '@infinitable/grid'
 export type { HighlightRange } from './interaction-overlay'
