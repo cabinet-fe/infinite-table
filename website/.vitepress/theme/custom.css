@@ -1,0 +1,261 @@
+:root {
+  --vp-c-brand-1: #2563eb;
+  --vp-c-brand-2: #3b82f6;
+  --vp-c-brand-3: #60a5fa;
+  --vp-c-brand-soft: rgba(59, 130, 246, 0.14);
+}
+
+.dark {
+  --vp-c-brand-1: #60a5fa;
+  --vp-c-brand-2: #3b82f6;
+  --vp-c-brand-3: #2563eb;
+  --vp-c-brand-soft: rgba(96, 165, 250, 0.16);
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+.vp-doc th,
+.vp-doc td {
+  white-space: normal;
+}
+
+.vp-doc h2 {
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 24px;
+}
+
+.VPHero .name,
+.VPHero .text {
+  letter-spacing: -0.02em;
+}
+
+.VPHero .text {
+  font-size: clamp(30px, 4vw, 44px);
+  line-height: 1.2;
+}
+
+@media (max-width: 640px) {
+  .VPHero .text {
+    font-size: 30px;
+  }
+}
+
+/* ---- 文档内交互演示（examples / guide 中的 Vue 组件） ---- */
+
+.demo-block {
+  margin: 24px 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--vp-c-bg);
+}
+
+.demo-block-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+}
+
+.demo-block-tabs button {
+  padding: 4px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color 0.2s,
+    background 0.2s,
+    border-color 0.2s;
+}
+
+.demo-block-tabs button:hover {
+  color: var(--vp-c-brand-1);
+}
+
+.demo-block-tabs button.active {
+  border-color: var(--vp-c-divider);
+  background: var(--vp-c-bg);
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.demo-block .demo-frame {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.demo-block-source > div[class*='language-'] {
+  margin: 0;
+  border-radius: 0;
+}
+
+.demo-frame {
+  margin: 24px 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--vp-c-bg);
+}
+
+.demo-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+}
+
+.demo-toolbar strong {
+  color: var(--vp-c-text-1);
+}
+
+.demo-toolbar button,
+.formula-samples button {
+  padding: 4px 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+
+.demo-toolbar button:hover,
+.formula-samples button:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.demo-toolbar button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.demo-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo-toolbar input,
+.formula-input input {
+  width: 90px;
+  padding: 4px 8px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+  font-size: 12px;
+}
+
+.demo-meta {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  font-size: 12px;
+  color: var(--vp-c-text-2);
+}
+
+.demo-hint {
+  opacity: 0.8;
+}
+
+.demo-canvas {
+  position: relative;
+  width: 100%;
+}
+
+/* ---- 公式试算 ---- */
+
+.formula-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  gap: 16px;
+  padding: 16px;
+}
+
+.formula-cells {
+  display: grid;
+  grid-template-columns: 32px repeat(3, 1fr);
+  border-top: 1px solid var(--vp-c-divider);
+  border-left: 1px solid var(--vp-c-divider);
+  font-size: 13px;
+}
+
+.formula-corner,
+.formula-head,
+.formula-cell {
+  padding: 6px 8px;
+  border-right: 1px solid var(--vp-c-divider);
+  border-bottom: 1px solid var(--vp-c-divider);
+  text-align: center;
+}
+
+.formula-head {
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-weight: 600;
+}
+
+.formula-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.formula-input {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.formula-input label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+}
+
+.formula-input input {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: var(--vp-font-family-mono);
+}
+
+.formula-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.formula-result strong {
+  font-family: var(--vp-font-family-mono);
+  font-size: 20px;
+  color: var(--vp-c-brand-1);
+}
+
+.formula-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .formula-grid {
+    grid-template-columns: 1fr;
+  }
+}

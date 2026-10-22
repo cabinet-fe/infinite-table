@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+website/.vitepress/cache/
 .DS_Store
 *.tsbuildinfo
 .agents/cooking/

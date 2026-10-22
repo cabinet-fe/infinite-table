@@ -2,11 +2,21 @@
 
 高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **27KB**。
 
+## 文档
+
+面向开发者的文档站位于 `website/`（VitePress），包含入门、架构、渲染管线、数据模型、交互编辑、主题、性能、插件、公式、sheet、完整 API 参考与可交互示例。
+
+```bash
+bun run docs:dev      # 本地开发（热更新）
+bun run docs:build    # 构建静态站点
+bun run docs:preview  # 预览构建产物
+```
+
 ## 核心特性
 
 - **虚拟窗口 O(1)**：构造与首次渲染只处理可视区，数据量 ×10 指标几乎不变（100 万行 TTFF 16.7ms）。
 - **多层 canvas + 区域失效**：ground/body/media/sky 四层画布，滚动收敛为单条 band 失效，无全量重绘路径；拖滚动条大幅跳转不退化。
-- **模型直挂**：`SheetStore.asModel()` 按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法；`batchUpdate` 大块写收敛单次失效。
+- **模型直挂**：`SheetModel` 或自定义 `TableModel` 按格 O(1) 读写，免「批量写全量 setRecords 重放」绕法；`batchUpdate` 大块写收敛单次失效。
 - **Excel 式交互**：选区/填充/hover/行列 resize（Excel 口径光标）/键盘导航/触控惯性滚动/编辑器注册表/冻结/合并单元格。
 - **图表格位图路由**：Chart.js 离屏出图经 cell 级 MediaCache LRU blit 上屏，滚动滚回命中直贴无闪。
 - **插件体系**：图表、打印、水印等以插件挂载；电子表格核心（sheet 模型/命令/IO/SheetGrid 适配）独立为 sheet 包，经 `infinitable/sheet` 子路径导出。

@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "playground"
+    "playground",
+    "website"
   ],
   "type": "module",
   "scripts": {
@@ -16,6 +17,9 @@
     "fmt:check": "vp fmt --check .",
     "check:deps": "bun scripts/check-core-deps.ts",
     "check:exports": "node scripts/check-package-exports.mjs",
+    "docs:dev": "bun run --filter @infinitable/website dev",
+    "docs:build": "bun run --filter @infinitable/website build",
+    "docs:preview": "bun run --filter @infinitable/website preview",
     "changeset": "changeset",
     "release": "bun run scripts/release.ts"
   },

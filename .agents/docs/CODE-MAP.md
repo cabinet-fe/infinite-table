@@ -13,7 +13,8 @@ infinitable/
 │   ├── plugins/         # 官方插件（TablePlugin 契约 + chart/print/watermark 插件）
 │   ├── sheet/           # 电子表格核心（sheet 模型/命令/IO/SheetGrid 适配，自 plugins sheet 插件族迁入）
 │   └── infinitable/     # 统一发布包（npm 单包 infinitable，主入口 re-export 四层，`./sheet` 子路径）
-└── playground/          # 唯一应用：示例总览 + 页内 vs VTable 对比 + 量化基准 + 冒烟自检
+├── playground/          # 唯一应用：示例总览 + 页内 vs VTable 对比 + 量化基准 + 冒烟自检
+└── website/             # VitePress 开发者文档站：指南 + API 参考 + 可交互示例（mermaid 图）
 ```
 
 ## 模块
@@ -27,6 +28,7 @@ infinitable/
 | sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 core 与 formulas | `src/index.ts` |
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口 re-export 四层 + `./sheet` 子路径，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版统一走发版技能 `.agents/skills/release`（changesets + CI） | `src/index.ts` |
 | playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ComparePage.tsx`、`src/bench/headless.test.ts` |
+| website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
 
 ## 模块内检索
 

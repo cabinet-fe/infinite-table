@@ -1,0 +1,25 @@
+{
+  "name": "@infinitable/website",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "dependencies": {
+    "@cat-kit/core": "^1.2.1",
+    "@infinitable/core": "workspace:*",
+    "@infinitable/formulas": "workspace:*",
+    "@infinitable/plugins": "workspace:*",
+    "@infinitable/render": "workspace:*",
+    "@infinitable/sheet": "workspace:*",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "mermaid": "^11.0.0",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
+  }
+}
