@@ -9,7 +9,7 @@ import { ListTable } from '../src/list-table'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'
-import { defaultTheme, extendsTheme } from '../src/theme'
+import { defaultTheme, extendsTheme } from '@infinitable/grid/src/theme'
 
 /** 最小记录型 2D 上下文：记录 fillRect 序列与阴影字段赋值（外框/底色节点绘制断言用） */
 class PaintRecordingContext implements RenderContext {

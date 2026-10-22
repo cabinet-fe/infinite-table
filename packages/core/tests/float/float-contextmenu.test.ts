@@ -6,7 +6,7 @@ import type { SceneEvent, SceneEventType } from '@infinitable/render'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import type { FloatContextMenuEvent } from '../../src/float/float-object-layer'
+import type { FloatContextMenuEvent } from '@infinitable/grid/src/float/float-object-layer'
 import { ListTable } from '../../src/list-table'
 import type { ListTableOptions, TableContextMenuEvent } from '../../src/types'
 import { StubHost } from '../testing/stub-host'

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '../src/list-table'
 import { ImageCellNode } from '../src/media/image-cell-node'
-import type { LoadedImage } from '../src/media/image-service'
+import type { LoadedImage } from '@infinitable/grid/src/media/image-service'
 import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'

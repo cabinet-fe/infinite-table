@@ -1,9 +1,12 @@
-// 依赖扫描：packages/core 禁止 import 任何 @visactor/*（DEV-STANDARDS「明确禁止」），
-// 同时校验 core 的 package.json 依赖声明，双向保证对旧引擎零依赖。
+// 依赖扫描：packages/core 与 packages/grid 禁止 import 任何 @visactor/*（DEV-STANDARDS「明确禁止」），
+// 同时校验两包的 package.json 依赖声明，双向保证对旧引擎零依赖。
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const CORE_DIR = new URL('../packages/core', import.meta.url).pathname
+const SCAN_DIRS = ['core', 'grid'].map((name) => ({
+  name,
+  dir: new URL(`../packages/${name}`, import.meta.url).pathname,
+}))
 const FORBIDDEN_IMPORT = /(?:from|import)\s*\(?\s*['"](@visactor\/[^'"]+)['"]/g
 
 async function collectTsFiles(dir: string): Promise<string[]> {
@@ -22,25 +25,27 @@ async function collectTsFiles(dir: string): Promise<string[]> {
 
 const offenders: string[] = []
 
-for (const file of await collectTsFiles(join(CORE_DIR, 'src'))) {
-  const source = await readFile(file, 'utf8')
-  for (const match of source.matchAll(FORBIDDEN_IMPORT)) {
-    offenders.push(`${file}: import ${match[1]}`)
+for (const { name, dir } of SCAN_DIRS) {
+  for (const file of await collectTsFiles(join(dir, 'src'))) {
+    const source = await readFile(file, 'utf8')
+    for (const match of source.matchAll(FORBIDDEN_IMPORT)) {
+      offenders.push(`${file}: import ${match[1]}`)
+    }
   }
-}
 
-const pkg = JSON.parse(await readFile(join(CORE_DIR, 'package.json'), 'utf8'))
-for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
-  for (const name of Object.keys(pkg[field] ?? {})) {
-    if (name.startsWith('@visactor/')) {
-      offenders.push(`packages/core/package.json: ${field} 声明了 ${name}`)
+  const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))
+  for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+    for (const depName of Object.keys(pkg[field] ?? {})) {
+      if (depName.startsWith('@visactor/')) {
+        offenders.push(`packages/${name}/package.json: ${field} 声明了 ${depName}`)
+      }
     }
   }
 }
 
 if (offenders.length > 0) {
-  console.error(`packages/core 存在 @visactor/* 依赖：\n${offenders.join('\n')}`)
+  console.error(`扫描范围存在 @visactor/* 依赖：\n${offenders.join('\n')}`)
   process.exit(1)
 }
 
-console.log('check:deps 通过：packages/core 对 @visactor/* 零依赖')
+console.log('check:deps 通过：packages/core 与 packages/grid 对 @visactor/* 零依赖')

@@ -11,6 +11,9 @@
   "include": ["src", "tests"],
   "references": [
     {
+      "path": "../grid"
+    },
+    {
       "path": "../render"
     }
   ]

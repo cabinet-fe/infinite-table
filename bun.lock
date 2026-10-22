@@ -17,6 +17,7 @@
       "name": "@infinitable/core",
       "version": "0.0.0",
       "dependencies": {
+        "@infinitable/grid": "workspace:*",
         "@infinitable/render": "workspace:*",
       },
     },
@@ -25,6 +26,14 @@
       "version": "0.0.0",
       "peerDependencies": {
         "@cat-kit/core": "^1.2.1",
+      },
+    },
+    "packages/grid": {
+      "name": "@infinitable/grid",
+      "version": "0.0.0",
+      "dependencies": {
+        "@cat-kit/core": "^1.2.1",
+        "@infinitable/render": "workspace:*",
       },
     },
     "packages/infinitable": {
@@ -335,6 +344,8 @@
     "@infinitable/core": ["@infinitable/core@workspace:packages/core"],
 
     "@infinitable/formulas": ["@infinitable/formulas@workspace:packages/formulas"],
+
+    "@infinitable/grid": ["@infinitable/grid@workspace:packages/grid"],
 
     "@infinitable/playground": ["@infinitable/playground@workspace:playground"],
 

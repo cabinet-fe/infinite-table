@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '../src/list-table'
-import { opaqueHeaderHighlight } from '../src/theme'
+import { opaqueHeaderHighlight } from '@infinitable/grid/src/theme'
 import type { ListTableOptions } from '../src/types'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'

@@ -8,7 +8,7 @@
 import type { Region } from '@infinitable/render'
 
 import type { EditorRegistry } from '../editor-registry'
-import type { ScrollState } from '../scroll-manager'
+import type { ScrollState } from '@infinitable/grid/src/scroll-manager'
 import type { CellChangeEvent, CellRef, ColumnDefine, EditEndEvent, EditStartEvent } from '../types'
 import {
   createTextEditor,

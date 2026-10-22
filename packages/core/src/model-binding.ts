@@ -2,7 +2,7 @@
 // 表格回驱（writeBack）期间模型同步 echo 回来的事件不再丢弃：按格坐标收集去重，
 // 随返回值交调用方在窗口结束后统一刷新——防回环的同时不丢同步重算的派生格通知。
 
-import { cellKey } from './cell-range'
+import { cellKey } from '@infinitable/grid/src/cell-range'
 import type { CellChangeEvent, TableModel } from './types'
 
 export class ModelBinding {

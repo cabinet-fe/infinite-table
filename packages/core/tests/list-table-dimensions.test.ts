@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { cellKey } from '../src/cell-range'
+import { cellKey } from '@infinitable/grid/src/cell-range'
 import { ListTable } from '../src/list-table'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions, TableModel } from '../src/types'
