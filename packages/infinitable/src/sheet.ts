@@ -168,7 +168,7 @@ export {
   type SheetGridHighlight,
   type SheetGridOptions,
   type SelectionInterceptMeta,
-  // SheetGridOptions.scrollbar 对象形态（core 同形再导出；mode: 'native' 原生滚动条档）
+  // SheetGridOptions.scrollbar 对象形态（grid 同形再导出；mode: 'native' 原生滚动条档）
   type ScrollbarOptions,
   type ResolveCellStyleHook,
   type ResolveDisplayValue,

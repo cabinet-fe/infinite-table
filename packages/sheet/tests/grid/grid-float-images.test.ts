@@ -4,7 +4,7 @@
 
 import './setup'
 
-import type { ImageLinkClickEvent } from '@infinitable/core'
+import type { ImageLinkClickEvent } from '@infinitable/table'
 import { describe, expect, it } from 'vitest'
 
 import { cellX, cellY, createGrid, fire, flushMicrotasks } from './grid-test-utils'

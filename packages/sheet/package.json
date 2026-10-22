@@ -14,8 +14,9 @@
     "build": "vp build"
   },
   "dependencies": {
-    "@infinitable/core": "workspace:*",
     "@infinitable/formulas": "workspace:*",
+    "@infinitable/grid": "workspace:*",
+    "@infinitable/table": "workspace:*",
     "hucre": "^1.2.0"
   },
   "devDependencies": {

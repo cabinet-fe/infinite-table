@@ -1,4 +1,5 @@
-import type { CellRef, ListTable, TableContextMenuEvent } from '@infinitable/core'
+import type { CellRef } from '@infinitable/grid'
+import type { ListTable, TableContextMenuEvent } from '@infinitable/table'
 
 import type { CellAddress } from '../core/address'
 

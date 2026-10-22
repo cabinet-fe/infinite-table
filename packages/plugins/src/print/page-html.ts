@@ -5,7 +5,7 @@
 // 水印形态参照 meta export/print.ts 先例：单个平铺单元渲染为 SVG data-URL、
 // 页内绝对定位层背景 repeat。纯函数零 DOM（分层见 types.ts 文件头）。
 
-import type { CellStyle } from '@infinitable/core'
+import type { CellStyle } from '@infinitable/grid'
 
 import { escapeAttr, escapeHtml } from './escape'
 import { renderHeaderFooter, type PlaceholderContext } from './header-footer'
@@ -144,7 +144,7 @@ function buildPageMergeIndex(
   return { spans, covered }
 }
 
-/** 有效格样式 → td 内联 CSS 声明串（字段口径对齐 core CellStyle，未给字段走文档级缺省） */
+/** 有效格样式 → td 内联 CSS 声明串（字段口径对齐 grid CellStyle，未给字段走文档级缺省） */
 function cellStyleToCss(style: CellStyle): string {
   const decls: string[] = []
   if (style.background) {

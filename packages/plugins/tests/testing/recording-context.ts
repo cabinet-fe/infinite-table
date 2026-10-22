@@ -1,7 +1,7 @@
-// 测试共享的记录型 2D 上下文（node 环境无 canvas）：实现 core 转出的 RenderContext
+// 测试共享的记录型 2D 上下文（node 环境无 canvas）：实现 table 转出的 RenderContext
 // 窄接口，按序记录水印绘制触达的调用，供平铺几何与插件行为断言。
 
-import type { RenderContext } from '@infinitable/core'
+import type { RenderContext } from '@infinitable/table'
 
 export interface RecordedTranslate {
   x: number
@@ -77,7 +77,7 @@ export class RecordingContext implements RenderContext {
 
   drawImage(): void {}
 
-  /** 测量约定「每字符 10px」（与 core StubHost 同口径）；记录调用时 font 供断言 */
+  /** 测量约定「每字符 10px」（与 table StubHost 同口径）；记录调用时 font 供断言 */
   measureText(text: string): {
     width: number
     actualBoundingBoxAscent: number

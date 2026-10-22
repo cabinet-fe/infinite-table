@@ -42,7 +42,7 @@ function parseNamedExports(source: string): NamedExports {
   return { values: values.sort(), types: types.sort() }
 }
 
-// ---- 显式快照：主入口（render + core + formulas + plugins 四层显式转售 + CellRef 消歧）----
+// ---- 显式快照：主入口（render + grid + table + formulas + plugins 五层显式转售 + CellRef 消歧）----
 
 const MAIN_ENTRY_VALUES = [
   'DependencyGraph',
@@ -104,7 +104,7 @@ const MAIN_ENTRY_TYPES = [
   'SceneNodeInit',
   'SceneEventType',
   'Size',
-  // core 层
+  // grid + table 层（原 core 公共面拆分：网格内核与表格主体词汇按定义包直引；清单字母序混排）
   'CellBorder',
   'CellBorderEdge',
   'CellChangeEvent',

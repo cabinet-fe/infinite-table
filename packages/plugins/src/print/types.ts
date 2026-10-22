@@ -2,9 +2,9 @@
 // 分层：本目录 P1 = headless 内核（types / paper / paginate，纯函数零 DOM，meta 可在测试
 // 环境直接消费）；P2 = 页面 HTML 构建（页眉页脚占位符求值 + 表格页 + 水印平铺 + iframe
 // 打印输出）；P3 = DOM 薄壳预览（openPrintPreview）。P1/P2 均不依赖引擎内部 API，
-// 只依赖 @infinitable/core 公共类型。
+// 只依赖 @infinitable/grid 公共类型。
 
-import type { CellRange, CellStyle } from '@infinitable/core'
+import type { CellRange, CellStyle } from '@infinitable/grid'
 
 // ---- 打印数据源（数据面抽象） ----
 

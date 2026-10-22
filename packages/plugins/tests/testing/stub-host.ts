@@ -1,4 +1,4 @@
-// 测试专用注入式假渲染宿主（对齐 core 包内 StubHost 形态）：插件包单测构造 ListTable 用。
+// 测试专用注入式假渲染宿主（对齐 table 包内 StubHost 形态）：插件包单测构造 ListTable 用。
 // 仅测试基础设施 import @infinitable/render（devDependency）。
 
 import { SceneNode } from '@infinitable/render'

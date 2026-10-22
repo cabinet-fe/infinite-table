@@ -1,4 +1,4 @@
-import type { ListTable } from '@infinitable/core'
+import type { ListTable } from '@infinitable/table'
 
 /**
  * 列头机制（引擎无表头渲染 hook 的补偿层）：

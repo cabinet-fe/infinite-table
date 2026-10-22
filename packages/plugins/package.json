@@ -14,7 +14,8 @@
     "build": "vp build && node scripts/assert-chart-chunk.mjs"
   },
   "dependencies": {
-    "@infinitable/core": "workspace:*",
+    "@infinitable/grid": "workspace:*",
+    "@infinitable/table": "workspace:*",
     "chart.js": "^4.5.1"
   },
   "devDependencies": {

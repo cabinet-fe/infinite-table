@@ -9,7 +9,7 @@ describe('plugins 公共入口', () => {
       name: 'entry-smoke',
       mount: (table) => {
         // 参数类型为 ListTable（契约类型断言在编译层完成）；完整挂载链路由
-        // core 自身测试与 S3 插件测试覆盖，此处不构造真实表格（node 环境无 canvas）
+        // table 自身测试与 S3 插件测试覆盖，此处不构造真实表格（node 环境无 canvas）
         void table
         mounted.push('mounted')
       },

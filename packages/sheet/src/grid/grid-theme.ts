@@ -1,4 +1,4 @@
-import type { ThemeOverride } from '@infinitable/core'
+import type { ThemeOverride } from '@infinitable/grid'
 
 /** 缺省行高 / 列宽真相在 core（xlsx 导出与视图层共用）；此处 re-export 保持 grid 引用路径 */
 export { SHEET_DEFAULT_COL_WIDTH, SHEET_DEFAULT_ROW_HEIGHT } from '../core/defaults'

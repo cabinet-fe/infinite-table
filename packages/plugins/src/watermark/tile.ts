@@ -1,12 +1,12 @@
 // 文字平铺水印的几何与绘制（univer watermark util 移植）：双层 for 平铺，
 // 步长 = 内容尺寸 + gap，逐单元 translate（单元中心）+ rotate + fillText。
-// 整层透明度经「颜色 × opacity 预混 rgba」实现——core 转出的 RenderContext
+// 整层透明度经「颜色 × opacity 预混 rgba」实现——table 转出的 RenderContext
 // 窄接口无 globalAlpha，预混等效且零引擎改动；rotate 为可选成员，缺失的最小桩
 // 上下文按未旋转绘制（与浮动对象旋转渲染同容错约定）。
 // 配置消费 P1 打印水印共享的 WatermarkTextConfig：屏幕端（顶层 overlay）与打印端
 // 同一配置模型；本模块纯函数部分（平铺原点/颜色预混）可脱离 canvas 单测。
 
-import type { RenderContext } from '@infinitable/core'
+import type { RenderContext } from '@infinitable/table'
 
 import { WATERMARK_TEXT_DEFAULTS, type WatermarkTextConfig } from '../print/types'
 
@@ -23,7 +23,7 @@ interface ResolvedWatermarkStyle {
 /** 水印文本基线相对单元中线的近似偏移系数（alphabetic 基线下视觉居中，约 0.3em） */
 const BASELINE_CENTER_RATIO = 0.3
 
-/** 缺省字体族（与 core 主题字体无耦合，水印自带独立观感） */
+/** 缺省字体族（与 table 主题字体无耦合，水印自带独立观感） */
 const WATERMARK_FONT_FAMILY = 'sans-serif'
 
 /** 解析水印样式：未给字段回落 WATERMARK_TEXT_DEFAULTS（与 meta 端缺省同口径） */
@@ -105,7 +105,7 @@ export function watermarkFont(fontSize: number): string {
 
 /**
  * 文字平铺水印绘制入口：测量前先设 font——真实 2D 上下文按「当前 font」计量文本宽
- * （core cell-node.ts measureTextWidth 同款先例），否则步长按画布缺省 10px 字宽计算
+ * （table cell-node.ts measureTextWidth 同款先例），否则步长按画布缺省 10px 字宽计算
  * 而绘制按配置字号，大字号时平铺重叠。整层统一 font 与预混 alpha 的 fillStyle，
  * 文本宽经 ctx.measureText 测量一次，随后按平铺原点逐单元 translate（单元中心）→
  * rotate → fillText（绕中心旋转，负角度逆时针）。步长 = 测量宽 + gapX / 字号 + gapY。

@@ -38,11 +38,12 @@
     "build": "vp build && node scripts/build-types.mjs"
   },
   "devDependencies": {
-    "@infinitable/core": "workspace:*",
     "@infinitable/formulas": "workspace:*",
+    "@infinitable/grid": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
-    "@infinitable/sheet": "workspace:*"
+    "@infinitable/sheet": "workspace:*",
+    "@infinitable/table": "workspace:*"
   },
   "peerDependencies": {
     "@cat-kit/core": "^1.2.1"

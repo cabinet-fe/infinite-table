@@ -7,7 +7,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 const PACKAGES = [
   { name: '@infinitable/render', dir: 'packages/render', bundle: 'dist/render.js' },
-  { name: '@infinitable/core', dir: 'packages/core', bundle: 'dist/core.js' },
+  { name: '@infinitable/grid', dir: 'packages/grid', bundle: 'dist/grid.js' },
+  { name: '@infinitable/table', dir: 'packages/table', bundle: 'dist/table.js' },
   { name: '@infinitable/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
   { name: '@infinitable/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
   { name: '@infinitable/sheet', dir: 'packages/sheet', bundle: 'dist/sheet.js' },
@@ -32,13 +33,13 @@ for (const pkg of PACKAGES) {
 }
 if (failed) process.exit(1)
 
-// 2) 外部消费者姿态导入 dist 产物（无 dev 条件；core/render 间依赖经各自
+// 2) 外部消费者姿态导入 dist 产物（无 dev 条件；grid/table/render 间依赖经各自
 //    node_modules 的 workspace 链接按 exports import 条件解析，与 npm 消费一致）
 console.log('[check-exports] dist 消费冒烟（bun 无头）')
 const { createRenderHost } = await import(
   new URL('../packages/render/dist/render.js', import.meta.url)
 )
-const { ListTable } = await import(new URL('../packages/core/dist/core.js', import.meta.url))
+const { ListTable } = await import(new URL('../packages/table/dist/table.js', import.meta.url))
 
 /** 无头假画布：2d 上下文返回 null（引擎各消费点均需容忍），尺寸记录 */
 function createNoopCanvas() {
@@ -103,7 +104,7 @@ if (typeof formulasModule.evaluate !== 'function') {
   else if (formulasModule.listFormulaFunctions().length < 47) fail('formulas 内置函数缺失')
   else ok('formulas dist 求值正常（0.1+0.2=0.3）')
 }
-// 5) 统一发布包 dist 可导入（四层 re-export 单包 + ./sheet 子路径）且 JS/类型产物
+// 5) 统一发布包 dist 可导入（五层 re-export 单包 + ./sheet 子路径）且 JS/类型产物
 //    均无 @infinitable 裸依赖残留（口径：真实模块说明符，JSDoc 注释提及不算）
 console.log('[check-exports] 统一发布包 dist 冒烟')
 const unifiedModule = await import(
@@ -125,9 +126,9 @@ const leakedTypes = readdirSync(typesDir, { recursive: true })
   .filter((entry) => String(entry).endsWith('.d.ts'))
   .filter((entry) => BARE_SPECIFIER.test(readFileSync(new URL(`${entry}`, typesDir), 'utf8')))
 if (leakedTypes.length) fail(`infinitable 类型残留裸导入：${leakedTypes.join('、')}`)
-if (!failed) ok('infinitable dist 四层 re-export 齐备且自包含（JS + 类型）')
+if (!failed) ok('infinitable dist 五层 re-export 齐备且自包含（JS + 类型）')
 
-// 6) ./sheet 子路径：dist/sheet.js 无头建簿设值求值（捆绑的 core/formulas 一并过电）
+// 6) ./sheet 子路径：dist/sheet.js 无头建簿设值求值（捆绑的 table/grid/formulas 一并过电）
 const sheetDts = new URL('../packages/infinitable/dist/types/sheet.d.ts', import.meta.url)
 if (!existsSync(sheetDts)) fail('infinitable 缺 ./sheet 子路径类型垫片 dist/types/sheet.d.ts')
 const sheetModule = await import(new URL('../packages/infinitable/dist/sheet.js', import.meta.url))

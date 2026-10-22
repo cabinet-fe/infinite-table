@@ -40,11 +40,12 @@
       "name": "infinitable",
       "version": "0.3.4",
       "devDependencies": {
-        "@infinitable/core": "workspace:*",
         "@infinitable/formulas": "workspace:*",
+        "@infinitable/grid": "workspace:*",
         "@infinitable/plugins": "workspace:*",
         "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",
+        "@infinitable/table": "workspace:*",
       },
       "peerDependencies": {
         "@cat-kit/core": "^1.2.1",
@@ -54,7 +55,8 @@
       "name": "@infinitable/plugins",
       "version": "0.0.0",
       "dependencies": {
-        "@infinitable/core": "workspace:*",
+        "@infinitable/grid": "workspace:*",
+        "@infinitable/table": "workspace:*",
         "chart.js": "^4.5.1",
       },
       "devDependencies": {
@@ -69,8 +71,9 @@
       "name": "@infinitable/sheet",
       "version": "0.0.0",
       "dependencies": {
-        "@infinitable/core": "workspace:*",
         "@infinitable/formulas": "workspace:*",
+        "@infinitable/grid": "workspace:*",
+        "@infinitable/table": "workspace:*",
         "hucre": "^1.2.0",
       },
       "devDependencies": {

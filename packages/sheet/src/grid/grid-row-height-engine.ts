@@ -1,4 +1,4 @@
-import type { ListTable } from '@infinitable/core'
+import type { ListTable } from '@infinitable/table'
 
 import type { Sheet } from '../core/sheet'
 import type { StyleId } from '../core/style/types'

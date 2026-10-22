@@ -1,7 +1,7 @@
 // 插件包公共入口：官方插件（chart/print/watermark，见 docs/plugin-interface-map.md）。
-// 只做具名导出：插件契约类型自 core 转出，后续插件能力经此入口对外提供（禁止 export *）。
+// 只做具名导出：插件契约类型自 table 转出，后续插件能力经此入口对外提供（禁止 export *）。
 // 电子表格能力已整体迁入 @infinitable/sheet，不再由插件包承载。
-export type { TablePlugin } from '@infinitable/core'
+export type { TablePlugin } from '@infinitable/table'
 
 // ---- chart 插件（单元格图表：声明解析 + Chart.js 按需加载 + 离屏出图，落 L2 media 位图管线） ----
 // 只导出插件工厂与参数类型；chart-loader/parse/render 为包内实现，深路径可测但不对外
@@ -16,7 +16,7 @@ export type {
   ChartType,
 } from './chart/types'
 
-// ---- watermark 插件（文字平铺水印：core 顶层 overlay 预留位绘制，锚定视口不随滚动） ----
+// ---- watermark 插件（文字平铺水印：table 顶层 overlay 预留位绘制，锚定视口不随滚动） ----
 export { createWatermarkPlugin } from './watermark/watermark-plugin'
 export type { WatermarkHandle } from './watermark/watermark-plugin'
 // 水印插件参数配置（与打印水印共享同一模型，经本入口一并转出）

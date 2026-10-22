@@ -7,7 +7,7 @@
 // 共用。实现细节模块（paginate/page-html/header-footer/print-output/preview）保留在
 // 包内深路径，不经公共入口转出。
 
-import type { TablePlugin } from '@infinitable/core'
+import type { TablePlugin } from '@infinitable/table'
 
 import { buildPrintDocumentHtml } from './page-html'
 import { paginate, type PrintPage } from './paginate'

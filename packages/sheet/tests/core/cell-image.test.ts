@@ -4,7 +4,8 @@
 
 import '../grid/setup'
 
-import type { ListTable, LoadedImage } from '@infinitable/core'
+import type { LoadedImage } from '@infinitable/grid'
+import type { ListTable } from '@infinitable/table'
 import { describe, expect, it, vi } from 'vitest'
 
 import { CELL_IMAGE_META_NAMESPACE } from '../../src/core/cell-meta'

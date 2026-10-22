@@ -5,7 +5,7 @@
 
 import './setup'
 
-import type { CellRenderer } from '@infinitable/core'
+import type { CellRenderer } from '@infinitable/table'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CellAddress } from '../../src/core/address'

@@ -1,4 +1,4 @@
-// 离屏出图器：ChartSpec → 可 blit 位图（core LoadedImage 形态，直进 cell 级 MediaCache）。
+// 离屏出图器：ChartSpec → 可 blit 位图（grid LoadedImage 形态，直进 cell 级 MediaCache）。
 // 在插件持有的离屏 canvas 上同步确定性出图：responsive:false + animation:false + 显式
 // devicePixelRatio 下，Chart.js 构造即完成布局与绘制（attached 直置 true、动画禁用后
 // update → render → draw 同步走完），canvas 物理尺寸 = CSS 尺寸 × DPR、上下文按 DPR 缩放。
@@ -7,7 +7,7 @@
 // destroy——chart.js 的 destroy 会 clearCanvas 并复原画布属性（releaseContext），scratch
 // 像素不保证存活，产物必须先拷出。
 
-import type { LoadedImage } from '@infinitable/core'
+import type { LoadedImage } from '@infinitable/grid'
 
 import type { ChartJsModule } from './chart-loader'
 import { loadChartJs } from './chart-loader'

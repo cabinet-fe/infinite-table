@@ -4,7 +4,7 @@
 // 链接 hover/leave/单击事件。写入/清除经 meta-change 定向刷新该格（引擎 resolveStyle
 // 与交互命中均为 pull 式取值，刷新即重建外观与命中态）。
 
-import type { CellLink, ListTable } from '@infinitable/core'
+import type { CellLink, ListTable } from '@infinitable/table'
 
 import { CELL_LINK_META_NAMESPACE, type CellLinkPayload } from '../core/cell-meta'
 import type { Sheet } from '../core/sheet'

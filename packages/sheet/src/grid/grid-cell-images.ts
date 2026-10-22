@@ -4,7 +4,7 @@
 // 带链接嵌入图（载荷 link）单击由引擎派发图片链接点击事件。写入/清除经 meta-change
 // 定向刷新（引擎 refreshImageCell 承担「URL 首次出现补建 / 变化重建 / 消失摘除」）。
 
-import type { ListTable } from '@infinitable/core'
+import type { ListTable } from '@infinitable/table'
 
 import { CELL_IMAGE_META_NAMESPACE, type CellImagePayload } from '../core/cell-meta'
 import { IMAGE_MIME } from '../core/image'

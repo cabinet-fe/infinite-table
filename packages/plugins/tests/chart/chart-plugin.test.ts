@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable } from '@infinitable/core'
+import { ListTable } from '@infinitable/table'
 
 import { createChartPlugin } from '../../src/chart/chart-plugin'
 import { loadChartJs } from '../../src/chart/chart-loader'

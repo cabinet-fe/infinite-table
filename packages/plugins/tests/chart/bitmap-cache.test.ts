@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable, type DataRecord } from '@infinitable/core'
+import { ListTable, type DataRecord } from '@infinitable/table'
 
 import { createChartPlugin } from '../../src/chart/chart-plugin'
 import { chartContentKey } from '../../src/chart/render'

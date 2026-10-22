@@ -1,11 +1,11 @@
-// 统一发布入口：单包显式转售四层公共 API（仓内按 workspace 分包开发，仅发布时合并）。
+// 统一发布入口：单包显式转售五层公共 API（仓内按 workspace 分包开发，仅发布时合并）。
 // 导出判据（逐项判定，全量清单与移出项过渡方案见 agent-docs/apis/exports.md）：
 // 稳定公共 API（类型 / 配置 / 注册函数 / 插件接口 / 插件工厂）→ 导出；内部实现
-// 细节、实验性 API、跨层内部工具 → 不导出。四层各自的 src/index.ts 已按同判据
+// 细节、实验性 API、跨层内部工具 → 不导出。各层各自的 src/index.ts 已按同判据
 // 先行收敛（子包公共面即红线文档面），本入口显式转售、不二次放大。
 // 禁止星号导出（export star）：导出符号集合由 tests/public-surface.test.ts 快照冻结，
 // 增删导出必须显式改快照。同源符号去重：RenderContext/Size（render 定义、
-// core 亦转出）与 TablePlugin（core 定义、plugins 亦转出）各从定义包导出一次；
+// table 亦转出）与 TablePlugin（table 定义、plugins 亦转出）各从定义包导出一次；
 // CellRef 同名消歧见文件末尾。
 // ./sheet 子路径（@infinitable/sheet 全量白名单）见 src/sheet.ts，不经本入口转售。
 
@@ -30,62 +30,68 @@ export type {
   Size,
 } from '@infinitable/render'
 
-// ---- core 层（表格主体：主类 / 模型 / 主题与样式 / 选区 / 编辑 / 媒体与浮动层）----
+// ---- grid 层（共享网格内核：合并区 / 选区 / 主题与样式词汇 / 浮动对象 / 滚动条配置）----
 export {
-  EditorRegistry,
-  ListTable,
   MergeCellMap,
   MergeOverlapError,
-  SheetModel,
   extendsTheme,
   normalizeCellRange,
   normalizeRange,
-  projectCellStyle,
   sanitizeMerges,
   warnMergeConflicts,
-} from '@infinitable/core'
+} from '@infinitable/grid'
 export type {
   CellBorder,
   CellBorderEdge,
+  CellRange,
+  CellStyle,
+  FloatContextMenuEvent,
+  FloatObject,
+  FloatTransformEndEvent,
+  FloatTransformHandle,
+  LoadedImage,
+  MergeConflict,
+  RangeBounds,
+  // 内建滚动条配置（ListTableOptions.scrollbar 对象形态；mode: 'native' 原生滚动条档）
+  ScrollbarMode,
+  ScrollbarOptions,
+  SanitizedMerges,
+  SelectionSnapshot,
+  TableTheme,
+  ThemeOverride,
+} from '@infinitable/grid'
+
+// ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 插件契约）----
+export {
+  EditorRegistry,
+  ListTable,
+  SheetModel,
+  projectCellStyle,
+} from '@infinitable/table'
+export type {
   CellChangeEvent,
   CellChartMedia,
   CellLink,
   CellLinkClickEvent,
   CellLinkHoverEvent,
   CellLinkLeaveEvent,
-  CellRange,
   CellRenderer,
-  CellStyle,
   ColumnDefine,
   DataRecord,
   FillDragEndEvent,
-  FloatContextMenuEvent,
-  FloatObject,
-  FloatTransformEndEvent,
-  FloatTransformHandle,
   HighlightRange,
   ImageLinkClickEvent,
   ImageLinkClickListener,
   ListTableOptions,
-  LoadedImage,
-  MergeConflict,
   OverlayPainter,
-  RangeBounds,
   ResolveCellImageLink,
   ResolveCellLink,
   ResolveDisplayValue,
-  // 内建滚动条配置（ListTableOptions.scrollbar 对象形态；mode: 'native' 原生滚动条档）
-  ScrollbarMode,
-  ScrollbarOptions,
-  SanitizedMerges,
-  SelectionSnapshot,
   TableContextMenuEvent,
   TableModel,
   TablePlugin,
-  TableTheme,
-  ThemeOverride,
   UnderlayPainter,
-} from '@infinitable/core'
+} from '@infinitable/table'
 
 // ---- formulas 层（公式引擎：A1 地址 / 解析与求值 / 函数注册表 / 依赖图 / 引用平移）----
 export {
@@ -157,7 +163,7 @@ export type {
 } from '@infinitable/plugins'
 
 // ---- 同名消歧 ----
-// core 的格坐标 CellRef 与 formulas 的 A1 引用 CellRef 同名：A1 引用保留原名（配
+// grid 的格坐标 CellRef 与 formulas 的 A1 引用 CellRef 同名：A1 引用保留原名（配
 // parseCellRef/formatCellRef/createRangeRef），格坐标以 GridCellRef 别名导出。
 export type { CellRef } from '@infinitable/formulas'
-export type { CellRef as GridCellRef } from '@infinitable/core'
+export type { CellRef as GridCellRef } from '@infinitable/grid'

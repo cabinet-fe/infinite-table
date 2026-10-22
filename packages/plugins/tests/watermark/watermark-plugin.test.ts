@@ -1,11 +1,11 @@
 // 水印插件单测：mount 写顶层 overlay 预留位（承载节点挂 sky 层、滚动条浮层重置顶后
 // 为次顶子节点 + 整层失效）、unmount 还原（节点摘除 + 清屏失效）、updateConfig 变更
 // 触发 sky 整层失效（一帧内生效路径）与开关读写、滚动不波及 sky 层（水印锚定视口，
-// 对齐 core 层行为测试手法：断言失效提交的 kind 集合）、overlay 承载节点 pointer 透传。
+// 对齐 table 层行为测试手法：断言失效提交的 kind 集合）、overlay 承载节点 pointer 透传。
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable, type TablePlugin } from '@infinitable/core'
+import { ListTable, type TablePlugin } from '@infinitable/table'
 
 import { createWatermarkPlugin } from '../../src/watermark/watermark-plugin'
 import { StubHost } from '../testing/stub-host'

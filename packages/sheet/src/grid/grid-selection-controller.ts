@@ -1,9 +1,5 @@
-import {
-  normalizeRange,
-  type ListTable,
-  type RangeBounds,
-  type SelectionSnapshot,
-} from '@infinitable/core'
+import { normalizeRange, type RangeBounds, type SelectionSnapshot } from '@infinitable/grid'
+import type { ListTable } from '@infinitable/table'
 
 import { createRange, type CellAddress, type CellRange } from '../core/address'
 import { computeFillTargetRange, generateFill, type FillDirection } from '../core/fill'

@@ -7,7 +7,7 @@ import {
   type CellAddress,
   type CellRange,
 } from './address'
-import { sanitizeMerges, warnMergeConflicts } from '@infinitable/core'
+import { sanitizeMerges, warnMergeConflicts } from '@infinitable/grid'
 
 /**
  * 合并单元格管理器（只管几何，不管数据）。

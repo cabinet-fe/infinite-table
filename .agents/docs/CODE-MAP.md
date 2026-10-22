@@ -13,7 +13,7 @@ infinitable/
 │   ├── formulas/        # 公式引擎（tokenizer/Pratt parser/求值/49 内置函数/依赖图）
 │   ├── plugins/         # 官方插件（TablePlugin 契约 + chart/print/watermark 插件）
 │   ├── sheet/           # 电子表格核心（sheet 模型/命令/IO/SheetGrid 适配，自 plugins sheet 插件族迁入）
-│   └── infinitable/     # 统一发布包（npm 单包 infinitable，主入口 re-export 四层，`./sheet` 子路径）
+│   └── infinitable/     # 统一发布包（npm 单包 infinitable，主入口 re-export 五层，`./sheet` 子路径）
 ├── playground/          # 唯一应用：示例总览 + 页内 vs VTable 对比 + 量化基准 + 冒烟自检
 └── website/             # VitePress 开发者文档站：指南 + API 参考 + 可交互示例（mermaid 图）
 ```
@@ -27,7 +27,7 @@ infinitable/
 | table | `packages/table` | ListTable 引擎（core 领域代码原样搬运）：ListTable 主体与装配、溢出走廊、填充柄、表头装配、取值三形态、编辑链路、交互、图片/图表媒体、插件注册路径；依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位） | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
 | plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + chart/print/watermark 插件（print/watermark 面向引擎装配协议槽位挂载，不再以 ListTable 具体类型为挂载参数） | `src/index.ts` |
-| sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 table 与 formulas（SheetGrid 经引擎装配协议消费 table 引擎） | `src/index.ts` |
+| sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 table、grid 与 formulas（SheetGrid 经引擎装配协议消费 table 引擎） | `src/index.ts` |
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口显式转售各层公共 API + `./sheet` 子路径，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版统一走发版技能 `.agents/skills/release`（changesets + CI） | `src/index.ts` |
 | playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ComparePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
@@ -79,7 +79,9 @@ graph TD
     table --> grid
     table --> render
     plugins --> table
+    plugins --> grid
     sheet --> table
+    sheet --> grid
     sheet --> formulas
     infinitable --> render
     infinitable --> grid

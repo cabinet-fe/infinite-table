@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { CellRange, CellStyle } from '@infinitable/core'
+import type { CellRange, CellStyle } from '@infinitable/grid'
 
 import { buildPrintDocumentHtml, buildPrintPageHtml } from '../../src/print/page-html'
 import { paginate } from '../../src/print/paginate'

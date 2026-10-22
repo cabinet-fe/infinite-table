@@ -212,8 +212,8 @@ export {
 } from './grid/sheet-grid'
 // 选区拦截回调元信息（shiftKey / extend）：引用拾取 shift+点选扩展的宿主消费形态
 export type { SelectionInterceptMeta } from './grid/grid-selection-controller'
-// SheetGridOptions.scrollbar 对象形态（core 同形再导出；mode: 'native' 原生滚动条档）
-export type { ScrollbarOptions } from '@infinitable/core'
+// SheetGridOptions.scrollbar 对象形态（grid 同形再导出；mode: 'native' 原生滚动条档）
+export type { ScrollbarOptions } from '@infinitable/grid'
 export type { ResolveCellStyleHook, ResolveDisplayValue } from './grid/grid-model'
 export type { SheetGridContextMenuInfo, SheetGridContextMenuKind } from './grid/grid-coords'
 export type { SheetGridHeaderOptions } from './grid/grid-header'

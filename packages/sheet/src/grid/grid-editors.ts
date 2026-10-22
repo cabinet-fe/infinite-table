@@ -1,4 +1,4 @@
-import { EditorRegistry, type ListTable } from '@infinitable/core'
+import { EditorRegistry, type ListTable } from '@infinitable/table'
 
 import type { CellAddress } from '../core/address'
 import type { CellValue } from '../core/cell-store'
