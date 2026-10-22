@@ -648,7 +648,7 @@ describe('refreshCell 溢出联动失效', () => {
     model.emit({ col: 1, row: 0, oldValue: undefined, newValue: undefined })
     // (1,0) 自身边界 + 来源格 (0,0) 新走廊（穿过后到表缘 300）
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
     expect(findNode(host, 0, 0)?.textMaxX).toBe(300)
   })
@@ -667,7 +667,7 @@ describe('refreshCell 溢出联动失效', () => {
     model.emit({ col: 1, row: 0, oldValue: undefined, newValue: undefined })
     // (1,0) 自身边界 + 来源格旧走廊清除（新右界收回本格 100）；并集覆盖旧走廊 48..348
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
     expect(findNode(host, 0, 0)?.textMaxX).toBe(100)
   })
@@ -685,7 +685,7 @@ describe('refreshCell 溢出联动失效', () => {
     model.emit({ col: 0, row: 0, oldValue: undefined, newValue: undefined })
     // 'hi' 仍超宽（20px ≤ 92? 否：20 < 92 放得下）→ 新无溢出；旧走廊 300 并入
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
   })
 
@@ -707,7 +707,7 @@ describe('refreshCell 溢出联动失效', () => {
     expect(findNode(host, 2, 0)?.textMinX).toBe(0)
     expect(findNode(host, 2, 0)?.textMaxX).toBe(100)
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
     host.submitted.length = 0
     model.data.delete('1:0')
@@ -715,7 +715,7 @@ describe('refreshCell 溢出联动失效', () => {
     // col 2 走廊重新伸出；并集同样覆盖整段
     expect(findNode(host, 2, 0)?.textMinX).toBe(-200)
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 48, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 48, y: 36, width: 300, height: 32 } } },
     ])
   })
 
@@ -1522,7 +1522,7 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(findNode(host, 4, 0)?.corridorInterior).toBeNull()
     // 失效区覆盖窗内走廊段（新走廊末端层坐标 298 = 48 + 400 - 150）
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: -102, y: 36, width: 400, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: -102, y: 36, width: 400, height: 32 } } },
     ])
   })
 
@@ -1539,7 +1539,7 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(findNode(host, 1, 0)?.corridorInterior).toBe(2)
     expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: -102, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: -102, y: 36, width: 300, height: 32 } } },
     ])
   })
 
@@ -1559,7 +1559,7 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(source?.textMaxX).toBe(300)
     expect(findNode(host, 2, 0)?.corridorInterior).toBe(3)
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: -202, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: -202, y: 36, width: 300, height: 32 } } },
     ])
     // 非候选窗外格（走廊够不到窗内）刷新维持「无节点可刷」、零失效提交
     host.submitted.length = 0
@@ -1585,7 +1585,7 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(findNode(host, 2, 0)?.corridorInterior).toBeNull()
     // 失效区并集覆盖旧走廊窗内段（至层坐标 98 = col 2 右缘）
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: -202, y: 36, width: 300, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: -202, y: 36, width: 300, height: 32 } } },
     ])
   })
 
@@ -1612,7 +1612,7 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(findNode(host, 4, 0)?.corridorInterior).toBeNull()
     // 失效区并集覆盖旧走廊（层坐标 [448, 848)）
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 448, y: 36, width: 400, height: 32 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 448, y: 36, width: 400, height: 32 } } },
     ])
   })
 })

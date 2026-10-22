@@ -216,7 +216,7 @@ describe('ListTable 合并单元格', () => {
     host.submitted.length = 0
     table.refreshCell(3, 2)
     expect(host.submitted).toEqual([
-      { kind: 'body', inv: { type: 'cell', region: { x: 148, y: 68, width: 300, height: 64 } } },
+      { kind: 'body', inv: { type: 'region', region: { x: 148, y: 68, width: 300, height: 64 } } },
     ])
   })
 

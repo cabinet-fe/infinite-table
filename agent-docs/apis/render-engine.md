@@ -1,13 +1,13 @@
 ---
 title: RenderHost 渲染引擎
-description: infinitable 自研 canvas 渲染引擎：createRenderHost 创建宿主（四层 canvas ground/body/media/sky）、SceneNode 场景树、三档失效 Invalidation（cell/band/full）、LayerHandle 层句柄、federated 事件系统与 DPR 跟随。ListTable 经 RenderHost 窄接口提交渲染。
+description: infinitable 自研 canvas 渲染引擎：createRenderHost 创建宿主（四层 canvas ground/body/media/sky）、SceneNode 场景树、三档失效 Invalidation（region/band/full）与层失效消费策略 LayerConsumption、LayerHandle 层句柄、federated 事件系统与 DPR 跟随。ListTable 经 RenderHost 窄接口提交渲染。
 aliases: [RenderHost, 渲染引擎, SceneNode, 场景树, canvas 引擎]
-keywords: [createRenderHost, RenderHostOptions, RenderHost, SceneNode, SceneEvent, LayerHandle, LayerKind, Invalidation, submitInvalidation, requestFrame, measure, ground, body, media, sky, pickable, getGlobalBounds, 分层 canvas, 失效, 脏区]
+keywords: [createRenderHost, RenderHostOptions, RenderHost, SceneNode, SceneEvent, LayerHandle, LayerKind, LayerOpts, LayerConsumption, Invalidation, submitInvalidation, requestFrame, measure, ground, body, media, sky, pickable, getGlobalBounds, 分层 canvas, 失效, 脏区]
 ---
 
 # RenderHost 渲染引擎
 
-`infinitable`（render 层）导出自研 canvas 渲染引擎：`createRenderHost` 是 `RenderHost` 窄接口的唯一实现入口（四层 canvas 按 ground→body→media→sky 自底向上叠放、帧调度收敛、DPR 跟随），`SceneNode` 是场景树节点（paint 绘制 + federated 事件冒泡），`LayerHandle` 是单层操作入口（三档失效 `Invalidation`：cell/band/full）。`ListTable` 内部经该引擎提交渲染；宿主注入自建场景（水印 painter、自绘 overlay）或测试离屏渲染时直接使用本层 API。
+`infinitable`（render 层）导出自研 canvas 渲染引擎：`createRenderHost` 是 `RenderHost` 窄接口的唯一实现入口（四层 canvas 按 ground→body→media→sky 自底向上叠放、帧调度收敛、DPR 跟随），`SceneNode` 是场景树节点（paint 绘制 + federated 事件冒泡），`LayerHandle` 是单层操作入口（三档失效 `Invalidation`：region/band/full，各层消费策略经建层参数 `LayerOpts.consumption` 注入）。`ListTable` 内部经该引擎提交渲染；宿主注入自建场景（水印 painter、自绘 overlay）或测试离屏渲染时直接使用本层 API。
 
 ## 快速上手
 
@@ -37,7 +37,7 @@ const rect = new RectNode({ x: 40, y: 40, width: 120, height: 60 })
 layer.root.appendChild(rect)
 
 // 提交失效（下一帧收敛重绘）
-layer.invalidate({ type: 'cell', region: { x: 40, y: 40, width: 120, height: 60 } })
+layer.invalidate({ type: 'region', region: { x: 40, y: 40, width: 120, height: 60 } })
 // => 画布上出现蓝色矩形
 
 host.destroy() // 取消挂起帧、解绑事件、回收池化画布并从容器移除 canvas
@@ -63,16 +63,26 @@ export type LayerKind = 'ground' | 'body' | 'media' | 'sky'
 
 export interface LayerOpts {
   kind: LayerKind
+  /** 该层失效消费策略（缺省 'regions'，语义见 LayerConsumption） */
+  consumption?: LayerConsumption
 }
 
 /**
+ * 层失效消费策略（建层时经 LayerOpts.consumption 注入，帧末按该策略把失效队列收敛为重绘计划）：
+ * - 'band-full-only'：仅响应 band/full 档，region 档被忽略（背景类内容不因局部脏区重绘）
+ * - 'regions'：band 与 region 档逐脏区增量补画
+ * - 'always-full'：响应一切失效但整层重画（重绘便宜的内容层）
+ */
+export type LayerConsumption = 'band-full-only' | 'regions' | 'always-full'
+
+/**
  * 三档失效：
- * - cell：单元格级脏区（可带旧包围盒 prevRegion，用于内容移动后的双包围盒重绘）
- * - band：行带级脏区（视口全宽/全高的一条带，滚动窗口滑动的典型产物）
- * - full：整层重绘
+ * - region：局部矩形脏区（可带旧包围盒，用于内容移动/缩放后的双包围盒重绘）
+ * - band：条带脏区（视口全宽的一条横带，滚动窗口滑动的典型产物）
+ * - full：整层重绘（无可靠 bounds 时必须用 full，禁止猜小块）
  */
 export type Invalidation =
-  | { type: 'cell'; region: Region; prevRegion?: Region }
+  | { type: 'region'; region: Region; prevRegion?: Region }
   | { type: 'band'; region: Region }
   | { type: 'full' }
 
@@ -258,13 +268,15 @@ export interface SceneEvent {
 
 `SceneNodeInit`：全部可选；`pickable: false` 的节点命中穿透（子节点仍可命中）。
 
-`Invalidation` 三档选择规则：有可靠脏区用 `cell`（带 `prevRegion` 覆盖移动前后双包围盒）；滚动窗口滑动产生的整行/整列带用 `band`；无可靠 bounds 必须 `full`（禁止猜小块）。
+`LayerOpts`：`consumption` 缺省 `'regions'`（band 与 region 档逐脏区增量补画）；`'band-full-only'` 仅响应 band/full 档、忽略 region 档（背景类内容层）；`'always-full'` 响应一切失效但整层重画（重绘便宜的内容层）。消费策略随首次建层注入并固定，同 kind 幂等建层时后传的 `consumption` 被忽略。
+
+`Invalidation` 三档选择规则：有可靠脏区用 `region`（带 `prevRegion` 覆盖移动前后双包围盒）；滚动窗口滑动产生的条带用 `band`；无可靠 bounds 必须 `full`（禁止猜小块）。
 
 ## 方法与事件
 
 `createRenderHost(options): RenderHost`：
 
-- `createLayer(opts)` — 同 kind 重复调用幂等返回同一句柄；层集合变化使事件系统层根缓存失效。
+- `createLayer(opts)` — 同 kind 重复调用幂等返回同一句柄，消费策略经 `opts.consumption` 随首次建层注入（缺省 `'regions'`）；层集合变化使事件系统层根缓存失效。
 - `submitInvalidation(kind, inv)` — 等价 `createLayer({ kind }).invalidate(inv)`；同帧内多次失效经 Set 去重，下一帧收敛一次重绘（帧末各层按 ground→body→media→sky 顺序消费重绘计划，上屏模式由浏览器合成）。
 - `requestFrame(task)` — 同一任务在同一帧内只执行一次。
 - `measure(text, font): Size` — 文本测量（CSS 像素）；height 取 actualBoundingBox 之和。
@@ -332,9 +344,9 @@ import { createRenderHost } from 'infinitable'
 const host = createRenderHost({ width: 800, height: 600, container: document.querySelector<HTMLElement>('#stage')! })
 const layer = host.createLayer({ kind: 'body' })
 
-// 同帧提交三段 cell 失效 + 一次 full：full 覆盖一切，帧末只整层重绘一次
-layer.invalidate({ type: 'cell', region: { x: 0, y: 0, width: 10, height: 10 } })
-layer.invalidate({ type: 'cell', region: { x: 20, y: 0, width: 10, height: 10 } })
+// 同帧提交三段 region 失效 + 一次 full：full 覆盖一切，帧末只整层重绘一次
+layer.invalidate({ type: 'region', region: { x: 0, y: 0, width: 10, height: 10 } })
+layer.invalidate({ type: 'region', region: { x: 20, y: 0, width: 10, height: 10 } })
 layer.invalidate({ type: 'band', region: { x: 0, y: 100, width: 800, height: 32 } })
 layer.invalidate({ type: 'full' })
 ```

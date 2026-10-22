@@ -5,6 +5,7 @@ import { paintTree } from '../scene/paint'
 import { SceneNode } from '../scene/scene-node'
 import type {
   Invalidation,
+  LayerConsumption,
   LayerHandle,
   LayerKind,
   Region,
@@ -33,8 +34,10 @@ export class CanvasLayer implements LayerHandle {
     private readonly pool: CanvasPool,
     /** 请求宿主在下一帧执行各层 flush（单帧收敛） */
     private readonly scheduleFlush: () => void,
+    /** 失效消费策略（建层参数注入，透传给本层失效队列） */
+    consumption: LayerConsumption,
   ) {
-    this.queue = new InvalidationQueue(kind)
+    this.queue = new InvalidationQueue(consumption)
     this.width = width
     this.height = height
     this.dpr = dpr

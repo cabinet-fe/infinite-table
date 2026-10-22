@@ -112,7 +112,7 @@ describe('FloatObjectLayer 承载与定位', () => {
     })
     const node = layer.root.children[0]?.children[0]
     expect({ x: node?.x, y: node?.y }).toEqual({ x: 200, y: 32 })
-    expect(invalidated[0]?.type).toBe('cell')
+    expect(invalidated[0]?.type).toBe('region')
     expect(invalidated[0]).toMatchObject({ prevRegion: { x: 4, y: 8 } })
 
     floats.remove('a')
@@ -195,8 +195,10 @@ describe('FloatObjectLayer 承载与定位', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(service.hasResource('a.png')).toBe(true)
-    // 加载完成 → cell 定向失效（非整层）
-    expect(invalidated).toEqual([{ type: 'cell', region: { x: 4, y: 8, width: 196, height: 56 } }])
+    // 加载完成 → region 定向失效（非整层）
+    expect(invalidated).toEqual([
+      { type: 'region', region: { x: 4, y: 8, width: 196, height: 56 } },
+    ])
   })
 
   it('dispose：容器脱离场景树，幂等', () => {

@@ -119,13 +119,13 @@ describe('图表格缓存失效与数据/尺寸变更重绘', () => {
     expect(createdCount()).toBe(4)
     expect(chartNodeAt(table, 1, 0)!.hasBitmap).toBe(true)
     expect(chartNodeAt(table, 1, 1)!.hasBitmap).toBe(true)
-    // 更新引发的 media 层失效全部为 cell 档（定向失效该格；同帧收敛交给既有失效队列）
+    // 更新引发的 media 层失效全部为 region 档（定向失效该格；同帧收敛交给既有失效队列）
     const mediaInvalidations = host.submitted
       .slice(submittedBefore)
       .filter((entry) => entry.kind === 'media')
     expect(mediaInvalidations.length).toBeGreaterThan(0)
     for (const entry of mediaInvalidations) {
-      expect(entry.inv.type).toBe('cell')
+      expect(entry.inv.type).toBe('region')
     }
     table.destroy()
   })

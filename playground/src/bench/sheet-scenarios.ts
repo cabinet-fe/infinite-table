@@ -118,13 +118,13 @@ async function runSheetCellWrites(env: BenchEnv): Promise<ScenarioResult> {
   bench.destroy()
   return {
     id: 'sheet-cell-writes',
-    title: 'sheet 逐格写（模型事件 → cell 失效）',
+    title: 'sheet 逐格写（模型事件 → region 失效）',
     passed: fullCount === 0 && throughput >= SHEET_WRITE_THROUGHPUT_MIN_OPS_MS,
     metrics: [
       { label: '写入次数', value: String(WRITE_COUNT) },
       { label: '吞吐', value: `${(WRITE_COUNT / elapsed).toFixed(0)} ops/ms` },
       { label: 'body full 失效', value: String(fullCount) },
-      { label: 'body cell 失效', value: String(body?.cell ?? 0) },
+      { label: 'body region 失效', value: String(body?.region ?? 0) },
     ],
     checks: [
       {

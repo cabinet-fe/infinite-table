@@ -102,10 +102,10 @@ describe('FloatObjectLayer 变换（缩放/旋转，univer Transformer 思路）
       width: 226,
       height: 76,
     })
-    // 失效语言：cell 级成对区域（旧包围盒 + 新包围盒，选中态外扩一档）
+    // 失效语言：region 级成对区域（旧包围盒 + 新包围盒，选中态外扩一档）
     expect(invalidated).toEqual([
       {
-        type: 'cell',
+        type: 'region',
         region: { x: 78, y: 46, width: 278, height: 128 },
         prevRegion: { x: 78, y: 46, width: 248, height: 108 },
       },

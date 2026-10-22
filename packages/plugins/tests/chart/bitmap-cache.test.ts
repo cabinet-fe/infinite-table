@@ -99,9 +99,9 @@ describe('图表格位图缓存（L2 media）', () => {
     expect(node!.hasBitmap).toBe(true)
     expect(node!.cacheKey).toBe(expectedCacheKey(table, BAR_SPEC_KEY, 1))
     expect(table.mediaCache.get(node!.cacheKey)).toBeDefined()
-    // 定向失效登记在 media 层 cell 档（同图片格）
+    // 定向失效登记在 media 层 region 档（同图片格）
     expect(
-      host.submitted.some((entry) => entry.kind === 'media' && entry.inv.type === 'cell'),
+      host.submitted.some((entry) => entry.kind === 'media' && entry.inv.type === 'region'),
     ).toBe(true)
     table.destroy()
   })

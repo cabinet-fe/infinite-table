@@ -545,8 +545,8 @@ export class ListTable {
     this.ownHost = !options.host
     // 快路径字符推进宽经宿主测量画布逐字符首见测量（与精测同源），此后整表命中
     this.textAdvances = new TextAdvanceTable((char, font) => this.host.measure(char, font).width)
-    this.body = this.host.createLayer({ kind: 'body' })
-    this.sky = this.host.createLayer({ kind: 'sky' })
+    this.body = this.host.createLayer({ kind: 'body', consumption: 'regions' })
+    this.sky = this.host.createLayer({ kind: 'sky', consumption: 'always-full' })
     this.imageService = new ImageService(options.imageServiceOptions)
     // 图片加载完成 → 引用它的可见格定向失效（替代整层重绘，同帧多图由失效队列收敛合并）
     this.imageService.onImageLoad((e) => onImageServiceLoad(this, e))
@@ -700,7 +700,7 @@ export class ListTable {
    */
   setUnderlayPainter(painter: UnderlayPainter | null): void {
     if (painter) {
-      this.ground ??= this.host.createLayer({ kind: 'ground' })
+      this.ground ??= this.host.createLayer({ kind: 'ground', consumption: 'band-full-only' })
       if (this.underlayPainterNode) {
         this.underlayPainterNode.painter = painter
       } else {
@@ -1016,7 +1016,7 @@ export class ListTable {
       this.batchRegions.push(region)
       return
     }
-    this.host.submitInvalidation('body', { type: 'cell', region })
+    this.host.submitInvalidation('body', { type: 'region', region })
   }
 
   /** 溢出源节点重挂树尾（z 序不变量：源格后画于同条带全部走廊节点）；表头容器与外框随后重挂保持最上 */
@@ -1113,7 +1113,7 @@ export class ListTable {
       this.batchRegions.push(region)
       return
     }
-    this.host.submitInvalidation('body', { type: 'cell', region })
+    this.host.submitInvalidation('body', { type: 'region', region })
   }
 
   /** 批量更新：fn 内的多次变更合并，结束时只提交一次 band 失效（一帧收敛一次渲染提交） */
@@ -1660,7 +1660,7 @@ export class ListTable {
     node.contentHidden = hidden
     // 失效区并入溢出走廊：溢出文本画出本格两侧缘，隐藏/恢复都要覆盖整段
     this.host.submitInvalidation('body', {
-      type: 'cell',
+      type: 'region',
       region: overflowExtentRegion(node, node.textMinX, node.textMaxX),
     })
   }

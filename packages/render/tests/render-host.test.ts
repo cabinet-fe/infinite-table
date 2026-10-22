@@ -103,30 +103,30 @@ describe('RenderHost 窄接口', () => {
     host.destroy()
   })
 
-  it('提交失效后单帧收敛：同帧多次失效只触发一次调度，帧末按消费策略重绘', () => {
+  it('提交失效后单帧收敛：同帧多次失效只触发一次调度，帧末按消费策略重绘（缺省 regions）', () => {
     const scheduler = makeManualScheduler()
     const host = createHost(scheduler.options)
     const body = host.createLayer({ kind: 'body' })
-    const cell = new PaintNode({ x: 0, y: 0, width: 50, height: 30 })
-    body.root.appendChild(cell)
+    const leaf = new PaintNode({ x: 0, y: 0, width: 50, height: 30 })
+    body.root.appendChild(leaf)
 
     host.submitInvalidation('body', {
-      type: 'cell',
+      type: 'region',
       region: { x: 0, y: 0, width: 50, height: 30 },
     })
     host.submitInvalidation('body', {
-      type: 'cell',
+      type: 'region',
       region: { x: 100, y: 0, width: 50, height: 30 },
     })
     expect(scheduler.scheduled).toHaveLength(1)
 
     scheduler.step()
     const ctx = (body.canvasElement as FakeCanvas).context
-    // 两个不相交 cell → 两个 region，逐 region clearRect + 裁剪增量补画
+    // 两个不相交 region → 两个 region，逐 region clearRect + 裁剪增量补画
     expect(ctx.callsOf('clearRect')).toHaveLength(2)
     expect(ctx.callsOf('clip')).toHaveLength(2)
-    // cell 只与第一个 region 相交，只被重画一次
-    expect(cell.painted).toBe(1)
+    // leaf 只与第一个 region 相交，只被重画一次
+    expect(leaf.painted).toBe(1)
 
     // 下一帧无失效则不重绘
     scheduler.step()
@@ -134,14 +134,17 @@ describe('RenderHost 窄接口', () => {
     host.destroy()
   })
 
-  it('sky 层任何失效整层重画；ground 层忽略 cell', () => {
+  it('consumption 建层注入：always-full 层任何失效整层重画；band-full-only 层忽略 region 档', () => {
     const scheduler = makeManualScheduler()
     const host = createHost(scheduler.options)
-    const sky = host.createLayer({ kind: 'sky' })
-    const ground = host.createLayer({ kind: 'ground' })
-    host.submitInvalidation('sky', { type: 'cell', region: { x: 0, y: 0, width: 10, height: 10 } })
+    const sky = host.createLayer({ kind: 'sky', consumption: 'always-full' })
+    const ground = host.createLayer({ kind: 'ground', consumption: 'band-full-only' })
+    host.submitInvalidation('sky', {
+      type: 'region',
+      region: { x: 0, y: 0, width: 10, height: 10 },
+    })
     host.submitInvalidation('ground', {
-      type: 'cell',
+      type: 'region',
       region: { x: 0, y: 0, width: 10, height: 10 },
     })
     scheduler.step()

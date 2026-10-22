@@ -20,6 +20,7 @@ export type { SceneEvent, SceneEventType } from './events/event-system'
 export type {
   FrameTask,
   Invalidation,
+  LayerConsumption,
   LayerHandle,
   LayerKind,
   LayerOpts,

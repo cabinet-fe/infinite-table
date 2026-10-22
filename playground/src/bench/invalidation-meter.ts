@@ -14,7 +14,7 @@ import type {
 export interface LayerInvalidationStats {
   full: number
   band: number
-  cell: number
+  region: number
   /** 本帧该层失效像素面积合计（full 按整层视口面积计） */
   area: number
 }
@@ -49,7 +49,7 @@ export class InvalidationMeter {
   private record(kind: LayerKind, inv: Invalidation): void {
     let stats = this.pending.get(kind)
     if (!stats) {
-      stats = { full: 0, band: 0, cell: 0, area: 0 }
+      stats = { full: 0, band: 0, region: 0, area: 0 }
       this.pending.set(kind, stats)
     }
     if (inv.type === 'full') {
@@ -57,7 +57,11 @@ export class InvalidationMeter {
       stats.area += this.viewportArea
       return
     }
-    stats[inv.type] += 1
+    if (inv.type === 'band') {
+      stats.band += 1
+    } else {
+      stats.region += 1
+    }
     stats.area += inv.region.width * inv.region.height
   }
 }

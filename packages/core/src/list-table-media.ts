@@ -39,7 +39,7 @@ function mediaViewport(table: ListTable, col: number, row: number): Region {
 /** L2 media 层惰性创建（无图片格不建层） */
 function mediaLayer(table: ListTable): LayerHandle {
   if (!table.media) {
-    table.media = table.host.createLayer({ kind: 'media' })
+    table.media = table.host.createLayer({ kind: 'media', consumption: 'regions' })
   }
   return table.media
 }
@@ -112,7 +112,7 @@ export function refreshImageCell(table: ListTable, col: number, row: number): vo
     const appended = appendImageCell(table, col, row, url, body.x, body.y, body.width, body.height)
     // appendChild 不触发失效，位图即时可得（mediaCache 命中 / ImageService 已 ready）
     // 时也没有异步加载回写兜底：主动定向失效本格，否则补建节点不上屏
-    table.host.submitInvalidation('media', { type: 'cell', region: appended.getGlobalBounds() })
+    table.host.submitInvalidation('media', { type: 'region', region: appended.getGlobalBounds() })
     return
   }
   if (!table.media) {
@@ -137,7 +137,7 @@ export function refreshImageCell(table: ListTable, col: number, row: number): vo
       node.fit = fit
     }
   }
-  table.host.submitInvalidation('media', { type: 'cell', region })
+  table.host.submitInvalidation('media', { type: 'region', region })
 }
 
 /**
@@ -172,7 +172,7 @@ export function onImageServiceLoad(table: ListTable, e: ImageLoadEvent): void {
       image,
       Math.round(node.width * node.height * 4),
     )
-    table.host.submitInvalidation('media', { type: 'cell', region: node.getGlobalBounds() })
+    table.host.submitInvalidation('media', { type: 'region', region: node.getGlobalBounds() })
   }
 }
 
@@ -279,7 +279,7 @@ export function refreshChartCell(table: ListTable, col: number, row: number): vo
       appendChartCell(table, col, row, media, node.x, node.y, node.width, node.height)
     }
   }
-  table.host.submitInvalidation('media', { type: 'cell', region })
+  table.host.submitInvalidation('media', { type: 'region', region })
 }
 
 /**
@@ -316,7 +316,7 @@ function requestChartBitmap(
     const node = table.chartCellNodes.get(cellKey(col, row))
     if (node && node.cacheKey === cacheKey) {
       node.setBitmap(image)
-      table.host.submitInvalidation('media', { type: 'cell', region: node.getGlobalBounds() })
+      table.host.submitInvalidation('media', { type: 'region', region: node.getGlobalBounds() })
     }
   })
 }

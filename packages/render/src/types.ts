@@ -22,7 +22,17 @@ export type LayerKind = 'ground' | 'body' | 'media' | 'sky'
 /** 层创建参数 */
 export interface LayerOpts {
   kind: LayerKind
+  /** 该层失效消费策略（缺省 'regions'，语义见 LayerConsumption） */
+  consumption?: LayerConsumption
 }
+
+/**
+ * 层失效消费策略（建层时经 LayerOpts.consumption 注入，帧末按该策略把失效队列收敛为重绘计划）：
+ * - 'band-full-only'：仅响应 band/full 档，region 档被忽略（背景类内容不因局部脏区重绘）
+ * - 'regions'：band 与 region 档逐脏区增量补画
+ * - 'always-full'：响应一切失效但整层重画（重绘便宜的内容层）
+ */
+export type LayerConsumption = 'band-full-only' | 'regions' | 'always-full'
 
 /** 引擎使用的 2D 上下文最小子集（结构化类型，真实 CanvasRenderingContext2D 天然满足） */
 export interface RenderContext {
@@ -102,12 +112,12 @@ export interface RenderCanvas {
 
 /**
  * 三档失效：
- * - cell：单元格级脏区（可带旧包围盒，用于内容移动/缩放后的双包围盒重绘）
- * - band：行带级脏区（视口全宽的一条横带，滚动窗口滑动的典型产物）
+ * - region：局部矩形脏区（可带旧包围盒，用于内容移动/缩放后的双包围盒重绘）
+ * - band：条带脏区（视口全宽的一条横带，滚动窗口滑动的典型产物）
  * - full：整层重绘（无可靠 bounds 时必须用 full，禁止猜小块）
  */
 export type Invalidation =
-  | { type: 'cell'; region: Region; prevRegion?: Region }
+  | { type: 'region'; region: Region; prevRegion?: Region }
   | { type: 'band'; region: Region }
   | { type: 'full' }
 

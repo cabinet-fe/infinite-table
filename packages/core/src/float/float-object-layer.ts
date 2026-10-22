@@ -462,7 +462,7 @@ export class FloatObjectLayer {
     if (this.transform?.id === id) {
       this.transform = null
     }
-    this.layer.invalidate({ type: 'cell', region })
+    this.layer.invalidate({ type: 'region', region })
     this.emit({ type: 'remove', id })
   }
 
@@ -955,8 +955,8 @@ export class FloatObjectLayer {
     const region = inflateRegion(this.coverOf(node), pad)
     this.layer.invalidate(
       prevRegion
-        ? { type: 'cell', region, prevRegion: inflateRegion(prevRegion, pad) }
-        : { type: 'cell', region },
+        ? { type: 'region', region, prevRegion: inflateRegion(prevRegion, pad) }
+        : { type: 'region', region },
     )
   }
 

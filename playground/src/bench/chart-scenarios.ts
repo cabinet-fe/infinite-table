@@ -192,7 +192,7 @@ async function runChartScrollFps(env: BenchEnv): Promise<ScenarioResult> {
     intervals.push(start - prevStart)
     prevStart = start
     if (i >= SCROLL_WARMUP_FRAMES) {
-      mediaCells.push(bt.meter.drain().get('media')?.cell ?? 0)
+      mediaCells.push(bt.meter.drain().get('media')?.region ?? 0)
     }
   }
   bt.destroy()
@@ -279,7 +279,7 @@ async function runChartInvalidation(env: BenchEnv): Promise<ScenarioResult> {
   bumpBarDeclaration(0)
   bt.table.refreshCell(CHART_BAR_COL, 0)
   const refreshStats = bt.meter.drain()
-  const refreshCellCount = refreshStats.get('media')?.cell ?? 0
+  const refreshCellCount = refreshStats.get('media')?.region ?? 0
   const refreshFullCount =
     (refreshStats.get('body')?.full ?? 0) + (refreshStats.get('media')?.full ?? 0)
   await settleChartBitmaps(bt)

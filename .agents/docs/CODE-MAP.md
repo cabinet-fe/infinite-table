@@ -103,7 +103,7 @@ graph TD
 
 跨模块链路一链一行；模块内部主流程看代码入口。
 
-- render 主循环：三档失效（`cell` 档更名去表格语义 / row-band / full；各层失效消费策略建层参数化）→ FrameScheduler 单帧收敛 → 各层按策略消费脏区 → 合成上屏；grid 的滚动与 table 的交互/图片/批量更新都汇入这条失效语言
+- render 主循环：三档失效（region / band / full；各层失效消费策略建层参数化）→ FrameScheduler 单帧收敛 → 各层按策略消费脏区 → 合成上屏；grid 的滚动与 table 的交互/图片/批量更新都汇入这条失效语言
 - grid 滚动窗口：ScrollManager 唯一滚动源 → table 的 ListTable 增量维护可视窗口场景 → band 失效进 render 主循环
 - chart 出图：plugins 离屏出图 → 注入 table `chartMediaResolver` → cell 级 MediaCache blit 上屏，与格内图片同一管线
 - 水印上屏：plugins 平铺 painter → 经引擎装配协议 overlay 槽位注入（table 实现，ground 层 underlay 槽位同构）→ 对应层整层失效，锚定视口不随滚动平移

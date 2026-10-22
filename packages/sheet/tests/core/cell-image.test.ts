@@ -160,10 +160,10 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       const node = imageNodeAt(table, 0, 0)
       expect(node).toBeDefined()
       expect(node?.hasBitmap).toBe(true)
-      // 补建分支必须同帧提交 media 层 cell 失效（appendChild 不触发失效）
-      expect(submit.mock.calls.some(([kind, inv]) => kind === 'media' && inv.type === 'cell')).toBe(
-        true,
-      )
+      // 补建分支必须同帧提交 media 层 region 失效（appendChild 不触发失效）
+      expect(
+        submit.mock.calls.some(([kind, inv]) => kind === 'media' && inv.type === 'region'),
+      ).toBe(true)
 
       // 上屏：位图即时可得时无异步加载回写兜底，靠该失效在下一帧真实绘制本格
       const paint = vi.spyOn(node!, 'paint')

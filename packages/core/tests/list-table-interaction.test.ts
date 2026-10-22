@@ -759,7 +759,7 @@ describe('ListTable 批量更新', () => {
     expect(host.submitted).toEqual([
       {
         kind: 'body',
-        inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
+        inv: { type: 'region', region: { x: 48, y: 36, width: 100, height: 32 } },
       },
     ])
   })
@@ -1082,7 +1082,7 @@ describe('ListTable 编辑', () => {
     // 提交只产生该格 cell 失效（非 full 重绘）
     expect(host.submitted).toContainEqual({
       kind: 'body',
-      inv: { type: 'cell', region: { x: 48, y: 36, width: 100, height: 32 } },
+      inv: { type: 'region', region: { x: 48, y: 36, width: 100, height: 32 } },
     })
     expect(table.isEditing()).toBe(false)
   })
@@ -1193,9 +1193,11 @@ describe('ListTable 编辑', () => {
 
     expect(model.data.get('0:0')).toBe('Zed')
     expect(container.children).toEqual([])
-    // 本格 cell 失效恰 3 次：开场内容隐藏 + 提交刷新 + 收场恢复；
+    // 本格 region 失效恰 3 次：开场内容隐藏 + 提交刷新 + 收场恢复；
     // 编辑格 echo 与显式刷新合并去重，无回环带来的额外刷新
-    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(3)
+    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'region')).toHaveLength(
+      3,
+    )
   })
 
   it('model 形态编辑提交：回驱窗口内模型同步重算的派生格逐格刷新恰一次', () => {
@@ -1220,7 +1222,9 @@ describe('ListTable 编辑', () => {
     // 派生格当帧更新，无需滚动或重建
     expect(findNode(host, 1, 0)?.text).toBe('D1')
     // 编辑格 3 次（开场隐藏 + 提交刷新 + 收场恢复，echo 去重）+ 派生格恰 1 次提交刷新
-    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'cell')).toHaveLength(4)
+    expect(host.submitted.filter((s) => s.kind === 'body' && s.inv.type === 'region')).toHaveLength(
+      4,
+    )
   })
 
   it('model 形态 onCellChange 事件带 oldValue/newValue', () => {

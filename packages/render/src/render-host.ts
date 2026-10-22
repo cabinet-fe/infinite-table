@@ -99,6 +99,8 @@ class CanvasRenderHost implements RenderHost {
       this.dpr,
       this.pool,
       () => this.scheduler.request(this.flushTask),
+      // 缺省 'regions'：隐式建层（submitInvalidation 未建层兜底）走逐脏区增量补画
+      opts.consumption ?? 'regions',
     )
     this.layers.set(opts.kind, layer)
     // 层集合变化：事件系统的层根缓存失效，下一次派发重建
