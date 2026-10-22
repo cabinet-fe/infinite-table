@@ -61,13 +61,8 @@ export type {
   ThemeOverride,
 } from '@infinitable/grid'
 
-// ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 插件契约）----
-export {
-  EditorRegistry,
-  ListTable,
-  SheetModel,
-  projectCellStyle,
-} from '@infinitable/table'
+// ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 插件契约 / 引擎装配协议）----
+export { EditorRegistry, ListTable, SheetModel, projectCellStyle } from '@infinitable/table'
 export type {
   CellChangeEvent,
   CellChartMedia,
@@ -78,6 +73,9 @@ export type {
   CellRenderer,
   ColumnDefine,
   DataRecord,
+  // 引擎装配协议（中立本体 / 可选导出读取面 / 表格引擎协议面，SheetGrid 等适配层消费）
+  EngineAssembly,
+  EngineReadView,
   FillDragEndEvent,
   HighlightRange,
   ImageLinkClickEvent,
@@ -88,6 +86,7 @@ export type {
   ResolveCellLink,
   ResolveDisplayValue,
   TableContextMenuEvent,
+  TableEngine,
   TableModel,
   TablePlugin,
   UnderlayPainter,
@@ -135,8 +134,14 @@ export type {
   SheetCellCoord,
 } from '@infinitable/formulas'
 
-// ---- plugins 层（官方插件工厂与配置：chart / watermark / print）----
-export { createChartPlugin, createPrintPlugin, createWatermarkPlugin } from '@infinitable/plugins'
+// ---- plugins 层（官方插件工厂与配置：chart / watermark / print；print 的引擎
+// 供数适配 createEnginePrintSource 面向装配协议导出读取面，供宿主直接打印引擎实例）----
+export {
+  createChartPlugin,
+  createEnginePrintSource,
+  createPrintPlugin,
+  createWatermarkPlugin,
+} from '@infinitable/plugins'
 export type {
   ChartCellDeclaration,
   ChartDatasetDeclaration,

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// 统一发布包类型装配：把五个内部包的 dist/types 树复制为 dist/types/<pkg>/，
-// 跨包 '@infinitable/*' 裸说明符改写为相对路径（指向 <pkg>/index.js，TS 按 .js→.d.ts 解析），
+// 统一发布包类型装配：把六个内部包的 dist/types 树复制为 dist/types/<pkg>/，
+// 跨包 '@infinitable/*' 裸说明符改写为相对路径（公共入口 → <pkg>/index.js、深路径 →
+// <pkg>/<module>.js，TS 按 .js→.d.ts 解析），
 // 最后由 src/index.ts / src/sheet.ts 源文本同口径生成根 index.d.ts 与 sheet.d.ts 垫片
 // （两入口均为纯 re-export，垫片 = 源文本 + 裸说明符改写，dist 类型面与 src 显式导出面恒一致）。
-// 前置：五内部包与本体 vp build 已完成。
+// 前置：六内部包与本体 vp build 已完成。
 
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -11,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(pkgRoot, '../..')
-const INTERNAL = ['render', 'core', 'formulas', 'plugins', 'sheet']
+const INTERNAL = ['render', 'grid', 'table', 'formulas', 'plugins', 'sheet']
 const typesDir = path.join(pkgRoot, 'dist', 'types')
 
 function walkDts(dir) {
@@ -38,15 +39,18 @@ for (const name of INTERNAL) {
 
 /**
  * 把源文本里的 @infinitable/* 裸说明符改写为 dist/types 内相对路径。
- * 只匹配 from/import 语句上下文（注释文字提及不算），目标按 .js 写出、TS 按 .d.ts 解析。
+ * 只匹配 from/import 语句上下文（注释文字提及不算）。公共入口指向 <pkg>/index.js；
+ * 深路径（<pkg>/src/<module>，如 table → grid 内部原语接线）指向 <pkg>/<module>.js
+ * （tsc 以 src 为 rootDir 产 d.ts，类型树内已剥去 src 段）。均按 .js 写出、TS 按 .d.ts 解析。
  */
 function rewriteBareSpecifiers(source, fromFile) {
   return source.replace(
-    /((?:\bfrom|\bimport)\s*\(?\s*)(['"])@infinitable\/(core|render|plugins|formulas|sheet)\2/g,
-    (match, prefix, quote, name) => {
-      let rel = path
-        .relative(path.dirname(fromFile), path.join(typesDir, name, 'index.js'))
-        .replaceAll('\\', '/')
+    /((?:\bfrom|\bimport)\s*\(?\s*)(['"])@infinitable\/(render|grid|table|plugins|formulas|sheet)(?:\/(src\/[\w./-]+))?\2/g,
+    (match, prefix, quote, name, srcPath) => {
+      const target = srcPath
+        ? path.join(typesDir, name, `${srcPath.slice('src/'.length)}.js`)
+        : path.join(typesDir, name, 'index.js')
+      let rel = path.relative(path.dirname(fromFile), target).replaceAll('\\', '/')
       if (!rel.startsWith('.')) rel = `./${rel}`
       return `${prefix}${quote}${rel}${quote}`
     },

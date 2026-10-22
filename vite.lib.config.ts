@@ -16,7 +16,10 @@ export function createLibConfig({ extraExternals = [] }: LibConfigOptions = {}) 
         formats: ['es'],
       },
       rollupOptions: {
-        external: [/^@infinitable\//, ...extraExternals],
+        // 只外部化公共入口说明符（@infinitable/<pkg>，经各包 exports import 条件吃 dist）。
+        // 深路径（@infinitable/<pkg>/src/*，跨包内部原语接线，如 table → grid）无独立
+        // dist 产物，外部化会残留运行时不可解析的裸说明符——一律随消费方打包进产物。
+        external: [/^@infinitable\/[a-z-]+$/, ...extraExternals],
       },
     },
   })

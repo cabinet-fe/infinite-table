@@ -99,7 +99,7 @@ graph TD
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）
 - infinitable 为发布层：devDependencies 挂内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
 - 不入图的外部依赖：@cat-kit/core（formulas $n、grid 工具）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
-- 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码
+- 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码。例外：grid 的 `./src/*` 深路径条目三条件均指类型/源码（无独立产物），table 经深路径消费 grid 内部原语，构建时随消费方打包（`vite.lib.config.ts` 只外部化公共入口说明符）
 
 ## 关键路径
 

@@ -7,7 +7,7 @@ keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, 
 
 # ListTable 表格主类
 
-`infinitable`（core 层）导出表格主类 `ListTable` 与构造选项 `ListTableOptions`。构造时按可视窗口建场景（窗口外行列不进入场景树），滚动由引擎内部唯一状态源驱动并按方向提交 band 失效；数据供给三形态任选其一：`records` 数组、`model`（TableModel，如内置 `SheetModel` 或自实现 `TableModel`）、`rowCount` + `resolveDisplayValue` 钩子。内建滚动条经 `scrollbar` 选项开关与配档（`boolean | ScrollbarOptions`），样式全部走主题 interaction token。
+`infinitable`（table 层）导出表格主类 `ListTable` 与构造选项 `ListTableOptions`。构造时按可视窗口建场景（窗口外行列不进入场景树），滚动由引擎内部唯一状态源驱动并按方向提交 band 失效；数据供给三形态任选其一：`records` 数组、`model`（TableModel，如内置 `SheetModel` 或自实现 `TableModel`）、`rowCount` + `resolveDisplayValue` 钩子。内建滚动条经 `scrollbar` 选项开关与配档（`boolean | ScrollbarOptions`），样式全部走主题 interaction token。
 
 ## 快速上手
 
@@ -296,6 +296,57 @@ ListTableOptions 全部字段（五要素）：
 
 `updateCell(col, row, value)` 回驱链路（内部 `ModelBinding` 收口，0.1.2 起不再导出）：模型未提供 `setCellValue` 时直接返回不写入；正常写入后本次回驱窗口内模型 echo 的派生格变更收集去重并统一局部刷新。
 
+## 引擎装配协议（0.4.0 起）
+
+table 层同时导出引擎装配协议类型（P7 落地，四类平级引擎——表格 / sheet / 透视 / 甘特——的公共装配路径，`ListTable` 即协议的 table 引擎实现）：
+
+```ts
+/** 引擎装配协议（中立本体）：渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期 */
+export interface EngineAssembly {
+  // 渲染宿主（画布面）：层创建 / 失效提交 / 帧调度 / 文本测量
+  readonly host: RenderHost
+  // 数据面（TableModel 形态成员；G11 异步/窗口取数扩展位见类型内文档）
+  readonly rowCount: number
+  getCellValue(col: number, row: number): unknown   // 原始值（合并区路由主格）
+  updateCell(col: number, row: number, value: unknown): void  // 回驱数据源
+  onCellChange(listener: (change: CellChangeEvent) => void): () => void
+  // 主题（token 可配置；协议不内嵌 UI 文案 G20）
+  getTheme(): TableTheme
+  updateTheme(override: ThemeOverride): void
+  // painter 槽位：整层绘制挂载（水印等 underlay/overlay 绘制方；传 null 还原空置）
+  setUnderlayPainter(painter: UnderlayPainter | null): void
+  setOverlayPainter(painter: OverlayPainter | null): void
+  // 插件槽位：注册即挂载生效，销毁时逆序卸载（不绑定具体事件类型 G2/G21）
+  use(plugin: TablePlugin): void
+  // 生命周期
+  destroy(): void   // 幂等
+  // 导出读取面（可选能力，G12-G15；table 引擎恒提供，透视/甘特等引擎可不提供）
+  readonly read?: EngineReadView
+}
+
+/** 导出读取面：导出类插件读取引擎有效数据/样式/几何/合并区 */
+export interface EngineReadView {
+  readonly rowCount: number
+  readonly colCount: number
+  getRowHeight(row: number): number
+  getColWidth(col: number): number
+  getCellText(col: number, row: number): string      // 有效显示文本（经取值管线）
+  getCellValue(col: number, row: number): unknown    // 原始值（合并区主格路由）
+  getCellStyle(col: number, row: number): CellStyle | undefined
+  getMergeRanges(): readonly CellRange[]              // 合并区（几何区间语言）
+}
+
+/** 表格引擎协议面：EngineAssembly + 表格领域公共操作增量（G17 领域需求不上提进协议） */
+export interface TableEngine extends EngineAssembly {
+  // 视口与几何（width/height/colCount/resize/getRowHeight/setRowCount…）、滚动与命中
+  // （scrollBy/getBodyVisibleCellRange/getCellAtRelativePosition…）、冻结与合并、选区
+  // （applyExternalSelection/onSelectionChange/setHighlightRanges…）——即上文
+  // 「方法与事件」实例面的签名集合，SheetGrid 等适配层经本面消费、不触碰具体类
+}
+```
+
+watermark/print 插件的挂载参数与 `TablePlugin.mount` 均为协议面（不再以 `ListTable` 具体类型为挂载参数）；`SheetGrid` 经协议面消费 table 引擎（`getTable()` 返回 `TableEngine`）。导出类插件供数适配见 `apis/print-plugin.md` 的 `createEnginePrintSource`。
+
 ## 典型示例
 
 ### 模型直挂（SheetModel 驱动可编辑表）
@@ -398,7 +449,7 @@ table.setFrozenColCount(2) // 运行时改冻结（跨冻结边界的既有合�
 > - 鼠标滚轮滚动不内置（canvas 档）：引擎内置触控惯性/键盘/内建滚动条，滚轮必须宿主自行 `container.addEventListener('wheel', ...)` 接线到 `table.scrollBy`（`preventDefault` + `passive: false`）。
 > - 原生滚动条模式（`scrollbar: { mode: 'native' }`，0.1.4 起）：**由浏览器原生渲染的真实滚动条**——引擎在挂载容器内装配真实 DOM 滚动容器（`overflow` 滚动 + `scrollbar-gutter: stable`），非 canvas 自绘、非 DOM 模拟假滚动条；外观/显隐/触控板惯性/系统辅助功能完全随 OS，`visibility`/`hideDelay` 不适用（给出即忽略）。**gutter 口径**：横向、纵向（含右下角 corner）独立预留、从视口布局扣除、永不覆盖任何单元格（含行号列/列头/冻结区）；视口口径取滚动容器 `clientWidth`/`clientHeight`（已含原生 gutter 扣除），`table.width`/`height` 语义不变。**宿主滚轮接线让位**：原生档下引擎滚轮/触控板由原生滚动容器接管，宿主既有 wheel 接线不得造成双滚——引擎提供只读判定 `table.usesNativeScrollbar`，宿主接线处按 `if (table.usesNativeScrollbar) return` 让位（playground `attachWheel` 即此模式）。程序化滚动（`scrollTo`/`scrollBy`/键盘导航 `ensureCellVisible`）与原生容器双向同步，`ScrollManager` 仍是唯一滚动状态源；canvas 滚动条不再绘制、右/下缘条带不拦截指针。不支持 `scrollbar-gutter` 的旧浏览器回落为原生覆盖式行为（仅滚动显隐时短暂覆盖），不做 polyfill。
 > - 内建滚动条（0.1.2 重构，canvas 档）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。
-> - `CellRef` 在统一入口有两个：core 的格坐标以 `GridCellRef` 导出，`CellRef` 是 formulas 层的 A1 引用（含 `colAbsolute`/`rowAbsolute`/`sheet` 字段）。
+> - `CellRef` 在统一入口有两个：grid 的格坐标以 `GridCellRef` 导出，`CellRef` 是 formulas 层的 A1 引用（含 `colAbsolute`/`rowAbsolute`/`sheet` 字段）。
 > - 合并区重叠分两层（0.2.0 起）：批量入口（构造 `mergeCells` / `setMergeCells`）自动规范化——保留先声明区间、丢弃冲突项并 console.warn（`[infinitable] <来源>: dropped overlapping merge range ...`），不再抛错打断渲染；程序化单命令（`addMergeCell`）抛 `MergeOverlapError`（携带 `coord`/`range`/`existing`，报错原文 `merge ranges overlap at (col, row): existing [...] vs incoming [...]`）。越出表格抛 `assertMergesWithinTable` 系列错误。跨冻结边界的合并区合法（主格按冻结带钉固绘制）。
 > - `updateCell` 只对 model 形态生效；records 形态直接改行对象字段后调 `refreshCell`。
 > - `updateTheme` 不重算已生效的 rowHeight/headerHeight/rowHeaderWidth/defaultColWidth 几何值；运行时改行列尺寸走 `setRowHeight`/`setColWidth`。

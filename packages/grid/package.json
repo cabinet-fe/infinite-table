@@ -11,7 +11,8 @@
     },
     "./src/*": {
       "types": "./dist/types/*.d.ts",
-      "dev": "./src/*.ts"
+      "dev": "./src/*.ts",
+      "import": "./src/*.ts"
     }
   },
   "scripts": {

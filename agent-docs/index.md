@@ -1,13 +1,13 @@
 ---
 title: infinitable 总览
-description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。含四层模块（render/core/formulas/plugins）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、经 infinitable 的 ./sheet 子路径转出。导出面判据与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
+description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。主入口含五层模块（render/grid/table/formulas/plugins，core 已拆为 grid+table）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、经 infinitable 的 ./sheet 子路径转出；table 层承载引擎装配协议（EngineAssembly/EngineReadView/TableEngine）。导出面判据、core 拆分迁移登记与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
 aliases: [infinitable, infinite-table, InfiniTable, 表格引擎, canvas 表格]
-keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
+keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, 引擎装配协议, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
 ---
 
 # infinitable 总览
 
-infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 27KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 四层：render（canvas 渲染引擎）、core（表格主体）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）。两入口导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
+infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 27KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 五层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、table（表格主体 ListTable 与引擎装配协议）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）。两入口导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
 
 ## 安装
 
@@ -19,11 +19,11 @@ bun add infinitable @cat-kit/core
 
 - `@cat-kit/core`（`^1.2.1`）是 peerDependency，必须与 `infinitable` 一起安装：公式引擎的四则运算与 SUM/AVERAGE/ROUND/ABS 精确计算依赖其 `$n`。
 - `chart.js` 不在依赖里：chart 插件按需动态 `import('chart.js')`，只用到单元格图表时才安装。
-- 仓内 monorepo 开发分层引用（`@infinitable/render` / `core` / `formulas` / `plugins`），发布为单包 `infinitable`；使用方一律从 `infinitable` 导入。
+- 仓内 monorepo 开发分层引用（`@infinitable/render` / `grid` / `table` / `formulas` / `plugins`），发布为单包 `infinitable`；使用方一律从 `infinitable` 导入。
 
 ## 模块速查
 
-统一入口与 `./sheet` 子路径全部公共导出（含 `CellRef` 消歧：formulas 的 A1 引用保留 `CellRef`，core 的格坐标以 `GridCellRef` 别名导出）按下表定位篇目，逐项可 grep 核对。
+统一入口与 `./sheet` 子路径全部公共导出（含 `CellRef` 消歧：formulas 的 A1 引用保留 `CellRef`，grid 的格坐标以 `GridCellRef` 别名导出）按下表定位篇目，逐项可 grep 核对。
 
 | 导出名 | 用途 | 文档路径 |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ bun add infinitable @cat-kit/core
 | `createRenderHost` / `RenderHostOptions` / `RenderHost` | 渲染宿主（窄接口唯一实现入口） | `apis/render-engine.md` |
 | `SceneNode` / `SceneNodeInit` / `SceneEvent` / `SceneEventType` / `SceneEventListener` | 场景树与 federated 事件 | `apis/render-engine.md` |
 | `LayerHandle` / `LayerKind` / `LayerOpts` / `Invalidation` / `FrameTask` | 层句柄与三档失效 | `apis/render-engine.md` |
-| `Region` / `Size` / `RenderContext` / `RenderCanvas` / `RenderImageSource` | 渲染基础类型（render 层导出，core 层亦转出 `RenderContext`/`Size`） | `apis/render-engine.md` |
+| `Region` / `Size` / `RenderContext` / `RenderCanvas` / `RenderImageSource` | 渲染基础类型（render 层导出，table 层亦转出 `RenderContext`/`Size`） | `apis/render-engine.md` |
 | `parseCellRef` / `formatCellRef` / `colLetters` / `formatRangeRef` / `createRangeRef` / `CellRef` | A1 地址系统（0 基坐标） | `apis/formula-engine.md` |
 | `FormulaError` / `formulaError` / `isFormulaError` / `isFormulaErrorCode` / `FormulaParseError` | 公式错误值体系（7 种错误码） | `apis/formula-engine.md` |
 | `parseFormula` / `AstNode` | Pratt 解析器与 AST | `apis/formula-engine.md` |
@@ -67,11 +67,13 @@ bun add infinitable @cat-kit/core
 | `HistoryManager` / `CommandRegistry` / `defaultCommandRegistry` / `SetCellValueCommand` / `SetCellFormulaCommand` / `SetCellStyleCommand` / `SetAxisStyleCommand` / `InsertCellsCommand` / `MergeCellsCommand` / `UnmergeCellsCommand` / `MergeCellsBatchCommand` / `InsertImageCommand` / `RemoveImageCommand` / `UpdateImageCommand` / `SetCellMetaCommand` / `ClearCellMetaCommand` / `SetCellLinkCommand` / `ClearCellLinkCommand` / `InsertCellImageCommand` / `RemoveCellImageCommand` / `HistoryState` / `PatchDirection` / `CellPatch` / `MergePatch` / `StructureChange` / `StructurePatch` / `SnapshotPatch` / `ImagePatch` / `CellMetaPatch` / `AxisStylePatch` / `Patch` / `Mutation` / `CommandResult` / `CommandContext` / `Command` / `SetCellValueItem` / `SetCellValueParams` / `SetCellFormulaParams` / `SetCellStyleItem` / `SetCellStyleParams` / `SetAxisStyleItem` / `SetAxisStyleParams` / `InsertCellsParams` / `MergeCellsParams` / `UnmergeCellsParams` / `MergeCellsBatchParams` / `InsertImageParams` / `RemoveImageParams` / `ImageUpdateFields` / `UpdateImageParams` / `SetCellMetaParams` / `ClearCellMetaParams` / `SetCellLinkParams` / `ClearCellLinkParams` / `InsertCellImageParams` / `RemoveCellImageParams` | sheet 命令族（撤销栈与可注册命令面） | `apis/sheet.md` |
 | `createImageId` / `cloneImageAnchor` / `cloneSheetImage` / `IMAGE_MIME` / `SheetImageType` / `SheetImageAnchor` / `SheetImage` / `ImageInput` / `ImageFitMode` | sheet 浮动图片锚点与克隆（`IMAGE_MIME` 类型→MIME 映射、`ImageFitMode` 嵌入图 fit 档） | `apis/sheet.md` |
 | `exportWorkbookXlsx` / `exportSheetXlsx` / `exportSheetCsv` / `importXlsx` / `importCsv` / `replaceWorkbookWithSnapshots` / `SheetReplaceItem` | sheet xlsx/csv 导入导出与快照替换 | `apis/sheet.md` |
-| `SheetGrid` / `ResolveCellRenderer` / `SheetGridOptions` / `SelectionInterceptMeta`（选区拦截手势载荷） / `ScrollbarOptions`（core 同形再导出，`mode: 'native'` 档） / `ResolveCellStyleHook` / `ResolveDisplayValue` / `SheetGridContextMenuInfo` / `SheetGridContextMenuKind` / `SheetGridHeaderOptions` / `GridCellEditor` / `GridEditorRect` / `GridEditorSession` / `SheetGridEditorsOptions` / `CellRenderer` / `CellRenderTarget` | SheetGrid 装配（Sheet 模型 ↔ ListTable 适配层） | `apis/sheet.md` |
+| `SheetGrid` / `ResolveCellRenderer` / `SheetGridOptions` / `SelectionInterceptMeta`（选区拦截手势载荷） / `ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 档） / `ResolveCellStyleHook` / `ResolveDisplayValue` / `SheetGridContextMenuInfo` / `SheetGridContextMenuKind` / `SheetGridHeaderOptions` / `GridCellEditor` / `GridEditorRect` / `GridEditorSession` / `SheetGridEditorsOptions` / `CellRenderer` / `CellRenderTarget` | SheetGrid 装配（Sheet 模型 ↔ ListTable 适配层） | `apis/sheet.md` |
+| `EngineAssembly` / `EngineReadView` / `TableEngine` | 引擎装配协议（0.4.0 起）：中立本体（渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期，四类平级引擎公共装配路径）、可选导出读取面（导出类插件读引擎有效数据/样式/几何/合并区）与表格引擎协议面（SheetGrid 等适配层按协议消费） | `apis/list-table.md` |
 | `createChartPlugin` / `ChartPluginOptions` / `ChartPluginHandle` | 图表插件工厂与句柄 | `apis/chart-watermark-plugin.md` |
 | `ChartCellDeclaration` / `ChartDatasetDeclaration` / `ChartDatasetSpec` / `ChartSpec` / `ChartSpecType` / `ChartType` | 单元格图表声明与规范化类型 | `apis/chart-watermark-plugin.md` |
 | `createWatermarkPlugin` / `WatermarkHandle` / `WatermarkTextConfig` | 水印插件工厂、句柄与配置 | `apis/chart-watermark-plugin.md` |
 | `createPrintPlugin` / `PrintPluginOptions` / `PrintPluginHandle` | 打印插件工厂与句柄（分页/文档构建/打印输出/预览经 handle 方法） | `apis/print-plugin.md` |
+| `createEnginePrintSource` | 引擎供数适配（0.4.0 起）：装配协议导出读取面 `engine.read` → `PrintSource`，宿主打印引擎实例的便捷入口 | `apis/print-plugin.md` |
 | `PrintConfig` / `PrintSource` / `PrintPaperPreset` / `PrintPaperSpec` / `PrintOrientation` / `PrintMargin` / `PrintScaleMode` / `PrintPagingMode` / `PrintHeaderFooterConfig` / `PrintHeaderFooterSection` | 打印配置与数据源 | `apis/print-plugin.md` |
 | （导出面判据、逐项清单、移出项过渡方案、0.1.x 兼容结论） | 主入口与 `./sheet` 子路径导出集合的判定依据与冻结机制 | `apis/exports.md` |
 

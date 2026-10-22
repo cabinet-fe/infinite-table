@@ -61,6 +61,16 @@ export interface PrintSource {
   displayValue(col: number, row: number): unknown
 }
 
+/**
+ * 引擎供数适配（0.4.0 起）：装配协议导出读取面（EngineReadView）→ PrintSource。
+ * 打印引擎实例（如 ListTable）时不再自写适配器；引擎未提供 read 面（透视/甘特等
+ * 引擎按自身语义决定）时 fail-fast 抛错。name 为页面标题缺省源，缺省空串。
+ */
+export function createEnginePrintSource(
+  engine: EngineAssembly,
+  options?: { name?: string },
+): PrintSource
+
 // ---- 配置 ----
 
 export type PrintPaperPreset = 'A3' | 'A4' | 'A5' | 'Letter'
