@@ -49,6 +49,14 @@ class MeasureStubContext implements RenderContext {
   rect(x: number, y: number, width: number, height: number): void {
     this.rects.push({ x, y, width, height })
   }
+  moveTo(): void {}
+  lineTo(): void {}
+  bezierCurveTo(): void {}
+  quadraticCurveTo(): void {}
+  arc(): void {}
+  closePath(): void {}
+  stroke(): void {}
+  fill(): void {}
   clip(): void {
     this.clips.push(...this.rects.slice(-1))
   }

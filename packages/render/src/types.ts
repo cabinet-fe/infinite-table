@@ -46,6 +46,26 @@ export interface RenderContext {
   rotate?(rad: number): void
   beginPath(): void
   rect(x: number, y: number, width: number, height: number): void
+  /**
+   * 路径原语：moveTo/lineTo/曲线段/closePath 构造当前路径，stroke 描边、fill 填充。
+   * 与 beginPath/rect 同为绘制协议的必选成员（折线、贝塞尔、排序指示、依赖箭头等
+   * 任意自绘图形依赖），真实 CanvasRenderingContext2D 天然满足。
+   */
+  moveTo(x: number, y: number): void
+  lineTo(x: number, y: number): void
+  bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void
+  arc(
+    x: number,
+    y: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    counterclockwise?: boolean,
+  ): void
+  closePath(): void
+  stroke(): void
+  fill(): void
   clip(): void
   clearRect(x: number, y: number, width: number, height: number): void
   fillRect(x: number, y: number, width: number, height: number): void

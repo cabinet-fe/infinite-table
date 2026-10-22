@@ -39,6 +39,44 @@ export class FakeContext implements RenderContext {
   rect(x: number, y: number, width: number, height: number): void {
     this.record('rect', x, y, width, height)
   }
+  moveTo(x: number, y: number): void {
+    this.record('moveTo', x, y)
+  }
+  lineTo(x: number, y: number): void {
+    this.record('lineTo', x, y)
+  }
+  bezierCurveTo(
+    cp1x: number,
+    cp1y: number,
+    cp2x: number,
+    cp2y: number,
+    x: number,
+    y: number,
+  ): void {
+    this.record('bezierCurveTo', cp1x, cp1y, cp2x, cp2y, x, y)
+  }
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void {
+    this.record('quadraticCurveTo', cpx, cpy, x, y)
+  }
+  arc(
+    x: number,
+    y: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    counterclockwise?: boolean,
+  ): void {
+    this.record('arc', x, y, radius, startAngle, endAngle, counterclockwise)
+  }
+  closePath(): void {
+    this.record('closePath')
+  }
+  stroke(): void {
+    this.record('stroke')
+  }
+  fill(): void {
+    this.record('fill')
+  }
   clip(): void {
     this.record('clip')
   }

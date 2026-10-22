@@ -42,6 +42,14 @@ class StubContext implements RenderContext {
   translate(): void {}
   beginPath(): void {}
   rect(): void {}
+  moveTo(): void {}
+  lineTo(): void {}
+  bezierCurveTo(): void {}
+  quadraticCurveTo(): void {}
+  arc(): void {}
+  closePath(): void {}
+  stroke(): void {}
+  fill(): void {}
   clip(): void {}
   clearRect(): void {}
   drawImage(): void {}

@@ -42,6 +42,30 @@ export class RecordingContext implements RenderContext {
   rect(x: number, y: number, width: number, height: number): void {
     this.record('rect', x, y, width, height)
   }
+  moveTo(x: number, y: number): void {
+    this.record('moveTo', x, y)
+  }
+  lineTo(x: number, y: number): void {
+    this.record('lineTo', x, y)
+  }
+  bezierCurveTo(...args: unknown[]): void {
+    this.record('bezierCurveTo', ...args)
+  }
+  quadraticCurveTo(...args: unknown[]): void {
+    this.record('quadraticCurveTo', ...args)
+  }
+  arc(...args: unknown[]): void {
+    this.record('arc', ...args)
+  }
+  closePath(): void {
+    this.record('closePath')
+  }
+  stroke(): void {
+    this.record('stroke')
+  }
+  fill(): void {
+    this.record('fill')
+  }
   clip(): void {
     this.record('clip')
   }

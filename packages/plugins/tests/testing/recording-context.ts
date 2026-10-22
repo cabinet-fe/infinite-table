@@ -49,6 +49,22 @@ export class RecordingContext implements RenderContext {
 
   rect(): void {}
 
+  moveTo(): void {}
+
+  lineTo(): void {}
+
+  bezierCurveTo(): void {}
+
+  quadraticCurveTo(): void {}
+
+  arc(): void {}
+
+  closePath(): void {}
+
+  stroke(): void {}
+
+  fill(): void {}
+
   clip(): void {}
 
   clearRect(): void {}
