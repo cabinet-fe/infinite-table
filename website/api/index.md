@@ -20,7 +20,7 @@ description: infinitable 的两个发布入口、导出判据与稳定性、按�
 
 | 入口   | 导入路径            | 转售内容                                                                                                                                         | 适用场景                                                       |
 | ------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| 主入口 | `infinitable`       | `@infinitable/render` + `@infinitable/grid` + `@infinitable/table` + `@infinitable/formulas` + `@infinitable/plugins` 的公共 API                    | 绘制表格、嵌入自研渲染宿主、公式计算、挂官方插件               |
+| 主入口 | `infinitable`       | `@infinitable/render` + `@infinitable/grid` + `@infinitable/table` + `@infinitable/formulas` + `@infinitable/plugins` 的公共 API                 | 绘制表格、嵌入自研渲染宿主、公式计算、挂官方插件               |
 | 子路径 | `infinitable/sheet` | `@infinitable/sheet` 白名单全量（地址系统、单元格存储、样式池、合并/选区/填充/查找、`Sheet`/`Workbook`、命令与撤销、图片、IO、`SheetGrid` 适配） | 需要电子表格模型、命令栈、xlsx/csv 导入导出或 `SheetGrid` 装配 |
 
 ```ts
@@ -136,7 +136,7 @@ const a1: CellRef = { col: 2, row: 5, colAbsolute: false, rowAbsolute: false } /
 | 符号                                                                                                                                    | 用途                                               | 详细页面                           |
 | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------- |
 | `ListTableOptions` / `ColumnDefine` / `DataRecord` / `TableModel` / `ResolveDisplayValue` / `CellChangeEvent` / `TableContextMenuEvent` | 表格构造、列定义、数据供给与基础事件载荷           | [/api/list-table](/api/list-table) |
-| `GridCellRef`                                                                                                                           | grid 格坐标 `{ col, row }` 的消歧别名             | [/api/core](/api/core)             |
+| `GridCellRef`                                                                                                                           | grid 格坐标 `{ col, row }` 的消歧别名              | [/api/core](/api/core)             |
 | `CellRange` / `MergeConflict` / `SanitizedMerges`                                                                                       | 合并区间、冲突详情与消解结果                       | [/api/core](/api/core)             |
 | `CellStyle` / `CellBorder` / `CellBorderEdge`                                                                                           | 逐格样式与逐边边框                                 | [/api/core](/api/core)             |
 | `TableTheme` / `ThemeOverride`                                                                                                          | 生效主题结构与深覆盖入参                           | [/api/core](/api/core)             |

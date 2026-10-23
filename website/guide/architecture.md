@@ -51,15 +51,15 @@ flowchart LR
 
 ## 七个包的职责与依赖
 
-| 包                      | 职责                                                                                                           | 主要入口                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、canvas 池化、帧调度、`RenderHost` 窄接口 | `packages/render/src/index.ts`      |
+| 包                      | 职责                                                                                                                  | 主要入口                            |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、canvas 池化、帧调度、`RenderHost` 窄接口        | `packages/render/src/index.ts`      |
 | `@infinitable/grid`     | 共享网格内核：`ScrollManager`、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、共享边、cell-range、浮动对象层 | `packages/grid/src/index.ts`        |
-| `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径                                         | `packages/table/src/index.ts`       |
-| `@infinitable/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、`evaluate`、49 个内置函数、依赖图、容错引用扫描、引用平移     | `packages/formulas/src/index.ts`    |
-| `@infinitable/plugins`  | 官方插件：`TablePlugin` 契约转出 + chart / print / watermark 插件工厂                                          | `packages/plugins/src/index.ts`     |
-| `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层                           | `packages/sheet/src/index.ts`       |
-| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心                               | `packages/infinitable/src/index.ts` |
+| `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径                                                | `packages/table/src/index.ts`       |
+| `@infinitable/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、`evaluate`、49 个内置函数、依赖图、容错引用扫描、引用平移            | `packages/formulas/src/index.ts`    |
+| `@infinitable/plugins`  | 官方插件：`TablePlugin` 契约转出 + chart / print / watermark 插件工厂                                                 | `packages/plugins/src/index.ts`     |
+| `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层                                  | `packages/sheet/src/index.ts`       |
+| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心                                      | `packages/infinitable/src/index.ts` |
 
 ```mermaid
 graph TD
@@ -94,12 +94,12 @@ graph TD
 
 四层画布自下而上叠放，每层有独立的场景树和失效队列：
 
-| 层  | 名称     | 职责                                                                                    | 创建时机                             | 消费策略               |
-| --- | -------- | --------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------- |
+| 层  | 名称     | 职责                                                                                     | 创建时机                             | 消费策略               |
+| --- | -------- | ---------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------- |
 | L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 table 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | 只响应 `band` / `full` |
-| L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                              | 构造时创建                           | 逐 region 补画         |
-| L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                          | 首次出现图片或图表格时惰性创建       | 逐 region 补画         |
-| L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                    | 构造时创建                           | 整层重画               |
+| L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                               | 构造时创建                           | 逐 region 补画         |
+| L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                           | 首次出现图片或图表格时惰性创建       | 逐 region 补画         |
+| L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                     | 构造时创建                           | 整层重画               |
 
 分层的目的不是视觉分层，而是**变化频率隔离**：
 

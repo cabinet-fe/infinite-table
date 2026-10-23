@@ -67,7 +67,7 @@ playground → 各内部包源码
 | `bun run check`                     | `vp check`：oxfmt + oxlint + tsgolint 类型检查三合一                     |
 | `bun run lint`                      | `vp lint` + `bun run check:deps`                                         |
 | `bun run fmt` / `bun run fmt:check` | 格式化写入 / 只检查                                                      |
-| `bun run check:deps`                | 校验 `packages/grid` 与 `packages/table` 对 `@visactor/*` 零依赖        |
+| `bun run check:deps`                | 校验 `packages/grid` 与 `packages/table` 对 `@visactor/*` 零依赖         |
 | `bun run check:exports`             | 空项目消费冒烟：校验各包 dist、类型树与 `./sheet` 子路径；**需先 build** |
 | `bun run changeset`                 | changesets CLI（发版流程中不推荐交互式使用，见下文）                     |
 | `bun run release`                   | 发版准备：changeset version + install + commit + push                    |

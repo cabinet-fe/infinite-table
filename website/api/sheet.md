@@ -1453,7 +1453,7 @@ interface SelectionInterceptMeta {
 
 | 类型                                | 说明                                                        |
 | ----------------------------------- | ----------------------------------------------------------- |
-| `CellRenderer` / `CellRenderTarget` | 引擎单元格渲染器及绘制目标（自 table 转出）                  |
+| `CellRenderer` / `CellRenderTarget` | 引擎单元格渲染器及绘制目标（自 table 转出）                 |
 | `ScrollbarOptions`                  | 滚动条配置（自 grid 转出）；`mode: 'native'` 为原生滚动条档 |
 | `SheetGridContextMenuInfo.x/y`      | 客户端坐标                                                  |
 | `SheetGridContextMenuInfo.addr`     | body 格地址；行号列 / 列头为 `null`                         |
