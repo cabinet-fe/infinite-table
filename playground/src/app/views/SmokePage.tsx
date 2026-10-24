@@ -1,18 +1,16 @@
-// 冒烟自检页：按钮触发子集冒烟（挂 dataForms/display/interaction/media/editing 五区到暂存区），
-// 结果徽标 + 失败清单；行为对齐旧 SmokeView（结果取 window.__SMOKE__）。
+// 冒烟自检页：按钮触发全量冒烟（与 ?smoke=1 共用 demo-suite 单一事实源，全量演示区
+// 挂离屏暂存区——canvas 照常绘制供像素断言），结果徽标 + 失败清单；结果取 window.__SMOKE__。
+// 历史子集挂载（只挂五区）在 runSmoke 检查面扩张后漏区崩溃，已收敛为全量装配。
 
 import { LoaderCircle, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { mountDataForms } from '../../sections/data-forms'
-import { mountDisplay } from '../../sections/display'
-import { mountEditing } from '../../sections/editing'
-import { mountInteraction } from '../../sections/interaction'
-import { mountMedia } from '../../sections/media'
-import { runSmoke, type SmokeResult } from '../../smoke'
-import type { DemoHandles } from '../types'
+
+import { setSmokeDprLocked } from '../../mount'
+import { installErrorSink, resetCollectedErrors, runSmoke, type SmokeResult } from '../../smoke'
+import { mountDemoSuite } from '../demo-suite'
 
 export function SmokePage() {
   const [running, setRunning] = useState(false)
@@ -20,7 +18,7 @@ export function SmokePage() {
   const stagingRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // 已跑过一次（如 ?smoke=1 落到本页前的全局模式）则直接呈现既有结果
+    // 已有结果（如自动化冒烟先行落窗）则直接呈现
     if (window.__SMOKE__) {
       setResult(window.__SMOKE__)
     }
@@ -33,17 +31,16 @@ export function SmokePage() {
     setResult(null)
     staging.innerHTML = ''
 
+    // 冒烟确定性对齐 ?smoke=1（均在挂载/断言前生效）：错误采集（收尾「无控制台错误」
+    // 断言，重复运行先清册）+ dpr 锁 1（像素断言坐标 1:1，引擎构造期读取）+
+    // 经典滚动条宽度（gutter 断言；global.css 的 .smoke-classic-scrollbars）
+    installErrorSink()
+    resetCollectedErrors()
+    setSmokeDprLocked(true)
+    document.documentElement.classList.add('smoke-classic-scrollbars')
+
     try {
-      // 子集冒烟：只挂五区（对齐旧 SmokeView），未挂载区（chart/watermark/print/report）
-      // 的检查项在 runSmoke 内逐项捕获记失败——既有行为，结果徽标会如实呈现
-      const demos = {
-        dataForms: mountDataForms(staging),
-        display: mountDisplay(staging),
-        interaction: mountInteraction(staging),
-        media: mountMedia(staging),
-        editing: mountEditing(staging),
-      } as DemoHandles
-      await runSmoke(demos)
+      await runSmoke(mountDemoSuite(staging))
       setResult(window.__SMOKE__ ?? null)
     } catch (err) {
       setResult({
@@ -53,6 +50,8 @@ export function SmokePage() {
         failures: [err instanceof Error ? err.message : String(err)],
       })
     } finally {
+      setSmokeDprLocked(false)
+      document.documentElement.classList.remove('smoke-classic-scrollbars')
       setRunning(false)
     }
   }
@@ -69,7 +68,7 @@ export function SmokePage() {
         </div>
         <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
           内置冒烟自检套件：覆盖分层画布像素采样（冻结/合并/逐边边框/自定义渲染）、合成事件调度（拖选/Resize/键盘/触控）、图片
-          LRU 与无闪回滚、编辑状态机及滚出提交等 20+ 项高要求断言。
+          LRU 与无闪回滚、编辑状态机及滚出提交、原生滚动条档与透视表引擎等 60+ 项高要求断言。
         </p>
       </div>
 

@@ -1,4 +1,4 @@
-// 侧栏导航配置：15 个路由页（key 与 hash 路由契约一致）+ bench 独立页外链。
+// 侧栏导航配置：路由页（key 与 hash 路由契约一致）+ bench 独立页外链。
 // 分组按演示内容的能力域组织（渲染显示 / 数据交互 / 插件场景 / 性能工程）；图标一律 lucide-react 矢量图标。
 
 import type { LucideIcon } from 'lucide-react'
@@ -13,12 +13,13 @@ import {
   Home,
   Image as ImageIcon,
   Infinity as InfinityIcon,
+  Layers,
   Link2,
   MousePointerClick,
   Palette,
   Pencil,
   Printer,
-  Swords,
+  Table2,
   Timer,
 } from 'lucide-react'
 
@@ -27,6 +28,7 @@ export const BRAND_ICON = InfinityIcon
 /** hash 路由 key（bench 为外链，不走路由但占导航位） */
 export type RouteKey =
   | 'home'
+  | 'architecture'
   | 'display'
   | 'native-scroll'
   | 'infinite-sheet'
@@ -38,8 +40,8 @@ export type RouteKey =
   | 'watermark'
   | 'print'
   | 'editing'
+  | 'pivot'
   | 'report'
-  | 'compare'
   | 'bench'
   | 'smoke'
 
@@ -79,6 +81,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: '总览',
         icon: Home,
         desc: '引擎概览 · 实测指标 · 全部入口',
+      },
+      {
+        key: 'architecture',
+        label: '架构与 API 边界',
+        icon: Layers,
+        badge: 'packages',
+        desc: '子包分层 · 职责 · 公共 API 面',
       },
     ],
   },
@@ -143,6 +152,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         icon: Pencil,
         desc: 'SheetModel · 双击编辑 · 滚出提交',
       },
+      {
+        key: 'pivot',
+        label: '透视表',
+        icon: Table2,
+        badge: 'multi-engine',
+        desc: '行/列维度交叉 · 度量聚合 · 动态勾选',
+      },
     ],
   },
   {
@@ -177,15 +193,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     title: '性能与工程',
-    desc: '同口径页内对比、headless 量化基准与端到端冒烟自检',
+    desc: 'headless 量化基准与端到端冒烟自检',
     items: [
-      {
-        key: 'compare',
-        label: 'vs VTable 对比',
-        icon: Swords,
-        badge: '按钮即跑',
-        desc: '同数据同口径 · 页内实时对比两库',
-      },
       {
         key: 'bench',
         label: '量化基准',
@@ -197,7 +206,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         key: 'smoke',
         label: '冒烟自检',
         icon: FlaskConical,
-        badge: '20+ 项',
+        badge: '60+ 项',
         desc: '端到端像素级自检断言套件',
       },
     ],

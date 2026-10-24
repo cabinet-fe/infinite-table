@@ -100,11 +100,11 @@
 @layer components {
   /* 演示区挂载容器：React 页面的挂载点，直接子元素 section 即一张演示卡 */
   .demo-mount-area {
-    @apply flex flex-col gap-4;
+    @apply flex flex-col gap-3;
   }
 
   .demo-mount-area section {
-    @apply rounded-xl border bg-card px-5 py-4 shadow-sm;
+    @apply rounded-xl border bg-card px-4 py-3 shadow-sm;
   }
 
   /* section 内子场景标题（chart / data-forms 的 h3） */
@@ -115,6 +115,36 @@
   /* 表格容器：mountTable 建的相对定位容器，承载四层 canvas */
   .table-mount {
     @apply relative touch-none overflow-hidden rounded-md border bg-card shadow-sm select-none;
+  }
+}
+
+/* ---- 应用壳滚动条（侧栏菜单等 DOM 滚动容器）----
+   只走 ::-webkit-scrollbar 定制（Chrome/Safari 全量生效：细轨 + 圆角胶囊 thumb，
+   常显低透明度、容器 hover 与 thumb hover 渐显）；不设 scrollbar-width/-color
+   标准属性——Chromium 121+ 二者生效时会禁用 webkit 伪元素，二选一保定制观感，
+   Firefox 回退原生滚动条。冒烟模式无应用壳，与 smoke-classic-scrollbars 互不影响。 */
+@layer components {
+  .scrollbar-slim {
+    &::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+      border-radius: 9999px;
+      background: rgb(161 161 170 / 0.28);
+    }
+    &:hover::-webkit-scrollbar-thumb {
+      background: rgb(161 161 170 / 0.5);
+    }
+    &::-webkit-scrollbar-thumb:hover {
+      background: rgb(212 212 216 / 0.85);
+    }
+    &::-webkit-scrollbar-corner {
+      background: transparent;
+    }
   }
 }
 

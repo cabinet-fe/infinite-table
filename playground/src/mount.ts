@@ -15,9 +15,16 @@ export function isSmokeMode(): boolean {
   return new URLSearchParams(location.search).has('smoke')
 }
 
+/** 页内冒烟自检（SmokePage 无 ?smoke=1）的 dpr 锁：挂载演示区前开启，跑完关闭 */
+let smokeDprLocked = false
+
+export function setSmokeDprLocked(locked: boolean): void {
+  smokeDprLocked = locked
+}
+
 /** dpr 解析：冒烟模式锁 1（页内像素断言确定性），否则取设备 dpr */
 export function resolveDpr(): number {
-  return isSmokeMode() ? 1 : window.devicePixelRatio || 1
+  return isSmokeMode() || smokeDprLocked ? 1 : window.devicePixelRatio || 1
 }
 
 /**

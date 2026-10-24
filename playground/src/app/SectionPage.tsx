@@ -27,8 +27,8 @@ export function SectionPage<D>({ title, tags, desc, mount, unmount }: SectionPag
   }, [mount, unmount])
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="rounded-xl border bg-card px-6 py-5 shadow-sm">
+    <div className="flex flex-col gap-3">
+      <div className="rounded-xl border bg-card px-5 py-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
           {tags?.map((tag) => (

@@ -5,8 +5,9 @@ import { ArrowUpRight } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 import { cn } from '@/lib/utils'
+import { PivotPage } from './views/PivotPage'
+import { ArchitecturePage } from './views/ArchitecturePage'
 import { ChartPage } from './views/ChartPage'
-import { ComparePage } from './views/ComparePage'
 import { DataFormsPage } from './views/DataFormsPage'
 import { DisplayPage } from './views/DisplayPage'
 import { EditingPage } from './views/EditingPage'
@@ -26,6 +27,7 @@ import { useHashRoute } from './useHashRoute'
 /** 页面 key → 页面组件（bench 为独立页外链，不占路由位） */
 const PAGES: Record<PageKey, ComponentType> = {
   home: HomePage,
+  architecture: ArchitecturePage,
   display: DisplayPage,
   'native-scroll': NativeScrollPage,
   'data-forms': DataFormsPage,
@@ -36,9 +38,9 @@ const PAGES: Record<PageKey, ComponentType> = {
   watermark: WatermarkPage,
   print: PrintPage,
   editing: EditingPage,
+  pivot: PivotPage,
   report: ReportPage,
   'infinite-sheet': InfiniteSheetPage,
-  compare: ComparePage,
   smoke: SmokePage,
 }
 
@@ -56,7 +58,7 @@ function Sidebar({ active, onNavigate }: { active: PageKey; onNavigate: (key: Pa
         </div>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+      <nav className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         {NAV_GROUPS.map((group) => (
           <div key={group.title} className="mb-1">
             <div className="px-2 pb-1 pt-3 text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
@@ -169,7 +171,7 @@ export function AppShell() {
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <Sidebar active={active} onNavigate={navigate} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[52px] shrink-0 items-center justify-between gap-6 border-b bg-background/80 px-7 backdrop-blur">
+        <header className="flex h-[52px] shrink-0 items-center justify-between gap-6 border-b bg-background/80 px-4 backdrop-blur">
           <div className="flex min-w-0 items-center gap-2 text-[13px]">
             <span className="text-muted-foreground">playground</span>
             <span className="text-muted-foreground/60">/</span>
@@ -183,7 +185,8 @@ export function AppShell() {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1160px] px-7 pt-6 pb-12">
+          {/* 内容撑满可用宽（不设 max-w），内边距收紧以多展示内容 */}
+          <div className="px-4 pt-4 pb-8">
             <Page />
           </div>
         </main>

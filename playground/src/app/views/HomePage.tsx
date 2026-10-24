@@ -1,19 +1,11 @@
-// 总览页（P3 质感终稿）：hero + 实测 KPI + 最小构建体积对比条 + 按能力域分组的示例导航。
-// 数字一律取 README 与 playground/results/ 的实测采样（2026-09，对比基线 VTable 1.26.8），不写营销口径。
+// 总览页（P3 质感终稿）：hero + 实测 KPI + 按能力域分组的示例导航。
+// 数字一律取 README 与 playground/results/ 的实测采样（headless 量化基准口径），不写营销口径。
 
-import { ArrowRight, ArrowUpRight, Swords, Timer } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Layers, Timer } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { cn } from '@/lib/utils'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BRAND_ICON, NAV_GROUPS, type NavItem } from '../nav'
 import { navigateTo } from '../useHashRoute'
 
@@ -48,12 +40,6 @@ const KPI_STATS = [
   },
 ] as const
 
-/** 最小构建体积对比（vs.mjs 同口径实测值，单位 KB），宽度按 ours / theirs 占比 */
-const SIZE_ROWS = [
-  { label: 'minified', ours: 93.8, theirs: 2076.3, advantage: '22.1×' },
-  { label: 'gzip', ours: 27.3, theirs: 514.8, advantage: '18.9×' },
-] as const
-
 /** hero 背景的细点阵（canvas 网格意象，中性灰，随暗色翻转） */
 const DOT_GRID_STYLE = {
   backgroundImage:
@@ -83,15 +69,15 @@ function Hero() {
               infinitable <span className="font-normal text-muted-foreground">playground</span>
             </h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              多层 canvas 失效驱动渲染 · 全量虚拟滚动 · 为替代 VTable 而生
+              多层 canvas 失效驱动渲染 · 全量虚拟滚动 · 多引擎装配协议
             </p>
           </div>
         </div>
 
         <p className="mt-5 max-w-[64ch] text-[13.5px] leading-relaxed text-muted-foreground">
           构造与首帧只处理可视窗口，10 万到 100 万行数据量变化下，首次渲染、滚动与写入指标基本不变。
-          以下 15
-          个入口均可交互验证：渲染显示、三种数据供给、交互与编辑、图表/水印/打印插件与只读报表。
+          以下 16
+          个入口均可交互验证：渲染显示、三种数据供给、交互与编辑、透视表引擎、图表/水印/打印插件与只读报表。
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -103,9 +89,9 @@ function Hero() {
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-2.5">
-          <Button onClick={() => navigateTo('compare')}>
-            <Swords className="size-4" />
-            运行 vs VTable 对比
+          <Button onClick={() => navigateTo('architecture')}>
+            <Layers className="size-4" />
+            架构与 API 边界
           </Button>
           <a
             href="bench.html"
@@ -141,75 +127,27 @@ function KpiSection() {
         ))}
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        实测采样：macOS arm64 headless · 2026-09 · 对比基线 VTable 1.26.8；逐项数据与可分发报告见
-        playground/results/ 与仓库 README。
+        实测采样：macOS arm64 headless · 2026-09；逐项数据见 playground/results/ 与仓库 README。
       </p>
     </section>
   )
 }
 
-/** 单条体积横条：轨道定宽，宽度按对比值占比 */
-function SizeBar({
-  name,
-  value,
-  ratio,
-  ours,
-}: {
-  name: string
-  value: string
-  ratio: number
-  ours: boolean
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-28 shrink-0 truncate text-[11px] text-muted-foreground">{name}</span>
-      <div className="h-4 flex-1 rounded bg-muted/70">
-        <div
-          className={cn('h-full rounded', ours ? 'bg-primary' : 'bg-zinc-400 dark:bg-zinc-600')}
-          style={{ width: `${ratio}%` }}
-        />
-      </div>
-      <span className="w-[72px] shrink-0 text-right text-xs font-medium tabular-nums">{value}</span>
-    </div>
-  )
-}
-
-function SizeCompareSection() {
+function PackageCard() {
   return (
     <Card className="py-5">
       <CardHeader>
-        <CardTitle className="text-base">最小构建体积</CardTitle>
+        <CardTitle className="text-base">多包单体：七层各司其职</CardTitle>
         <CardDescription>
-          最小渲染面入口（ListTable + createRenderHost），bun build --minify --target=browser
-          产物实测；gzip 按产物文件分别压缩求和。
+          render → grid → table 自底向上逐层收窄，pivot / sheet 经引擎装配协议接入，infinitable
+          统一发布；每个子包的职责与公共 API 边界见架构页。
         </CardDescription>
-        <CardAction>
-          <Button variant="ghost" size="sm" onClick={() => navigateTo('compare')}>
-            页内运行完整对比
-            <ArrowRight className="size-3.5" />
-          </Button>
-        </CardAction>
       </CardHeader>
-      <CardContent className="space-y-5">
-        {SIZE_ROWS.map((row) => (
-          <div key={row.label}>
-            <div className="mb-2 flex items-baseline justify-between">
-              <span className="text-xs font-semibold">{row.label} 体积</span>
-              <span className="text-xs font-medium text-primary tabular-nums">
-                快 {row.advantage}
-              </span>
-            </div>
-            <div className="space-y-1.5">
-              <SizeBar
-                name="infinitable"
-                value={`${row.ours}KB`}
-                ratio={(row.ours / row.theirs) * 100}
-                ours
-              />
-              <SizeBar name="@visactor/vtable" value={`${row.theirs}KB`} ratio={100} ours={false} />
-            </div>
-          </div>
-        ))}
+      <CardContent>
+        <Button variant="outline" size="sm" onClick={() => navigateTo('architecture')}>
+          查看子包功能与 API 边界
+          <ArrowRight className="size-3.5" />
+        </Button>
       </CardContent>
     </Card>
   )
@@ -266,7 +204,7 @@ export function HomePage() {
     <div className="flex flex-col gap-8">
       <Hero />
       <KpiSection />
-      <SizeCompareSection />
+      <PackageCard />
       {demoGroups.map((group) => (
         <section key={group.title}>
           <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b pb-2.5">

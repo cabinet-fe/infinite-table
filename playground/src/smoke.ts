@@ -3,13 +3,36 @@
 // 合成事件驱动的交互（拖选/整行整列/resize/键盘/触控/批量更新/contextmenu/onScrollFrame）、
 // 图片加载与无闪回滚、浮动对象跟随、图表格（四类声明解析/离屏出图上屏/缓存命中/滚回无闪）、
 // 编辑闭环（双击/键盘/API/滚动跟随与滚出提交）、原生滚动条档真实传播路径交互
-// （指针单击/拖选/Ctrl 加选、双击进编辑提交、焦点契约键盘导航、滚轮无双滚）。
+// （指针单击/拖选/Ctrl 加选、双击进编辑提交、焦点契约键盘导航、滚轮无双滚）、
+// 透视表引擎（多列树形行头跨行合并/图标折叠与组块选区/折叠载体小计/多级列维度表头/
+// collapsible 平铺配置/明细下钻/动态勾选与聚合切换/协议插件跨引擎挂载）。
 // 结果写 window.__SMOKE__ 与 document.title。
 
 import { normalizeRange } from '@infinitable/grid'
 import type { CellChangeEvent, ListTable } from '@infinitable/table'
 
 import type { DemoHandles } from './app/types'
+import {
+  PIVOT_COLLAPSED_ROW_COUNT,
+  PIVOT_COLUMN_PATH_COUNT,
+  PIVOT_GRAND_AMOUNT_TOTAL,
+  PIVOT_GRAND_BG,
+  PIVOT_GRAND_FIRST_AMOUNT,
+  PIVOT_GRAND_FIRST_COUNT,
+  PIVOT_GRAND_LAST_COUNT,
+  PIVOT_GROUP_AMOUNT,
+  PIVOT_GROUP_COUNT,
+  PIVOT_HEADER_BG,
+  PIVOT_HEADER_ROW_COUNT,
+  PIVOT_INITIAL_MEASURE_COUNT,
+  PIVOT_INITIAL_MERGE_COUNT,
+  PIVOT_INITIAL_ROW_COUNT,
+  PIVOT_LEAF_AMOUNT,
+  PIVOT_LEAF_COUNT,
+  PIVOT_RECORD_COUNT,
+  PIVOT_SINGLE_LEVEL_ROW_COUNT,
+  PIVOT_SUBTOTAL_BG,
+} from './sections/pivot'
 import {
   BORDER_LEFT_COLOR,
   BORDER_RIGHT_COLOR,
@@ -260,6 +283,11 @@ export function installErrorSink(): void {
 /** 已采集的错误清单（runSmoke 收尾断言「无控制台错误」） */
 export function collectedErrors(): readonly string[] {
   return collectedPageErrors
+}
+
+/** 清空已采集错误（应用内冒烟页重复运行的运行间隔离；采集器幂等常驻，不可拆卸） */
+export function resetCollectedErrors(): void {
+  collectedPageErrors.length = 0
 }
 
 // ---- 分组检查 ----
@@ -829,6 +857,185 @@ async function checkEditing(checker: Checker, demos: DemoHandles): Promise<void>
   })
 }
 
+// ---- 透视表（pivot 演示区：PivotGrid 平级引擎经装配协议接 table 引擎） ----
+
+// 几何推导：行头 2 列（状态 110 + 优先级 100，冻结带）、表头 3 行（列维度 年份/月份
+// 两层 + 度量行，冻结行）、引擎列头关闭、统一行高 32。行维度 [状态, 优先级] 全展开
+// 只有 leaf，码点序 '已完成' < '待启动' < '进行中'（组内 '中' < '低' < '高'），列维度
+// 年份（'2024年' < '2025年'）× 月份（'7月' < '8月'）× 度量 [金额和, 记录数]。
+// 引擎行序：row0-2 表头（年份层/月份层/度量行）→ row3-11 leaf（已完成×{中,低,高}、
+// 待启动×{…}、进行中×{…}）→ row12 总计。数据列 col2-9：2024年/7月、2024年/8月、
+// 2025年/7月、2025年/8月 × 各 2 度量。合并区：标题竖条 2 + 年份层 2 + 月份层 4 +
+// 状态列跨行组 3 + 总计行头 1 = 12。
+const PIVOT_ROW_HEIGHT = 32
+/** 聚合值千分位显示（pivot 包 formatNumber 同口径：显式 en-US 跨环境确定） */
+const fmt = (value: number): string => value.toLocaleString('en-US')
+
+async function checkPivot(checker: Checker, demos: DemoHandles): Promise<void> {
+  const { pivot, container, watermark } = demos.pivot
+  const engine = pivot.getTable()
+  const body = layerCanvas(container, 'body')
+  const rowY = (row: number): number => row * PIVOT_ROW_HEIGHT + PIVOT_ROW_HEIGHT / 2
+
+  await checker.step(
+    '透视表：初始形态 9 leaf + 总计 = 10 行 × 8 数据列 × 2 行头列 × 3 表头行（两级列维度）',
+    () => {
+      assert(
+        pivot.getVisibleRowCount() === PIVOT_INITIAL_ROW_COUNT,
+        `行数 ${pivot.getVisibleRowCount()}`,
+      )
+      assert(pivot.getSubtotalRowCount() === 0, `折叠载体行 ${pivot.getSubtotalRowCount()}`)
+      assert(pivot.getRowHeaderCount() === 2, `行头列 ${pivot.getRowHeaderCount()}`)
+      assert(
+        pivot.getHeaderRowCount() === PIVOT_HEADER_ROW_COUNT,
+        `表头行 ${pivot.getHeaderRowCount()}`,
+      )
+      assert(
+        pivot.getDataColumnCount() === PIVOT_COLUMN_PATH_COUNT * PIVOT_INITIAL_MEASURE_COUNT,
+        `数据列 ${pivot.getDataColumnCount()}`,
+      )
+      // 表头区行维度列按维度分列（标题竖条），列维度逐层 + 度量行
+      assert(engine.read?.getCellText(0, 0) === '状态', '行维度标题竖条（状态）不符')
+      assert(engine.read?.getCellText(1, 0) === '优先级', '行维度标题竖条（优先级）不符')
+      assert(engine.read?.getCellText(2, 0) === '2024年', '表头年份层文本不符')
+      assert(engine.read?.getCellText(2, 1) === '7月', '表头月份层文本不符')
+      assert(engine.read?.getCellText(2, 2) === '金额和', '表头度量行文本不符')
+      assert(engine.read?.getCellText(0, 3) === '已完成', '状态列组格文本不符')
+      assert(engine.read?.getCellText(1, 3) === '中', '优先级列组格文本不符')
+      assert(engine.read?.getCellText(0, 12) === '总计', '总计行头文本不符')
+    },
+  )
+
+  await checker.step('交叉聚合：leaf 全路径 × 列路径聚合（手算锚点）', () => {
+    // row3 = 已完成×中 leaf × 2024年/7月：成员 i∈{4,13} → 金额和 829、记录数 2
+    assert(
+      engine.read?.getCellText(2, 3) === fmt(PIVOT_LEAF_AMOUNT),
+      `leaf 金额和：${engine.read?.getCellText(2, 3)}`,
+    )
+    assert(engine.read?.getCellText(3, 3) === String(PIVOT_LEAF_COUNT), 'leaf 记录数')
+    // row12 总计 × 2024年/7月：12 条 / 金额和 4974；× 2025年/8月（末列路径）12 条
+    assert(engine.read?.getCellText(3, 12) === String(PIVOT_GRAND_FIRST_COUNT), '总计记录数')
+    assert(engine.read?.getCellText(2, 12) === fmt(PIVOT_GRAND_FIRST_AMOUNT), '总计金额和')
+    assert(engine.read?.getCellText(9, 12) === String(PIVOT_GRAND_LAST_COUNT), '末列路径总计记录数')
+  })
+
+  await checker.step('合并区 + 表头/总计行底色', () => {
+    assert(
+      engine.read?.getMergeRanges().length === PIVOT_INITIAL_MERGE_COUNT,
+      `合并区数 ${engine.read?.getMergeRanges().length}`,
+    )
+    expectColor(body, 120, rowY(0), PIVOT_HEADER_BG, '表头行底色')
+    expectColor(body, 120, rowY(12), PIVOT_GRAND_BG, '总计行底色')
+  })
+
+  await checker.step('行组折叠/展开：组格收敛为载体行，聚合值可见', async () => {
+    pivot.toggleNode(['已完成'])
+    await frames(2)
+    assert(
+      pivot.getVisibleRowCount() === PIVOT_COLLAPSED_ROW_COUNT,
+      `折叠后行数 ${pivot.getVisibleRowCount()}`,
+    )
+    assert(pivot.getSubtotalRowCount() === 1, `折叠载体行 ${pivot.getSubtotalRowCount()}`)
+    // 折叠组收敛为载体行（engine row3）：2024年/7月 金额和 1658、记录数 4
+    assert(
+      engine.read?.getCellText(2, 3) === fmt(PIVOT_GROUP_AMOUNT),
+      `载体行聚合值：${engine.read?.getCellText(2, 3)}`,
+    )
+    assert(engine.read?.getCellText(3, 3) === String(PIVOT_GROUP_COUNT), '载体行记录数')
+    expectColor(body, 120, rowY(3), PIVOT_SUBTOTAL_BG, '折叠载体行底色')
+    pivot.toggleNode(['已完成'])
+    await frames(2)
+    assert(pivot.getVisibleRowCount() === PIVOT_INITIAL_ROW_COUNT, '再展开未还原')
+    pivot.collapseAll()
+    await frames(2)
+    assert(pivot.getVisibleRowCount() === 4, `整树收拢行数 ${pivot.getVisibleRowCount()}`)
+    pivot.expandAll()
+    await frames(2)
+    assert(pivot.getVisibleRowCount() === PIVOT_INITIAL_ROW_COUNT, '全部展开未还原')
+  })
+
+  await checker.step('collapsible 配置：禁止折叠后始终平铺，折叠操作恒拒绝', async () => {
+    pivot.setCollapsible(false)
+    await frames(2)
+    assert(pivot.getCollapsible() === false, '可折叠配置未关闭')
+    pivot.toggleNode(['已完成'])
+    await frames(2)
+    assert(
+      pivot.getVisibleRowCount() === PIVOT_INITIAL_ROW_COUNT,
+      `禁止折叠后 toggle 行数 ${pivot.getVisibleRowCount()}`,
+    )
+    pivot.collapseAll()
+    await frames(2)
+    assert(pivot.getSubtotalRowCount() === 0, `禁止折叠后收起载体行 ${pivot.getSubtotalRowCount()}`)
+    pivot.setCollapsible(true)
+    await frames(2)
+    assert(pivot.getCollapsible() === true, '可折叠配置未恢复')
+    assert(pivot.getVisibleRowCount() === PIVOT_INITIAL_ROW_COUNT, '恢复后未平铺展开')
+  })
+
+  await checker.step('明细下钻：交叉格回查聚合覆盖的原始记录', () => {
+    assert(
+      pivot.getCellRecords(2, 3).length === PIVOT_LEAF_COUNT,
+      `leaf 格明细 ${pivot.getCellRecords(2, 3).length}`,
+    )
+    assert(pivot.getCellRecords(2, 12).length === PIVOT_GRAND_FIRST_COUNT, '总计格明细')
+  })
+
+  await checker.step('动态勾选：取消列维度 → 度量直排，聚合跨列收拢', async () => {
+    pivot.setColumnDimensions([])
+    await frames(2)
+    assert(pivot.getHeaderRowCount() === 1, '度量直排表头行数')
+    assert(pivot.getDataColumnCount() === PIVOT_INITIAL_MEASURE_COUNT, '度量直排数据列数')
+    // 表头 1 行 → 总计在 engine row10；col2 金额和直排
+    assert(engine.read?.getCellText(2, 10) === fmt(PIVOT_GRAND_AMOUNT_TOTAL), '总计金额和')
+    assert(engine.read?.getCellText(3, 10) === String(PIVOT_RECORD_COUNT), '总计记录数')
+    pivot.setColumnDimensions(['category'])
+    await frames(2)
+    assert(pivot.getHeaderRowCount() === 2, '单级列维度表头行数')
+    assert(engine.read?.getCellText(2, 0) === '办公用品', '单级列维度层文本不符')
+    assert(engine.read?.getCellText(2, 1) === '金额和', '单级度量行文本不符')
+    pivot.setColumnDimensions(['year', 'month'])
+    await frames(2)
+    assert(pivot.getHeaderRowCount() === PIVOT_HEADER_ROW_COUNT, '两级列维度未还原')
+  })
+
+  await checker.step('动态勾选：行维度裁剪与调序（调用方顺序即树层级序）', async () => {
+    pivot.setRowDimensions(['status'])
+    await frames(2)
+    assert(
+      pivot.getVisibleRowCount() === PIVOT_SINGLE_LEVEL_ROW_COUNT,
+      `单层行树行数 ${pivot.getVisibleRowCount()}`,
+    )
+    pivot.setRowDimensions(['priority', 'status'])
+    await frames(2)
+    assert(pivot.getRowDimensionKeys()[0] === 'priority', '行维度调序未生效')
+    assert(engine.read?.getCellText(0, 3) === '中', '调序后首行维度值不符')
+    pivot.setRowDimensions(['status', 'priority'])
+    await frames(2)
+    assert(pivot.getVisibleRowCount() === PIVOT_INITIAL_ROW_COUNT, '行树未还原')
+  })
+
+  await checker.step('度量聚合切换：sum ↔ count 即时重算', async () => {
+    pivot.updateMeasure('amount-sum', { agg: 'count', title: '金额计数' })
+    await frames(2)
+    assert(engine.read?.getCellText(2, 3) === String(PIVOT_LEAF_COUNT), 'leaf 计数')
+    pivot.updateMeasure('amount-sum', { agg: 'sum', title: '金额和' })
+    await frames(2)
+    assert(engine.read?.getCellText(2, 3) === fmt(PIVOT_LEAF_AMOUNT), '聚合还原')
+  })
+
+  await checker.step('协议插件跨引擎：水印挂 PivotGrid 转发面生效/关闭', async () => {
+    // 扫描区避开右/底缘 24px：canvas 档滚动条画在 sky 层边缘带，与水印无关（见原生滚动条断言先例）
+    watermark.updateConfig({ enabled: true })
+    await frames(2)
+    const sky = layerCanvas(container, 'sky')
+    assert(hasOpaquePixel(sky, 0, 0, 736, 456), '水印开启后 sky 层无像素')
+    watermark.updateConfig({ enabled: false })
+    await frames(2)
+    assert(!hasOpaquePixel(sky, 0, 0, 736, 456), '水印关闭后 sky 层未清空')
+  })
+}
+
 /** 页内冒烟入口：逐项跑完后把结果写到 window.__SMOKE__ 与 document.title */
 export async function runSmoke(demos: DemoHandles): Promise<void> {
   const checker = new Checker()
@@ -841,6 +1048,7 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkEditing(checker, demos)
   await checkReport(checker)
   await checkNativeScroll(checker, demos)
+  await checkPivot(checker, demos)
   await checker.step('无控制台错误：挂载与断言全程零 error', () => {
     const errors = collectedErrors()
     assert(errors.length === 0, `控制台错误 ${errors.length} 条：${errors.slice(0, 5).join('；')}`)

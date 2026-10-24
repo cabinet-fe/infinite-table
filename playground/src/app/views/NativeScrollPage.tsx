@@ -4,7 +4,7 @@ import { mountNativeScroll, type NativeScrollDemo } from '../../sections/native-
 import { SectionPage } from '../SectionPage'
 
 // 真实浏览器实测/控制台驱动句柄（ego-browser 真指针键盘实测断言 getSelection 等）：
-// 形态对齐 ComparePage 的 window.__VS_REPORT__（页面级调试出口，不进引擎公共面）
+// 页面级调试出口（window 全局），不进引擎公共面
 declare global {
   interface Window {
     __NATIVE_SCROLL_DEMO__?: NativeScrollDemo
