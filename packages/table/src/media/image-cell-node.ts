@@ -16,8 +16,8 @@ import {
   fittedRect,
   paintImagePlaceholder,
   type ImageFit,
-} from '@infinitable/grid/src/media/draw-image'
-import type { LoadedImage } from '@infinitable/grid/src/media/image-service'
+} from '@infinitable/grid'
+import type { LoadedImage } from '@infinitable/grid'
 
 export interface ImageCellNodeInit extends SceneNodeInit {
   col: number

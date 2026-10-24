@@ -8,18 +8,12 @@
       "types": "./dist/types/index.d.ts",
       "dev": "./src/index.ts",
       "import": "./dist/grid.js"
-    },
-    "./src/*": {
-      "types": "./dist/types/*.d.ts",
-      "dev": "./src/*.ts",
-      "import": "./src/*.ts"
     }
   },
   "scripts": {
     "build": "vp build"
   },
   "dependencies": {
-    "@cat-kit/core": "^1.2.1",
     "@infinitable/render": "workspace:*"
   }
 }

@@ -3,8 +3,8 @@
 // 此处转出维持既有 import 路径。
 
 import type { CellRange, CellRef, ScrollbarOptions, ThemeOverride } from '@infinitable/grid'
-import type { ImageFit } from '@infinitable/grid/src/media/draw-image'
-import type { ImageServiceOptions, LoadedImage } from '@infinitable/grid/src/media/image-service'
+import type { ImageFit } from '@infinitable/grid'
+import type { ImageServiceOptions, LoadedImage } from '@infinitable/grid'
 import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
 
 import type { CellType, ResolveCellRenderer } from './cell-renderer'

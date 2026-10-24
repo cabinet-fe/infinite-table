@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CellBorderEdge } from '../src/cell-style'
 import { ListTable } from '../src/list-table'
-import { resolveSharedEdges, strongerEdge } from '@infinitable/grid/src/shared-edges'
+import { resolveSharedEdges, strongerEdge } from '@infinitable/grid'
 import { findCellNode } from './testing/find-cell-node'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'

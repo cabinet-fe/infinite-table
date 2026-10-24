@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { FILL_HANDLE_SIZE } from '../src/fill-handle'
 import { InteractionOverlay } from '../src/interaction-overlay'
 import type { OverlayContent } from '../src/interaction-overlay'
-import { defaultTheme, extendsTheme } from '@infinitable/grid/src/theme'
-import type { InteractionTokens } from '@infinitable/grid/src/theme'
+import { defaultTheme, extendsTheme } from '@infinitable/grid'
+import type { InteractionTokens } from '@infinitable/grid'
 
 interface RectCall {
   x: number

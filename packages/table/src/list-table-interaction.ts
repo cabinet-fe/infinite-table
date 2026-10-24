@@ -11,7 +11,7 @@ import type {
   FillHandleDoubleClickEvent,
   FillHandleDownEvent,
 } from './fill-handle'
-import type { FloatTransformHandle } from '@infinitable/grid/src/float/float-object-layer'
+import type { FloatTransformHandle } from '@infinitable/grid'
 import {
   clampToAnchorAxis,
   hitFillHandle,
@@ -26,7 +26,7 @@ import {
   resolveCellYFromOffsets,
   spanHeight,
   spanWidth,
-} from '@infinitable/grid/src/grid-layout'
+} from '@infinitable/grid'
 import type { ListTable } from './list-table'
 import { nextActiveCell, revealAxis } from './keyboard-navigation'
 import { applyHeaderHighlight, editorBorderInsets } from './list-table-scene'
@@ -41,12 +41,8 @@ import {
   planScrollbarThumb,
   type ScrollbarHit,
   type ScrollbarThumbGeometry,
-} from '@infinitable/grid/src/scrollbar'
-import {
-  normalizeRange,
-  type RangeBounds,
-  type SelectionRange,
-} from '@infinitable/grid/src/selection'
+} from '@infinitable/grid'
+import { normalizeRange, type RangeBounds, type SelectionRange } from '@infinitable/grid'
 import type {
   CellLink,
   CellLinkClickEvent,

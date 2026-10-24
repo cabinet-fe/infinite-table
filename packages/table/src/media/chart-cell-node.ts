@@ -11,8 +11,8 @@ import {
   bodyViewportClip,
   drawFittedImage,
   paintImagePlaceholder,
-} from '@infinitable/grid/src/media/draw-image'
-import type { LoadedImage } from '@infinitable/grid/src/media/image-service'
+} from '@infinitable/grid'
+import type { LoadedImage } from '@infinitable/grid'
 
 export interface ChartCellNodeInit extends SceneNodeInit {
   col: number

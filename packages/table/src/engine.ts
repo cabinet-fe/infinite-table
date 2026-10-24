@@ -25,9 +25,9 @@ import type {
   TableTheme,
   ThemeOverride,
 } from '@infinitable/grid'
-import type { FloatObjectLayer } from '@infinitable/grid/src/float/float-object-layer'
-import type { WindowRange } from '@infinitable/grid/src/grid-layout'
-import type { ImageService } from '@infinitable/grid/src/media/image-service'
+import type { FloatObjectLayer } from '@infinitable/grid'
+import type { WindowRange } from '@infinitable/grid'
+import type { ImageService } from '@infinitable/grid'
 import type { Region, RenderHost } from '@infinitable/render'
 
 import type { CellStyle } from './cell-style'

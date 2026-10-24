@@ -26,8 +26,8 @@ import {
   MIN_SCROLLBAR_THUMB_PX,
   planScrollbarThumb,
   resolveScrollbarConfig,
-} from '@infinitable/grid/src/scrollbar'
-import { defaultTheme } from '@infinitable/grid/src/theme'
+} from '@infinitable/grid'
+import { defaultTheme } from '@infinitable/grid'
 import type { ListTableOptions } from '../src/types'
 import { StubHost } from './testing/stub-host'
 

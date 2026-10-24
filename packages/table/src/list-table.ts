@@ -52,8 +52,8 @@ import {
   normalizeCellRange,
   sanitizeMerges,
   warnMergeConflicts,
-} from '@infinitable/grid/src/cell-range'
-import type { CellRange } from '@infinitable/grid/src/cell-range'
+} from '@infinitable/grid'
+import type { CellRange } from '@infinitable/grid'
 import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
 import { CellValuePipeline } from './cell-value'
 import { ChartCellNode } from './media/chart-cell-node'
@@ -68,9 +68,9 @@ import {
   resolveCellYFromOffsets,
   unionRegions,
   type WindowRange,
-} from '@infinitable/grid/src/grid-layout'
+} from '@infinitable/grid'
 import type { FillDragState } from './fill-handle'
-import { FloatObjectLayer } from '@infinitable/grid/src/float/float-object-layer'
+import { FloatObjectLayer } from '@infinitable/grid'
 import { InteractionOverlay, type HighlightRange, type ResizeLine } from './interaction-overlay'
 import { nextActiveCell } from './keyboard-navigation'
 import {
@@ -105,10 +105,10 @@ import {
 } from './list-table-scene'
 import type { ImageCellNode } from './media/image-cell-node'
 import type { EngineReadView, TableEngine } from './engine'
-import { ImageService, type LoadedImage } from '@infinitable/grid/src/media/image-service'
+import { ImageService, type LoadedImage } from '@infinitable/grid'
 import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
-import { NativeScrollbarHost } from '@infinitable/grid/src/native-scrollbar'
+import { NativeScrollbarHost } from '@infinitable/grid'
 import type { TablePlugin } from './plugin'
 import {
   MIN_COL_WIDTH,
@@ -117,30 +117,21 @@ import {
   type ResizeSession,
   type RowResizeEndEvent,
 } from './resize'
-import {
-  ScrollManager,
-  type ScrollDelta,
-  type ScrollState,
-} from '@infinitable/grid/src/scroll-manager'
+import { ScrollManager, type ScrollDelta, type ScrollState } from '@infinitable/grid'
 import {
   resolveScrollbarConfig,
   type ScrollbarConfig,
   type ScrollbarDragSession,
-} from '@infinitable/grid/src/scrollbar'
+} from '@infinitable/grid'
 import {
   SelectionState,
   type RangeBounds,
   type SelectionListener,
   type SelectionRange,
   type SelectionSnapshot,
-} from '@infinitable/grid/src/selection'
-import {
-  extendsTheme,
-  themeCellBase,
-  type TableTheme,
-  type ThemeOverride,
-} from '@infinitable/grid/src/theme'
-import { InertiaScroller, TouchScrollTracker } from '@infinitable/grid/src/touch-scroll'
+} from '@infinitable/grid'
+import { extendsTheme, themeCellBase, type TableTheme, type ThemeOverride } from '@infinitable/grid'
+import { InertiaScroller, TouchScrollTracker } from '@infinitable/grid'
 import type {
   CellChangeEvent,
   CellLinkClickListener,

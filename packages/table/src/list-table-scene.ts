@@ -7,7 +7,7 @@ import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 
 import { CellNode } from './cell-node'
 import { cellTextAnchorX } from './cell-renderer'
-import { rangeCrossesBoundary } from '@infinitable/grid/src/cell-range'
+import { rangeCrossesBoundary } from '@infinitable/grid'
 import {
   cellStyleFont,
   type BorderInset,
@@ -25,7 +25,7 @@ import {
   spanWidth,
   unionRegions,
   type WindowRange,
-} from '@infinitable/grid/src/grid-layout'
+} from '@infinitable/grid'
 import type { ListTable } from './list-table'
 import {
   cellKey,
@@ -35,9 +35,9 @@ import {
   type HeaderHighlightInput,
 } from './list-table-internal'
 import { appendChartCell, appendImageCell } from './list-table-media'
-import { resolveSharedEdges, strongerEdge } from '@infinitable/grid/src/shared-edges'
-import { opaqueHeaderHighlight, themeCellBase } from '@infinitable/grid/src/theme'
-import type { FrameStyle } from '@infinitable/grid/src/theme'
+import { resolveSharedEdges, strongerEdge } from '@infinitable/grid'
+import { opaqueHeaderHighlight, themeCellBase } from '@infinitable/grid'
+import type { FrameStyle } from '@infinitable/grid'
 
 /** 外框阴影模糊半径（CSS 像素；frameStyle.shadow 开启时的固定观感） */
 const FRAME_SHADOW_BLUR = 6

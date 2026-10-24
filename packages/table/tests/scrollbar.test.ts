@@ -12,7 +12,7 @@ import {
   mapScrollbarTrackPoint,
   MIN_SCROLLBAR_THUMB_PX,
   planScrollbarThumb,
-} from '@infinitable/grid/src/scrollbar'
+} from '@infinitable/grid'
 import { StubHost } from './testing/stub-host'
 import type { ListTableOptions } from '../src/types'
 import type { SceneEvent, SceneEventType } from '@infinitable/render'

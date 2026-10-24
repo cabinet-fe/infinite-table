@@ -10,7 +10,7 @@ import {
   type RangeBounds,
   type SelectionRange,
   type SelectionSnapshot,
-} from '@infinitable/grid/src/selection'
+} from '@infinitable/grid'
 
 /** 填充柄方点边长（px） */
 export const FILL_HANDLE_SIZE = 8

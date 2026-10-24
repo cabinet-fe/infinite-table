@@ -9,11 +9,11 @@ import type { LayerHandle, Region } from '@infinitable/render'
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
-} from '@infinitable/grid/src/grid-layout'
+} from '@infinitable/grid'
 import { borderInset } from './cell-style'
 import { ChartCellNode } from './media/chart-cell-node'
 import { ImageCellNode } from './media/image-cell-node'
-import type { ImageLoadEvent, LoadedImage } from '@infinitable/grid/src/media/image-service'
+import type { ImageLoadEvent, LoadedImage } from '@infinitable/grid'
 import type { ListTable } from './list-table'
 import { cellKey } from './list-table-internal'
 import type { CellChartMedia, CellChartMediaSize } from './types'

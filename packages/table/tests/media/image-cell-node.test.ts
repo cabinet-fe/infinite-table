@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ImageCellNode } from '../../src/media/image-cell-node'
 import type { ImageCellNodeInit } from '../../src/media/image-cell-node'
-import type { LoadedImage } from '@infinitable/grid/src/media/image-service'
+import type { LoadedImage } from '@infinitable/grid'
 import { RecordingContext } from '../testing/recording-context'
 
 function fakeImage(width = 10, height = 10): LoadedImage {

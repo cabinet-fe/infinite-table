@@ -6,16 +6,16 @@
 import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 
 import { fillHandleRect } from './fill-handle'
-import type { WindowRange } from '@infinitable/grid/src/grid-layout'
+import type { WindowRange } from '@infinitable/grid'
 import {
   normalizeRange,
   type RangeBounds,
   type SelectionRange,
   type SelectionSnapshot,
-} from '@infinitable/grid/src/selection'
-import type { ScrollbarAxisView } from '@infinitable/grid/src/scrollbar'
-import { scrollbarThumbThickness } from '@infinitable/grid/src/scrollbar'
-import type { InteractionTokens } from '@infinitable/grid/src/theme'
+} from '@infinitable/grid'
+import type { ScrollbarAxisView } from '@infinitable/grid'
+import { scrollbarThumbThickness } from '@infinitable/grid'
+import type { InteractionTokens } from '@infinitable/grid'
 
 /** 浮层绘制所需的几何查询（闭包读取表格实时状态） */
 export interface OverlayGeometry {
