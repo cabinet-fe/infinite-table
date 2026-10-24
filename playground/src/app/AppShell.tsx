@@ -147,7 +147,7 @@ function Sidebar({ active, onNavigate }: { active: PageKey; onNavigate: (key: Pa
       <div className="space-y-1.5 border-t border-zinc-900 px-4 py-3">
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-zinc-500">最小渲染面 gzip</span>
-          <span className="font-semibold text-zinc-200 tabular-nums">27.3KB</span>
+          <span className="font-semibold text-zinc-200 tabular-nums">61.4KB</span>
         </div>
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-zinc-500">100 万行 TTFF P50</span>

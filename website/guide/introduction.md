@@ -44,12 +44,12 @@ macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25`
 
 ### 构建体积
 
-最小渲染面入口（`ListTable` + `createRenderHost`），`bun build --minify --target=browser` 产物实测，gzip 按产物文件分别压缩求和：
+主入口 `dist/infinitable.js` 及其共享 engine chunk（`bun run build` 产物，chart 懒加载分包不计），minified 为两文件字节数和，gzip 按产物文件分别以 `gzip -c` 压缩求和：
 
-| 口径     | infinitable | VTable 1.26.8 | 差异      |
-| -------- | ----------- | ------------- | --------- |
-| minified | 93.8KB      | 2076.3KB      | 约为 1/22 |
-| gzip     | 27.3KB      | 514.8KB       | 约为 1/19 |
+| 口径     | infinitable  | VTable 1.26.8 | 差异     |
+| -------- | ------------ | ------------- | -------- |
+| minified | 230.1KB      | 2076.3KB      | 约为 1/9 |
+| gzip     | 61.4KB       | 514.8KB       | 约为 1/8 |
 
 ### 10 万行 × 20 列
 
@@ -81,7 +81,7 @@ macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25`
 
 - 两项规模合计 22 项指标中，infinitable 领先 17 项、持平 5 项、落后 0 项。
 - 数据量从 10 万增加到 100 万，infinitable 的 TTFF 从 17.15ms 变为 16.70ms、整表重建从 18.0ms 变为 17.3ms；VTable 的 TTFF 从 29.9ms 劣化到 44.7ms，重建从 27.8ms 劣化到 45.3ms。
-- 体积差一个数量级：gzip 27.3KB 对 514.8KB。
+- 体积显著更小：gzip 61.4KB 对 514.8KB（约 1/8）。
 - FPS 持平是测试机上两库都满帧的真实反映。帧预算敏感的场景（低端设备、大步长滚动）差距主要体现在“滚动调用 JS 耗时”和“大幅跳转 JS 耗时”上。
 
 基准的复现方式见[性能与虚拟滚动](/guide/performance)。

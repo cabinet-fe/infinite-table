@@ -31,7 +31,7 @@ features:
   - title: 插件体系
     details: 图表、打印、水印与用户扩展走同一注册路径，能力以插件工厂 + handle 交付。
   - title: 极小体积
-    details: 最小渲染面 gzip 27KB，相比 VTable 小一个数量级。
+    details: 最小渲染面 gzip 61.4KB，约为 VTable 的 1/8。
 ---
 
 <script setup>

@@ -1,6 +1,6 @@
 # infinitable
 
-高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **27KB**。
+高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **61.4KB**。
 
 单包发布（本包），主入口内含五层能力：自研 canvas 渲染引擎（render）、共享网格内核（grid）、表格主体（table，含引擎装配协议）、官方插件集（plugins：图表/打印/水印）、公式引擎（formulas）；电子表格核心（sheet：模型/命令/IO/SheetGrid 适配）经 `infinitable/sheet` 子路径导出。chart.js 等重组件按需动态分包，不进主产物。
 
@@ -45,10 +45,10 @@ const table = new ListTable({
 
 同一页面、同一数据（10 万 / 100 万行 × 20 列）、同视口，对称跑序取均值：
 
-| 口径     | infinitable | VTable 1.26.8 |
-| -------- | ----------- | ------------- |
-| minified | **93.8KB**  | 2076.3KB      |
-| gzip     | **27.3KB**  | 514.8KB       |
+| 口径     | infinitable  | VTable 1.26.8 |
+| -------- | ------------ | ------------- |
+| minified | **230.1KB**  | 2076.3KB      |
+| gzip     | **61.4KB**   | 514.8KB       |
 
 完整 20 项指标（TTFF/滚动 FPS/写入吞吐/整表重建，17/22 项领先 0 项落后）见 [仓库 README](https://github.com/cabinet-fe/infinite-table)。
 

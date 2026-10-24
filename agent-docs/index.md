@@ -7,7 +7,7 @@ keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, par
 
 # infinitable 总览
 
-infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 27KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 五层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、table（表格主体 ListTable 与引擎装配协议）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）；透视表引擎经 `infinitable/pivot` 子路径转出（`@infinitable/pivot` 白名单全量——PivotGrid 领域引擎，包本体 private 不发布）。三个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
+infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 61.4KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 五层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、table（表格主体 ListTable 与引擎装配协议）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）；透视表引擎经 `infinitable/pivot` 子路径转出（`@infinitable/pivot` 白名单全量——PivotGrid 领域引擎，包本体 private 不发布）。三个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
 
 ## 安装
 

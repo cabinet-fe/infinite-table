@@ -1,6 +1,6 @@
 # infinitable
 
-高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **27KB**。
+高性能 canvas 表格引擎：多层 canvas 失效驱动渲染 + 全量虚拟滚动，为替代 [VisActor VTable](https://github.com/VisActor/VTable) 而生。10 万到 100 万行数据下，首次渲染、滚动与写入性能不随数据量劣化，最小构建 gzip 体积仅 **61.4KB**。
 
 ## 文档
 
@@ -29,12 +29,12 @@ bun run docs:preview  # 预览构建产物
 
 ### 最小构建体积
 
-| 口径     | infinitable | VTable 1.26.8 | 对比         |
-| -------- | ----------- | ------------- | ------------ |
-| minified | **93.8KB**  | 2076.3KB      | **快 22.1×** |
-| gzip     | **27.3KB**  | 514.8KB       | **快 18.9×** |
+| 口径     | infinitable  | VTable 1.26.8 | 对比        |
+| -------- | ------------ | ------------- | ----------- |
+| minified | **230.1KB**  | 2076.3KB      | **快 9.0×** |
+| gzip     | **61.4KB**   | 514.8KB       | **快 8.4×** |
 
-最小渲染面入口（`ListTable` + `createRenderHost`），bun build `--minify --target=browser` 产物实测；gzip 按产物文件分别压缩求和。
+主入口 `dist/infinitable.js` 及其共享 engine chunk（`bun run build` 产物，2026-10 实测，chart 懒加载分包不计），minified 为两文件字节数和；gzip 按产物文件分别以 `gzip -c` 压缩求和。
 
 ### 10 万行 × 20 列（领先 8 / 10 项）
 
@@ -70,7 +70,7 @@ bun run docs:preview  # 预览构建产物
 
 - **全量合计 17 / 22 项领先、0 项落后**（另 5 项持平）。
 - **数据量 ×10，首次渲染与整表重建几乎不变**（TTFF 17.15 → 16.70ms、重建 18.0 → 17.3ms），VTable 从 29.9ms 劣化到 44.7ms（+50%）、重建 27.8 → 45.3ms——规模越大优势越大。
-- **体积差一个数量级**：gzip 27KB vs 515KB（1/19）。
+- **体积显著更小**：gzip 61.4KB vs 514.8KB（约 1/8）。
 - FPS 持平项为测试机（Apple Silicon Chrome）上两库均满帧的真实反映；帧预算敏感场景（低端机、大步长滚动）的差距体现在「滚动调用 JS 耗时」与「跳转 JS 耗时」上。
 
 > 采样环境：macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25` · 2026-09-28。完整可分发报告与 JSON 基线见 `playground/results/`。
