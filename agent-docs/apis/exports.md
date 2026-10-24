@@ -1,13 +1,13 @@
 ---
 title: 导出面判据与清单
-description: infinitable 对外导出面的判定判据、逐项清单（导出/不导出与理由）、core 拆分更名迁移登记（无兼容层，破坏性变更明示）、移出项与过渡方案、0.1.x 已发布使用者兼容结论。主入口（render/grid/table/formulas/plugins 五层显式转售 + CellRef 消歧）与 ./sheet 子路径（@infinitable/sheet 白名单）的符号集合由 packages/infinitable/tests/public-surface.test.ts 快照冻结。
+description: infinitable 对外导出面的判定判据、逐项清单（导出/不导出与理由）、core 拆分更名迁移登记（无兼容层，破坏性变更明示）、移出项与过渡方案、0.1.x 已发布使用者兼容结论。主入口（render/grid/table/formulas/plugins 五层显式转售 + CellRef 消歧）、./sheet 子路径（@infinitable/sheet 白名单）与 ./pivot 子路径（@infinitable/pivot 白名单）的符号集合由 packages/infinitable/tests/public-surface.test.ts 快照冻结。
 aliases: [exports, 导出面, 公共 API, public surface, API 面, 导出清单]
 keywords: [导出面, public API, export, 快照冻结, public-surface, 显式导出, 星号导出, 0.1.x, 兼容性, CellRef, GridCellRef, ScrollbarOptions, ScrollbarMode, 移出, deprecation, core 拆分, grid, table, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, 引擎装配协议]
 ---
 
 # 导出面判据与清单
 
-infinitable 对外只有两个发布入口：主入口 `infinitable`（npm 单包，re-export render / grid / table / formulas / plugins 五层公共 API）与子路径 `infinitable/sheet`（`@infinitable/sheet` 白名单全量转售）。两个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 以显式快照冻结——增删导出必须显式改快照才能通过，防止内部实现经星号转售泄漏成事实公共 API。源码同时断言两入口不含星号导出语句（仓内 grep `export *` 于 `packages/infinitable/src/` 应零命中）。
+infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单包，re-export render / grid / table / formulas / plugins 五层公共 API）、子路径 `infinitable/sheet`（`@infinitable/sheet` 白名单全量转售）与子路径 `infinitable/pivot`（`@infinitable/pivot` 白名单全量转售——透视表领域引擎，下游不依赖仓内私有包 `@infinitable/pivot`）。三个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 以显式快照冻结——增删导出必须显式改快照才能通过，防止内部实现经星号转售泄漏成事实公共 API。源码同时断言各入口不含星号导出语句（仓内 grep `export *` 于 `packages/infinitable/src/` 应零命中）。
 
 ## 判据
 
@@ -62,6 +62,16 @@ infinitable 对外只有两个发布入口：主入口 `infinitable`（npm 单�
 | 图片 | `createImageId`、`cloneImageAnchor`、`cloneSheetImage`、`IMAGE_MIME`；类型 `SheetImageType`、`SheetImageAnchor`、`SheetImage`、`ImageInput`、`ImageFitMode` |
 | IO | `exportWorkbookXlsx`、`exportSheetXlsx`、`exportSheetCsv`、`importXlsx`、`importCsv`、`replaceWorkbookWithSnapshots`；类型 `SheetReplaceItem` |
 | SheetGrid 适配 | `SheetGrid`；类型 `ResolveCellRenderer`、`SheetGridHighlight`（公式引用拾取染色框条目）、`SheetGridOptions`、`SelectionInterceptMeta`（选区拦截手势载荷，配 `SheetGridOptions.interceptSelection`/`onSelectionIntercept`）、`ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 原生滚动条档，0.1.4 起新增）、`ResolveCellStyleHook`、`ResolveDisplayValue`、`SheetGridContextMenuInfo`、`SheetGridContextMenuKind`、`SheetGridHeaderOptions`、`GridCellEditor`、`GridEditorRect`、`GridEditorSession`、`SheetGridEditorsOptions`、`CellRenderer`、`CellRenderTarget` |
+
+## ./pivot 子路径逐项清单（src/pivot.ts，6 值 + 8 类型）
+
+与 `packages/pivot/src/index.ts` 白名单同步维护（同判据、同集合）。`@infinitable/pivot` 为透视表领域引擎（平级引擎经引擎装配协议接入 table 引擎的参考实现），本子路径即其唯一对外发布面（包本体 private 不发布）。分组与理由：
+
+| 分组 | 符号 |
+| --- | --- |
+| 引擎与模型 | `PivotGrid`（领域引擎：内部构造 ListTable 后以 TableEngine 协议面持有，对外实现 EngineAssembly 转发面）、`PivotModel`（行/列维度树 × 度量交叉聚合模型，实现 TableModel 数据面）；类型 `PivotGridOptions`（装配选项：维度池/度量池/记录/初始勾选序列）、`PivotColumn`、`PivotRow`（模型展平结构） |
+| 领域词汇 | 类型 `PivotDimension`（分组字段）、`PivotMeasure`（聚合字段：key/title/field/agg/width）、`PivotAggregator`（聚合器枚举）、`PivotRecord`（记录，与 DataRecord 同形）、`PivotCellDrillEvent`（双击下钻事件载荷） |
+| 冒烟锚点常量 | `PIVOT_ROW_HEIGHT`、`PIVOT_HEADER_BACKGROUND`、`PIVOT_SUBTOTAL_BACKGROUND`、`PIVOT_GRAND_BACKGROUND`（行高与表头/折叠载体/总计行底色，playground 冒烟像素断言锚点） |
 
 ## 各子包 src/index.ts 复核结论
 

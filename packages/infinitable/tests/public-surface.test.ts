@@ -1,4 +1,4 @@
-// 导出面冻结测试：主入口与 ./sheet 子路径的导出符号集合以显式快照冻结，
+// 导出面冻结测试：主入口与 ./sheet、./pivot 子路径的导出符号集合以显式快照冻结，
 // 增删导出必须显式改快照才通过——防止内部实现再经星号转售泄漏成事实 API。
 // 值导出走运行时命名空间断言；类型导出经运行时不可见，用源码解析断言
 // （与值导出同一 export 块语法，另以「解析值导出 == 运行时 keys」交叉校验，
@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import * as mainEntry from '../src/index'
+import * as pivotEntry from '../src/pivot'
 import * as sheetEntry from '../src/sheet'
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
@@ -402,5 +403,43 @@ describe('infinitable ./sheet 子路径导出面冻结', () => {
     const { values, types } = parseNamedExports(readFileSync(join(srcDir, 'sheet.ts'), 'utf8'))
     expect(types).toEqual([...SHEET_ENTRY_TYPES].sort())
     expect(values).toEqual(Object.keys(sheetEntry).sort())
+  })
+})
+
+// ---- 显式快照：./pivot 子路径（@infinitable/pivot 白名单全量）----
+
+const PIVOT_ENTRY_VALUES = [
+  'PIVOT_GRAND_BACKGROUND',
+  'PIVOT_HEADER_BACKGROUND',
+  'PIVOT_ROW_HEIGHT',
+  'PIVOT_SUBTOTAL_BACKGROUND',
+  'PivotGrid',
+  'PivotModel',
+]
+
+const PIVOT_ENTRY_TYPES = [
+  'PivotAggregator',
+  'PivotCellDrillEvent',
+  'PivotColumn',
+  'PivotDimension',
+  'PivotGridOptions',
+  'PivotMeasure',
+  'PivotRecord',
+  'PivotRow',
+]
+
+describe('infinitable ./pivot 子路径导出面冻结', () => {
+  it('源码不含 export *（星号转售禁令）', () => {
+    expect(readFileSync(join(srcDir, 'pivot.ts'), 'utf8')).not.toContain('export *')
+  })
+
+  it('值导出集合与显式快照一致', () => {
+    expect(Object.keys(pivotEntry).sort()).toEqual([...PIVOT_ENTRY_VALUES].sort())
+  })
+
+  it('类型导出集合与显式快照一致', () => {
+    const { values, types } = parseNamedExports(readFileSync(join(srcDir, 'pivot.ts'), 'utf8'))
+    expect(types).toEqual([...PIVOT_ENTRY_TYPES].sort())
+    expect(values).toEqual(Object.keys(pivotEntry).sort())
   })
 })

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // 空项目消费冒烟：以外部消费者姿态（无 dev 条件 → import → dist）验证各包可消费。
-// 校验产物文件齐备 + 无头动态 import dist 产物跑一帧（含 infinitable ./sheet 子路径）
-// + 主入口与 ./sheet 的跨入口 instanceof 契约（共享 engine chunk，单副本引擎实现）。
+// 校验产物文件齐备 + 无头动态 import dist 产物跑一帧（含 infinitable ./sheet 与
+// ./pivot 子路径）+ 主入口与 ./sheet、./pivot 的跨入口 instanceof 契约（共享
+// engine chunk，单副本引擎实现）。
 // 用法：node scripts/check-package-exports.mjs（先 bun run build）
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -23,6 +24,7 @@ const PACKAGES = [
   { name: '@infinitable/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
   { name: '@infinitable/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },
   { name: '@infinitable/sheet', dir: 'packages/sheet', bundle: 'dist/sheet.js' },
+  { name: '@infinitable/pivot', dir: 'packages/pivot', bundle: 'dist/pivot.js' },
   { name: 'infinitable', dir: 'packages/infinitable', bundle: 'dist/infinitable.js' },
 ]
 
@@ -151,10 +153,43 @@ const cell = active.getCellData({ row: 0, col: 1 })
 if (cell?.v !== 42) fail(`infinitable/sheet 求值异常：=A1*2 → ${JSON.stringify(cell)}`)
 else ok('infinitable/sheet 子路径可导入且无头求值正常（=A1*2=42）')
 
-// 7) 跨入口 instanceof 契约：主入口与 ./sheet 产物必须共享同一份引擎实现
+// 7) ./pivot 子路径：dist/pivot.js 无头建透视交叉聚合（捆绑的 table 引擎一并过电）
+const pivotDts = new URL('../packages/infinitable/dist/types/pivot.d.ts', import.meta.url)
+if (!existsSync(pivotDts)) fail('infinitable 缺 ./pivot 子路径类型垫片 dist/types/pivot.d.ts')
+const pivotModule = await import(new URL('../packages/infinitable/dist/pivot.js', import.meta.url))
+if (typeof pivotModule.PivotGrid !== 'function' || typeof pivotModule.PivotModel !== 'function')
+  fail('infinitable/pivot dist 缺 PivotGrid / PivotModel')
+if (pivotModule.PIVOT_ROW_HEIGHT !== 32) fail('infinitable/pivot dist 缺冒烟锚点常量')
+const pivotContainer = document.createElement('div')
+document.body.appendChild(pivotContainer)
+const pivot = new pivotModule.PivotGrid({
+  container: pivotContainer,
+  dimensions: [
+    { key: 'status', title: '状态', width: 120 },
+    { key: 'priority', title: '优先级', width: 100 },
+  ],
+  measures: [{ key: 'amount', title: '金额和', field: 'amount', agg: 'sum', width: 120 }],
+  records: [
+    { status: '已完成', priority: '中', amount: 1 },
+    { status: '已完成', priority: '低', amount: 2 },
+    { status: '待启动', priority: '中', amount: 3 },
+    { status: '待启动', priority: '低', amount: 4 },
+  ],
+})
+if (pivot.getRecordCount() !== 4) {
+  fail(`infinitable/pivot 记录数异常：${pivot.getRecordCount()}`)
+} else {
+  // 表头 1 行 + 4 leaf + 1 总计：总计行引擎坐标 (2,5)，sum 聚合 = 1+2+3+4
+  const grandTotal = pivot.getCellValue(2, 5)
+  if (grandTotal !== 10) fail(`infinitable/pivot 总计聚合异常：sum = ${String(grandTotal)}`)
+  else ok('infinitable/pivot 子路径可导入且无头交叉聚合正常（总计 sum=10）')
+}
+
+// 8) 跨入口 instanceof 契约：主入口与 ./sheet、./pivot 产物必须共享同一份引擎实现
 //    （构建层由 packages/infinitable/vite.config.ts 的 'engine' 共享 chunk 钉死）。
-//    结构面断言两 entry 消费同一 engine chunk；运行面经 sheet 侧构造的 SheetGrid
-//    引擎实例对主入口导出的 ListTable / MergeCellMap / MergeOverlapError 做 instanceof。
+//    结构面断言各 entry 消费同一 engine chunk；运行面经 sheet 侧构造的 SheetGrid、
+//    pivot 侧构造的 PivotGrid 引擎实例对主入口导出的 ListTable / MergeCellMap /
+//    MergeOverlapError 做 instanceof。
 console.log('[check-exports] 跨入口 instanceof 契约')
 const distDir = new URL('../packages/infinitable/dist/', import.meta.url)
 const engineChunks = readdirSync(distDir).filter(
@@ -163,12 +198,12 @@ const engineChunks = readdirSync(distDir).filter(
 if (engineChunks.length !== 1)
   fail(`engine 共享 chunk 应恰有 1 份，实际 ${engineChunks.length} 份：${engineChunks.join('、')}`)
 else {
-  for (const entry of ['infinitable.js', 'sheet.js']) {
+  for (const entry of ['infinitable.js', 'sheet.js', 'pivot.js']) {
     const source = readFileSync(new URL(entry, distDir), 'utf8')
     if (!source.includes(`"./${engineChunks[0]}"`))
       fail(`${entry} 未消费共享 engine chunk ${engineChunks[0]}（引擎副本分裂）`)
   }
-  if (!failed) ok(`主入口与 ./sheet 消费同一 engine chunk（${engineChunks[0]}）`)
+  if (!failed) ok(`主入口与 ./sheet、./pivot 消费同一 engine chunk（${engineChunks[0]}）`)
 }
 const contractWorkbook = new sheetModule.Workbook()
 const contractContainer = document.createElement('div')
@@ -195,12 +230,19 @@ try {
   overlapError = error
 }
 if (overlapError !== null) {
-  if (overlapError.name !== 'MergeOverlapError')
-    fail(`重叠合并抛错类型异常：${overlapError.name}`)
+  if (overlapError.name !== 'MergeOverlapError') fail(`重叠合并抛错类型异常：${overlapError.name}`)
   else if (!(overlapError instanceof unifiedModule.MergeOverlapError))
     fail('sheet 侧抛出的重叠合并错误不是主入口 MergeOverlapError（引擎类身份分裂）')
   else ok('sheet 侧 fail-fast 抛错 instanceof 主入口 MergeOverlapError')
 }
+const pivotEngine = pivot.getTable()
+if (!(pivotEngine instanceof unifiedModule.ListTable))
+  fail('pivot 侧引擎实例不是主入口 ListTable（引擎类身份分裂）')
+else ok('pivot 侧 PivotGrid 引擎 instanceof 主入口 ListTable')
+if (!(pivotEngine.mergeCells instanceof unifiedModule.MergeCellMap))
+  fail('pivot 侧引擎合并区集合不是主入口 MergeCellMap（引擎类身份分裂）')
+else ok('pivot 侧引擎 mergeCells instanceof 主入口 MergeCellMap')
 sheetGrid.release()
+pivot.destroy()
 console.log(failed ? '[check-exports] FAIL' : '[check-exports] PASS')
 process.exit(failed ? 1 : 0)

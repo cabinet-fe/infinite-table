@@ -33,6 +33,7 @@
       "devDependencies": {
         "@infinitable/formulas": "workspace:*",
         "@infinitable/grid": "workspace:*",
+        "@infinitable/pivot": "workspace:*",
         "@infinitable/plugins": "workspace:*",
         "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",

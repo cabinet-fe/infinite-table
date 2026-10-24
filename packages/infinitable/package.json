@@ -32,6 +32,10 @@
     "./sheet": {
       "types": "./dist/types/sheet.d.ts",
       "import": "./dist/sheet.js"
+    },
+    "./pivot": {
+      "types": "./dist/types/pivot.d.ts",
+      "import": "./dist/pivot.js"
     }
   },
   "scripts": {
@@ -40,6 +44,7 @@
   "devDependencies": {
     "@infinitable/formulas": "workspace:*",
     "@infinitable/grid": "workspace:*",
+    "@infinitable/pivot": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@infinitable/sheet": "workspace:*",
