@@ -5,7 +5,9 @@ description: TablePlugin 契约、构造 plugins 与 table.use 的差异、chart
 
 # 插件开发
 
-infinitable 的插件是普通对象，不继承基类、不访问引擎内部模块。插件通过 `mount(table)` 拿到 `ListTable` 实例，向公开的渲染预留位、事件与实例方法接线；表格销毁时按注册逆序调用 `unmount(table)` 回收。
+infinitable 的插件是普通对象，不继承基类、不访问引擎内部模块。插件通过 `mount(engine)` 拿到 `EngineAssembly` 装配协议面，向公开的渲染预留位、事件与实例方法接线；引擎销毁时按注册逆序调用 `unmount(engine)` 回收。
+
+挂载参数是协议面而不是 `ListTable` 具体类型：`ListTable`、`SheetGrid` 装配与 pivot 引擎 `PivotGrid` 等平级引擎都实现 `EngineAssembly`，只依赖协议面的插件可跨引擎挂载（水印、打印即如此）。需要表格领域能力（如 `chartMediaResolver`、`floatObjects`）的插件把参数收窄为 `ListTable`（实现 `TableEngine` 协议面），此时插件只在表格引擎上生效。
 
 官方插件（chart / watermark / print）本身就是 `TablePlugin` 的实现，因此官方能力与自写插件走同一套注册路径。完整签名见 [插件（plugins）](/api/plugins)。
 
@@ -14,21 +16,23 @@ infinitable 的插件是普通对象，不继承基类、不访问引擎内部�
 `TablePlugin` 只有三个成员，方法名是 `mount` / `unmount`，不是 `install` / `uninstall`：
 
 ```ts
-import type { ListTable } from 'infinitable'
+import type { EngineAssembly } from 'infinitable'
 
 interface TablePlugin {
   readonly name: string
-  /** 挂载：构造传入或 table.use() 注册时立即调用 */
-  mount(table: ListTable): void
-  /** 卸载：表格销毁时按注册逆序调用 */
-  unmount?(table: ListTable): void
+  /** 挂载：构造传入或引擎 use() 注册时立即调用；参数为引擎装配协议面 */
+  mount(engine: EngineAssembly): void
+  /** 卸载：引擎销毁时按注册逆序调用 */
+  unmount?(engine: EngineAssembly): void
 }
 ```
+
+`EngineAssembly` 的成员就是协议装配路径的全部：渲染宿主 `host`、数据面（`rowCount` / `getCellValue` / `updateCell` / `onCellChange`）、主题（`getTheme` / `updateTheme`）、painter 槽位（`setUnderlayPainter` / `setOverlayPainter`）、插件槽位（`use`）、生命周期（`destroy`）与可选的导出读取面 `read`。协议面不包含选区、编辑、表头等表格领域操作——那些在各引擎自己的领域面上（表格引擎为 `TableEngine`）。
 
 生命周期顺序：
 
 1. `new ListTable(options)`：构造过程中按 `options.plugins` 数组顺序逐个调用 `use(plugin)`。
-2. 每个 `use` 立即执行 `plugin.mount(table)`。构造期注册发生在首次场景重建之前，渲染接线能参与首帧。
+2. 每个 `use` 立即执行 `plugin.mount(engine)`。构造期注册发生在首次场景重建之前，渲染接线能参与首帧。
 3. 构造完成，场景重建，首帧上屏。
 4. 运行期调用 `table.use(plugin)`：同样立即 `mount`，没有单独的“初始化”阶段。
 5. `table.destroy()`：从插件列表尾部向前逐个调用 `unmount`，然后清理场景与画布。
@@ -44,10 +48,10 @@ import { ListTable, type TablePlugin } from 'infinitable'
 
 const plugin: TablePlugin = {
   name: 'my-plugin',
-  mount(table) {
+  mount(engine) {
     // 写入预留位 / 订阅事件
   },
-  unmount(table) {
+  unmount(engine) {
     // 还原预留位 / 退订事件
   },
 }
@@ -86,7 +90,7 @@ table.use(plugin) // 立即 mount；返回 void
 运行时挂载能否即时生效，取决于插件写入的扩展点：
 
 - `setUnderlayPainter` / `setOverlayPainter` 写入后会提交对应层的整层失效，下一帧自动重绘，不需要插件做额外重建。
-- 依赖场景装配的接线（例如格内图表解析器）需要触发一次全量重建。官方 chart 插件在 `mount` 内检查 `table.sceneInitialized`，已初始化时走引擎的全量几何重建路径；这是官方插件对引擎预留位的接线，不属于宿主自定义插件的公开契约。
+- 依赖场景装配的接线（例如格内图表解析器）需要触发一次全量重建。官方 chart 插件把挂载参数收窄为 `ListTable`，在 `mount` 内检查 `table.sceneInitialized`，已初始化时走引擎的全量几何重建路径；这是官方插件对引擎预留位的接线，不属于宿主自定义插件的公开契约。
 - 只订阅事件、不参与绘制的插件，`use` 后立即生效。
 
 ## 官方插件挂载
@@ -152,11 +156,11 @@ void html
 
 各插件挂载后的实际接线：
 
-| 插件                    | `mount` 做了什么                                                       | `unmount` 做了什么                   |
-| ----------------------- | ---------------------------------------------------------------------- | ------------------------------------ |
-| `createChartPlugin`     | 把「格 → 图表媒体」解析器写入引擎的 chart 预留位；晚挂载时触发全量重建 | 仅当当前解析器仍是自己的解析器时置空 |
-| `createWatermarkPlugin` | `enabled` 时写入顶层 overlay painter                                   | 置空 overlay painter、解除表格引用   |
-| `createPrintPlugin`     | 契约占位，不接线表格                                                   | 无表侧副作用                         |
+| 插件                    | `mount` 做了什么                                                                          | `unmount` 做了什么                   |
+| ----------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------ |
+| `createChartPlugin`     | 把挂载参数收窄为表格引擎，将「格 → 图表媒体」解析器写入引擎的 chart 预留位；晚挂载时触发全量重建 | 仅当当前解析器仍是自己的解析器时置空 |
+| `createWatermarkPlugin` | `enabled` 时经协议面 `setOverlayPainter` 写入顶层 overlay painter                          | 置空 overlay painter、解除引擎引用   |
+| `createPrintPlugin`     | 仅记录挂载引擎，不接线引擎                                                                | 无表侧副作用                         |
 
 图表数据变更后仍需要宿主调 `table.refreshCell(col, row)`。`resolveCellChart` 是拉取式 hook，引擎不会感知声明对象内部的数据变化。`chart.getChartSpec(col, row)` 可独立解析声明，非法声明返回 `null`；`chart.loadLibrary()` 用于预热 Chart.js。
 
@@ -240,7 +244,7 @@ import { ListTable, type OverlayPainter, type TablePlugin } from 'infinitable'
 
 const rulerPlugin: TablePlugin = {
   name: 'viewport-ruler',
-  mount(table) {
+  mount(engine) {
     const paint: OverlayPainter = (ctx, viewport) => {
       const height = 26
       const top = viewport.height - height
@@ -266,10 +270,10 @@ const rulerPlugin: TablePlugin = {
       ctx.restore()
     }
 
-    table.setOverlayPainter(paint)
+    engine.setOverlayPainter(paint)
   },
-  unmount(table) {
-    table.setOverlayPainter(null)
+  unmount(engine) {
+    engine.setOverlayPainter(null)
   },
 }
 

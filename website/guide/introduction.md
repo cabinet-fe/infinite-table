@@ -13,7 +13,7 @@ npm 包名为 `infinitable`，采用 MIT 许可，当前版本 0.3.4。
 - 单格更新触发整表重绘，或退化为全量 `setRecords` 重放。
 - 表格主体与图表、图片、选区浮层混在一张画布上，任何一层变化都要重绘全部内容。
 
-infinitable 用一套统一的失效模型解决这些问题：数据只提供值，渲染只处理可视窗口，变化只登记受影响的区域。滚动、交互、图片加载和批量写入都收敛到同一套 `cell` / `band` / `full` 失效语言，再由分层渲染器按层消费。
+infinitable 用一套统一的失效模型解决这些问题：数据只提供值，渲染只处理可视窗口，变化只登记受影响的区域。滚动、交互、图片加载和批量写入都收敛到同一套 `region` / `band` / `full` 失效语言，再由分层渲染器按层消费。
 
 ## 核心特性
 
@@ -22,7 +22,8 @@ infinitable 用一套统一的失效模型解决这些问题：数据只提供�
 - **模型直挂**：数据模型按格 O(1) 读写，不需要为一次写入重放全量数据；`batchUpdate` 把大块写合并为一次失效提交。
 - **Excel 式交互**：选区、填充柄、hover、行列 resize、键盘导航、触控惯性滚动、编辑器注册表、冻结行列、合并单元格。
 - **图表格位图路由**：Chart.js 离屏出图后经 cell 级位图缓存 LRU 上屏，滚动滚回命中缓存直接贴图，不闪烁。
-- **插件体系**：图表、打印、水印等以插件挂载；电子表格核心（sheet 模型、命令、IO、`SheetGrid` 适配）独立为 sheet 包，经 `infinitable/sheet` 子路径导出。
+- **插件体系**：图表、打印、水印等以插件挂载，挂载参数为 `EngineAssembly` 装配协议面，可跨引擎生效；电子表格核心（sheet 模型、命令、IO、`SheetGrid` 适配）独立为 sheet 包，经 `infinitable/sheet` 子路径导出。
+- **透视表引擎**：`PivotGrid`（行列维度分组、多级表头、聚合与小计、双击下钻）独立为 pivot 包，经 `infinitable/pivot` 子路径导出。
 - **公式引擎**：A1 地址、Pratt 解析、求值、49 个内置函数、依赖图增量重算；四则与聚合走精确计算。
 
 ## 与 VTable 的差异
@@ -95,11 +96,12 @@ macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25`
 | `@infinitable/grid`     | 共享网格内核：滚动、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、合并区、浮动对象 | 主入口导出 `normalizeRange`、`GridCellRef` 等 |
 | `@infinitable/table`    | 表格引擎：`ListTable`、交互、编辑、合并、媒体与浮动对象、插件注册路径                        | 主入口导出 `ListTable` 等                     |
 | `@infinitable/formulas` | 公式引擎：A1 地址、tokenizer、Pratt parser、求值、49 个内置函数、依赖图、引用扫描与平移      | 主入口导出解析/求值/依赖图 API                |
-| `@infinitable/plugins`  | 官方插件：图表、打印、水印，统一以 `createXxxPlugin` 工厂返回插件对象                        | 主入口导出三个插件工厂                        |
+| `@infinitable/plugins`  | 官方插件：图表、打印、水印，统一以 `createXxxPlugin` 工厂返回插件对象                        | 主入口导出插件工厂与引擎供数适配              |
+| `@infinitable/pivot`    | 透视表引擎：`PivotGrid`（行列维度分组、多级表头、度量聚合、双击下钻）                        | 经 `infinitable/pivot` 子路径                 |
 | `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层         | 经 `infinitable/sheet` 子路径                 |
-| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心             | `import { ... } from 'infinitable'`           |
+| `infinitable`           | 唯一 npm 发布包：主入口 re-export 五层公共 API，`./sheet`、`./pivot` 子路径导出领域引擎      | `import { ... } from 'infinitable'`           |
 
-用户侧只需要从 `infinitable` 导入。`@infinitable/*` 是仓库内部开发时的包边界，不是给使用方的导入路径。
+用户侧只需要从 `infinitable` 与其子路径导入。`@infinitable/*` 是仓库内部开发时的包边界，不是给使用方的导入路径。
 
 ```mermaid
 graph TD
@@ -109,6 +111,7 @@ graph TD
   infinitable --> formulas
   infinitable --> plugins
   infinitable --> sheet
+  infinitable --> pivot
   grid --> render
   table --> grid
   table --> render
@@ -117,13 +120,15 @@ graph TD
   sheet --> table
   sheet --> grid
   sheet --> formulas
+  pivot --> table
 ```
 
 依赖方向的关键约束：
 
 - `grid` 只依赖 `render`；`table` 通过 `RenderHost` 窄接口依赖 `render`，不接触场景树内部实现。
 - `formulas` 不依赖 `grid` / `table`。求值由宿主驱动，`sheet` 包内的 `FormulaEngine` 是公式能力的组合门面。
-- `plugins` 依赖 `table` 的插件契约，官方插件与用户插件走同一条注册路径。
+- `plugins` 依赖 `table` 的插件契约（挂载参数为 `EngineAssembly` 装配协议面），官方插件与用户插件走同一条注册路径。
+- `pivot` 只依赖 `table`：`PivotGrid` 以 `TableEngine` 协议面持有内部 `ListTable`，对外转发 `EngineAssembly` 协议面。
 - `infinitable` 是发布层，本身不承载业务逻辑。
 
 更多包职责和设计取舍见[架构总览](/guide/architecture)。
@@ -134,6 +139,7 @@ graph TD
 
 - 10 万到 100 万行的数据表格，需要快速构造、流畅滚动和局部更新。
 - 需要 Excel 式交互：选区、填充、行列 resize、键盘导航、冻结、合并单元格。
+- 需要透视表 / 交叉表形态：行列维度分组、多级表头、聚合与小计（pivot 引擎 `PivotGrid`，见[透视表（pivot）](/guide/pivot)）。
 - 需要在单元格内渲染图表或图片，并希望滚动时位图复用、不闪烁。
 - 需要电子表格模型：多工作表、公式、撤销重做、xlsx/csv 导入导出。
 - 对包体积敏感，希望表格引擎保持在一个很小的构建面内。
@@ -141,7 +147,7 @@ graph TD
 ### 不适用
 
 - 需要服务端直出表格画面的 SSR 场景。渲染实例必须在有 DOM 的浏览器环境构造。
-- 需要多级表头、透视表、交叉表等高级表格形态。当前 `ListTable` 的列头固定为单层。
+- 需要完全自定义的多级表头嵌套形态。`ListTable` 的列头固定为单层；透视表场景的多级表头由 pivot 引擎以冻结行 + 合并区组装，不支持任意的表头结构定制。
 - 依赖 DOM 语义做无障碍、SEO 或浏览器原生查找的场景。canvas 内容不是 DOM 节点。
 - 单元格内需要富文本编辑器的场景。内置编辑器以单行 input 和多行 textarea 为主。
 - 只有几十行、用原生 `<table>` 就能满足的场景。引入引擎不会带来收益。

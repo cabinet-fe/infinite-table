@@ -574,7 +574,7 @@ table.commitEdit()
 行为细节：
 
 - **初值口径**：编辑拿到的是基础值，未过 `resolveDisplayValue`。公式格要「所见即所编」需要模型层在 `getCellValue` 返回原文（`SheetGrid` 即此口径）。
-- **提交序**：写回数据源 → 该格 cell 级失效 → `onCellChange` → `onEditEnd`（`committed: true`，带终值）。编辑器内 Enter / Tab 提交时随后移动选区（Enter 下移、Tab 右移）；宿主直接调用 `table.commitEdit()` 不移动选区。
+- **提交序**：写回数据源 → 该格 region 级失效 → `onCellChange` → `onEditEnd`（`committed: true`，带终值）。编辑器内 Enter / Tab 提交时随后移动选区（Enter 下移、Tab 右移）；宿主直接调用 `table.commitEdit()` 不移动选区。
 - **无操作提交**：提交文本与初值文本相同则跳过写回、刷新与 `onCellChange`，但会话结束、焦点恢复照常；若本次提交带移动请求（Enter/Tab），选区移动也照常。
 - **取消**：不回写、不抛 `onCellChange`，抛 `onEditEnd`（`committed: false`，无终值），焦点交还表格。
 - **键位**：Enter 提交并下移，Tab 提交并右移，Esc 取消。`editorMultiline: true` 时 Enter 仍是提交；需要「多行内换行」必须宿主自行接管键位。

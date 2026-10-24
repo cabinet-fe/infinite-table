@@ -9,7 +9,7 @@ description: infinitable/sheet 的定位与依赖、Sheet/Workbook/CellStore/Sty
 
 - **模型**：`Sheet`、`Workbook`、`CellStore`、`StylePool`、`MergeManager`、`SelectionModel`、`FormulaEngine`。
 - **命令与历史**：`HistoryManager`、`CommandRegistry`、内置 `XxxCommand`。
-- **视图适配**：`SheetGrid`，把 Sheet 模型接到 core 的 `ListTable` 画布引擎。
+- **视图适配**：`SheetGrid`，把 Sheet 模型接到 table 引擎的 `ListTable` 画布。
 - **IO**：xlsx / csv 导入导出与快照替换。
 
 它不是插件。旧的 `createSheetPlugin` / `SheetPluginHandle` 已删除，电子表格能力不再放进 `plugins` 数组。完整签名见 [电子表格（sheet）](/api/sheet)。
@@ -22,8 +22,8 @@ import { Sheet, SheetGrid, Workbook } from 'infinitable/sheet'
 
 - 发布包 `infinitable` 的主入口不转出 sheet API，必须走 `./sheet` 子路径。
 - 仓内对应 workspace 包是 `@infinitable/sheet`；下游用户只从 `infinitable/sheet` 导入。
-- 依赖方向：`sheet → core`、`sheet → formulas`。`hucre` 只用于 xlsx 读写，随包依赖，不需要宿主单独安装。
-- 不依赖 plugins。图表、水印、打印是 core 插件，和 sheet 模型是两套能力。
+- 依赖方向：`sheet → table`、`sheet → grid`、`sheet → formulas`。`hucre` 只用于 xlsx 读写，随包依赖，不需要宿主单独安装。
+- 不依赖 plugins。图表、水印、打印是官方插件（plugins 包），和 sheet 模型是两套能力。
 
 `Sheet`/`Workbook` 负责数据与命令；`SheetGrid` 负责画布渲染与交互。只要数据面时可以不创建 `SheetGrid`。
 
@@ -238,7 +238,7 @@ sheet.undo() // 回到写入前
 
 ## SheetGrid：Sheet 到 ListTable 的适配
 
-`SheetGrid` 不做第二套渲染。它构造 `ListTable`，把 Sheet 模型适配成 core 的 `TableModel`，再用引擎的公开 hook 同步显示值、样式、选区、冻结、合并、图片和链接。
+`SheetGrid` 不做第二套渲染。它构造 `ListTable`，把 Sheet 模型适配成 table 引擎的 `TableModel`，再用引擎的公开 hook 同步显示值、样式、选区、冻结、合并、图片和链接。
 
 ### 构造参数
 
@@ -299,7 +299,7 @@ const grid = new SheetGrid({
 显示链是 pull 式的，每次格渲染时拉取：
 
 - `resolveDisplayValue`：公式格取 `sheet.getDisplayValue`（计算缓存），数字按有效样式 `numFmt` 格式化，最后叠加宿主 hook。
-- `resolveCellStyle`：`sheet.getEffectiveStyle`（列 → 行 → 格）叠加宿主 hook，再映射成 core 的 `CellStyle`。
+- `resolveCellStyle`：`sheet.getEffectiveStyle`（列 → 行 → 格）叠加宿主 hook，再映射成 grid 的 `CellStyle`。
 - `resolveCellImage` / `resolveCellLink`：SheetGrid 内部无条件接入，模型里有嵌入图或链接就渲染，不需要宿主传 hook。
 
 合并格由引擎路由到主格；Sheet 侧 `getCellData` 对被覆盖格返回 `undefined`，`getDisplayValue` 返回锚点值。

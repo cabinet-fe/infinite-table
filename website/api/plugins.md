@@ -1,6 +1,6 @@
 ---
 title: 插件（plugins）
-description: 官方插件 API：图表（Chart.js 按需加载与单元格声明）、文字水印（顶层 overlay 句柄）、打印（headless 分页、文档构建、iframe 输出与 DOM 预览），以及共同挂载与卸载方式。
+description: 官方插件 API：图表（Chart.js 按需加载与单元格声明）、文字水印（顶层 overlay 句柄）、打印（headless 分页、文档构建、iframe 输出、DOM 预览与引擎供数适配），以及共同挂载与卸载方式。
 ---
 
 # 插件（plugins）
@@ -20,10 +20,12 @@ description: 官方插件 API：图表（Chart.js 按需加载与单元格声明
 ```ts
 interface TablePlugin {
   readonly name: string
-  mount(table: ListTable): void
-  unmount?(table: ListTable): void
+  mount(engine: EngineAssembly): void
+  unmount?(engine: EngineAssembly): void
 }
 ```
+
+挂载参数是 `EngineAssembly` 装配协议面（`import type { EngineAssembly } from 'infinitable'`），不是 `ListTable` 具体类型：水印、打印等协议插件只依赖该面，挂到 `ListTable`、pivot 引擎 `PivotGrid` 等任何实现该面的引擎都生效；图表插件需要表格领域能力，内部把参数收窄为 `ListTable`。
 
 两种注册方式等价：
 
@@ -91,13 +93,13 @@ interface ChartPluginHandle extends TablePlugin {
 }
 ```
 
-| 成员                     | 说明                                                                               |
-| ------------------------ | ---------------------------------------------------------------------------------- |
-| `name`                   | `'chart'`                                                                          |
-| `mount(table)`           | 把「格 → 图表媒体」解析器写入 `table.chartMediaResolver`；晚挂载时触发一次几何重建 |
-| `unmount(table)`         | 仅当预留位仍指向本插件的解析器时置 `null`                                          |
-| `getChartSpec(col, row)` | 解析该格声明；未声明或非法返回 `null`，不抛异常                                    |
-| `loadLibrary()`          | 按需加载 Chart.js，返回模块（模块级缓存）                                          |
+| 成员                     | 说明                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `name`                   | `'chart'`                                                                                |
+| `mount(engine)`          | 把挂载参数收窄为表格引擎，将「格 → 图表媒体」解析器写入 `chartMediaResolver` 预留位；晚挂载时触发一次几何重建 |
+| `unmount(engine)`        | 仅当预留位仍指向本插件的解析器时置 `null`                                                |
+| `getChartSpec(col, row)` | 解析该格声明；未声明或非法返回 `null`，不抛异常                                          |
+| `loadLibrary()`          | 按需加载 Chart.js，返回模块（模块级缓存）                                                |
 
 ### 声明格式
 
@@ -247,8 +249,8 @@ interface WatermarkHandle extends TablePlugin {
 | 成员                  | 说明                                                           |
 | --------------------- | -------------------------------------------------------------- |
 | `name`                | `'watermark'`                                                  |
-| `mount(table)`        | 按 `enabled` 写入或清空 `table.setOverlayPainter`              |
-| `unmount(table)`      | 置 `setOverlayPainter(null)`，还原预留位                       |
+| `mount(engine)`       | 按 `enabled` 经协议面 `engine.setOverlayPainter` 写入或清空    |
+| `unmount(engine)`     | 置 `setOverlayPainter(null)`，还原预留位                       |
 | `updateConfig(patch)` | 浅合并配置；任一项变化触发整层失效，一帧内重绘；值未变则无操作 |
 | `getConfig()`         | 返回缺省值已并入的完整配置副本                                 |
 | `isEnabled()`         | 当前 `enabled`                                                 |
@@ -271,7 +273,7 @@ watermark.isEnabled() // true
 function createPrintPlugin(options: PrintPluginOptions): PrintPluginHandle
 ```
 
-打印链路本身 headless：`mount` 不接线表格的任何挂点，全部能力经句柄方法调用，可脱离表格实例使用。
+打印链路本身 headless：`mount` 只记录挂载引擎，不接线任何挂点，全部能力经句柄方法调用，可脱离引擎实例使用。
 
 ### 配置
 
@@ -307,15 +309,32 @@ interface PrintSource {
 }
 ```
 
-| 成员                     | 说明                                                      |
-| ------------------------ | --------------------------------------------------------- |
-| `name`                   | 表名；也是页眉页脚 `{title}` 的缺省来源                   |
-| `rowCount` / `colCount`  | 数据行数 / 列数（含重复表头行）                           |
-| `rowHeight` / `colWidth` | 行高 / 列宽，单位 px（96dpi）                             |
-| `merges`                 | 合并区域列表（core 的 `CellRange`，0 基闭区间）           |
-| `cellValue`              | 原始格值；分组换页按此判定，不受显示链影响                |
-| `cellStyle`              | 有效格样式（core 的 `CellStyle`）；无样式返回 `undefined` |
-| `displayValue`           | 显示值；页面构建消费                                      |
+| 成员                     | 说明                                                        |
+| ------------------------ | ----------------------------------------------------------- |
+| `name`                   | 表名；也是页眉页脚 `{title}` 的缺省来源                      |
+| `rowCount` / `colCount`  | 数据行数 / 列数（含重复表头行）                             |
+| `rowHeight` / `colWidth` | 行高 / 列宽，单位 px（96dpi）                               |
+| `merges`                 | 合并区域列表（grid 的 `CellRange`，0 基闭区间）             |
+| `cellValue`              | 原始格值；分组换页按此判定，不受显示链影响                  |
+| `cellStyle`              | 有效格样式（grid 的 `CellStyle`）；无样式返回 `undefined`   |
+| `displayValue`           | 显示值；页面构建消费                                        |
+
+### 引擎供数适配
+
+```ts
+function createEnginePrintSource(
+  engine: EngineAssembly,
+  options?: EnginePrintSourceOptions,
+): PrintSource
+```
+
+宿主打印引擎实例（`ListTable`、`PivotGrid` 等）时不必自写适配器：`createEnginePrintSource` 从引擎装配协议的导出读取面（`engine.read`）逐项映射打印数据源——行列数、行高列宽、合并区、原始值、有效样式与有效显示文本。`options.name` 作为表名（缺省空串）。引擎未提供导出读取面（`engine.read` 缺失）时 fail-fast 抛错。
+
+```ts
+import { createEnginePrintSource, createPrintPlugin } from 'infinitable'
+
+const printer = createPrintPlugin({ source: createEnginePrintSource(table, { name: '销售明细' }) })
+```
 
 适配 `infinitable/sheet` 时，可从 `SheetSnapshot` 的 `cells` 稀疏条目、`rowHeights` / `colWidths` 元组映射；`Sheet` 模型的 getter 形态也可直接包装。
 
@@ -430,7 +449,7 @@ interface PrintPluginHandle extends TablePlugin {
 | 成员                         | 说明                                           |
 | ---------------------------- | ---------------------------------------------- |
 | `name`                       | `'print'`                                      |
-| `mount(table)`               | 空实现（沿用 `TablePlugin` 契约）              |
+| `mount(engine)`              | 仅记录挂载引擎，不做其它接线                  |
 | `paginate(config?)`          | headless 分页，返回页面数组                    |
 | `buildDocumentHtml(config?)` | headless 构建完整打印文档 HTML                 |
 | `print(config?)`             | 触 DOM：隐藏 iframe 装载文档并调起打印         |

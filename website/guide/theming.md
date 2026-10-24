@@ -496,5 +496,5 @@ toggle.addEventListener('click', () => {
 ## 相关
 
 - [ListTable API](/api/list-table)：`theme` 选项、`getTheme` / `updateTheme`、`scrollbar` 配置。
-- [核心类型与模型（core）](/api/core)：`TableTheme`、`ThemeOverride`、`CellStyle`、`CellBorder` 的导出面。
+- [共享类型与模型（grid / table）](/api/grid-table)：`TableTheme`、`ThemeOverride`、`CellStyle`、`CellBorder` 的导出面。
 - [交互与编辑](/guide/interaction-editing)：选区、填充柄、冻结分隔线与编辑浮层内缩的运行时行为。

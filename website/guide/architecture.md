@@ -42,14 +42,14 @@ flowchart LR
 
 选择重写的原因在于目标架构的几个约束无法通过局部补丁同时满足：
 
-- **失效模型必须从底层统一**。目标要求滚动、交互、图片加载、批量写入共享同一条 `cell` / `band` / `full` 失效语言。原实现建立在 vrender 的渲染管线上，失效单位和层所有权无法在不重写渲染层的情况下改变。
-- **core 只能依赖窄接口**。目标要求表格主体只通过 `RenderHost` 使用渲染引擎，不接触场景树和 vrender 系列包。渐进改造会把旧渲染栈的依赖继续带进新包边界。
+- **失效模型必须从底层统一**。目标要求滚动、交互、图片加载、批量写入共享同一条 `region` / `band` / `full` 失效语言。原实现建立在 vrender 的渲染管线上，失效单位和层所有权无法在不重写渲染层的情况下改变。
+- **表格主体只能依赖窄接口**。目标要求表格主体只通过 `RenderHost` 使用渲染引擎，不接触场景树和 vrender 系列包。渐进改造会把旧渲染栈的依赖继续带进新包边界。
 - **全量虚拟滚动和场景树必须一起设计**。滚动帧要做“滚出摘除、滚入补建、存活节点平移”，这依赖场景树、层失效和文本测量缓存协同；在旧绘制路径上叠加会保留全量重建分支。
 - **体积目标**。目标引擎核心控制在很小的大小内，最小渲染面 gzip 27KB。保留旧依赖树无法达到这个量级。
 
 重写保留了原实现的行为基线（API 行为、交互口径、渲染结果作为迁移基准），但包结构、渲染引擎和失效模型是新的。
 
-## 七个包的职责与依赖
+## 八个包的职责与依赖
 
 | 包                      | 职责                                                                                                                  | 主要入口                            |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
@@ -58,8 +58,9 @@ flowchart LR
 | `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径                                                | `packages/table/src/index.ts`       |
 | `@infinitable/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、`evaluate`、49 个内置函数、依赖图、容错引用扫描、引用平移            | `packages/formulas/src/index.ts`    |
 | `@infinitable/plugins`  | 官方插件：`TablePlugin` 契约转出 + chart / print / watermark 插件工厂                                                 | `packages/plugins/src/index.ts`     |
+| `@infinitable/pivot`    | 透视表引擎：`PivotGrid` 装配协议接入的领域引擎（行维度树形布局 × 多级列头 × 度量聚合）                                | `packages/pivot/src/index.ts`       |
 | `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层                                  | `packages/sheet/src/index.ts`       |
-| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心                                      | `packages/infinitable/src/index.ts` |
+| `infinitable`           | 唯一 npm 发布包：主入口 re-export 五层公共 API，`./sheet` 子路径导出电子表格核心，`./pivot` 子路径导出透视表引擎      | `packages/infinitable/src/index.ts` |
 
 ```mermaid
 graph TD
@@ -69,6 +70,7 @@ graph TD
   infinitable --> formulas
   infinitable --> plugins
   infinitable --> sheet
+  infinitable --> pivot
   grid --> render
   table --> grid
   table --> render
@@ -77,6 +79,7 @@ graph TD
   sheet --> table
   sheet --> grid
   sheet --> formulas
+  pivot --> table
 ```
 
 依赖方向是单向的：
@@ -84,9 +87,10 @@ graph TD
 - `render` 不知道 `grid` / `table` 的存在，只暴露渲染宿主、层句柄、场景树和失效类型。
 - `grid` 只依赖 `render`；`table` 依赖 `grid` 与 `render` 的窄接口，不依赖 `formulas`；表格只负责显示模型给出的值。
 - `formulas` 不依赖 `grid` / `table`，求值所需的取值能力由宿主以 `FormulaResolver` 形式注入。
-- `plugins` 依赖 `table` 的 `TablePlugin` 契约，官方插件与用户插件使用同一个挂载路径。
+- `plugins` 依赖 `table` 的 `TablePlugin` 契约（挂载参数为 `EngineAssembly` 装配协议面），官方插件与用户插件使用同一个挂载路径。
 - `sheet` 同时依赖 `table`、`grid` 和 `formulas`：模型负责单元格存储与命令，公式门面负责图簿联动和增量重算，`SheetGrid` 把 `Sheet` 适配成 `ListTable` 的数据模型。
-- `infinitable` 只是发布层，构建时把六个内部包打成自包含产物，不做二次 API 扩张。
+- `pivot` 只依赖 `table`：`PivotGrid` 内部构造 `ListTable` 并以 `TableEngine` 协议面持有，维度/度量聚合是包内领域状态机；对外实现 `EngineAssembly` 转发面，协议插件（水印、打印）挂本引擎即生效。
+- `infinitable` 只是发布层，构建时聚合七个内部包产物，引擎实现跨入口共享；不做二次 API 扩张。
 
 外部依赖中，`@cat-kit/core` 是公式精确计算的运行时依赖，`chart.js` 由图表插件动态加载，`hucre` 用于 sheet 的 xlsx 导出，React 技术栈只属于 playground。
 
@@ -94,12 +98,12 @@ graph TD
 
 四层画布自下而上叠放，每层有独立的场景树和失效队列：
 
-| 层  | 名称     | 职责                                                                                     | 创建时机                             | 消费策略               |
-| --- | -------- | ---------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------- |
-| L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 table 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | 只响应 `band` / `full` |
-| L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                               | 构造时创建                           | 逐 region 补画         |
-| L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                           | 首次出现图片或图表格时惰性创建       | 逐 region 补画         |
-| L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                     | 构造时创建                           | 整层重画               |
+| 层  | 名称     | 职责                                                                                     | 创建时机                             | 消费策略（`consumption`）  |
+| --- | -------- | ---------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------- |
+| L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 table 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | `band-full-only`           |
+| L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                               | 构造时创建                           | `regions`                  |
+| L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                           | 首次出现图片或图表格时惰性创建       | `regions`                  |
+| L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                     | 构造时创建                           | `always-full`              |
 
 分层的目的不是视觉分层，而是**变化频率隔离**：
 
@@ -113,23 +117,23 @@ graph TD
 
 ```ts
 export type Invalidation =
-  | { type: 'cell'; region: Region; prevRegion?: Region }
+  | { type: 'region'; region: Region; prevRegion?: Region }
   | { type: 'band'; region: Region }
   | { type: 'full' }
 ```
 
-- **cell**：单元格级脏区。可带 `prevRegion`，用于内容移动前后双包围盒重绘。登记时会做像素对齐，并在四边外扩 10px 防止增量补画的边缘残影。
-- **band**：行带或列带级脏区。滚动窗口滑动产生的整条带是典型来源。新 band 会吸收被它完全包含的 cell；只相交的 cell 保留自身重绘区域。
+- **region**：矩形脏区。可带 `prevRegion`，用于内容移动前后双包围盒重绘。登记时会做像素对齐，并在四边外扩 10px 防止增量补画的边缘残影。
+- **band**：行带或列带级脏区。滚动窗口滑动产生的整条带是典型来源。新 band 会吸收被它完全包含的 region；只相交的 region 保留自身重绘区域。
 - **full**：整层重绘。无可靠包围盒、几何变化、主题切换、首帧等情况使用。
 
 失效队列在帧末按层收敛：
 
-- 同一帧内的 `cell` 会合并、去重。
+- 同一帧内的 `region` 会合并、去重。
 - `band` 数量超过 8 条时升级为 `full`，避免大量条带导致重绘退化为碎片化全绘。
 - `full` 吸收该层所有其它失效。
-- 各层消费策略不同：`ground` 只处理 `band` / `full`，`body` / `media` 逐 region 补画，`sky` 收到任何失效都整层重画。
+- 各层消费策略由建层方经 `LayerOpts.consumption` 注入（缺省 `'regions'`）：`'band-full-only'` 的层只处理 `band` / `full`，`'regions'` 的层逐脏区补画，`'always-full'` 的层收到任何失效都整层重画。
 
-三档失效由 `grid` 的滚动与 `table` 的交互、图片加载、批量更新共同使用。批量更新期间 `cell` 失效先收集，结束时合并为一次 `band` 提交。
+三档失效由 `grid` 的滚动与 `table` 的交互、图片加载、批量更新共同使用。批量更新期间 `region` 失效先收集，结束时合并为一次 `band` 提交。
 
 ## RenderHost 窄接口
 
@@ -157,7 +161,7 @@ export interface LayerHandle {
 
 这个接口把表格主体需要的能力限制在六件事：建层、提交失效、请求帧、测量文本、调整尺寸、销毁。`grid` / `table` 不需要知道画布怎么分配、场景树怎么遍历、事件怎么命中，也不会直接操作 DOM canvas。
 
-- `createLayer` 对同一个 `kind` 幂等，重复调用返回同一句柄。
+- `createLayer` 对同一个 `kind` 幂等，重复调用返回同一句柄；`LayerOpts.consumption` 在建层时注入该层的失效消费策略（缺省 `'regions'`），`ListTable` 建层时 `ground` 注入 `'band-full-only'`、`body` / `media` 注入 `'regions'`、`sky` 注入 `'always-full'`。
 - `submitInvalidation` 等价于向对应层提交失效；同帧多次提交由各层队列合并。
 - `requestFrame` 把任务收敛到下一个渲染帧，同一任务引用在一帧内只执行一次。
 - `measure` 提供 CSS 像素文本测量，缺失时引擎使用测量画布。
@@ -173,25 +177,27 @@ export interface LayerHandle {
 ```ts
 export interface TablePlugin {
   readonly name: string
-  mount(table: ListTable): void
-  unmount?(table: ListTable): void
+  mount(engine: EngineAssembly): void
+  unmount?(engine: EngineAssembly): void
 }
 ```
+
+挂载参数是 `EngineAssembly` 引擎装配协议面——渲染宿主、数据面、主题、painter 槽位、插件槽位与生命周期的组合面，不是 `ListTable` 具体类型。`ListTable` 与 pivot 引擎 `PivotGrid` 等平级引擎都实现该面，只依赖协议面的插件（watermark、print）跨引擎挂载即生效。
 
 注册方式有两种：
 
 - `new ListTable({ plugins: [...] })`：插件在首次场景重建之前挂载，渲染接线参与首帧。
 - `table.use(plugin)`：运行时挂载，适合动态启停；晚挂载的插件需要自己触发必要的重建。
 
-`ListTable.destroy()` 时按注册的逆序调用 `unmount`。
+`destroy()` 时按注册的逆序调用 `unmount`。
 
 官方插件都是 `createXxxPlugin` 工厂返回的对象，同时实现 `TablePlugin` 和运行时 handle：
 
-- `createChartPlugin` 在 `mount` 时把“格 → 图表媒体”的解析器写入 `table.chartMediaResolver`，位图经 `media` 层上屏。
-- `createWatermarkPlugin` 通过 `setOverlayPainter` 挂在 `sky` 层最顶；需要位于内容之下的衬底水印时，宿主自行使用 `setUnderlayPainter` 挂到 `ground` 层。
-- `createPrintPlugin` 提供分页、页面构建、打印输出和 DOM 预览的 handle 方法。
+- `createWatermarkPlugin` 挂载时经协议面 `setOverlayPainter` 挂在 `sky` 层最顶；需要位于内容之下的衬底水印时，宿主自行使用 `setUnderlayPainter` 挂到 `ground` 层。
+- `createPrintPlugin` 挂载时仅记录引擎，能力经 handle 方法消费；供数可经 `createEnginePrintSource` 从引擎的导出读取面（`engine.read`）适配。
+- `createChartPlugin` 需要表格领域能力，内部把挂载参数收窄为 `ListTable`：挂载时把「格 → 图表媒体」的解析器写入 `chartMediaResolver` 预留位，位图经 `media` 层上屏。
 
-引擎还预留了几个扩展位，用户插件可以直接使用：`chartMediaResolver`、`setUnderlayPainter`、`setOverlayPainter`、`table.floatObjects`。官方能力与用户扩展因此走同一条路径，不需要为官方功能开特例。
+表格引擎还预留了几个扩展位，用户插件可以直接使用：`chartMediaResolver`、`setUnderlayPainter`、`setOverlayPainter`、`table.floatObjects`。官方能力与用户扩展因此走同一条路径，不需要为官方功能开特例。
 
 ## 公式引擎边界
 
@@ -218,5 +224,15 @@ export interface TablePlugin {
 - 发布时通过 `infinitable/sheet` 子路径导出，主入口不转售 sheet 符号。
 
 需要无 UI 的数据面时直接用 `Sheet` / `Workbook`；需要画布渲染与交互时用 `SheetGrid` 装配，而不是自己把 sheet 模型接到 `ListTable` 上。
+
+## pivot 引擎定位
+
+`@infinitable/pivot` 是透视表领域引擎，不是插件：
+
+- 提供 `PivotGrid`：行方向为多列树形布局（每个行维度一列，同组跨行合并，可折叠）、列方向为多级表头（列维度逐层 + 度量行）、交叉格为度量聚合（sum / count / avg / min / max），维度与度量可运行时勾选，结构原地落地不重建实例。
+- 内部构造 `ListTable` 并以 `TableEngine` 协议面持有，渲染与滚动全走 table 引擎原语；聚合状态机（`PivotModel`）在包内。
+- 对外实现 `EngineAssembly` 转发面：水印、打印等协议插件挂本引擎即生效。
+- 只读引擎：交叉格为聚合值，编辑面整体关闭。
+- 发布时通过 `infinitable/pivot` 子路径导出，主入口不转售 pivot 符号。用法见[透视表（pivot）](/guide/pivot)。
 
 理解完包边界后，可以继续阅读[渲染管线与失效模型](/guide/rendering-pipeline)，看一次滚动是如何变成一次带失效并最终上屏的。

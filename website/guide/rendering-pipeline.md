@@ -9,7 +9,7 @@ flowchart LR
   A[输入：滚动 / 交互 / 数据变更] --> B[ScrollManager 或局部变更入口]
   B --> C[可视窗口计算]
   C --> D[场景树增量维护]
-  D --> E[失效登记 cell / band / full]
+  D --> E[失效登记 region / band / full]
   E --> F[FrameScheduler 单帧收敛]
   F --> G[各层按策略消费脏区]
   G --> H[浏览器合成四层 canvas 上屏]
@@ -77,7 +77,7 @@ sequenceDiagram
 
 场景树节点是 `SceneNode`，持有局部坐标、尺寸、可见性、可命中性、子节点和事件监听器。绘制时父节点先画自身，再按 `children` 顺序画子节点，后画的在上。
 
-`core` 维护两类更新：
+`table` 引擎维护两类更新：
 
 - **全量重建** `rebuildScene`：构造、主题切换、行列尺寸变化、冻结数变化、合并区变化时使用。重建可视窗口内的全部节点。
 - **增量窗口** `updateSceneWindow`：滚动帧使用。做三件事：
@@ -94,20 +94,20 @@ sequenceDiagram
 
 ## 三档失效
 
-`core` 只通过三种失效表达变化：
+引擎只用三种失效表达变化：
 
-| 失效   | 语义                                             | 典型来源                                                         |
-| ------ | ------------------------------------------------ | ---------------------------------------------------------------- |
-| `cell` | 一个矩形脏区，可带 `prevRegion` 表示移动前包围盒 | 单格写入、图片加载完成、图表格出图完成、编辑内容隐藏/恢复        |
-| `band` | 横向或纵向整条带                                 | 纵向滚动（冻结行以下）、横向滚动（冻结列以右）、批量写入合并提交 |
-| `full` | 整层重绘                                         | 首帧、几何变化、主题切换、冻结/合并变化、无法给出可靠脏区        |
+| 失效     | 语义                                             | 典型来源                                                         |
+| -------- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| `region` | 一个矩形脏区，可带 `prevRegion` 表示移动前包围盒 | 单格写入、图片加载完成、图表格出图完成、编辑内容隐藏/恢复        |
+| `band`   | 横向或纵向整条带                                 | 纵向滚动（冻结行以下）、横向滚动（冻结列以右）、批量写入合并提交 |
+| `full`   | 整层重绘                                         | 首帧、几何变化、主题切换、冻结/合并变化、无法给出可靠脏区        |
 
 失效提交的实际位置：
 
 - 纵向滚动：`body` 提交一条 `band`，存在 `media` 层时 `media` 也提交同一条带；起点在列头 + 冻结行之下。
 - 横向滚动：`body` 提交一条 `band`，存在 `media` 层时 `media` 也提交同一条带；起点在行号列 + 冻结列之右。
-- 单格刷新：`body` 提交一个 `cell`。失效区域会并入文本溢出走廊的新旧范围；合并格路由到主格包围盒。
-- `batchUpdate`：期间的 `cell` 先收集，结束时合并为一条 `band`。
+- 单格刷新：`body` 提交一个 `region`。失效区域会并入文本溢出走廊的新旧范围；合并格路由到主格包围盒。
+- `batchUpdate`：期间的 `region` 先收集，结束时合并为一条 `band`。
 - 几何变化（`resize`、行列尺寸、冻结数、合并区）：重建场景后提交 `body` 的 `full`，存在 `media` 时一并 `full`。
 - 主题切换：重建场景并提交 `body` 的 `full`，同时刷新交互浮层。
 - 选区与浮层：`sky` 收到内容变化后整层重画。
@@ -116,20 +116,22 @@ sequenceDiagram
 
 每层有一个 `InvalidationQueue`，帧末 `drain()` 出重绘计划：
 
-- `cell` 先做双包围盒 union（若带 `prevRegion`），再做像素对齐，最后四边外扩固定的 10px 防边缘残影。
-- `band` 会吸收被它完全包含的 `cell`；只相交的 `cell` 不被吸收，因为窄 band 与较大 `cell` 相交时，`cell` 的重绘范围可能远大于 band。
+- `region` 先做双包围盒 union（若带 `prevRegion`），再做像素对齐，最后四边外扩固定的 10px 防边缘残影。
+- `band` 会吸收被它完全包含的 `region`；只相交的 `region` 不被吸收，因为窄 band 与较大 `region` 相交时，`region` 的重绘范围可能远大于 band。
 - `band` 数量超过 8 条时升级为 `full`。
 - `full` 吸收该层所有其它失效。
 
-各层的消费策略在队列内部固定：
+各层的消费策略不是队列内部写死的，而是建层方在建层时经 `LayerOpts.consumption` 注入（缺省 `'regions'`）：
 
 ```ts
-const LAYER_CONSUMPTION: Record<LayerKind, Consumption> = {
-  ground: 'band-full-only',
-  body: 'regions',
-  media: 'regions',
-  sky: 'always-full',
-}
+// 三种取值（类型本体 LayerConsumption 定义在 @infinitable/render，未经主入口转售）
+type LayerConsumption = 'band-full-only' | 'regions' | 'always-full'
+
+// ListTable 建层时按层选择注入：
+host.createLayer({ kind: 'ground', consumption: 'band-full-only' })
+host.createLayer({ kind: 'body', consumption: 'regions' })
+host.createLayer({ kind: 'media', consumption: 'regions' })
+host.createLayer({ kind: 'sky', consumption: 'always-full' })
 ```
 
 `ground` 只处理 `band` / `full`，因为单格内容变化不影响底层 underlay；`body` 和 `media` 逐 region 补画；`sky` 收到任何失效都整层重画，因为它的内容通常只有选区、滚动条和浮动控件，整层重绘比按区域裁剪更简单。
@@ -149,7 +151,7 @@ const LAYER_CONSUMPTION: Record<LayerKind, Consumption> = {
 
 ### ground
 
-`ground` 是 underlay painter 预留层，首次调用 `setUnderlayPainter` 时才惰性创建。它只响应 `band` / `full`；当前 core 不在这层绘制网格线或斑马纹，单元格背景和边框由 `body` 层的 `CellNode` 绘制。
+`ground` 是 underlay painter 预留层，首次调用 `setUnderlayPainter` 时才惰性创建。它只响应 `band` / `full`；当前引擎不在这层绘制网格线或斑马纹，单元格背景和边框由 `body` 层的 `CellNode` 绘制。
 
 ### body
 
@@ -202,7 +204,7 @@ ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 - 四层 canvas 本身是长期持有的层画布，不进入池。
 - 池化的是短生命周期的临时位图，避免滚动帧反复分配大画布。
 
-`translateBy` 目前是预留能力，`core` 的滚动走“窗口增量重建 + band 失效”路线，没有调用它。
+`translateBy` 目前是预留能力，引擎的滚动走“窗口增量重建 + band 失效”路线，没有调用它。
 
 ## 事件系统
 
@@ -221,9 +223,9 @@ ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 3. 从命中节点沿 `parent` 链冒泡，依次调用节点的监听器；`stopPropagation()` 中断冒泡。
 4. 键盘事件不做命中，从最顶层根开始派发。
 
-`core` 在 `body` 根上绑定指针、触摸和 contextmenu，在 `sky` 根上绑定键盘。`sky` 根和 overlay 节点不可拾取，指针事件会穿透到 `body`，因此选区浮层不会挡住单元格交互。
+`table` 引擎在 `body` 根上绑定指针、触摸和 contextmenu，在 `sky` 根上绑定键盘。`sky` 根和 overlay 节点不可拾取，指针事件会穿透到 `body`，因此选区浮层不会挡住单元格交互。
 
-滚轮事件由宿主接线到 `table.scrollBy`，引擎不直接消费。双击进入编辑也不是依赖浏览器的 `dblclick`，而是 `core` 基于 `pointerdown` 的落点、时间和位移阈值自行判定。
+滚轮事件由宿主接线到 `table.scrollBy`，引擎不直接消费。双击进入编辑也不是依赖浏览器的 `dblclick`，而是引擎基于 `pointerdown` 的落点、时间和位移阈值自行判定。
 
 ## 一帧的完整时序
 

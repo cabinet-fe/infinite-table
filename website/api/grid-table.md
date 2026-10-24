@@ -1,13 +1,13 @@
 ---
-title: 核心类型与模型（core）
-description: core 包除 ListTable 外的公共 API：SheetModel 与 TablePlugin、主题与样式投影、选区类型与归一化、编辑器注册表与 CellRenderer、合并区集合与重叠消解、媒体与浮动对象、ground/sky 绘制预留位。
+title: 共享类型与模型（grid / table）
+description: grid 与 table 两层的公共 API：SheetModel 与 TablePlugin、主题与样式投影、选区类型与归一化、编辑器注册表与 CellRenderer、合并区集合与重叠消解、媒体与浮动对象、ground/sky 绘制预留位。
 ---
 
-# 核心类型与模型（core）
+# 共享类型与模型（grid / table）
 
-本页覆盖 `infinitable` 主入口中来自 core 层、且不属于 `ListTable` 主类的公共 API。`ListTable` 与其构造选项见 [/api/list-table](/api/list-table)。
+本页覆盖 `infinitable` 主入口中来自 grid 与 table 两层、且不属于 `ListTable` 主类的公共 API：主题、样式、选区与合并原语定义在 `@infinitable/grid`，模型、编辑、媒体与绘制预留位定义在 `@infinitable/table`。`ListTable` 与其构造选项见 [/api/list-table](/api/list-table)。
 
-> 本页签名中的格坐标统一写作 `GridCellRef`（统一入口的消歧别名）。core 源码内部的类型名为 `CellRef`，字段同为 `{ col, row }`。
+> 本页签名中的格坐标统一写作 `GridCellRef`（统一入口的消歧别名）。grid 源码内部的类型名为 `CellRef`，字段同为 `{ col, row }`。
 
 索引：
 
@@ -77,30 +77,34 @@ const table = new ListTable({
 ```ts
 export interface TablePlugin {
   readonly name: string
-  mount(table: ListTable): void
-  unmount?(table: ListTable): void
+  /** 挂载：构造传入 plugins 或引擎 use() 注册时立即调用；参数为引擎装配协议面 */
+  mount(engine: EngineAssembly): void
+  /** 卸载：引擎销毁时按注册逆序调用 */
+  unmount?(engine: EngineAssembly): void
 }
 ```
 
-| 成员      | 类型                                 | 说明                                               |
-| --------- | ------------------------------------ | -------------------------------------------------- |
-| `name`    | `readonly string`                    | 插件名                                             |
-| `mount`   | `(table: ListTable) => void`         | 构造传入 `plugins` 或调用 `table.use()` 时立即执行 |
-| `unmount` | `(table: ListTable) => void`（可选） | 表格销毁时按注册逆序调用                           |
+| 成员      | 类型                                       | 说明                                                |
+| --------- | ------------------------------------------ | --------------------------------------------------- |
+| `name`    | `readonly string`                          | 插件名                                              |
+| `mount`   | `(engine: EngineAssembly) => void`         | 构造传入 `plugins` 或调用 `engine.use()` 时立即执行 |
+| `unmount` | `(engine: EngineAssembly) => void`（可选） | 引擎销毁时按注册逆序调用                            |
+
+挂载参数是 `EngineAssembly` 装配协议面（渲染宿主、数据面、主题、painter 槽位、插件槽位与生命周期），不是 `ListTable` 具体类型：`ListTable` 与 pivot 引擎 `PivotGrid` 等平级引擎都实现该面，只依赖协议面的插件可跨引擎挂载。需要表格领域能力（如 `chartMediaResolver`）的插件把参数收窄为 `ListTable`（实现 `TableEngine` 协议面）。协议面成员清单与挂载细节见[插件开发](/guide/plugin-development)。
 
 ```ts
 import type { TablePlugin } from 'infinitable'
 
 const plugin: TablePlugin = {
   name: 'demo-overlay',
-  mount(table) {
-    table.setOverlayPainter((ctx, viewport) => {
+  mount(engine) {
+    engine.setOverlayPainter((ctx, viewport) => {
       ctx.fillStyle = 'rgba(31, 35, 41, 0.05)'
       ctx.fillRect(0, viewport.height - 24, viewport.width, 24)
     })
   },
-  unmount(table) {
-    table.setOverlayPainter(null)
+  unmount(engine) {
+    engine.setOverlayPainter(null)
   },
 }
 
@@ -625,12 +629,12 @@ export interface CellChartMedia {
 }
 ```
 
-| 字段      | 类型                                            | 说明                                                                   |
-| --------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
-| `key`     | `string`                                        | 内容 key；内容变更自然换 key。core 会叠加格尺寸与 DPR 组成完整缓存 key |
-| `produce` | `(size) => LoadedImage \| Promise<LoadedImage>` | 未命中 cell 级缓存时调用；同 key 并发出图由 core 单飞收敛              |
+| 字段      | 类型                                            | 说明                                                                    |
+| --------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
+| `key`     | `string`                                        | 内容 key；内容变更自然换 key。table 会叠加格尺寸与 DPR 组成完整缓存 key |
+| `produce` | `(size) => LoadedImage \| Promise<LoadedImage>` | 未命中格级缓存时调用；同 key 并发出图由 table 单飞收敛                 |
 
-`size` 的类型未单独导出，字段为 `{ width, height, dpr }`。图表语义（类型、数据、渲染库）全部在 chart 插件侧；core 只认内容 key 与位图生产者。
+`size` 的类型未单独导出，字段为 `{ width, height, dpr }`。图表语义（类型、数据、渲染库）全部在 chart 插件侧；table 只认内容 key 与位图生产者。
 
 ### FloatObject
 

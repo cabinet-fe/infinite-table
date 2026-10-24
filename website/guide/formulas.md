@@ -5,7 +5,7 @@ description: formulas 层的能力边界、A1 地址、Pratt 解析与 evaluate�
 
 # 公式引擎
 
-`@infinitable/formulas` 是一个不依赖 core 的纯公式层：负责 A1 地址、公式文本解析、标量求值、函数注册表、依赖图、引用扫描与引用平移。它不知道表格、画布、Sheet 模型或撤销栈，单元格读取完全由宿主通过 `FormulaResolver` 注入。
+`@infinitable/formulas` 是一个不依赖 grid / table 的纯公式层：负责 A1 地址、公式文本解析、标量求值、函数注册表、依赖图、引用扫描与引用平移。它不知道表格、画布、Sheet 模型或撤销栈，单元格读取完全由宿主通过 `FormulaResolver` 注入。
 
 `infinitable` 主入口转出了 formulas 的全部公共 API。电子表格场景通常不直接装配 formulas，而是使用 `infinitable/sheet` 里的 `FormulaEngine`；后者把依赖图、增量重算、跨表联动与 `#CYCLE!` 护栏封装在 Sheet 模型内。见 [电子表格（sheet）](/guide/sheet)。完整签名见 [公式引擎（formulas）](/api/formulas)。
 

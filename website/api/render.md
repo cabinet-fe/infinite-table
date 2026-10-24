@@ -5,7 +5,7 @@ description: createRenderHost 与 RenderHostOptions、RenderHost 窄接口、Lay
 
 # 渲染引擎（render）
 
-render 层是自研 canvas 引擎：`createRenderHost` 创建宿主，按 `ground → body → media → sky` 叠放四层 canvas；`SceneNode` 组成场景树；`LayerHandle` 提交三档失效（`cell` / `band` / `full`）。`ListTable` 内部经该窄接口渲染，宿主也可以直接使用本层 API 注入自绘内容或在离屏环境做测试。
+render 层是自研 canvas 引擎：`createRenderHost` 创建宿主，按 `ground → body → media → sky` 叠放四层 canvas；`SceneNode` 组成场景树；`LayerHandle` 提交三档失效（`region` / `band` / `full`）。`ListTable` 内部经该窄接口渲染，宿主也可以直接使用本层 API 注入自绘内容或在离屏环境做测试。
 
 ## 快速上手
 
@@ -34,7 +34,7 @@ class RectNode extends SceneNode {
 const rect = new RectNode({ x: 40, y: 40, width: 120, height: 60 })
 layer.root.appendChild(rect)
 
-layer.invalidate({ type: 'cell', region: { x: 40, y: 40, width: 120, height: 60 } })
+layer.invalidate({ type: 'region', region: { x: 40, y: 40, width: 120, height: 60 } })
 
 host.destroy()
 ```
@@ -105,24 +105,40 @@ export interface RenderHost {
 ```ts
 export type LayerKind = 'ground' | 'body' | 'media' | 'sky'
 
+// 层失效消费策略（LayerOpts.consumption 的取值；类型本体未经主入口转售）
+type LayerConsumption = 'band-full-only' | 'regions' | 'always-full'
+
 export interface LayerOpts {
   kind: LayerKind
+  /** 该层失效消费策略，缺省 'regions' */
+  consumption?: LayerConsumption
 }
 
 export type FrameTask = () => void
 
 export type Invalidation =
-  | { type: 'cell'; region: Region; prevRegion?: Region }
+  | { type: 'region'; region: Region; prevRegion?: Region }
   | { type: 'band'; region: Region }
   | { type: 'full' }
 ```
 
-| 类型           | 说明                                                                                                                                     |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `LayerKind`    | 四层标识，自底向上 `ground → body → media → sky`                                                                                         |
-| `LayerOpts`    | 建层参数，仅含 `kind`                                                                                                                    |
-| `FrameTask`    | `() => void`，在下一渲染帧执行一次                                                                                                       |
-| `Invalidation` | 三档失效：`cell` 单元格级脏区（可带 `prevRegion` 覆盖移动前后双包围盒）；`band` 行带/列带级脏区，滚动窗口滑动的典型产物；`full` 整层重绘 |
+| 类型               | 说明                                                                                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `LayerKind`        | 四层标识，自底向上 `ground → body → media → sky`                                                                                         |
+| `LayerOpts`        | 建层参数：`kind` 层标识 + 可选 `consumption` 失效消费策略（缺省 `'regions'`）                                                            |
+| `LayerConsumption` | 消费策略三档：`'band-full-only'` 只响应 `band` / `full`（背景类内容）；`'regions'` 逐脏区增量补画；`'always-full'` 收到任何失效都整层重画 |
+| `FrameTask`        | `() => void`，在下一渲染帧执行一次                                                                                                       |
+| `Invalidation`     | 三档失效：`region` 矩形脏区（可带 `prevRegion` 覆盖移动前后双包围盒）；`band` 行带/列带级脏区，滚动窗口滑动的典型产物；`full` 整层重绘    |
+
+`consumption` 决定该层失效队列在帧末收敛为什么重绘计划：
+
+| 取值              | 响应档位                | 重绘计划                                             | 典型层                         |
+| ----------------- | ----------------------- | ---------------------------------------------------- | ------------------------------ |
+| `'band-full-only'` | 仅 `band` / `full`      | `region` 档被忽略（背景类内容不因局部脏区重绘）      | `ground`（underlay 预留层）    |
+| `'regions'`       | 全部档位                | `band` / `region` 逐脏区裁剪增量补画                 | `body` / `media`（缺省策略）   |
+| `'always-full'`   | 全部档位                | 收到任何失效都整层重画（重绘便宜的内容层）           | `sky`（选区、滚动条、浮层）    |
+
+消费策略是建层方注入的：`createLayer({ kind, consumption })` 时给定，帧末按该策略 drain 失效队列。`ListTable` 建层时按上表右列注入；宿主自建层缺省拿到 `'regions'`。
 
 ```ts
 export interface LayerHandle {
@@ -142,12 +158,12 @@ export interface LayerHandle {
 | `canvasElement` | `readonly RenderCanvas`         | 该层画布；上屏模式下即容器中的 canvas 元素                                                                    |
 | `setSize`       | `(width, height, dpr?) => void` | 调整层尺寸并整层失效；dpr 缺省沿用当前值                                                                      |
 | `invalidate`    | `(inv: Invalidation) => void`   | 对本层声明三档失效                                                                                            |
-| `translateBy`   | `(dx, dy) => void`              | 位图自拷贝的整体平移快路径，暴露带转为 `band` 失效。当前 core 滚动走「重建 + band」路线，无调用方；属预留能力 |
+| `translateBy`   | `(dx, dy) => void`              | 位图自拷贝的整体平移快路径，暴露带转为 `band` 失效。当前表格引擎滚动走「重建 + band」路线，无调用方；属预留能力 |
 
 ::: details 失效队列的收敛规则
-- `cell` 失效：`region` 与 `prevRegion` 先取并集，再四边外扩 10px 并像素对齐。
-- `band` 失效：吸收被其完全包含的 `cell`（仅相交不吸收）；同帧 `band` 数超过 8 条时升级为整层重绘；`full` 吸收一切。
-- 各层消费策略：`ground` 只响应 `band` / `full`；`body` 与 `media` 逐 region 清理并重画；`sky` 收到任何失效都整层重画。
+- `region` 失效：`region` 与 `prevRegion` 先取并集，再四边外扩 10px 并像素对齐。
+- `band` 失效：吸收被其完全包含的 `region`（仅相交不吸收）；同帧 `band` 数超过 8 条时升级为整层重绘；`full` 吸收一切。
+- 各层消费策略由建层时 `LayerOpts.consumption` 注入（见上表）；`'band-full-only'` 的层忽略 `region` 档，`'regions'` 的层逐脏区补画，`'always-full'` 的层收到任何失效都整层重画。
 - 帧末按 `ground → body → media → sky` 顺序消费各层重绘计划。
 :::
 
@@ -399,6 +415,6 @@ host.resize(1024, 768)
 - `container` 未传即离屏模式；容器 `position: static` 会让绝对定位的 canvas 叠到容器之外，表现为空白。
 - `SceneNode.paint` 的 `ctx` 已平移到本节点局部原点并按 dpr 缩放，直接用局部坐标绘制即可。
 - `eventsTarget` 缺省取 `container`；离屏且未提供事件源时没有事件系统。
-- `LayerHandle.translateBy` 是预留能力，当前 core 无调用方；滚动失效走 `band` 路线。
+- `LayerHandle.translateBy` 是预留能力，当前表格引擎无调用方；滚动失效走 `band` 路线。
 - `ListTable` 的 ground/sky 整层绘制预留位应经 `table.setUnderlayPainter` / `table.setOverlayPainter` 挂接，不直接操作宿主建层。
 :::

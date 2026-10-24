@@ -137,7 +137,7 @@ const table = new ListTable({
 
 ## batchUpdate
 
-`batchUpdate(fn)` 把 `fn` 内的多次 `cell` 失效先收集起来，结束时合并成一条 `band` 失效，一帧内只提交一次重绘。
+`batchUpdate(fn)` 把 `fn` 内的多次 `region` 失效先收集起来，结束时合并成一条 `band` 失效，一帧内只提交一次重绘。
 
 ```ts
 import { ListTable, SheetModel } from 'infinitable'
@@ -199,10 +199,10 @@ table.updateCell(4, 100, 42) // 回写模型 + 局部刷新
 失效范围从大到小是：
 
 ```text
-full（整层） > band（整行/整列带） > cell（单格或小矩形）
+full（整层） > band（整行/整列带） > region（单格或小矩形）
 ```
 
-优先使用 `cell`，其次 `band`，尽量避免无必要的 `full`：
+优先使用 `region`，其次 `band`，尽量避免无必要的 `full`：
 
 - 单格写入用 `updateCell` 或 `refreshCell`，不要重建实例。
 - 多个连续格写入用 `batchUpdate`，合并为一条 `band`。

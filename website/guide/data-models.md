@@ -322,7 +322,7 @@ table.batchUpdate(() => {
 
 ### refreshCell
 
-`refreshCell(col, row)` 做单格 cell 级失效：更新节点内容、重投影样式、重算共享边框与溢出走廊；被合并覆盖的坐标会路由到主格，失效区取主格包围盒。窗口外的格没有节点，只做溢出源反查，不会为了刷新而建格。
+`refreshCell(col, row)` 做单格 region 级失效：更新节点内容、重投影样式、重算共享边框与溢出走廊；被合并覆盖的坐标会路由到主格，失效区取主格包围盒。窗口外的格没有节点，只做溢出源反查，不会为了刷新而建格。
 
 ```ts
 // records 形态：改完行对象后手动局部刷新
@@ -448,5 +448,5 @@ table.setColCount(5, { width: 80, cellType: 'text' }) // 追加列；标题走 r
 ## 相关
 
 - [ListTable API](/api/list-table)：构造选项、实例方法与事件完整清单。
-- [核心类型与模型（core）](/api/core)：`TableModel`、`SheetModel`、`ColumnDefine` 等导出面。
+- [共享类型与模型（grid / table）](/api/grid-table)：`TableModel`、`SheetModel`、`ColumnDefine` 等导出面。
 - [电子表格（sheet）](/guide/sheet)：`Sheet`、`Workbook`、`SheetGrid` 与模型适配。

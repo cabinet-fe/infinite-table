@@ -68,6 +68,7 @@ export default withMermaid(
               { text: '插件开发', link: '/guide/plugin-development' },
               { text: '公式引擎', link: '/guide/formulas' },
               { text: '电子表格（sheet）', link: '/guide/sheet' },
+              { text: '透视表（pivot）', link: '/guide/pivot' },
             ],
           },
           {
@@ -82,7 +83,7 @@ export default withMermaid(
               { text: '导出总览', link: '/api/' },
               { text: 'ListTable', link: '/api/list-table' },
               { text: '渲染引擎（render）', link: '/api/render' },
-              { text: '核心类型与模型（core）', link: '/api/core' },
+              { text: '共享类型与模型（grid / table）', link: '/api/grid-table' },
               { text: '公式引擎（formulas）', link: '/api/formulas' },
               { text: '插件（plugins）', link: '/api/plugins' },
               { text: '电子表格（sheet）', link: '/api/sheet' },
