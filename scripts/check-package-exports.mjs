@@ -1,9 +1,20 @@
 #!/usr/bin/env node
 // 空项目消费冒烟：以外部消费者姿态（无 dev 条件 → import → dist）验证各包可消费。
-// 校验产物文件齐备 + bun 动态 import dist 产物无头跑一帧（含 infinitable ./sheet 子路径）。
+// 校验产物文件齐备 + 无头动态 import dist 产物跑一帧（含 infinitable ./sheet 子路径）
+// + 主入口与 ./sheet 的跨入口 instanceof 契约（共享 engine chunk，单副本引擎实现）。
 // 用法：node scripts/check-package-exports.mjs（先 bun run build）
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { Window } from 'happy-dom'
+
+// 无头 DOM 垫片（happy-dom，根 devDependency）：SheetGrid 构造需要 document 容器与
+// ResizeObserver；画布 2d 上下文为 null，引擎各消费点容忍（与注入式假画布同口径）。
+const domWindow = new Window({ url: 'http://localhost/' })
+globalThis.window = domWindow
+globalThis.document = domWindow.document
+globalThis.getComputedStyle = domWindow.getComputedStyle.bind(domWindow)
+if (typeof domWindow.ResizeObserver === 'function')
+  globalThis.ResizeObserver = domWindow.ResizeObserver
 
 const PACKAGES = [
   { name: '@infinitable/render', dir: 'packages/render', bundle: 'dist/render.js' },
@@ -139,5 +150,57 @@ active.setCellFormula({ row: 0, col: 1 }, '=A1*2')
 const cell = active.getCellData({ row: 0, col: 1 })
 if (cell?.v !== 42) fail(`infinitable/sheet 求值异常：=A1*2 → ${JSON.stringify(cell)}`)
 else ok('infinitable/sheet 子路径可导入且无头求值正常（=A1*2=42）')
+
+// 7) 跨入口 instanceof 契约：主入口与 ./sheet 产物必须共享同一份引擎实现
+//    （构建层由 packages/infinitable/vite.config.ts 的 'engine' 共享 chunk 钉死）。
+//    结构面断言两 entry 消费同一 engine chunk；运行面经 sheet 侧构造的 SheetGrid
+//    引擎实例对主入口导出的 ListTable / MergeCellMap / MergeOverlapError 做 instanceof。
+console.log('[check-exports] 跨入口 instanceof 契约')
+const distDir = new URL('../packages/infinitable/dist/', import.meta.url)
+const engineChunks = readdirSync(distDir).filter(
+  (file) => file.startsWith('engine-') && file.endsWith('.js'),
+)
+if (engineChunks.length !== 1)
+  fail(`engine 共享 chunk 应恰有 1 份，实际 ${engineChunks.length} 份：${engineChunks.join('、')}`)
+else {
+  for (const entry of ['infinitable.js', 'sheet.js']) {
+    const source = readFileSync(new URL(entry, distDir), 'utf8')
+    if (!source.includes(`"./${engineChunks[0]}"`))
+      fail(`${entry} 未消费共享 engine chunk ${engineChunks[0]}（引擎副本分裂）`)
+  }
+  if (!failed) ok(`主入口与 ./sheet 消费同一 engine chunk（${engineChunks[0]}）`)
+}
+const contractWorkbook = new sheetModule.Workbook()
+const contractContainer = document.createElement('div')
+document.body.appendChild(contractContainer)
+const sheetGrid = new sheetModule.SheetGrid({
+  sheet: contractWorkbook.activeSheet,
+  container: contractContainer,
+  width: 400,
+  height: 300,
+})
+const engine = sheetGrid.getTable()
+if (!(engine instanceof unifiedModule.ListTable))
+  fail('sheet 侧引擎实例不是主入口 ListTable（引擎类身份分裂）')
+else ok('sheet 侧 SheetGrid 引擎 instanceof 主入口 ListTable')
+if (!(engine.mergeCells instanceof unifiedModule.MergeCellMap))
+  fail('sheet 侧引擎合并区集合不是主入口 MergeCellMap（引擎类身份分裂）')
+else ok('sheet 侧引擎 mergeCells instanceof 主入口 MergeCellMap')
+engine.setMergeCells([{ startCol: 0, startRow: 0, endCol: 2, endRow: 2 }])
+let overlapError = null
+try {
+  engine.addMergeCell({ startCol: 1, startRow: 1, endCol: 3, endRow: 3 })
+  fail('重叠合并未 fail-fast 抛错（addMergeCell 应抛 MergeOverlapError）')
+} catch (error) {
+  overlapError = error
+}
+if (overlapError !== null) {
+  if (overlapError.name !== 'MergeOverlapError')
+    fail(`重叠合并抛错类型异常：${overlapError.name}`)
+  else if (!(overlapError instanceof unifiedModule.MergeOverlapError))
+    fail('sheet 侧抛出的重叠合并错误不是主入口 MergeOverlapError（引擎类身份分裂）')
+  else ok('sheet 侧 fail-fast 抛错 instanceof 主入口 MergeOverlapError')
+}
+sheetGrid.release()
 console.log(failed ? '[check-exports] FAIL' : '[check-exports] PASS')
 process.exit(failed ? 1 : 0)
