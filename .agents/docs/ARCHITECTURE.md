@@ -16,7 +16,7 @@
 多包分层架构：
 
 - `@infinitable/render` 为通用渲染工具包：场景树 + 分层渲染器 + 多 region 失效 + federated 事件 + canvas 池化；通用化补齐路径原语（moveTo/lineTo/曲线/stroke/fill）、内建图元节点集（至少矩形/文本/路径/图片），paintTree/hitTest/region 工具进公共导出面，失效档名与各层失效消费策略去表格语义（策略建层参数化）；目标引擎核心 ≤60KB gzip
-- `@infinitable/grid`（共享网格内核，自旧 core 拆出的通用网格机器纯搬运：ScrollManager、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影）仅依赖 render 的窄接口（RenderHost 风格：创建层/提交失效/请求帧/读测量），不依赖任何 vrender 系列包；规划：grid 公共面重划——移除 `./src/*` 深路径导出（table 深路径消费收敛为 0，包间消费统一走公共入口）与 `@cat-kit/core` 僵尸依赖
+- `@infinitable/grid`（共享网格内核，自旧 core 拆出的通用网格机器纯搬运：ScrollManager、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影）仅依赖 render 的窄接口（RenderHost 风格：创建层/提交失效/请求帧/读测量），不依赖任何 vrender 系列包；grid 公共面已重划——`./src/*` 深路径导出与 `@cat-kit/core` 僵尸依赖均已移除（table 深路径消费收敛为 0，包间消费统一走公共入口）
 - `@infinitable/table`（ListTable 引擎：溢出走廊、填充柄、表头装配、取值三形态、编辑链路等领域代码原样搬运）依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位）
 - `@infinitable/sheet`（电子表格核心：sheet 模型/命令/IO/SheetGrid 适配，自 plugins 的 sheet 插件族整体迁入，`createSheetPlugin` 已删）依赖 table 与 formulas（SheetGrid 经引擎装配协议消费 table 引擎）；infinitable 发布形态新增 `./sheet` 子路径
 - `@infinitable/pivot`（透视表引擎：PivotGrid 平级领域引擎——多列树形行头（每行维度一列，同组跨行合并，点击组格左缘展开图标折叠、其余区域点击选区覆盖该组全部维度数据，collapsible 可配置为始终平铺，折叠组收敛为自带聚合的单行载体）× 多级列维度表头（列维度逐层 + 度量行，引擎冻结行 + 合并区落地，表头区行维度列按维度分列）× 度量聚合为包内状态机，行/列维度与度量动态勾选、聚合方式可切、结构原地落地）依赖 table（经 TableEngine 装配，对外转发 EngineAssembly）
