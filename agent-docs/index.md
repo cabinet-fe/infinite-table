@@ -1,13 +1,13 @@
 ---
 title: infinitable 总览
-description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。主入口含五层模块（render/grid/table/formulas/plugins，core 已拆为 grid+table）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、经 infinitable 的 ./sheet 子路径转出；table 层承载引擎装配协议（EngineAssembly/EngineReadView/TableEngine）。导出面判据、core 拆分迁移登记与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
+description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。主入口含五层模块（render/grid/table/formulas/plugins，core 已拆为 grid+table）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet、./pivot 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、透视表引擎由 @infinitable/pivot 提供，分别经 infinitable 的 ./sheet、./pivot 子路径转出；table 层承载引擎装配协议（EngineAssembly/EngineReadView/TableEngine）。导出面判据、core 拆分迁移登记与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
 aliases: [infinitable, infinite-table, InfiniTable, 表格引擎, canvas 表格]
-keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, 引擎装配协议, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
+keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', '@infinitable/pivot', PivotGrid, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, 引擎装配协议, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
 ---
 
 # infinitable 总览
 
-infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 27KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 五层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、table（表格主体 ListTable 与引擎装配协议）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）。两入口导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
+infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 27KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 五层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、table（表格主体 ListTable 与引擎装配协议）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）；透视表引擎经 `infinitable/pivot` 子路径转出（`@infinitable/pivot` 白名单全量——PivotGrid 领域引擎，包本体 private 不发布）。三个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
 
 ## 安装
 
@@ -19,11 +19,11 @@ bun add infinitable @cat-kit/core
 
 - `@cat-kit/core`（`^1.2.1`）是 peerDependency，必须与 `infinitable` 一起安装：公式引擎的四则运算与 SUM/AVERAGE/ROUND/ABS 精确计算依赖其 `$n`。
 - `chart.js` 不在依赖里：chart 插件按需动态 `import('chart.js')`，只用到单元格图表时才安装。
-- 仓内 monorepo 开发分层引用（`@infinitable/render` / `grid` / `table` / `formulas` / `plugins`），发布为单包 `infinitable`；使用方一律从 `infinitable` 导入。
+- 仓内 monorepo 开发分层引用（`@infinitable/render` / `grid` / `table` / `formulas` / `plugins`，领域引擎 `@infinitable/sheet` / `@infinitable/pivot` 分别对应 `./sheet` / `./pivot` 子路径），发布为单包 `infinitable`；使用方一律从 `infinitable` 导入。
 
 ## 模块速查
 
-统一入口与 `./sheet` 子路径全部公共导出（含 `CellRef` 消歧：formulas 的 A1 引用保留 `CellRef`，grid 的格坐标以 `GridCellRef` 别名导出）按下表定位篇目，逐项可 grep 核对。
+统一入口与 `./sheet`、`./pivot` 子路径全部公共导出（含 `CellRef` 消歧：formulas 的 A1 引用保留 `CellRef`，grid 的格坐标以 `GridCellRef` 别名导出）按下表定位篇目，逐项可 grep 核对。
 
 | 导出名 | 用途 | 文档路径 |
 | --- | --- | --- |
@@ -68,6 +68,8 @@ bun add infinitable @cat-kit/core
 | `createImageId` / `cloneImageAnchor` / `cloneSheetImage` / `IMAGE_MIME` / `SheetImageType` / `SheetImageAnchor` / `SheetImage` / `ImageInput` / `ImageFitMode` | sheet 浮动图片锚点与克隆（`IMAGE_MIME` 类型→MIME 映射、`ImageFitMode` 嵌入图 fit 档） | `apis/sheet.md` |
 | `exportWorkbookXlsx` / `exportSheetXlsx` / `exportSheetCsv` / `importXlsx` / `importCsv` / `replaceWorkbookWithSnapshots` / `SheetReplaceItem` | sheet xlsx/csv 导入导出与快照替换 | `apis/sheet.md` |
 | `SheetGrid` / `ResolveCellRenderer` / `SheetGridOptions` / `SelectionInterceptMeta`（选区拦截手势载荷） / `ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 档） / `ResolveCellStyleHook` / `ResolveDisplayValue` / `SheetGridContextMenuInfo` / `SheetGridContextMenuKind` / `SheetGridHeaderOptions` / `GridCellEditor` / `GridEditorRect` / `GridEditorSession` / `SheetGridEditorsOptions` / `CellRenderer` / `CellRenderTarget` | SheetGrid 装配（Sheet 模型 ↔ ListTable 适配层） | `apis/sheet.md` |
+| `@infinitable/pivot` 全部符号经 `infinitable` 的 `./pivot` 子路径转出（透视表领域引擎：行维度树多列树形布局 × 列维度多级表头 × 度量交叉聚合，包本体 private 不发布），按域分见下列各行 | 透视表引擎装配与领域操作（运行时勾选/折叠/下钻，结构原地落地不重建实例） | `apis/pivot.md` |
+| `PivotGrid` / `PivotModel` / `PivotGridOptions` / `PivotDimension` / `PivotMeasure` / `PivotAggregator` / `PivotRecord` / `PivotRow` / `PivotColumn` / `PivotCellDrillEvent`（双击下钻载荷） / `PIVOT_ROW_HEIGHT` / `PIVOT_HEADER_BACKGROUND` / `PIVOT_SUBTOTAL_BACKGROUND` / `PIVOT_GRAND_BACKGROUND`（冒烟像素断言锚点常量） | 透视表引擎（实现 EngineAssembly 转发面，协议插件可跨引擎挂载）、聚合模型（TableModel 数据面）与领域词汇 | `apis/pivot.md` |
 | `EngineAssembly` / `EngineReadView` / `TableEngine` | 引擎装配协议（0.4.0 起）：中立本体（渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期，四类平级引擎公共装配路径）、可选导出读取面（导出类插件读引擎有效数据/样式/几何/合并区）与表格引擎协议面（SheetGrid 等适配层按协议消费） | `apis/list-table.md` |
 | `createChartPlugin` / `ChartPluginOptions` / `ChartPluginHandle` | 图表插件工厂与句柄 | `apis/chart-watermark-plugin.md` |
 | `ChartCellDeclaration` / `ChartDatasetDeclaration` / `ChartDatasetSpec` / `ChartSpec` / `ChartSpecType` / `ChartType` | 单元格图表声明与规范化类型 | `apis/chart-watermark-plugin.md` |
@@ -75,7 +77,7 @@ bun add infinitable @cat-kit/core
 | `createPrintPlugin` / `PrintPluginOptions` / `PrintPluginHandle` | 打印插件工厂与句柄（分页/文档构建/打印输出/预览经 handle 方法） | `apis/print-plugin.md` |
 | `createEnginePrintSource` | 引擎供数适配（0.4.0 起）：装配协议导出读取面 `engine.read` → `PrintSource`，宿主打印引擎实例的便捷入口 | `apis/print-plugin.md` |
 | `PrintConfig` / `PrintSource` / `PrintPaperPreset` / `PrintPaperSpec` / `PrintOrientation` / `PrintMargin` / `PrintScaleMode` / `PrintPagingMode` / `PrintHeaderFooterConfig` / `PrintHeaderFooterSection` | 打印配置与数据源 | `apis/print-plugin.md` |
-| （导出面判据、逐项清单、移出项过渡方案、0.1.x 兼容结论） | 主入口与 `./sheet` 子路径导出集合的判定依据与冻结机制 | `apis/exports.md` |
+| （导出面判据、逐项清单、移出项过渡方案、0.1.x 兼容结论） | 主入口与 `./sheet`、`./pivot` 子路径导出集合的判定依据与冻结机制 | `apis/exports.md` |
 
 指南：`guide/quick-start.md`（快速上手）、`guide/performance-virtual-scroll.md`（大数据量性能与虚拟滚动）、`guide/plugin-integration.md`（插件接入：图表/水印/表格插件契约）。
 
@@ -83,4 +85,4 @@ bun add infinitable @cat-kit/core
 > - 0.1.2 起公共导出面大幅收敛（已生效于现行 0.1.3）：core 的 `ScrollManager`/`ModelBinding`/`CellValuePipeline`/`SelectionState`/`InteractionOverlay`/`EditManager`/`createTextEditor`/`ImageService`/`MediaCache`/`FloatObjectLayer`/`CellNode`/网格布局纯函数族、formulas 的 `tokenizeFormula`/`evaluateAst`/`coerceTo*` 族（注册表写入 `registerFormulaFunction` 族后随 `@infinitable/sheet` 模型层公共化）、plugins 的 `SheetStore`/`SheetBook`/`snapshot`/`restore`/`excelKeymapPreset`/`bindFillGeneration`/`UndoStack`/`paginate`/`printPages`/`openPrintPreview` 等散装符号不再从 `infinitable` 导出——滚动/选区/编辑/媒体/布局等内部原语经引擎内置接线消费，插件能力改经 `createXxxPlugin` 工厂的 handle 方法消费（逐篇见各 API 文档「注意事项」的破坏性变更条目）。
 > - `defaultTheme` 不再导出：默认主题值经 `extendsTheme()` 派生结果或 `table.getTheme()` 读取。
 > - `scrollbar` 选项类型从 `boolean` 变为 `boolean | ScrollbarOptions`（`true`/缺省语义不变）。
-> - 0.1.4 起主入口消灭星号导出、改为显式具名导出，且与 `./sheet` 子路径的符号集合被 `public-surface.test.ts` 快照冻结（判据与清单见 `apis/exports.md`）——显式面与 0.1.3 事实面逐符号一致，既有 import 不受影响；此后增删导出必须显式改快照与本文档速查表。
+> - 0.1.4 起主入口消灭星号导出、改为显式具名导出，且与 `./sheet`、`./pivot` 子路径的符号集合被 `public-surface.test.ts` 快照冻结（判据与清单见 `apis/exports.md`）——显式面与 0.1.3 事实面逐符号一致，既有 import 不受影响；此后增删导出必须显式改快照与本文档速查表。

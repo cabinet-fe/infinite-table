@@ -14,6 +14,7 @@ keywords: [TablePlugin, mount, unmount, table.use, plugins, createChartPlugin, r
 - 已按 `guide/quick-start.md` 完成安装与基础挂载（`infinitable` + `@cat-kit/core`）。
 - 图表插件：`bun add chart.js`（Chart.js v4；不用图表可不装，插件按需动态加载不进主产物）。
 - sheet 能力（`@infinitable/sheet`：Sheet/Workbook 模型 + SheetGrid 装配 + xlsx/csv IO）不是插件形态，经 `infinitable` 的 `./sheet` 子路径消费，本指南不展开，见 `apis/sheet.md`。
+- 透视表引擎（`@infinitable/pivot`：`PivotGrid` 领域引擎——行维度树 × 列维度多级表头 × 度量交叉聚合）同为子路径形态，经 `infinitable` 的 `./pivot` 子路径消费，见 `apis/pivot.md`；`PivotGrid` 实现 `EngineAssembly` 装配协议面，水印等协议插件可跨引擎挂载（`pivot.use(createWatermarkPlugin(...))` 即生效）。
 
 ## 步骤
 

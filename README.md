@@ -108,12 +108,12 @@ const table = new ListTable({
 })
 ```
 
-数据三形态任选：`records` 数组 / `model`（如 `SheetStore.asModel()` 模型直挂）/ `rowCount` + `resolveDisplayValue` 钩子。交互接线（滚轮 `scrollBy`、编辑器、主题派生）与万行级完整示例见 `playground`。
+数据三形态任选：`records` 数组 / `model`（如内置 `SheetModel` 坐标模型直挂）/ `rowCount` + `resolveDisplayValue` 钩子。交互接线（滚轮 `scrollBy`、编辑器、主题派生）与万行级完整示例见 `playground`。
 
 ## 仓库结构
 
 ```
-packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（图表/打印/水印）· formulas（公式引擎）· sheet（电子表格核心：模型/命令/IO/SheetGrid 适配）· infinitable（统一发布包，单包 re-export 五层）
+packages/    render（canvas 渲染引擎）· grid（共享网格内核：布局/合并/选区/主题/滚动条词汇）· table（表格主体 ListTable 与引擎装配协议）· formulas（公式引擎）· plugins（图表/打印/水印）· sheet（电子表格核心：模型/命令/IO/SheetGrid 适配）· pivot（透视表引擎 PivotGrid）· infinitable（统一发布包：主入口 re-export 五层，./sheet 与 ./pivot 子路径转售领域引擎）
 playground/  唯一应用：示例总览（显示/交互/编辑/报表/图表/图片/透视表）+ 架构与 API 边界 + 量化基准（bench.html）+ 冒烟自检
 ```
 
