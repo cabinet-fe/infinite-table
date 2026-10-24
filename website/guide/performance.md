@@ -293,26 +293,23 @@ bun run test
 
 该命令执行全仓测试和 headless 量化基准回归，覆盖 TTFF、滚动 FPS、失效面积、sheet、图表格等 10 个场景。
 
-浏览器冒烟自检与 VTable 对比在 `playground` 目录：
+浏览器冒烟自检在 `playground` 目录：
 
 ```bash
 cd playground
 
 # 浏览器冒烟自检：构建 + preview + 页内断言，依赖全局 playwright-cli
 node scripts/smoke.mjs
-
-# vs VTable 全量对比：体积 + 10 万/100 万行双规模，产出静态 HTML / JSON 报告
-node scripts/vs.mjs
 ```
 
-本地开发与页内对比：
+本地开发：
 
 ```bash
 cd playground
 bun run dev
 ```
 
-打开 playground 后，左侧菜单进入“性能 → vs VTable 对比”，点击“运行对比”即可在当前页面交替渲染两库并输出逐指标报告，跑序与 `node scripts/vs.mjs` 一致。
+打开 playground 后，左侧菜单「性能与工程 → 量化基准」为独立基准页（TTFF / 滚动 FPS / 失效面积等 10 场景，JSON 落档 `playground/results/`）；「冒烟自检」为页内端到端断言套件。与 VTable 的对比数据为历史实测采样（见仓库 README），对比管线已随多引擎架构重构移除。
 
 基准产物写入 `playground/results/`，`bench.html` 是浏览器基准入口。
 

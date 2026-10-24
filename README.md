@@ -21,7 +21,9 @@ bun run docs:preview  # 预览构建产物
 - **图表格位图路由**：Chart.js 离屏出图经 cell 级 MediaCache LRU blit 上屏，滚动滚回命中直贴无闪。
 - **插件体系**：图表、打印、水印等以插件挂载；电子表格核心（sheet 模型/命令/IO/SheetGrid 适配）独立为 sheet 包，经 `infinitable/sheet` 子路径导出。
 
-## 性能对比：infinitable vs @visactor/vtable
+## 性能对比：infinitable vs @visactor/vtable（历史实测采样）
+
+> 下表为 2026-09 的存档实测（当时的页内对比与 `scripts/vs.mjs` 对比管线已移除，量化基准则收敛为 `bun run test` 内的 headless 回归与 `bench.html`）。数据保留作规模参考。
 
 同一页面、同一数据（10 万 / 100 万行 × 20 列）、同视口（1280×720、行高 32、列宽 100、无冻结、双方默认主题、公开 API 直调）。每个规模按 `[本仓, VTable, VTable, 本仓]` 对称跑序各 2 轮取均值。「快 N×」= VTable 耗时 / 本仓耗时（吞吐类反之），±5% 内记持平。
 
@@ -78,10 +80,9 @@ bun run docs:preview  # 预览构建产物
 ```bash
 bun run test             # 全仓测试 + 量化基准回归（headless）：TTFF / 滚动 FPS / 失效面积 / sheet / 图表格 10 场景防回归
 node scripts/smoke.mjs   # 浏览器冒烟自检（playground 下：构建 + preview + 页内断言；依赖全局 playwright-cli）
-node scripts/vs.mjs      # vs-vtable 全量对比（playground 下：headless 驱动）：体积 + 10 万/100 万行双规模，产出静态 HTML/JSON 报告
 ```
 
-playground 本地开发：`cd playground && bun run dev`（示例 + 页内「vs VTable 对比」按钮即跑 + 总览）。页内对比：左侧菜单「性能 → vs VTable 对比」，点击「运行对比」即在当前页面交替渲染两库并输出逐指标报告（与 `node scripts/vs.mjs` 同口径同跑序）。
+playground 本地开发：`cd playground && bun run dev`（示例总览 + 架构与 API 边界 + 量化基准 bench.html + 冒烟自检）。
 
 ## 快速开始
 
@@ -113,7 +114,7 @@ const table = new ListTable({
 
 ```
 packages/    core（表格主体）· render（canvas 渲染引擎）· plugins（图表/打印/水印）· formulas（公式引擎）· sheet（电子表格核心：模型/命令/IO/SheetGrid 适配）· infinitable（统一发布包，单包 re-export 五层）
-playground/  唯一应用：示例总览（显示/交互/编辑/报表/图表/图片）+ 页内 vs VTable 对比 + 量化基准（bench.html）+ 冒烟自检
+playground/  唯一应用：示例总览（显示/交互/编辑/报表/图表/图片/透视表）+ 架构与 API 边界 + 量化基准（bench.html）+ 冒烟自检
 ```
 
 ## 开发

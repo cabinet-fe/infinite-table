@@ -35,7 +35,7 @@ infinitable/
 │   ├── plugins/         # 官方插件：TablePlugin 契约 + chart / print / watermark
 │   ├── sheet/           # 电子表格核心：Sheet/Workbook、命令、IO、SheetGrid 适配
 │   └── infinitable/     # 唯一 npm 发布包：re-export 五层 + ./sheet 子路径
-├── playground/          # 唯一应用：示例总览、页内 vs VTable 对比、量化基准、冒烟自检
+├── playground/          # 唯一应用：示例总览、架构与 API 边界、量化基准、冒烟自检
 ├── website/             # VitePress 文档站点
 ├── scripts/             # 依赖检查、导出检查、增量测试、发版脚本
 ├── agent-docs/          # 面向 agent 的 API 文档

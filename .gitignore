@@ -9,3 +9,4 @@ website/.vitepress/cache/
 .zcode/
 .env
 playground/results/
+.archify/

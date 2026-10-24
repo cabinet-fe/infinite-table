@@ -12,9 +12,10 @@ infinitable/
 │   ├── table/           # ListTable 引擎（自 core 拆出：装配/溢出/填充柄/表头/取值/编辑；实现引擎装配协议）
 │   ├── formulas/        # 公式引擎（tokenizer/Pratt parser/求值/49 内置函数/依赖图）
 │   ├── plugins/         # 官方插件（TablePlugin 契约 + chart/print/watermark 插件）
+│   ├── pivot/           # 透视表引擎（PivotGrid：多列树形行维度（同组跨行合并）× 多级列维度表头 × 度量交叉聚合，展开/折叠与维度/度量动态勾选，经装配协议消费 table 引擎）
 │   ├── sheet/           # 电子表格核心（sheet 模型/命令/IO/SheetGrid 适配，自 plugins sheet 插件族迁入）
 │   └── infinitable/     # 统一发布包（npm 单包 infinitable，主入口 re-export 五层，`./sheet` 子路径）
-├── playground/          # 唯一应用：示例总览 + 页内 vs VTable 对比 + 量化基准 + 冒烟自检
+├── playground/          # 唯一应用：示例总览 + 架构与 API 边界 + 量化基准 + 冒烟自检
 └── website/             # VitePress 开发者文档站：指南 + API 参考 + 可交互示例（mermaid 图）
 ```
 
@@ -23,13 +24,14 @@ infinitable/
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
 | render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、canvas 池化、路径原语与内建图元节点（矩形/文本/路径/图片）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
-| grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影；仅依赖 render 与 @cat-kit/core | `src/index.ts` |
+| grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影；仅依赖 render | `src/index.ts` |
 | table | `packages/table` | ListTable 引擎（core 领域代码原样搬运）：ListTable 主体与装配、溢出走廊、填充柄、表头装配、取值三形态、编辑链路、交互、图片/图表媒体、插件注册路径；依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位） | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
 | plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + chart/print/watermark 插件（print/watermark 面向引擎装配协议槽位挂载，不再以 ListTable 具体类型为挂载参数） | `src/index.ts` |
+| pivot | `packages/pivot` | 透视表引擎：PivotGrid（平级领域引擎经装配协议接入的参考实现——内部 new ListTable 后以 TableEngine 持有，对外转发实现 EngineAssembly，协议插件跨引擎挂载生效；行方向多列树形布局：每行维度一列，同组跨行合并经 setMergeCells 落地，点击组格左缘展开图标折叠（collapsible 配置可禁用折叠始终平铺），选区不复用 sheet 交互面（引擎 interactiveSelection 关闭：无拖选/表头拖选/键盘移动/填充柄），选区是纯填充无边框领域高亮（主题 selectionBorderWidth 压 0）：组格高亮从命中维度列起的整行带、列维度表头高亮列组 × 全部数据行、数据格高亮自身（均经 applyExternalSelection 回写），图标折叠/展开后按新结构重放高亮（折叠组收敛为自带聚合的单行载体），列方向多级表头以引擎冻结行 + 横向合并落地（引擎自带列头关闭，表头区行维度列按维度分列标题竖条），列结构 setColCount/setFrozenColCount/setFrozenRowCount/setMergeCells 原地落地）+ PivotModel 聚合模型（leaf/折叠载体/grand 行 × 列维度树路径 × 度量聚合 → TableModel 数据面，引擎坐标含表头行偏移；行/列维度与度量动态勾选排序、聚合方式切换、折叠态管理、组可见行块 groupRange 与合并区计算）；依赖 table | `src/index.ts` |
 | sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 table、grid 与 formulas（SheetGrid 经引擎装配协议消费 table 引擎） | `src/index.ts` |
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口显式转售各层公共 API + `./sheet` 子路径，vp build 整体打成自包含 dist（chart 保持动态分包、@cat-kit/core 外部化），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版统一走发版技能 `.agents/skills/release`（changesets + CI） | `src/index.ts` |
-| playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、vs VTable 页内对比、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ComparePage.tsx`、`src/bench/headless.test.ts` |
+| playground | `playground` | 唯一应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、架构与 API 边界页、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ArchitecturePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
 
 ## 模块内检索
@@ -59,17 +61,21 @@ infinitable/
 - watermark 插件 `watermark/`：文字平铺水印，经引擎装配协议 overlay 绘制槽位挂载（锚定视口）
 - 接口面红线：`docs/plugin-interface-map.md`
 
+### pivot — `packages/pivot/src`
+
+- 透视表领域引擎：`pivot-grid.ts`（PivotGrid：领域 API setRowDimensions/setColumnDimensions/setMeasures/updateMeasure + toggleNode/expandAll/collapseAll + getCellRecords/onCellDrill 明细下钻 + EngineAssembly 转发面 + resolveCellRenderer 树格自绘（合并组格展开钮）与点击命中）、`pivot-model.ts`（leaf/折叠载体/grand 行 × 列维度树路径 × 度量聚合矩阵与合并区计算，实现 TableModel，引擎坐标含表头行偏移）、`types.ts`（PivotDimension/PivotMeasure 五类聚合器/PivotRecord/装配选项）；文件清单以盘上为准
+
 ### sheet — `packages/sheet/src`
 
 - 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删）；内部文件清单以盘上为准
 
 ### playground — `playground`
 
-- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 15 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
-- 示例：`src/sections/**` 十二演示区（display/native-scroll/data-forms/interaction/hyperlink-image/media/chart/watermark/print/editing/report/infinite-sheet；native-scroll 为 ListTable + SheetGrid 双实例浏览器原生滚动条模式，末者为不指定行列数的 WPS 式无限表格；hyperlink-image 为单元格超链接 + 格内嵌入图 + 浮动图右键三合一演示区）；`?smoke=1` 页内自检写 `window.__SMOKE__`。sheet 电子表格示例已移除（下游 ultra-ui 自实现 sheet 包；`@infinitable/sheet` 包与 playground 依赖保留——report 区与 bench S5 场景仍在用）
-- vs 对比：`src/app/views/ComparePage.tsx` + `src/bench/vs/`（页内跑批 + `?vsrun=1` 自动契约，@visactor/vtable 仅进对比页动态分包）
+- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 16 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
+- 示例：`src/sections/**` 十三演示区（display/native-scroll/data-forms/interaction/hyperlink-image/media/chart/watermark/print/editing/pivot/report/infinite-sheet；native-scroll 为 ListTable + SheetGrid 双实例浏览器原生滚动条模式，pivot 为透视表引擎演示区（多列树形行头跨行合并 + 图标折叠/组格整行高亮 + collapsible 平铺开关 + 行/列维度与度量动态勾选排序 + 初始两级列维度表头（年份/月份日期层级示例）+ 聚合切换 + 双击明细下钻 + 水印插件跨引擎挂载），末者为不指定行列数的 WPS 式无限表格；hyperlink-image 为单元格超链接 + 格内嵌入图 + 浮动图右键三合一演示区）；`?smoke=1` 页内自检写 `window.__SMOKE__`。sheet 电子表格示例已移除（下游 ultra-ui 自实现 sheet 包；`@infinitable/sheet` 包与 playground 依赖保留——report 区与 bench S5 场景仍在用）
+- 架构页：`src/app/views/ArchitecturePage.tsx` + `src/app/architecture-data.ts`（子包分层/职责/公共 API 边界单一事实源；值导出名册由 `architecture-data.test.ts` 对照各包模块守卫）
 - 基准：`src/bench/headless.test.ts` 并入 `vp test run`（headless 回归，无独立命令）+ `bench.html` 浏览器入口，10 场景 JSON 落档 `results/`
-- 脚本（npm script 收敛，按需直跑）：`scripts/smoke.mjs`（构建 + preview + 冒烟断言）、`scripts/vs.mjs`（体积实测 + 对比落档）
+- 脚本（npm script 收敛，按需直跑）：`scripts/smoke.mjs`（构建 + preview + 冒烟断言）
 
 ## 依赖
 
@@ -80,6 +86,7 @@ graph TD
     table --> render
     plugins --> table
     plugins --> grid
+    pivot --> table
     sheet --> table
     sheet --> grid
     sheet --> formulas
@@ -93,13 +100,14 @@ graph TD
     playground --> table
     playground --> render
     playground --> plugins
+    playground --> pivot
     playground --> sheet
 ```
 
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）
 - infinitable 为发布层：devDependencies 挂内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
-- 不入图的外部依赖：@cat-kit/core（formulas $n、grid 工具）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、@visactor/vtable 与 react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
-- 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码。例外：grid 的 `./src/*` 深路径条目三条件均指类型/源码（无独立产物），table 经深路径消费 grid 内部原语，构建时随消费方打包（`vite.lib.config.ts` 只外部化公共入口说明符）
+- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
+- 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码（规划：grid 公共面重划——移除 `./src/*` 深路径例外与 `@cat-kit/core` 僵尸依赖，table 深路径消费收敛为 0，包间消费统一走公共入口）
 
 ## 关键路径
 
