@@ -306,6 +306,80 @@ describe('RenderHost 窄接口', () => {
     }
   })
 
+  it('dpr 缺省回落：无 window 环境（node）构造取 1', () => {
+    const host = createRenderHost({ width: 800, height: 600, createCanvas: createFakeCanvas })
+    const body = host.createLayer({ kind: 'body' })
+    expect(body.canvasElement.width).toBe(800)
+    expect(body.canvasElement.height).toBe(600)
+    host.destroy()
+  })
+
+  it('显式注入 dpr：DPR 跟随双通道触发不覆盖注入值', () => {
+    const { win, mediaQueries, resizeListeners } = stubWindow(2)
+    try {
+      const scheduler = makeManualScheduler()
+      const host = createRenderHost({
+        width: 800,
+        height: 600,
+        dpr: 3,
+        ...scheduler.options,
+        createCanvas: createFakeCanvas,
+      })
+      const body = host.createLayer({ kind: 'body' })
+      expect(body.canvasElement.width).toBe(2400)
+
+      // resize 通道：环境值 2→1，注入值 3 不被覆盖、不触发重设
+      win.devicePixelRatio = 1
+      resizeListeners[0]!()
+      expect(body.canvasElement.width).toBe(2400)
+      expect(scheduler.scheduled).toHaveLength(0)
+
+      // matchMedia 通道：环境值 1→5 同样不覆盖
+      win.devicePixelRatio = 5
+      mediaQueries[mediaQueries.length - 1]!.listeners[0]!()
+      expect(body.canvasElement.width).toBe(2400)
+      expect(scheduler.scheduled).toHaveLength(0)
+      host.destroy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('resolveEnvironmentDpr 注入：构造初值、跟随通道与探测武装都经注入读取源', () => {
+    const { resizeListeners, mediaQueries } = stubWindow(2)
+    let envDpr = 4
+    try {
+      const scheduler = makeManualScheduler()
+      const host = createRenderHost({
+        width: 800,
+        height: 600,
+        resolveEnvironmentDpr: () => envDpr,
+        ...scheduler.options,
+        createCanvas: createFakeCanvas,
+      })
+      const body = host.createLayer({ kind: 'body' })
+      // 构造初值经注入源（4×），不读环境 window.devicePixelRatio（2）
+      expect(body.canvasElement.width).toBe(3200)
+      // 探测按注入源的 resolution 武装
+      expect(mediaQueries[0]!.query).toBe('(resolution: 4dppx)')
+
+      // 跟随通道经注入源：源值 4→2 时 resize 触发以新值重设
+      envDpr = 2
+      resizeListeners[0]!()
+      expect(body.canvasElement.width).toBe(1600)
+      expect(scheduler.scheduled).toHaveLength(1)
+      scheduler.step()
+      expect((body.canvasElement as FakeCanvas).context.callsOf('clearRect')).toEqual([
+        { name: 'clearRect', args: [0, 0, 800, 600] },
+      ])
+      // 重武装的 resolution 仍取注入源值
+      expect(mediaQueries[mediaQueries.length - 1]!.query).toBe('(resolution: 2dppx)')
+      host.destroy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('resize 显式传 dpr：内部 dpr 同步更新，已建层与后续新建层都取新值', () => {
     const host = createHost()
     const ground = host.createLayer({ kind: 'ground' })

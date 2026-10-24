@@ -28,7 +28,7 @@ bun add infinitable @cat-kit/core
 | 导出名 | 用途 | 文档路径 |
 | --- | --- | --- |
 | `ListTable` | 表格主类：构造选项、生命周期、滚动/冻结/合并/事件/插件注册 | `apis/list-table.md` |
-| `ListTableOptions` / `ColumnDefine` / `DataRecord` | 构造选项与列定义 | `apis/list-table.md` |
+| `ListTableOptions` / `CanvasDocSource` / `ColumnDefine` / `DataRecord` | 构造选项与列定义（`CanvasDocSource` 为文档源注入形态：无 DOM 环境经 `doc` 选项创建 canvas 构造出图） | `apis/list-table.md` |
 | `TableModel` / `SheetModel` | 模型直挂接口与内置内存坐标模型 | `apis/list-table.md` |
 | `ResolveDisplayValue` / `ResolveCellLink` / `ResolveCellImageLink` | 按格显示与链接解析 hook（取值管线末端；链接格自动链接外观/悬停/单击事件） | `apis/list-table.md` |
 | `ScrollbarOptions` / `ScrollbarMode` | 内建滚动条配置（`scrollbar` 选项对象形态：mode/visibility/hideDelay；`mode: 'native'` 浏览器原生滚动条档，0.1.4 起） | `apis/list-table.md` |

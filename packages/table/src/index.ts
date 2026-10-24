@@ -44,6 +44,8 @@ export type {
   FloatTransformHandle,
 } from '@infinitable/grid'
 export type {
+  // 文档源注入形态（ListTableOptions.doc：无 DOM 环境经它创建 canvas 构造出图）
+  CanvasDocSource,
   CellChangeEvent,
   // 格坐标类型（infinitable 聚合包以 GridCellRef 消歧转出）
   CellRef,

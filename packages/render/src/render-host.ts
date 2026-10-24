@@ -18,8 +18,18 @@ export interface RenderHostOptions {
   /** 视口尺寸（CSS 像素） */
   width: number
   height: number
-  /** 设备像素比（缺省取运行环境 window.devicePixelRatio，无 window 环境回落 1） */
+  /**
+   * 设备像素比。显式注入时优先级最高：构造取注入值，运行期 DPR 跟随通道
+   * （resize/matchMedia resolution）不覆盖注入值（确定性场景锁值）；
+   * 缺省取运行环境 DPR（见 resolveEnvironmentDpr）。
+   */
   dpr?: number
+  /**
+   * 运行环境 DPR 读取源（缺省实现：有 window 取 window.devicePixelRatio，
+   * 无 window 环境回落 1）：构造初值与 DPR 跟随通道都经它读环境值，
+   * 无头/SSR 宿主注入替身接管读取。
+   */
+  resolveEnvironmentDpr?: () => number
   /**
    * 上屏容器：提供时各层 canvas 以绝对定位按 ground→body→media→sky 叠放进去，
    * 单帧收敛后由浏览器合成上屏；缺省为离屏模式（测试/预渲染）。
@@ -39,8 +49,18 @@ export interface RenderHostOptions {
 /** 层叠放顺序（自底向上） */
 const LAYER_ORDER: readonly LayerKind[] = ['ground', 'body', 'media', 'sky']
 
+/**
+ * 缺省画布创建：读运行环境 globalThis.document（可选读，无 DOM 环境明确报错而非
+ * ReferenceError；无 DOM 宿主经 createCanvas 注入工厂或表格侧文档源注入）。
+ */
 function defaultCreateCanvas(): RenderCanvas {
-  return document.createElement('canvas')
+  const doc = (
+    globalThis as { document?: { createElement(tag: 'canvas'): RenderCanvas } | undefined }
+  ).document
+  if (!doc) {
+    throw new Error('创建 canvas 需要 DOM 文档；无 DOM 环境请注入 createCanvas')
+  }
+  return doc.createElement('canvas')
 }
 
 /** 运行环境 DPR：存在全局 window 时取 devicePixelRatio，无 window 环境（headless/离屏）回落 1 */
@@ -61,6 +81,10 @@ class CanvasRenderHost implements RenderHost {
   private readonly eventSystem: EventSystem | null
   private readonly measureText?: (text: string, font: string) => Size
   private measureCanvas: RenderCanvas | null = null
+  /** 运行环境 DPR 读取源（options.resolveEnvironmentDpr 注入优先，缺省模块同名实现） */
+  private readonly readEnvironmentDpr: () => number
+  /** 构造期显式注入 dpr：优先级最高，运行期跟随通道不覆盖注入值 */
+  private readonly explicitDpr: boolean
   private dpr: number
   private width: number
   private height: number
@@ -73,7 +97,9 @@ class CanvasRenderHost implements RenderHost {
   constructor(private readonly options: RenderHostOptions) {
     this.width = options.width
     this.height = options.height
-    this.dpr = options.dpr ?? resolveEnvironmentDpr()
+    this.readEnvironmentDpr = options.resolveEnvironmentDpr ?? resolveEnvironmentDpr
+    this.explicitDpr = options.dpr !== undefined
+    this.dpr = options.dpr ?? this.readEnvironmentDpr()
     this.createCanvas = options.createCanvas ?? defaultCreateCanvas
     this.scheduler = new FrameScheduler(options.scheduleFrame, options.cancelFrame)
     this.pool = new CanvasPool(this.createCanvas)
@@ -196,7 +222,8 @@ class CanvasRenderHost implements RenderHost {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return
     }
-    const query = `(resolution: ${window.devicePixelRatio}dppx)`
+    // 武装 resolution 取 DPR 读取源的环境值（与跟随通道同源，不直接读 window）
+    const query = `(resolution: ${this.readEnvironmentDpr()}dppx)`
     if (this.dprMediaQuery?.media === query) {
       return
     }
@@ -212,11 +239,14 @@ class CanvasRenderHost implements RenderHost {
   }
 
   private readonly handleHostDprChange = (): void => {
-    const dpr = resolveEnvironmentDpr()
-    if (dpr !== this.dpr) {
-      this.dpr = dpr
-      for (const layer of this.layers.values()) {
-        layer.setSize(this.width, this.height, dpr)
+    // 显式注入的 dpr 优先级最高：DPR 跟随双通道不覆盖注入值（只保持探测武装）
+    if (!this.explicitDpr) {
+      const dpr = this.readEnvironmentDpr()
+      if (dpr !== this.dpr) {
+        this.dpr = dpr
+        for (const layer of this.layers.values()) {
+          layer.setSize(this.width, this.height, dpr)
+        }
       }
     }
     this.watchDprMediaQuery()

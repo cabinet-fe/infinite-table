@@ -106,6 +106,7 @@ const MAIN_ENTRY_TYPES = [
   'SceneEventType',
   'Size',
   // grid + table 层（原 core 公共面拆分：网格内核与表格主体词汇按定义包直引；清单字母序混排）
+  'CanvasDocSource',
   'CellBorder',
   'CellBorderEdge',
   'CellChangeEvent',

@@ -64,6 +64,8 @@ export type {
 // ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 插件契约 / 引擎装配协议）----
 export { EditorRegistry, ListTable, SheetModel, projectCellStyle } from '@infinitable/table'
 export type {
+  // 文档源注入形态（ListTableOptions.doc：无 DOM 环境经它创建 canvas 构造出图）
+  CanvasDocSource,
   CellChangeEvent,
   CellChartMedia,
   CellLink,

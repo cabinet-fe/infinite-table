@@ -133,6 +133,7 @@ import {
 import { extendsTheme, themeCellBase, type TableTheme, type ThemeOverride } from '@infinitable/grid'
 import { InertiaScroller, TouchScrollTracker } from '@infinitable/grid'
 import type {
+  CanvasDocSource,
   CellChangeEvent,
   CellLinkClickListener,
   CellLinkHoverListener,
@@ -542,6 +543,9 @@ export class ListTable implements TableEngine {
     this.mergeCells = new MergeCellMap(sanitizedMerges.ranges)
     assertMergesWithinTable(this.mergeCells.ranges, this.columns.length, this.pipeline.rowCount)
     this.resolveDpr = options.resolveDevicePixelRatio ?? resolveHostDpr
+    // 文档源（无 DOM 环境注入缝）：options.doc 注入优先，缺省回落运行环境 globalThis.document
+    const hostDoc =
+      options.doc ?? (globalThis as { document?: CanvasDocSource | undefined }).document ?? null
     this.host =
       options.host ??
       createRenderHost({
@@ -550,6 +554,11 @@ export class ListTable implements TableEngine {
         // 缺省透传宿主环境 dpr（hostOptions.dpr 显式注入优先）：Retina 下不再 1× 被放大上屏
         dpr: this.resolveDpr(),
         ...options.hostOptions,
+        // canvas 创建经文档源（真实 Document 或无 DOM 替身）；hostOptions.createCanvas
+        // 显式注入仍优先（上面 spread 已写入，?? 不覆盖），两者都缺省回落宿主缺省实现
+        createCanvas:
+          options.hostOptions?.createCanvas ??
+          (hostDoc ? () => hostDoc.createElement('canvas') : undefined),
         // 原生模式层 canvas（与编辑浮层挂载点）挂滚动容器的 sticky 视口：坐标口径与画布层对齐
         container: this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container,
         // 原生模式事件源改绑宿主容器：spacer 关闭 pointer-events 后真实 hit-test 命中的

@@ -5,7 +5,7 @@
 import type { CellRange, CellRef, ScrollbarOptions, ThemeOverride } from '@infinitable/grid'
 import type { ImageFit } from '@infinitable/grid'
 import type { ImageServiceOptions, LoadedImage } from '@infinitable/grid'
-import type { RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
+import type { RenderCanvas, RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
 
 import type { CellType, ResolveCellRenderer } from './cell-renderer'
 import type { CellStyle, ResolveCellStyle } from './cell-style'
@@ -205,6 +205,15 @@ export interface CellChartMedia {
 export type ResolveCellChart = (col: number, row: number) => CellChartMedia | null | undefined
 
 /**
+ * 文档源最小结构（真实 Document 天然满足）：层 canvas 与测量画布创建经它。
+ * 无全局 document 的环境（SSR/无头测试）经 ListTableOptions.doc 注入替身，
+ * 构造与出图不再依赖运行环境 DOM。
+ */
+export interface CanvasDocSource {
+  createElement(tag: 'canvas'): RenderCanvas
+}
+
+/**
  * 指针捕获接续的事件宿主最小面（真实 Window 天然满足，无头/测试注入替身）：
  * 滚动条拖拽等画布外指针接续会话在它上面挂/解 pointermove/pointerup 监听。
  */
@@ -315,6 +324,12 @@ export interface ListTableOptions {
   host?: RenderHost
   /** 未注入 host 时创建 RenderHost 的参数（width/height 取上面的视口尺寸） */
   hostOptions?: Omit<RenderHostOptions, 'width' | 'height'>
+  /**
+   * 文档源（真实 Document 天然满足的最小结构）：层 canvas 与测量画布创建经它。
+   * 缺省取运行环境 globalThis.document；无 DOM 环境（SSR/无头测试）注入替身后
+   * 可构造表格并出图。hostOptions.createCanvas 显式注入仍优先（本项只补缺省）。
+   */
+  doc?: CanvasDocSource
   /**
    * 指针捕获接续的事件宿主（注入缺省运行环境 window）：滚动条拖拽等画布外指针会话
    * 在它上面挂 pointermove/pointerup 接续监听。真实 Window 天然满足；无 window 环境
