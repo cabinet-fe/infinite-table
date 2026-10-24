@@ -1,9 +1,9 @@
 import { EventSystem, type EventTargetLike } from './events/event-system'
 import { FrameScheduler, type FrameCancelFn, type FrameScheduleFn } from './frame-scheduler'
 import { CanvasLayer } from './layers/canvas-layer'
-import { CanvasPool, type CanvasFactory } from './pool/canvas-pool'
 import type { SceneNode } from './scene/scene-node'
 import type {
+  CanvasFactory,
   FrameTask,
   Invalidation,
   LayerHandle,
@@ -76,7 +76,6 @@ export function createRenderHost(options: RenderHostOptions): RenderHost {
 class CanvasRenderHost implements RenderHost {
   private readonly layers = new Map<LayerKind, CanvasLayer>()
   private readonly scheduler: FrameScheduler
-  private readonly pool: CanvasPool
   private readonly createCanvas: CanvasFactory
   private readonly eventSystem: EventSystem | null
   private readonly measureText?: (text: string, font: string) => Size
@@ -102,7 +101,6 @@ class CanvasRenderHost implements RenderHost {
     this.dpr = options.dpr ?? this.readEnvironmentDpr()
     this.createCanvas = options.createCanvas ?? defaultCreateCanvas
     this.scheduler = new FrameScheduler(options.scheduleFrame, options.cancelFrame)
-    this.pool = new CanvasPool(this.createCanvas)
     this.measureText = options.measureText
     const eventsTarget = options.eventsTarget ?? options.container
     this.eventSystem = eventsTarget
@@ -123,7 +121,6 @@ class CanvasRenderHost implements RenderHost {
       this.width,
       this.height,
       this.dpr,
-      this.pool,
       () => this.scheduler.request(this.flushTask),
       // 缺省 'regions'：隐式建层（submitInvalidation 未建层兜底）走逐脏区增量补画
       opts.consumption ?? 'regions',
@@ -189,7 +186,6 @@ class CanvasRenderHost implements RenderHost {
     this.unwatchDpr()
     this.scheduler.destroy()
     this.eventSystem?.dispose()
-    this.pool.clear()
     for (const layer of this.layers.values()) {
       this.unmount(layer.canvasElement)
     }

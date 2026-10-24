@@ -185,44 +185,6 @@ describe('RenderHost 窄接口', () => {
     host2.destroy()
   })
 
-  it('translateBy blit 自拷贝并把暴露带转 band 失效增量补画', () => {
-    const scheduler = makeManualScheduler()
-    const host = createHost(scheduler.options)
-    const body = host.createLayer({ kind: 'body' })
-    const exposed = new PaintNode({ x: 0, y: 560, width: 800, height: 40 })
-    const top = new PaintNode({ x: 0, y: 0, width: 800, height: 40 })
-    body.root.appendChild(exposed)
-    body.root.appendChild(top)
-
-    body.translateBy(0, -40)
-    const ctx = (body.canvasElement as FakeCanvas).context
-    // blit：本层 ctx 上 drawImage 一次（temp ← layer 的一次记录在临时画布 ctx 上）
-    expect(ctx.callsOf('drawImage')).toHaveLength(1)
-    // blit 本身清屏一次
-    expect(ctx.callsOf('clearRect')).toEqual([{ name: 'clearRect', args: [0, 0, 1600, 1200] }])
-    // 暴露底部 40px 横带 → band 失效，帧末只补画该区域
-    scheduler.step()
-    expect(ctx.callsOf('clearRect')).toEqual([
-      { name: 'clearRect', args: [0, 0, 1600, 1200] },
-      { name: 'clearRect', args: [0, 560, 800, 40] },
-    ])
-    expect(exposed.painted).toBe(1)
-    expect(top.painted).toBe(0)
-    host.destroy()
-  })
-
-  it('平移超过层尺寸退化为整层重绘', () => {
-    const scheduler = makeManualScheduler()
-    const host = createHost(scheduler.options)
-    const body = host.createLayer({ kind: 'body' })
-    body.translateBy(0, 700)
-    scheduler.step()
-    const ctx = (body.canvasElement as FakeCanvas).context
-    expect(ctx.callsOf('drawImage')).toHaveLength(0)
-    expect(ctx.callsOf('clearRect')).toEqual([{ name: 'clearRect', args: [0, 0, 800, 600] }])
-    host.destroy()
-  })
-
   it('setSize 调整物理像素尺寸并整层重绘', () => {
     const scheduler = makeManualScheduler()
     const host = createHost(scheduler.options)

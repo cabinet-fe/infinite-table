@@ -15,7 +15,6 @@ export function stubLayer() {
     canvasElement: { width: 0, height: 0, getContext: () => null },
     setSize: () => {},
     invalidate: (inv) => invalidated.push(inv),
-    translateBy: () => {},
   }
   return { layer, root, invalidated }
 }

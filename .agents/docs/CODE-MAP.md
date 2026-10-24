@@ -7,7 +7,7 @@
 ```text
 infinitable/
 ├── packages/            # monorepo 主体
-│   ├── render/          # 通用 canvas 渲染工具包（场景树/分层 canvas/失效登记/事件/池化/路径原语与内建图元）
+│   ├── render/          # 通用 canvas 渲染工具包（场景树/分层 canvas/失效登记/事件/路径原语与内建图元）
 │   ├── grid/            # 共享网格内核（自 core 拆出：ScrollManager/虚拟窗口/二分命中/共享边/选区状态/主题投影）
 │   ├── table/           # ListTable 引擎（自 core 拆出：装配/溢出/填充柄/表头/取值/编辑；实现引擎装配协议）
 │   ├── formulas/        # 公式引擎（tokenizer/Pratt parser/求值/49 内置函数/依赖图）
@@ -23,7 +23,7 @@ infinitable/
 
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
-| render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、canvas 池化、路径原语与内建图元节点（矩形/文本/路径/图片）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
+| render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、路径原语与内建图元节点（矩形/文本/路径/图片）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
 | grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影；仅依赖 render | `src/index.ts` |
 | table | `packages/table` | ListTable 引擎（core 领域代码原样搬运）：ListTable 主体与装配、溢出走廊、填充柄、表头装配、取值三形态、编辑链路、交互、图片/图表媒体、插件注册路径；依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位） | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
@@ -48,7 +48,7 @@ infinitable/
 
 ### render — `packages/render/src`
 
-`scene/` 场景树、`layers/` 分层 canvas、`invalidation/` 失效登记、`events/` federated 事件、`pool/` canvas 池、`frame-scheduler.ts` 帧调度、`render-host.ts` RenderHost 窄接口
+`scene/` 场景树、`layers/` 分层 canvas、`invalidation/` 失效登记、`events/` federated 事件、`frame-scheduler.ts` 帧调度、`render-host.ts` RenderHost 窄接口
 
 ### formulas — `packages/formulas/src`
 

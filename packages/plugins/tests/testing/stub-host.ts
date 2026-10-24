@@ -20,7 +20,6 @@ class StubLayer implements LayerHandle {
 
   setSize(): void {}
   invalidate(): void {}
-  translateBy(): void {}
 }
 
 export class StubHost implements RenderHost {

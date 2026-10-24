@@ -110,6 +110,9 @@ export interface RenderCanvas {
   getContext(contextId: '2d'): RenderContext | null
 }
 
+/** canvas 工厂：宿主注入的画布创建方式（缺省 document.createElement，测试注入假画布） */
+export type CanvasFactory = () => RenderCanvas
+
 /**
  * 三档失效：
  * - region：局部矩形脏区（可带旧包围盒，用于内容移动/缩放后的双包围盒重绘）
@@ -138,12 +141,6 @@ export interface LayerHandle {
   setSize(width: number, height: number, dpr?: number): void
   /** 对本层声明三档失效，等价于 host.submitInvalidation(kind, inv) */
   invalidate(inv: Invalidation): void
-  /**
-   * 层内容整体平移的 blit 快路径：位图自拷贝 + 暴露带转 band 失效。
-   * 预留能力：当前 core 无调用方（滚动走重建+band 路线），仅测试覆盖；
-   * 若未来滚动路线切换为平移复用，此处即 body 层快路径接入点。
-   */
-  translateBy(dx: number, dy: number): void
 }
 
 /**
