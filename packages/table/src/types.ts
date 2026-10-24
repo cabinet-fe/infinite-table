@@ -346,6 +346,14 @@ export interface ListTableOptions {
    */
   resolveShiftSelectAnchor?: (target: CellRef) => CellRef | null | undefined
   /**
+   * 交互选区开关：false 时指针/键盘不再驱动选区——表体拖选/点选（含 shift/ctrl
+   * 扩展）、行/列头与角点拖选全选、方向键/Tab 移动焦点、填充柄（绘制与命中）
+   * 一并关闭；选区退化为纯外部回写的高亮面（applyExternalSelection 写入，
+   * 照常绘制与广播）。透视表等「选区即领域高亮、无 sheet 式选区交互」的平级
+   * 引擎经此关闭。缺省 true 保持现状。
+   */
+  interactiveSelection?: boolean
+  /**
    * 内建滚动条：false 整体关闭（不绘制、右/下缘条带不拦截指针）；缺省 hover 档
    * （悬停表格内或滚动时显示、静止 hideDelay 后隐藏）；显式 true 常驻（旧语义）；
    * 对象形态配置显示策略——'always' 常驻、'scrolling' 滚动或滚动条交互时显示、

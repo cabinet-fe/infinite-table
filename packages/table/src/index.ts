@@ -14,7 +14,8 @@ export {
   warnMergeConflicts,
 } from '@infinitable/grid'
 export type { CellRange, MergeConflict, SanitizedMerges } from '@infinitable/grid'
-export type { CellRenderer } from './cell-renderer'
+// 自定义渲染 hook 的渲染器与入参形态（resolveCellRenderer 消费方——pivot 树格等——需要）
+export type { CellRenderer, CellRenderTarget } from './cell-renderer'
 export { projectCellStyle } from './cell-style'
 export type { CellBorder, CellBorderEdge, CellStyle } from './cell-style'
 export { extendsTheme } from '@infinitable/grid'

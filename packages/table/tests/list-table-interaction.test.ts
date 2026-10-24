@@ -10,6 +10,7 @@ import { editorCellRect, mergeAwareCellRect } from '../src/list-table-interactio
 import type { SelectionSnapshot } from '@infinitable/grid/src/selection'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
 import { findCellNode } from './testing/find-cell-node'
+import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type {
   CellChangeEvent,
@@ -401,6 +402,60 @@ describe('ListTable 表头拖选连续扩展', () => {
     expect(table.getSelection().ranges).toEqual([
       { start: { col: 1, row: 1 }, end: { col: 1, row: 1 } },
     ])
+  })
+})
+
+describe('ListTable 交互选区关闭（interactiveSelection: false）', () => {
+  const records = Array.from({ length: 6 }, (_, i) => ({ name: `r${i}` }))
+  /** 预置外部高亮段（透视表式领域回写）：交互不应覆盖它 */
+  const EXTERNAL_RANGES = [{ start: { col: 1, row: 1 }, end: { col: 2, row: 2 } }]
+
+  it('指针不驱动选区：表体拖选/点选、行/列头拖选、角点全选全部静默', () => {
+    const { host, table } = createTable({ records, interactiveSelection: false })
+    table.applyExternalSelection({ ranges: EXTERNAL_RANGES, focus: { col: 1, row: 1 } })
+    // 表体拖选
+    fireBody(host, 'pointerdown', { x: cellX(4), y: cellY(0) })
+    fireBody(host, 'pointermove', { x: cellX(6), y: cellY(1) })
+    fireBody(host, 'pointerup', { x: cellX(6), y: cellY(1) })
+    expect(table.getSelection().ranges).toEqual(EXTERNAL_RANGES)
+    // 列头、行号列、角点
+    fireBody(host, 'pointerdown', { x: cellX(2) + 50, y: 10 })
+    fireBody(host, 'pointerdown', { x: 10, y: cellY(0) })
+    fireBody(host, 'pointerdown', { x: 10, y: 10 })
+    expect(table.getSelection().ranges).toEqual(EXTERNAL_RANGES)
+  })
+
+  it('键盘不驱动选区：方向键/Tab/shift 扩展不改焦点与段', () => {
+    const { host, table } = createTable({ records, interactiveSelection: false })
+    table.applyExternalSelection({ ranges: EXTERNAL_RANGES, focus: { col: 1, row: 1 } })
+    fireSky(host, 'keydown', { key: 'ArrowRight' })
+    fireSky(host, 'keydown', { key: 'ArrowDown', shiftKey: true })
+    fireSky(host, 'keydown', { key: 'Tab' })
+    expect(table.getSelection().ranges).toEqual(EXTERNAL_RANGES)
+    expect(table.getSelection().focus).toEqual({ col: 1, row: 1 })
+  })
+
+  it('填充柄不绘制：外部高亮照常绘制，焦点段右下角无柄方点（对照组绘制）', () => {
+    const paintRects = (host: StubHost) => {
+      const node = host.layers.get('sky')!.root.children[0]!
+      const ctx = new RecordingContext()
+      node.paint(ctx)
+      return ctx.callsOf('fillRect').map((call) => call.args)
+    }
+    // 焦点段 (1,0)~(3,0)：柄骑 (3,0) 格右下角点 → (444, 64, 8, 8)
+    const snapshot: SelectionSnapshot = {
+      ranges: [{ start: { col: 1, row: 0 }, end: { col: 3, row: 0 } }],
+      focus: { col: 3, row: 0 },
+    }
+    const interactive = createTable({ records })
+    interactive.table.applyExternalSelection(snapshot)
+    expect(paintRects(interactive.host)).toContainEqual([444, 64, 8, 8])
+    const highlightOnly = createTable({ records, interactiveSelection: false })
+    highlightOnly.table.applyExternalSelection(snapshot)
+    const rects = paintRects(highlightOnly.host)
+    expect(rects).not.toContainEqual([444, 64, 8, 8])
+    // 高亮面保留：选区填充/边框仍在绘制（段矩形 48+100=148 起、宽 300、高 32）
+    expect(rects).toContainEqual([148, 36, 300, 32])
   })
 })
 

@@ -65,6 +65,15 @@ const DOUBLE_TAP_SLOP = 10
 /** 链接单击判定位移阈值：down/up 落点距离超过该值视为拖拽（框选），不派发链接点击 */
 const LINK_CLICK_SLOP = 10
 
+/**
+ * 交互选区开关（options.interactiveSelection 为 false 时关闭）：指针/键盘不再
+ * 驱动选区（表体拖选/表头拖选/角点全选/键盘移动与扩展/填充柄），选区只作
+ * applyExternalSelection 外部回写的高亮面（状态、绘制、广播照常）。
+ */
+function selectionInteractive(table: ListTable): boolean {
+  return table.options.interactiveSelection !== false
+}
+
 /** 表头拖选会话：pointerdown 命中列头/行头后开启，锚定按下时命中的列/行，pointerup 重算后结束 */
 export interface HeaderDragState {
   /** 拖选轴向：列头横向扩展列区间，行头纵向扩展行区间 */
@@ -190,8 +199,10 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     return
   }
   // 填充柄按下：开启拖拽会话并抛按下事件（不改选区，填充生成不在内核）；
-  // 拾取会话中让位——编辑态的填充柄不属于公式输入流，点选一律按引用拾取走选区
-  const fillRange = picking ? null : fillHandleHit(table, event.x, event.y)
+  // 拾取会话中让位——编辑态的填充柄不属于公式输入流，点选一律按引用拾取走选区；
+  // 交互选区关闭时无填充柄（选区为外部高亮面，柄的绘制与命中一并关闭）
+  const fillRange =
+    picking || !selectionInteractive(table) ? null : fillHandleHit(table, event.x, event.y)
   if (fillRange) {
     const bounds = normalizeRange(fillRange)
     const origin = { col: bounds.maxCol, row: bounds.maxRow }
@@ -218,7 +229,11 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     scheduleFillEdgeScroll(table)
     return
   }
-  if (event.x < table.rowHeaderWidth && event.y < table.headerHeight) {
+  if (
+    selectionInteractive(table) &&
+    event.x < table.rowHeaderWidth &&
+    event.y < table.headerHeight
+  ) {
     // 左上角：全选（焦点落可视带首格——活动格恒在视口内，以活动格可见性为闸的
     // 宿主滚动跟随不触发，视口不被拽回首格）
     const visible = table.getBodyVisibleCellRange()
@@ -228,7 +243,7 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     })
     return
   }
-  if (event.y < table.headerHeight) {
+  if (selectionInteractive(table) && event.y < table.headerHeight) {
     const col = findColAt(table.colOffsets, toContentX(table, event.x))
     if (col >= 0 && table.pipeline.rowCount > 0) {
       // 表头拖选会话：按下即整列（快照等价 selectCol），拖中/抬起重算为连续列区间。
@@ -243,7 +258,7 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     }
     return
   }
-  if (event.x < table.rowHeaderWidth) {
+  if (selectionInteractive(table) && event.x < table.rowHeaderWidth) {
     const row = findRowAt(table.rowOffsets, toContentY(table, event.y))
     if (row >= 0 && table.columns.length > 0) {
       // 表头拖选会话：按下即整行（快照等价 selectRow），拖中/抬起重算为连续行区间。
@@ -261,6 +276,10 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
   if (cell) {
     // 链接单击判定的 down 侧锚点定格（合并区路由到主格，与选区/编辑同锚点口径）
     table.pointerDownCell = cell
+    // 交互选区关闭：到此为止，不开拖选会话（选区只作外部回写的高亮面）
+    if (!selectionInteractive(table)) {
+      return
+    }
     // 合并区整体作为选区单元：点按即全选包围盒（锚定主格，焦点随主格，编辑/取值都走主格）
     const extent = dragExtentRange(table, cell, cell)
     // shift+点选扩展：锚点解析 hook 优先（引用拾取等宿主自持「上次拾取锚点」的场景，
@@ -730,6 +749,10 @@ function onKeyDown(table: ListTable, event: SceneEvent): void {
   // 并按 Enter 语义下移的既有行为不变）；关闭时非编辑态 Enter 保持现状（无操作）
   if (event.key === 'Enter' && table.options.editCellOnEnter) {
     table.startEdit(focus.col, focus.row)
+    return
+  }
+  // 交互选区关闭：方向键/Tab 不再移动焦点或扩展选区（选区只作外部高亮面）
+  if (!selectionInteractive(table)) {
     return
   }
   const next = nextActiveCell(
@@ -1379,8 +1402,11 @@ export function refreshOverlay(table: ListTable): void {
   const has = table.overlay.update({
     selection: table.selection.snapshot,
     resizeLine: table.resizeLine,
-    // 填充柄挂在焦点段右下角（无选区为 null）
-    fillHandleRange: resolveFocusRange(table.selection.snapshot),
+    // 填充柄挂在焦点段右下角（无选区为 null；交互选区关闭时恒 null——选区为
+    // 外部高亮面，不提供 sheet 式填充柄）
+    fillHandleRange: selectionInteractive(table)
+      ? resolveFocusRange(table.selection.snapshot)
+      : null,
     // 填充拖拽预览：轴锁定后的纯扩展区（非拖拽中为 null）
     fillPreview,
     // 选区锚点（编辑拾取会话中被编辑格保持选区绘制；setSelectionAnchor 写入，无为 null）
