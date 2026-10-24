@@ -40,7 +40,7 @@ layer.root.appendChild(rect)
 layer.invalidate({ type: 'region', region: { x: 40, y: 40, width: 120, height: 60 } })
 // => 画布上出现蓝色矩形
 
-host.destroy() // 取消挂起帧、解绑事件、回收池化画布并从容器移除 canvas
+host.destroy() // 取消挂起帧、解绑事件、从容器移除各层 canvas
 ```
 
 ## API 签名
@@ -154,8 +154,6 @@ export interface LayerHandle {
   setSize(width: number, height: number, dpr?: number): void
   /** 对本层声明三档失效 */
   invalidate(inv: Invalidation): void
-  /** 层内容整体平移的 blit 快路径（位图自拷贝 + 暴露带转 band 失效；预留能力） */
-  translateBy(dx: number, dy: number): void
 }
 
 /** 渲染宿主窄接口 */
@@ -281,7 +279,7 @@ export interface SceneEvent {
 - `requestFrame(task)` — 同一任务在同一帧内只执行一次。
 - `measure(text, font): Size` — 文本测量（CSS 像素）；height 取 actualBoundingBox 之和。
 - `resize(width, height, dpr?)` — 原地重设已建层尺寸（含 CSS 尺寸）并整层失效。
-- `destroy()` — 幂等；取消挂起帧、解绑事件、回收池化画布。
+- `destroy()` — 幂等；取消挂起帧、解绑事件、从容器移除各层 canvas。
 
 `SceneNode`：
 
@@ -289,8 +287,6 @@ export interface SceneEvent {
 - `paintedBounds()` — 绘制超出自身几何的节点（如向邻格溢出的文本格）覆盖此方法把溢出段并入，防脏区剔除漏画。
 - `on/off` — 场景事件（`SceneEventType`）；事件经 EventSystem 命中后从命中节点沿 parent 链冒泡，`stopPropagation` 中断。
 - `removeChildren(predicate)` — 单趟 O(children) 批量摘除，返回被摘除节点（parent 已置空）。
-
-`LayerHandle.translateBy(dx, dy)` — 位图自拷贝 + 暴露带转 band 失效的快路径；当前 core 滚动走「重建 + band」路线，无调用方（预留能力，仅测试覆盖）。
 
 `SceneEvent` 事件类型集：`pointerdown`/`pointermove`/`pointerup`/`click`/`dblclick`/`contextmenu`/`wheel`；`x`/`y` 为层坐标。
 
@@ -359,7 +355,6 @@ layer.invalidate({ type: 'full' })
 > - 容器不传即离屏模式：canvas 不挂 DOM、无事件系统（`eventsTarget` 缺省取 container）。
 > - `SceneNode.paint` 的 ctx 已平移到本节点局部原点（且已按 dpr 缩放），坐标计算用格内局部坐标即可。
 > - 运行期 DPR 变化宿主自动跟随（window resize + matchMedia resolution 双通道）；显式 `resize(w, h, dpr)` 传 dpr 才更新内部 dpr。
-> - `LayerHandle.translateBy` 是预留能力，当前无 core 调用方；滚动失效走 band 路线，宿主不要依赖平移快路径。
 > - `ListTable` 的 ground/sky 整层绘制预留位经 `table.setUnderlayPainter`/`setOverlayPainter` 挂接，不直接操作 host 建层。
 
 ## 常见问题

@@ -98,7 +98,7 @@ export interface RenderHost {
 | `requestFrame(task)`            | `FrameTask`          | `void`        | 请求下一渲染帧执行任务；同一任务引用在同一帧内只执行一次                           |
 | `measure(text, font)`           | 文本、CSS `font` 串  | `Size`        | 文本测量（CSS 像素）；高度为 `actualBoundingBoxAscent + actualBoundingBoxDescent`  |
 | `resize(width, height, dpr?)`   | 新视口尺寸、可选 dpr | `void`        | 原地重设已建层尺寸（含 CSS 尺寸）并整层失效；显式 dpr 会同步宿主内部 dpr           |
-| `destroy()`                     | —                    | `void`        | 幂等；取消挂起帧、解绑事件、回收池化画布、移除容器中的 canvas                      |
+| `destroy()`                     | —                    | `void`        | 幂等；取消挂起帧、解绑事件、移除容器中的 canvas                                  |
 
 ## 层、句柄与失效
 
@@ -147,7 +147,6 @@ export interface LayerHandle {
   readonly canvasElement: RenderCanvas
   setSize(width: number, height: number, dpr?: number): void
   invalidate(inv: Invalidation): void
-  translateBy(dx: number, dy: number): void
 }
 ```
 
@@ -157,8 +156,7 @@ export interface LayerHandle {
 | `root`          | `readonly SceneNode`            | 该层场景树根，尺寸与层一致；内容挂在这里                                                                      |
 | `canvasElement` | `readonly RenderCanvas`         | 该层画布；上屏模式下即容器中的 canvas 元素                                                                    |
 | `setSize`       | `(width, height, dpr?) => void` | 调整层尺寸并整层失效；dpr 缺省沿用当前值                                                                      |
-| `invalidate`    | `(inv: Invalidation) => void`   | 对本层声明三档失效                                                                                            |
-| `translateBy`   | `(dx, dy) => void`              | 位图自拷贝的整体平移快路径，暴露带转为 `band` 失效。当前表格引擎滚动走「重建 + band」路线，无调用方；属预留能力 |
+| `invalidate`    | `(inv: Invalidation) => void`   | 对本层声明三档失效                                                            |
 
 ::: details 失效队列的收敛规则
 - `region` 失效：`region` 与 `prevRegion` 先取并集，再四边外扩 10px 并像素对齐。
@@ -415,6 +413,5 @@ host.resize(1024, 768)
 - `container` 未传即离屏模式；容器 `position: static` 会让绝对定位的 canvas 叠到容器之外，表现为空白。
 - `SceneNode.paint` 的 `ctx` 已平移到本节点局部原点并按 dpr 缩放，直接用局部坐标绘制即可。
 - `eventsTarget` 缺省取 `container`；离屏且未提供事件源时没有事件系统。
-- `LayerHandle.translateBy` 是预留能力，当前表格引擎无调用方；滚动失效走 `band` 路线。
 - `ListTable` 的 ground/sky 整层绘制预留位应经 `table.setUnderlayPainter` / `table.setOverlayPainter` 挂接，不直接操作宿主建层。
 :::

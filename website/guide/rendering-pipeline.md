@@ -195,17 +195,6 @@ ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
 `setSize` 会重置 canvas 的 `width` / `height`，这本身会清空位图，所以每次尺寸变化都以整层失效收尾。
 
-## canvas 池化
-
-`CanvasPool` 按物理像素尺寸分桶复用离屏画布，最多保留 16 张，超出容量直接丢弃。它主要服务于 `LayerHandle.translateBy` 的位图自拷贝：平移前先申请一张临时画布保存当前位图，再清除并平移回原画布，最后归还临时画布。
-
-需要区分两点：
-
-- 四层 canvas 本身是长期持有的层画布，不进入池。
-- 池化的是短生命周期的临时位图，避免滚动帧反复分配大画布。
-
-`translateBy` 目前是预留能力，引擎的滚动走“窗口增量重建 + band 失效”路线，没有调用它。
-
 ## 事件系统
 
 `EventSystem` 绑定在 `eventsTarget` 上，缺省就是容器。它监听：

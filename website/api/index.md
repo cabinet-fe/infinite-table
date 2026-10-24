@@ -112,7 +112,7 @@ const a1: CellRef = { col: 2, row: 5, colAbsolute: false, rowAbsolute: false } /
 | `SceneNode`                                                              | 场景树节点基类，子类覆盖 `paint` 绘制内容                          | [/api/render](/api/render) |
 | `RenderHostOptions`                                                      | `createRenderHost` 的构造参数（尺寸、dpr、容器、事件源、离屏注入） | [/api/render](/api/render) |
 | `RenderHost`                                                             | 宿主窄接口：建层、提交失效、请求帧、文本测量、resize、destroy      | [/api/render](/api/render) |
-| `LayerHandle`                                                            | 单层句柄：场景根、画布、`setSize`、`invalidate`、`translateBy`     | [/api/render](/api/render) |
+| `LayerHandle`                                                            | 单层句柄：场景根、画布、`setSize`、`invalidate`                   | [/api/render](/api/render) |
 | `LayerKind` / `LayerOpts`                                                | 层标识 `'ground' \| 'body' \| 'media' \| 'sky'` 与建层参数（含 `consumption` 失效消费策略） | [/api/render](/api/render) |
 | `Invalidation`                                                           | 三档失效联合：`region` / `band` / `full`                           | [/api/render](/api/render) |
 | `FrameTask`                                                              | 下一渲染帧执行一次的任务签名                                       | [/api/render](/api/render) |

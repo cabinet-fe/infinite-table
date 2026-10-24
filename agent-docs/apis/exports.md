@@ -20,11 +20,11 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 - 注册函数：宿主注入扩展点的写入面（`registerFormulaFunction`、`EditorRegistry`、`defaultCommandRegistry`…）。
 - 插件接口与工厂：`TablePlugin` 契约、`createChartPlugin` / `createWatermarkPlugin` / `createPrintPlugin` 工厂及其 handle/配置类型。
 
-**不导出**——下列性质的符号只能经包内深路径消费（仓内测试/跨包内部接线）：
+**不导出**——下列性质的符号不进发布面（包间接线统一走子包公共入口，深路径消费已移除）：
 
 - 内部实现细节：滚动状态源（`ScrollManager`）、模型绑定（`ModelBinding`）、取值管线（`CellValuePipeline`）、分词/AST 原语（`tokenizeFormula`、`evaluateAst`）、`coerceTo*` 强转族、chart-loader/渲染实现等。
 - 实验性 API：未定稿能力，不进发布面。
-- 跨层内部工具：为其它包内部接线服务的原语（grid 布局/滚动/滚动条装配纯函数族、`MediaCache`、`CellNode` 等；table 经 `@infinitable/grid/src/<module>` 深路径消费，grid 的 `./src/*` exports 条目即该接线的 dev/types/import 契约——深路径仅源码形态、无独立产物，消费方构建时随本体打包）。
+- 跨层内部工具：为其它包内部接线服务的原语（grid 布局/滚动/滚动条装配纯函数族、`MediaCache`、`CellNode` 等；包间接线统一走子包公共入口——table 经 `@infinitable/grid/src/<module>` 的深路径消费与 grid 的 `./src/*` exports 条目已移除，仓内 `@infinitable/grid/src` 零引用）。
 
 支撑口径（满足其一即可保留在公共面）：仓内非测试消费（playground / 跨包公共入口）、红线文档面（`docs/plugin-interface-map.md` 红线 + `agent-docs/index.md` 速查表逐项覆盖）。同名消歧：grid 的格坐标 `CellRef` 与 formulas 的 A1 引用 `CellRef` 同名——A1 引用保留原名（配 `parseCellRef`/`formatCellRef`/`createRangeRef`），格坐标以 `GridCellRef` 别名从主入口导出。同源去重：`RenderContext`/`Size`（render 定义、table 亦转出）与 `TablePlugin`（table 定义、plugins 亦转出）在主入口各从定义包导出一次。
 
@@ -83,7 +83,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 
 - **对 `infinitable` 主入口消费者：零迁移成本。** 原 core 组符号在主入口全部保留（来源换为定义包，import 语句不变），仅新增 4 个协议符号（`EngineAssembly`/`EngineReadView`/`TableEngine`/`createEnginePrintSource`）。快照由 39 值 + 92 类型扩为 40 值 + 95 类型。
 - **对 `@infinitable/core` 直接消费者（仅仓内 workspace，该包从未发布到 npm）：全部 import 失效。** 仓内消费方（playground/website/各包测试）已随拆分全量迁移至 `@infinitable/grid` / `@infinitable/table`（符号级对照：合并/选区/主题/滚动条词汇 → grid，ListTable/模型/编辑/媒体/插件契约 → table）。
-- **grid 深路径消费口径（新增）：** table 对 grid 内部原语（布局/滚动/滚动条装配等）经 `@infinitable/grid/src/<module>` 深路径接线，grid 的 `./src/*` exports 条目（types/dev/import 三条件，import 指源码）是该接线的契约；深路径无独立 dist 产物，消费方（table）构建时随本体打包，infinitable 统一产物自包含不受影响。
+- **grid 深路径消费口径（已移除）：** 0.4.0 拆分时 table 曾对 grid 内部原语（布局/滚动/滚动条装配等）经 `@infinitable/grid/src/<module>` 深路径接线，grid 的 `./src/*` exports 条目（types/dev/import 三条件，import 指源码）是该接线的契约；后续已移除该口径——grid exports 仅剩 `.`，仓内 `@infinitable/grid/src` 深路径零引用，包间消费统一走公共入口。
 
 ## 移出项与过渡方案
 

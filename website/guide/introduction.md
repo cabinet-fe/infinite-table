@@ -92,7 +92,7 @@ macOS（Apple Silicon）Chrome headless · VTable 1.26.8 · 本仓 git `21c6a25`
 
 | 包                      | 职责                                                                                         | 用户侧使用方式                                |
 | ----------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `@infinitable/render`   | 自研 canvas 渲染引擎：场景树、四层画布、三档失效、federated 事件、canvas 池化                | 主入口导出 `createRenderHost`、`SceneNode` 等 |
+| `@infinitable/render`   | 自研 canvas 渲染引擎：场景树、四层画布、三档失效、federated 事件                | 主入口导出 `createRenderHost`、`SceneNode` 等 |
 | `@infinitable/grid`     | 共享网格内核：滚动、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、合并区、浮动对象 | 主入口导出 `normalizeRange`、`GridCellRef` 等 |
 | `@infinitable/table`    | 表格引擎：`ListTable`、交互、编辑、合并、媒体与浮动对象、插件注册路径                        | 主入口导出 `ListTable` 等                     |
 | `@infinitable/formulas` | 公式引擎：A1 地址、tokenizer、Pratt parser、求值、49 个内置函数、依赖图、引用扫描与平移      | 主入口导出解析/求值/依赖图 API                |

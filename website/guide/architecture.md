@@ -53,7 +53,7 @@ flowchart LR
 
 | 包                      | 职责                                                                                                                  | 主要入口                            |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、canvas 池化、帧调度、`RenderHost` 窄接口        | `packages/render/src/index.ts`      |
+| `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、帧调度、`RenderHost` 窄接口        | `packages/render/src/index.ts`      |
 | `@infinitable/grid`     | 共享网格内核：`ScrollManager`、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、共享边、cell-range、浮动对象层 | `packages/grid/src/index.ts`        |
 | `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径                                                | `packages/table/src/index.ts`       |
 | `@infinitable/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、`evaluate`、49 个内置函数、依赖图、容错引用扫描、引用平移            | `packages/formulas/src/index.ts`    |
@@ -155,7 +155,6 @@ export interface LayerHandle {
   readonly canvasElement: RenderCanvas
   setSize(width: number, height: number, dpr?: number): void
   invalidate(inv: Invalidation): void
-  translateBy(dx: number, dy: number): void
 }
 ```
 
@@ -166,9 +165,7 @@ export interface LayerHandle {
 - `requestFrame` 把任务收敛到下一个渲染帧，同一任务引用在一帧内只执行一次。
 - `measure` 提供 CSS 像素文本测量，缺失时引擎使用测量画布。
 - `resize` 原地重设已建层尺寸并整层失效。
-- `destroy` 幂等，取消挂起帧、解绑事件、回收池化画布并移除 DOM canvas。
-
-`LayerHandle.translateBy` 是位图平移的 blit 快路径，目前作为预留能力存在；`grid` 的滚动走“窗口增量重建 + band 失效”路线，没有调用它。
+- `destroy` 幂等，取消挂起帧、解绑事件并移除 DOM canvas。
 
 ## 插件机制
 
