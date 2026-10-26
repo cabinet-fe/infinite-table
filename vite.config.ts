@@ -37,7 +37,11 @@ export default defineConfig({
     conditions: ['dev'],
   },
   test: {
-    include: ['packages/*/tests/**/*.test.ts', 'playground/src/bench/*.test.ts'],
+    include: [
+      'packages/*/tests/**/*.test.ts',
+      'playground/src/bench/*.test.ts',
+      'playground/src/app/*.test.ts',
+    ],
     // 默认 node 环境；需要 DOM 的测试文件在文件头加 // @vitest-environment happy-dom
     // （happy-dom 比 jsdom 快，避免全量默认挂 DOM）
     environment: 'node',
