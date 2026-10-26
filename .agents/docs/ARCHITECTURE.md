@@ -6,7 +6,7 @@
 
 - 表格渲染：多层 canvas 分层（ground/body/media/sky）、虚拟滚动窗口、行带增量失效
 - 交互：选区、列宽拖拽、冻结、排序、编辑
-- 公式引擎：单元格公式计算（解析/求值 + 49 个内置函数 + 依赖图 DependencyGraph；宿主驱动求值、图驱动增量失效——value 变更经 affectedBy 传递闭包标脏波及公式，易失函数随任意变更重算，循环由宿主护栏报错）
+- 公式引擎：单元格公式计算（解析/求值 + 49 个内置函数 + 依赖图 DependencyGraph；宿主驱动求值、图驱动增量失效——value 变更经 affectedBy 传递闭包标脏波及公式，易失函数随任意变更重算，循环由宿主护栏报错）；自定义函数走实例函数集（sheet 的 FormulaEngine 构造/运行时注册，求值与易失探针先于全局注册表命中，多工作簿隔离），全局 registerFormulaFunction 为兜底便捷路径
 - 引擎装配协议：数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位的引擎中立装配，由 table 引擎实现；透视表引擎 `@infinitable/pivot`（PivotGrid：行维度树 × 列维度树 × 度量交叉聚合，维度/度量动态勾选）经同一装配路径接入（内部以 TableEngine 消费 table 引擎、对外转发 EngineAssembly，协议插件跨引擎挂载），后续甘特同构；插件（watermark/print）面向协议槽位挂载，官方特性与用户扩展走同一注册路径
 
 下游为 ultra-ui 等自用产品。重构调研与目标架构文档 `docs/perf-redesign/`（01-08）已删除（0330ea0），仅存 git 历史。

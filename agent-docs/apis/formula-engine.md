@@ -1,13 +1,13 @@
 ---
 title: formulas 公式引擎
-description: infinitable 公式引擎：A1 地址系统（parseCellRef/formatCellRef/colLetters/createRangeRef）、parseFormula Pratt 解析、evaluate 求值（FormulaResolver 宿主取值注入）、函数注册表读写（49 个内置函数元数据查询 + registerFormulaFunction 自定义函数注册）、7 种错误值（isFormulaErrorCode 错误码判定）、DependencyGraph 依赖图增量重算与按表查询（formulasOf/affectedBySheet）、shiftFormulaText/shiftFormulaRefs 引用平移（行列插删 + 填充柄增量）与 scanFormulaReferences 容错引用扫描。四则与 SUM/AVERAGE/ROUND/ABS 走 @cat-kit/core $n 精确计算。
-aliases: [Formula, 公式, 公式引擎, formula, evaluate, A1, registerFormulaFunction, tokenizeFormula]
-keywords: [evaluate, parseFormula, parseCellRef, formatCellRef, colLetters, formatRangeRef, createRangeRef, FormulaError, formulaError, isFormulaError, isFormulaErrorCode, FormulaParseError, "#DIV/0!", "#VALUE!", "#NAME?", DependencyGraph, affectedBy, affectedBySheet, formulasOf, scanFormulaReferences, collectAstReferences, listFormulaFunctions, getFormulaFunctionInfo, registerFormulaFunction, getFormulaFunction, FormulaFunction, FormulaEvalContext, FormulaResolver, shiftFormulaText, shiftFormulaRefs, SUM, 依赖图, 求值, 跨表引用, 自定义函数, 引用平移]
+description: infinitable 公式引擎：A1 地址系统（parseCellRef/formatCellRef/colLetters/createRangeRef）、parseFormula Pratt 解析、evaluate 求值（FormulaResolver 宿主取值注入 + options.functions 实例函数集）、函数注册表读写（49 个内置函数元数据查询 + registerFormulaFunction 全局自定义函数注册 + 实例函数集覆盖）、7 种错误值（isFormulaErrorCode 错误码判定）、DependencyGraph 依赖图增量重算与按表查询（formulasOf/affectedBySheet）、shiftFormulaText/shiftFormulaRefs 引用平移（行列插删 + 填充柄增量）与 scanFormulaReferences 容错引用扫描。四则与 SUM/AVERAGE/ROUND/ABS 走 @cat-kit/core $n 精确计算。
+aliases: [Formula, 公式, 公式引擎, formula, evaluate, A1, registerFormulaFunction, tokenizeFormula, 实例函数集]
+keywords: [evaluate, parseFormula, parseCellRef, formatCellRef, colLetters, formatRangeRef, createRangeRef, FormulaError, formulaError, isFormulaError, isFormulaErrorCode, FormulaParseError, "#DIV/0!", "#VALUE!", "#NAME?", DependencyGraph, affectedBy, affectedBySheet, formulasOf, scanFormulaReferences, collectAstReferences, listFormulaFunctions, getFormulaFunctionInfo, registerFormulaFunction, getFormulaFunction, FormulaFunction, FormulaFunctionOverrides, EvalValue, FormulaEvalContext, FormulaResolver, shiftFormulaText, shiftFormulaRefs, SUM, 依赖图, 求值, 跨表引用, 自定义函数, 实例函数集, 引用平移]
 ---
 
 # formulas 公式引擎
 
-`infinitable`（formulas 层）导出公式引擎：A1 地址系统（0 基坐标 + `$` 绝对标记 + 跨表名）、Pratt 解析器（`parseFormula`）、纯函数求值器（`evaluate`，单元格读取经 `FormulaResolver` 由宿主注入）、函数注册表（49 个内置函数元数据查询 + `registerFormulaFunction` 自定义函数注册，大小写不敏感、同名覆盖）、7 种错误值体系（`isFormulaErrorCode` 错误码判定）、依赖图（公式格 → 静态引用的反向索引，宿主驱动增量重算；`formulasOf`/`affectedBySheet` 按表查询）、引用平移（`shiftFormulaText`：行列插删时 token 级改写公式文本，`@infinitable/sheet` 模型消费；`shiftFormulaRefs`：填充柄按行列增量平移引用）与容错引用扫描（编辑染色框用）。四则与 SUM/AVERAGE/ROUND/ABS 走 `@cat-kit/core` 的 `$n` 精确计算（结果仍 JS number）。分词/AST 细节/强制转换原语（原 `tokenizeFormula`/`evaluateAst`/`coerceTo*`，0.1.2 起不再导出）为包内深路径能力；注册表写入（`registerFormulaFunction` 族）与求值上下文类型（`FormulaEvalContext`）已随 `@infinitable/sheet` 模型层落地公共化。v1 不做：循环引用检测（`#CYCLE!` 枚举保留）、数组公式（区域作为最终结果求值为 `#VALUE!`）。
+`infinitable`（formulas 层）导出公式引擎：A1 地址系统（0 基坐标 + `$` 绝对标记 + 跨表名）、Pratt 解析器（`parseFormula`）、纯函数求值器（`evaluate`，单元格读取经 `FormulaResolver` 由宿主注入）、函数注册表（49 个内置函数元数据查询 + `registerFormulaFunction` 全局自定义函数注册，大小写不敏感、同名覆盖；另支持 `options.functions` 实例函数集——按求值注入的覆盖集，多工作簿隔离用）、7 种错误值体系（`isFormulaErrorCode` 错误码判定）、依赖图（公式格 → 静态引用的反向索引，宿主驱动增量重算；`formulasOf`/`affectedBySheet` 按表查询）、引用平移（`shiftFormulaText`：行列插删时 token 级改写公式文本，`@infinitable/sheet` 模型消费；`shiftFormulaRefs`：填充柄按行列增量平移引用）与容错引用扫描（编辑染色框用）。四则与 SUM/AVERAGE/ROUND/ABS 走 `@cat-kit/core` 的 `$n` 精确计算（结果仍 JS number）。分词/AST 细节/强制转换原语（原 `tokenizeFormula`/`evaluateAst`/`coerceTo*`，0.1.2 起不再导出）为包内深路径能力；注册表写入（`registerFormulaFunction` 族）与求值上下文类型（`FormulaEvalContext`）已随 `@infinitable/sheet` 模型层落地公共化。v1 不做：循环引用检测（`#CYCLE!` 枚举保留）、数组公式（区域作为最终结果求值为 `#VALUE!`）。
 
 ## 快速上手
 
@@ -209,6 +209,8 @@ export function evaluate(
     sheet?: string
     /** 公式所在格（ROW()/COLUMN() 省参语义）；缺省 { col: 0, row: 0 } */
     cell?: { col: number; row: number }
+    /** 实例函数集：求值查表先于此、未命中回落全局注册表（多工作簿宿主注入，见 FormulaFunctionOverrides） */
+    functions?: FormulaFunctionOverrides
   },
 ): number | string | boolean | FormulaError
 
@@ -263,8 +265,14 @@ export type FormulaFunction =
 
 /** 注册函数（大小写不敏感、同名覆盖；扩展/自定义函数） */
 export function registerFormulaFunction(name: string, def: FormulaFunction): void
-/** 查询函数定义（大小写不敏感；未注册返回 undefined） */
-export function getFormulaFunction(name: string): FormulaFunction | undefined
+/** 查询函数定义（大小写不敏感；实例集优先，未注册返回 undefined） */
+export function getFormulaFunction(
+  name: string,
+  overrides?: FormulaFunctionOverrides,
+): FormulaFunction | undefined
+
+/** 实例函数集（求值覆盖集）：key 为函数名大写形态，查询先于全局注册表、未命中回落全局——多工作簿宿主（@infinitable/sheet 的 FormulaEngine）经它提供按实例隔离的自定义函数，不改写全局注册表 */
+export type FormulaFunctionOverrides = ReadonlyMap<string, FormulaFunction>
 
 export interface FormulaFunctionInfo {
   name: string
@@ -327,7 +335,7 @@ export function listFormulaFunctions(): FormulaFunctionInfo[]
 
 `getFormulaFunctionInfo(name)` / `listFormulaFunctions()` — 同步元数据查询：名称大小写不敏感；返回函数名/签名/描述/分类/参数清单/易失标记。
 
-`registerFormulaFunction(name, def)` / `getFormulaFunction(name)` — 注册表读写（模块级全局注册表，大小写不敏感、同名覆盖）：自定义函数经 `def.impl` 参与 `evaluate` 求值（第二参为 `FormulaEvalContext` 求值上下文）；`volatile: true` 经 `astHasVolatileCall`（以注册表元数据为准）被宿主识别为易失；带 `meta` 的注册进分类面板与参数提示，缺省 `meta` 的注册仍出现在 `listFormulaFunctions`（description 为空、category 为 undefined，仅显示函数名）。
+`registerFormulaFunction(name, def)` / `getFormulaFunction(name, overrides?)` — 注册表读写（模块级全局注册表，大小写不敏感、同名覆盖）：自定义函数经 `def.impl` 参与 `evaluate` 求值（第二参为 `FormulaEvalContext` 求值上下文）；`volatile: true` 经 `astHasVolatileCall`（以注册表元数据为准）被宿主识别为易失；带 `meta` 的注册进分类面板与参数提示，缺省 `meta` 的注册仍出现在 `listFormulaFunctions`（description 为空、category 为 undefined，仅显示函数名）。实例函数集（`FormulaFunctionOverrides`）：`evaluate` 的 `options.functions` 注入按调用隔离的覆盖集——查表先于全局注册表（可覆盖内置函数）、不传时回落全局；多工作簿隔离的自定义函数用它，单应用全局扩展直接 `registerFormulaFunction`。
 
 `isFormulaErrorCode(value)` — 判定是否 7 种错误码字符串之一（错误码字符串反序列化校验用）。
 
@@ -399,6 +407,27 @@ console.log(evaluate('TAX(A1)', resolver)) // => 130（A1 读到 1000，缺省�
 console.log(isFormulaError(evaluate('TAX(A1, 0.2)', resolver))) // => false
 ```
 
+### 实例函数集（按求值隔离的覆盖集）
+
+```ts
+import { evaluate, type FormulaFunction } from 'infinitable'
+
+const resolver = { cell: () => 1, range: () => [] }
+
+// key 大小写不敏感由注入方保证（@infinitable/sheet 的 FormulaEngine 内部统一大写）
+const overrides = new Map<string, FormulaFunction>([
+  ['ADDER', { minArgs: 2, maxArgs: 2, impl: (args) => Number(args[0]) + Number(args[1]) + 100 }],
+  ['ABS', { impl: () => 'overridden' }], // 覆盖内置：仅本覆盖集内生效
+])
+
+console.log(evaluate('ADDER(1,2)', resolver, { functions: overrides })) // => 103
+console.log(evaluate('ABS(-1)', resolver, { functions: overrides })) // => 'overridden'
+console.log(evaluate('ABS(-1)', resolver)) // => 1（不传 functions：全局注册表，内置 ABS 不受覆盖集影响）
+console.log(evaluate('ADDER(1,2)', resolver)) // => FormulaError { code: '#NAME?' }（全局未注册）
+```
+
+`FormulaFunctionOverrides` 是 `ReadonlyMap<string, FormulaFunction>`——工作簿级自定义函数（多簿隔离、按簿覆盖内置）走 `infinitable/sheet` 的 `new Workbook({ functions })`，由 sheet 的 FormulaEngine 自动注入每次求值，不必手工传 `options.functions`。
+
 ### 依赖图驱动增量重算
 
 ```ts
@@ -444,7 +473,7 @@ for (const dependent of graph.affectedBy([{ sheet: 'Sheet1', col: 0, row: 0 }]))
 > - 坐标一律 0 基：`{ col: 0, row: 0 }` 是 A1；`parseCellRef('B3')` 返回 `{ col: 1, row: 2 }`。
 > - 求值是纯函数：不做循环引用检测（互相引用会栈溢出，宿主须用 DependencyGraph 自建递归护栏，可产出 `#CYCLE!`）；不做数组公式（区域终值 `#VALUE!`）。
 > - `FormulaResolver.cell/range` 约定不抛错：抛错由引擎捕获并转为 `#REF!`。
-> - 函数注册表读写均在公共面（`registerFormulaFunction`/`getFormulaFunction`/`getFormulaFunctionInfo`/`listFormulaFunctions`）：自定义函数注册是公共能力（模块级全局注册表、大小写不敏感、同名覆盖）；仍为深路径的只有分词/AST 细节/强制转换原语（原 `tokenizeFormula`/`evaluateAst`/`coerceTo*`，0.1.2 起不再导出）。
+> - 函数注册表读写均在公共面（`registerFormulaFunction`/`getFormulaFunction`/`getFormulaFunctionInfo`/`listFormulaFunctions`）：自定义函数注册是公共能力（模块级全局注册表、大小写不敏感、同名覆盖），实例函数集（`evaluate` 的 `options.functions`）按求值隔离、不写全局；仍为深路径的只有分词/AST 细节/强制转换原语（原 `tokenizeFormula`/`evaluateAst`/`coerceTo*`，0.1.2 起不再导出）。
 
 ## 常见问题
 

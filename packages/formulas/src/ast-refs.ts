@@ -4,7 +4,7 @@
 
 import type { CellRef, RangeRef } from './address'
 import type { AstNode } from './ast'
-import { isVolatileFormulaFunction } from './functions/registry'
+import { isVolatileFormulaFunction, type FormulaFunctionOverrides } from './functions/registry'
 
 /** AST 中出现的引用（cell 或 range；sheet 缺省 = 公式所在表，归一是宿主职责） */
 type AstReference = { kind: 'cell'; ref: CellRef } | { kind: 'range'; ref: RangeRef }
@@ -43,16 +43,19 @@ function walk(node: AstNode, refs: AstReference[]): void {
   }
 }
 
-/** AST 是否含易失函数调用（TODAY/NOW/RAND/RANDBETWEEN 等，以注册表 volatile 元数据为准） */
-export function astHasVolatileCall(node: AstNode): boolean {
+/** AST 是否含易失函数调用（TODAY/NOW/RAND/RANDBETWEEN 等，以注册表 volatile 元数据为准；实例集优先） */
+export function astHasVolatileCall(node: AstNode, overrides?: FormulaFunctionOverrides): boolean {
   switch (node.kind) {
     case 'call':
-      return isVolatileFormulaFunction(node.name) || node.args.some(astHasVolatileCall)
+      return (
+        isVolatileFormulaFunction(node.name, overrides) ||
+        node.args.some((arg) => astHasVolatileCall(arg, overrides))
+      )
     case 'unary':
     case 'percent':
-      return astHasVolatileCall(node.operand)
+      return astHasVolatileCall(node.operand, overrides)
     case 'binary':
-      return astHasVolatileCall(node.left) || astHasVolatileCall(node.right)
+      return astHasVolatileCall(node.left, overrides) || astHasVolatileCall(node.right, overrides)
     default:
       return false
   }

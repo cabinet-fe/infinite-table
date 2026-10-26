@@ -20,6 +20,7 @@ import {
   isFormulaErrorCode,
   parseFormula,
   type FormulaError,
+  type FormulaFunction,
   type FormulaRefCoord,
   type FormulaResolver,
   type ScalarValue,
@@ -65,6 +66,19 @@ function serializeResult(value: ScalarValue | FormulaError): { v: CellValue; t: 
   }
 }
 
+/**
+ * 公式引擎构造选项（实例级自定义函数）：函数定义口径见 @infinitable/formulas 的
+ * FormulaFunction（normal/lazy 双 kind、volatile 标记、补全元数据 meta 可选）。
+ */
+export interface FormulaEngineOptions {
+  /**
+   * 实例级自定义函数（key 为函数名，大小写不敏感；同名覆盖）：求值与易失探针
+   * 先于全局注册表命中（未命中回落全局，可覆盖内置函数）；与全局注册表隔离，
+   * 多工作簿各持各的函数集。运行时增补经 registerFunction（此后新求值立即生效）
+   */
+  functions?: Record<string, FormulaFunction>
+}
+
 export class FormulaEngine {
   private readonly sheets = new Map<string, Sheet>()
   /** 表改名后的旧名 → 新名别名（求值解析层：AST 仍引用旧名，经别名解析到新名；
@@ -72,6 +86,14 @@ export class FormulaEngine {
   private readonly aliases = new Map<string, string>()
   /** 依赖索引与标脏闭包（formulas 的图；本层不建第二套索引） */
   private readonly graph = new DependencyGraph()
+  /** 实例函数集（key 大写形态；求值与易失探针先于此，未命中回落全局注册表） */
+  private readonly functions = new Map<string, FormulaFunction>()
+
+  constructor(options: FormulaEngineOptions = {}) {
+    for (const [name, def] of Object.entries(options.functions ?? {})) {
+      this.functions.set(name.toUpperCase(), def)
+    }
+  }
 
   // ─── sheet 注册表 ─────────────────────────────────────────
 
@@ -82,6 +104,29 @@ export class FormulaEngine {
   /** 按当前表名查注册表（别名不在此解析；求值层 readCell/readRange 才走别名） */
   getSheet(name: string): Sheet | undefined {
     return this.sheets.get(name)
+  }
+
+  // ─── 实例函数集 ───────────────────────────────────────────
+
+  /**
+   * 运行时注册实例函数（同名覆盖）：此后求值立即生效。已写入的公式格（含此前的
+   * #NAME? 格）经 recalcAll 追溯重算；注意易失标记是公式注册时的快照，运行时增补
+   * volatile 函数不追溯已注册公式节点（新写入公式全链路生效）
+   */
+  registerFunction(name: string, def: FormulaFunction): void {
+    this.functions.set(name.toUpperCase(), def)
+  }
+
+  /**
+   * 全量重算（全部公式格）：返回派生补丁（未应用），调用方负责应用。
+   * 典型场景：运行时注册自定义函数后，追溯此前为 #NAME? 的公式格
+   */
+  recalcAll(): CellPatch[] {
+    const dirty = new Map<string, SheetCellCoord>()
+    for (const name of this.sheets.keys()) {
+      for (const coord of this.graph.formulasOf(name)) dirty.set(keyOf(coord), coord)
+    }
+    return this.evaluateDirty(dirty)
   }
 
   /** 公式节点总数（测试/调试用） */
@@ -283,6 +328,7 @@ export class FormulaEngine {
           ? evaluate(formula, resolver, {
               sheet: coord.sheet,
               cell: { col: coord.col, row: coord.row },
+              functions: this.functions,
             })
           : formulaError('#ERROR!')
       } catch {
@@ -368,7 +414,7 @@ export class FormulaEngine {
     let volatile = false
     try {
       const ast = parseFormula(formula)
-      volatile = astHasVolatileCall(ast)
+      volatile = astHasVolatileCall(ast, this.functions)
       const seen = new Set<string>()
       for (const ref of collectAstReferences(ast)) {
         const target = renameMap?.get(ref.ref.sheet ?? sheet.name) ?? ref.ref.sheet ?? sheet.name

@@ -26,7 +26,7 @@ infinitable/
 | render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、路径原语与内建图元节点（矩形/文本/路径/图片）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
 | grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影；仅依赖 render | `src/index.ts` |
 | table | `packages/table` | ListTable 引擎（core 领域代码原样搬运）：ListTable 主体与装配、溢出走廊、填充柄、表头装配、取值三形态、编辑链路、交互、图片/图表媒体、插件注册路径；依赖 grid 与 render，实现引擎装配协议（数据面 + 渲染宿主 + 主题 + 生命周期 + 插件槽位） | `src/index.ts` |
-| formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表、依赖图与容错引用扫描 | `src/index.ts` |
+| formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表（全局 + 实例函数集覆盖集）、依赖图与容错引用扫描 | `src/index.ts` |
 | plugins | `packages/plugins` | 官方插件承载：TablePlugin 契约具名转出 + chart/print/watermark 插件（print/watermark 面向引擎装配协议槽位挂载，不再以 ListTable 具体类型为挂载参数） | `src/index.ts` |
 | pivot | `packages/pivot` | 透视表引擎：PivotGrid（平级领域引擎经装配协议接入的参考实现——内部 new ListTable 后以 TableEngine 持有，对外转发实现 EngineAssembly，协议插件跨引擎挂载生效；行方向多列树形布局：每行维度一列，同组跨行合并经 setMergeCells 落地，点击组格左缘展开图标折叠（collapsible 配置可禁用折叠始终平铺），选区不复用 sheet 交互面（引擎 interactiveSelection 关闭：无拖选/表头拖选/键盘移动/填充柄），选区是纯填充无边框领域高亮（主题 selectionBorderWidth 压 0）：组格高亮从命中维度列起的整行带、列维度表头高亮列组 × 全部数据行、数据格高亮自身（均经 applyExternalSelection 回写），图标折叠/展开后按新结构重放高亮（折叠组收敛为自带聚合的单行载体），列方向多级表头以引擎冻结行 + 横向合并落地（引擎自带列头关闭，表头区行维度列按维度分列标题竖条），列结构 setColCount/setFrozenColCount/setFrozenRowCount/setMergeCells 原地落地）+ PivotModel 聚合模型（leaf/折叠载体/grand 行 × 列维度树路径 × 度量聚合 → TableModel 数据面，引擎坐标含表头行偏移；行/列维度与度量动态勾选排序、聚合方式切换、折叠态管理、组可见行块 groupRange 与合并区计算）；依赖 table | `src/index.ts` |
 | sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 table、grid 与 formulas（SheetGrid 经引擎装配协议消费 table 引擎） | `src/index.ts` |
@@ -67,7 +67,7 @@ infinitable/
 
 ### sheet — `packages/sheet/src`
 
-- 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删）；内部文件清单以盘上为准
+- 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删）；FormulaEngine 组合 formulas（图簿联动/重算编排）并承载实例函数集（构造 `functions` / 运行时 `registerFunction`，`recalcAll` 全量追溯）；内部文件清单以盘上为准
 
 ### playground — `playground`
 

@@ -12,7 +12,7 @@ import { $n } from '@cat-kit/core'
 import type { CellRef, RangeRef } from './address'
 import type { AstNode, BinaryOperator } from './ast'
 import { formulaError, isFormulaError, type FormulaError } from './errors'
-import { invokeFormulaFunction } from './functions/registry'
+import { invokeFormulaFunction, type FormulaFunctionOverrides } from './functions/registry'
 import { parseFormula } from './parser'
 import { FormulaParseError } from './tokenizer'
 
@@ -40,6 +40,8 @@ interface EvaluateOptions {
   sheet?: string
   /** 公式所在格（ROW()/COLUMN() 省参语义）；缺省 { col: 0, row: 0 } */
   cell?: { col: number; row: number }
+  /** 实例函数集：宿主注入的求值覆盖集，查询先于全局注册表（未命中回落全局） */
+  functions?: FormulaFunctionOverrides
 }
 
 /** 求值上下文（函数 lazy 实现经它回读单元格/区域） */
@@ -369,7 +371,7 @@ function createContext(resolver: FormulaResolver, options: EvaluateOptions): For
       }
     },
     callFunction(name, nodes, evalNode, fnCtx) {
-      return invokeFormulaFunction(name, nodes, evalNode, fnCtx ?? ctx)
+      return invokeFormulaFunction(name, nodes, evalNode, fnCtx ?? ctx, options.functions)
     },
   }
   return ctx

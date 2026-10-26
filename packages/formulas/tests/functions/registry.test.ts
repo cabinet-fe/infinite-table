@@ -11,7 +11,9 @@ import {
   isVolatileFormulaFunction,
   listFormulaFunctions,
   registerFormulaFunction,
+  type FormulaFunction,
 } from '../../src/functions/registry'
+import { astHasVolatileCall, parseFormula } from '../../src/index'
 import { EMPTY_RESOLVER } from '../testing/fake-resolver'
 
 describe('内置函数注册表', () => {
@@ -80,5 +82,49 @@ describe('内置函数注册表', () => {
     expect(evaluate('ABS()', EMPTY_RESOLVER)).toMatchObject({ code: '#VALUE!' })
     expect(evaluate('ABS(1,2)', EMPTY_RESOLVER)).toMatchObject({ code: '#VALUE!' })
     expect(evaluate('TODAY(1)', EMPTY_RESOLVER)).toMatchObject({ code: '#VALUE!' })
+  })
+})
+
+describe('实例函数集（overrides）', () => {
+  const overrides = new Map<string, FormulaFunction>([
+    [
+      'ADDER',
+      { minArgs: 2, maxArgs: 2, impl: (args) => Number(args[0]) + Number(args[1]) + 100 },
+    ],
+    ['ABS', { impl: () => 'overridden' }],
+    ['MYRAND', { volatile: true, impl: () => 1 }],
+  ])
+
+  it('查询与求值先于全局注册表命中，未命中回落全局', () => {
+    expect(getFormulaFunction('adder', overrides)?.minArgs).toBe(2)
+    expect(getFormulaFunction('sum', overrides)).toBeDefined() // 回落全局
+    expect(evaluate('ADDER(1,2)', EMPTY_RESOLVER, { functions: overrides })).toBe(103)
+    // 不传 overrides 时实例集函数不存在 → #NAME?
+    expect(evaluate('ADDER(1,2)', EMPTY_RESOLVER)).toMatchObject({ code: '#NAME?' })
+  })
+
+  it('实例集可覆盖内置函数（不写全局注册表）', () => {
+    expect(evaluate('ABS(-1)', EMPTY_RESOLVER, { functions: overrides })).toBe('overridden')
+    // 全局侧不受实例集影响（ABS 仍是内置绝对值）
+    expect(evaluate('ABS(-1)', EMPTY_RESOLVER)).toBe(1)
+  })
+
+  it('实例集参数个数校验与 lazy kind 走同一分发', () => {
+    expect(evaluate('ADDER(1)', EMPTY_RESOLVER, { functions: overrides })).toMatchObject({
+      code: '#VALUE!',
+    })
+    const lazy = new Map<string, FormulaFunction>([
+      ['FIRST', { kind: 'lazy', impl: (_nodes, evalNode) => evalNode(_nodes[0]!) }],
+    ])
+    expect(evaluate('FIRST(5)', EMPTY_RESOLVER, { functions: lazy })).toBe(5)
+  })
+
+  it('易失探针感知实例集（astHasVolatileCall / isVolatileFormulaFunction）', () => {
+    expect(isVolatileFormulaFunction('MYRAND', overrides)).toBe(true)
+    expect(isVolatileFormulaFunction('ADDER', overrides)).toBe(false)
+    expect(isVolatileFormulaFunction('MYRAND')).toBe(false) // 全局未注册
+    const ast = parseFormula('MYRAND()+SUM(1,2)')
+    expect(astHasVolatileCall(ast, overrides)).toBe(true)
+    expect(astHasVolatileCall(ast)).toBe(false)
   })
 })

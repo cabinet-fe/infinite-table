@@ -40,7 +40,12 @@ export { shiftFormulaText, shiftFormulaRefs } from './shift'
 export type { FormulaShiftResult } from './shift'
 
 export { evaluate } from './evaluator'
-export type { FormulaEvalContext, FormulaResolver, ScalarValue } from './evaluator'
+export type {
+  EvalValue,
+  FormulaEvalContext,
+  FormulaResolver,
+  ScalarValue,
+} from './evaluator'
 
 export {
   FORMULA_FUNCTION_CATEGORIES,
@@ -53,4 +58,5 @@ export type {
   FormulaFunction,
   FormulaFunctionCategory,
   FormulaFunctionInfo,
+  FormulaFunctionOverrides,
 } from './functions/registry'

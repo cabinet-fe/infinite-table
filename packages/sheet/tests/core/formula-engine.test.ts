@@ -3,6 +3,7 @@
 
 import { $n } from '@cat-kit/core'
 import { describe, expect, it, vi } from 'vitest'
+import type { EvalValue } from '@infinitable/formulas'
 
 import type { CellAddress } from '../../src/core/address'
 import type { SheetEvents } from '../../src/core/sheet'
@@ -510,5 +511,82 @@ describe('公式生命周期（对抗场景）', () => {
     sheet.setCellValue(A1, 6)
     sheet.setCell(B1, { f: 'A1*2' })
     expect(sheet.getCellData(B1)).toMatchObject({ f: 'A1*2', v: 12, t: 'n' })
+  })
+})
+
+describe('实例函数集（自定义公式）', () => {
+  const MYFUNC = {
+    minArgs: 1,
+    maxArgs: 1,
+    impl: (args: EvalValue[]) => (typeof args[0] === 'number' ? args[0] * 10 : 0),
+  }
+
+  it('构造函数集：=MYFUNC(A1) 求值生效；未提供的簿得 #NAME?', () => {
+    const wb = new Workbook({ functions: { MYFUNC } })
+    const sheet = wb.activeSheet
+    sheet.setCellValue(A1, 3)
+    sheet.setCellFormula(B1, '=MYFUNC(A1)')
+    expect(sheet.getCellData(B1)).toMatchObject({ v: 30 })
+
+    const plain = new Workbook()
+    plain.activeSheet.setCellValue(A1, 3)
+    plain.activeSheet.setCellFormula(B1, '=MYFUNC(A1)')
+    expect(plain.activeSheet.getCellData(B1)).toMatchObject({ v: '#NAME?', t: 'e' })
+  })
+
+  it('函数名大小写不敏感（key 小写、公式大写）', () => {
+    const wb = new Workbook({ functions: { myfunc: MYFUNC } })
+    wb.activeSheet.setCellFormula(A1, '=MYFUNC(3)')
+    expect(wb.activeSheet.getCellData(A1)).toMatchObject({ v: 30 })
+  })
+
+  it('两簿隔离：实例集不写全局注册表', () => {
+    const a = new Workbook({
+      functions: { DOUBLE: { impl: (args: EvalValue[]) => Number(args[0]) * 2 } },
+    })
+    const b = new Workbook()
+    for (const wb of [a, b]) {
+      wb.activeSheet.setCellValue(A1, 4)
+      wb.activeSheet.setCellFormula(B1, '=DOUBLE(A1)')
+    }
+    expect(a.activeSheet.getCellData(B1)).toMatchObject({ v: 8 })
+    expect(b.activeSheet.getCellData(B1)).toMatchObject({ v: '#NAME?', t: 'e' })
+  })
+
+  it('覆盖内置：实例集盖 SUM 只影响本簿', () => {
+    const a = new Workbook({ functions: { SUM: { impl: () => -1 } } })
+    const b = new Workbook()
+    a.activeSheet.setCellFormula(A1, '=SUM(1,2)')
+    b.activeSheet.setCellFormula(A1, '=SUM(1,2)')
+    expect(a.activeSheet.getCellData(A1)).toMatchObject({ v: -1 })
+    expect(b.activeSheet.getCellData(A1)).toMatchObject({ v: 3 })
+  })
+
+  it('易失自定义函数：无关格变更也触发重算（易失探针感知实例集）', () => {
+    let tick = 0
+    const wb = new Workbook({ functions: { MYRAND: { volatile: true, impl: () => ++tick } } })
+    const sheet = wb.activeSheet
+    sheet.setCellValue(A1, 1)
+    sheet.setCellFormula(B1, '=MYRAND()')
+    expect(sheet.getCellData(B1)).toMatchObject({ v: 1 })
+    // 无关格变更 → 易失闭包（volatileCells）重算 B1
+    sheet.setCellValue(A1, 2)
+    expect(sheet.getCellData(B1)).toMatchObject({ v: 2 })
+  })
+
+  it('运行时注册：新求值立即生效，已写入格经 recalcAllFormulas 追溯', () => {
+    const wb = new Workbook()
+    const sheet = wb.activeSheet
+    sheet.setCellFormula(B1, '=MYFUNC(7)')
+    expect(sheet.getCellData(B1)).toMatchObject({ v: '#NAME?', t: 'e' })
+
+    wb.formulaGraph.registerFunction('MYFUNC', MYFUNC)
+    // 此后新写入的公式立即求值成功
+    sheet.setCellFormula(C1, '=MYFUNC(2)')
+    expect(sheet.getCellData(C1)).toMatchObject({ v: 20 })
+    // 已写入的 #NAME? 格不随其它格变更自动重算（B1 不依赖 C1），全量重算追溯
+    expect(sheet.getCellData(B1)).toMatchObject({ v: '#NAME?', t: 'e' })
+    wb.recalcAllFormulas()
+    expect(sheet.getCellData(B1)).toMatchObject({ v: 70 })
   })
 })

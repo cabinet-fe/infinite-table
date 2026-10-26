@@ -80,19 +80,29 @@ export type FormulaFunction =
 
 const registry = new Map<string, FormulaFunction>()
 
+/**
+ * 实例函数集（求值覆盖集）：key 与全局注册表同为函数名大写形态，查询时先于此、
+ * 未命中回落全局——多工作簿宿主（@infinitable/sheet 的 FormulaEngine）经它提供
+ * 按实例隔离的自定义函数，不改写全局注册表
+ */
+export type FormulaFunctionOverrides = ReadonlyMap<string, FormulaFunction>
+
 /** 注册函数（名称大小写不敏感；同名覆盖，供扩展/自定义函数；可带 meta） */
 export function registerFormulaFunction(name: string, def: FormulaFunction): void {
   registry.set(name.toUpperCase(), def)
 }
 
-/** 查询函数定义（大小写不敏感） */
-export function getFormulaFunction(name: string): FormulaFunction | undefined {
-  return registry.get(name.toUpperCase())
+/** 查询函数定义（大小写不敏感；实例集优先） */
+export function getFormulaFunction(
+  name: string,
+  overrides?: FormulaFunctionOverrides,
+): FormulaFunction | undefined {
+  return overrides?.get(name.toUpperCase()) ?? registry.get(name.toUpperCase())
 }
 
-/** 易失性查询（宿主缓存策略用）：未注册函数返回 false */
-export function isVolatileFormulaFunction(name: string): boolean {
-  return registry.get(name.toUpperCase())?.volatile === true
+/** 易失性查询（宿主缓存策略用；实例集优先）：未注册函数返回 false */
+export function isVolatileFormulaFunction(name: string, overrides?: FormulaFunctionOverrides): boolean {
+  return getFormulaFunction(name, overrides)?.volatile === true
 }
 
 /** 格式化函数签名：可选参数加 `[]`，`name: '...'` 渲染为 `...` */
@@ -134,14 +144,15 @@ export function listFormulaFunctions(): FormulaFunctionInfo[] {
     .map((name) => toInfo(name, registry.get(name)!))
 }
 
-/** 求值器回调：名称解析 + 参数个数校验 + 按 kind 分发（ctx 为公式所在格的求值上下文） */
+/** 求值器回调：名称解析 + 参数个数校验 + 按 kind 分发（ctx 为公式所在格的求值上下文；实例集优先） */
 export function invokeFormulaFunction(
   name: string,
   nodes: AstNode[],
   evalNode: (node: AstNode) => EvalValue,
   ctx?: FormulaEvalContext,
+  overrides?: FormulaFunctionOverrides,
 ): EvalValue {
-  const def = getFormulaFunction(name)
+  const def = getFormulaFunction(name, overrides)
   if (!def) {
     return formulaError('#NAME?')
   }

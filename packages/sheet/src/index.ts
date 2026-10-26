@@ -112,12 +112,13 @@ export { Sheet, type FrozenState, type SheetSnapshot, type SheetEvents } from '.
 export {
   Workbook,
   type WorkbookEvents,
+  type WorkbookOptions,
   type AddSheetOptions,
   type AddSheetCellInput,
 } from './core/workbook'
 
 /** 公式引擎门面（组合 @infinitable/formulas；图簿联动/重算编排） */
-export { FormulaEngine } from './core/formula-engine'
+export { FormulaEngine, type FormulaEngineOptions } from './core/formula-engine'
 
 export {
   HistoryManager,

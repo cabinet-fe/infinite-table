@@ -2,7 +2,7 @@
 title: "@infinitable/sheet 电子表格核心"
 description: infinitable 电子表格能力（infinitable/sheet 子路径转出 @infinitable/sheet 全量）：Sheet 单表模型（值/公式/样式/合并/冻结/浮动图/嵌入图/超链接/元数据，写操作一律经命令系统可撤销）、Workbook 多表簿（共享公式引擎跨表联动）、SheetGrid 画布装配适配层，以及 xlsx/csv 导入导出、快照持久化、填充生成与查找。
 aliases: [sheet, 电子表格, Sheet 模型, Workbook, SheetGrid, 工作簿, 表格模型]
-keywords: [Sheet, Workbook, SheetGrid, FormulaEngine, setCellValue, setCellFormula, setCellStyle, mergeCells, setFrozen, snapshot, restore, undo, redo, importXlsx, exportWorkbookXlsx, importCsv, exportSheetCsv, generateFill, setCellLink, setCellImage, 合并单元格, 冻结, 撤销, 快照, 电子表格, xlsx 导入导出]
+keywords: [Sheet, Workbook, SheetGrid, FormulaEngine, setCellValue, setCellFormula, setCellStyle, mergeCells, setFrozen, snapshot, restore, undo, redo, importXlsx, exportWorkbookXlsx, importCsv, exportSheetCsv, generateFill, setCellLink, setCellImage, registerFunction, recalcAllFormulas, 自定义公式, 合并单元格, 冻结, 撤销, 快照, 电子表格, xlsx 导入导出]
 ---
 
 # @infinitable/sheet 电子表格核心
@@ -139,12 +139,18 @@ export class Sheet {
   on<K extends keyof SheetEvents>(type: K, handler: (payload: SheetEvents[K]) => void): () => void
 }
 
+/** Workbook 构造选项 */
+export interface WorkbookOptions {
+  /** 实例级自定义公式函数（透传工作簿公式引擎；口径见 FormulaEngineOptions.functions） */
+  functions?: Record<string, FormulaFunction>
+}
+
 export class Workbook {
   readonly formulaGraph: FormulaEngine // 全部 sheet 共享
   get sheetCount(): number
   get activeSheet(): Sheet
   get activeSheetIndex(): number
-  constructor() // 自带一个空 Sheet1
+  constructor(options?: WorkbookOptions) // 自带一个空 Sheet1；functions 随簿注入实例函数集
   getSheets(): Sheet[]
   getSheet(name: string): Sheet | undefined
   addSheet(name?: string, options?: AddSheetOptions): Sheet // 名称缺省 Sheet{n} 保证唯一
@@ -153,15 +159,25 @@ export class Workbook {
   activateSheet(name: string): boolean
   beginBatch(): void // 批量结构变更：事件抑制，endBatch 合并补发一次
   endBatch(): void
+  recalcAllFormulas(): CellPatch[] // 全量重算全部公式格（运行时注册自定义函数后追溯 #NAME? 格）；派生补丁按表路由应用（不入 undo），返回应用前补丁
   on<K extends keyof WorkbookEvents>(type: K, handler: (payload: WorkbookEvents[K]) => void): () => void
 }
 
-/** 公式引擎门面（组合 @infinitable/formulas）：依赖图 + 增量重算编排。
- * Sheet/Workbook 构造期自建；独立 Sheet 间共享传同一实例。业务一般不直接调。 */
+/** 公式引擎构造选项：functions 为实例级自定义函数（key 为函数名，大小写不敏感；同名覆盖），
+ * 求值与易失探针先于全局注册表（可覆盖内置函数），与全局注册表隔离、多工作簿各持各的函数集 */
+export interface FormulaEngineOptions {
+  functions?: Record<string, FormulaFunction>
+}
+
+/** 公式引擎门面（组合 @infinitable/formulas）：依赖图 + 增量重算编排 + 实例函数集。
+ * Sheet/Workbook 构造期自建；独立 Sheet 间共享传同一实例。 */
 export class FormulaEngine {
+  constructor(options?: FormulaEngineOptions)
   get nodeCount(): number
   getSheet(name: string): Sheet | undefined
   registerSheet(sheet: Sheet): void
+  registerFunction(name: string, def: FormulaFunction): void // 运行时注册实例函数（同名覆盖）：此后求值立即生效；已写入格经 recalcAll 追溯
+  recalcAll(): CellPatch[] // 全量重算（全部公式格），返回派生补丁（未应用）
 }
 ```
 
@@ -321,6 +337,36 @@ const csv = exportSheetCsv(workbook.activeSheet)
 const target = new Sheet('csv-target')
 importCsv(csv, target)
 target.undo() // => true（整次导入一并撤销）
+```
+
+### 工作簿级自定义公式（实例函数集）
+
+```ts
+import { Workbook } from 'infinitable/sheet'
+import type { EvalValue, FormulaFunction } from 'infinitable'
+
+const TAX: FormulaFunction = {
+  minArgs: 1,
+  maxArgs: 2,
+  meta: { description: '按税率求税额（rate 缺省 0.13）', category: '数学', params: [{ name: 'amount' }, { name: 'rate', optional: true }] },
+  impl: (args: EvalValue[]) => {
+    const amount = args[0]
+    const rate = args[1]
+    if (typeof amount !== 'number') return 0
+    return amount * (typeof rate === 'number' ? rate : 0.13)
+  },
+}
+
+// 构造注入：本簿内 =TAX(...) 立即可用，其它工作簿不受影响（不写全局注册表）
+const workbook = new Workbook({ functions: { TAX } })
+const sheet = workbook.activeSheet
+sheet.setCellValue({ row: 0, col: 0 }, 1000)
+sheet.setCellFormula({ row: 1, col: 0 }, '=TAX(A1)')
+console.log(sheet.getCellData({ row: 1, col: 0 })?.v) // => 130
+
+// 运行时注册：先有公式（#NAME?）、后注册函数 → recalcAllFormulas 追溯
+workbook.formulaGraph.registerFunction('DOUBLE', { impl: (args: EvalValue[]) => Number(args[0]) * 2 })
+workbook.recalcAllFormulas()
 ```
 
 ### 填充生成与查找（宿主接线素材）

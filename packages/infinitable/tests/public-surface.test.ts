@@ -157,11 +157,13 @@ const MAIN_ENTRY_TYPES = [
   // formulas 层
   'AstNode',
   'CellRef',
+  'EvalValue',
   'FormulaError',
   'FormulaEvalContext',
   'FormulaFunction',
   'FormulaFunctionCategory',
   'FormulaFunctionInfo',
+  'FormulaFunctionOverrides',
   'FormulaRefCoord',
   'FormulaResolver',
   'FormulaShiftResult',
@@ -311,6 +313,7 @@ const SHEET_ENTRY_TYPES = [
   'FillDirection',
   'FindMatch',
   'FindOptions',
+  'FormulaEngineOptions',
   'FrozenState',
   'GenerateFillOptions',
   'GridCellEditor',
@@ -371,6 +374,7 @@ const SHEET_ENTRY_TYPES = [
   'UpdateImageParams',
   'VerticalAlign',
   'WorkbookEvents',
+  'WorkbookOptions',
 ]
 
 describe('infinitable 主入口导出面冻结', () => {

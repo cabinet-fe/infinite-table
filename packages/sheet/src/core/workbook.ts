@@ -3,13 +3,19 @@ import { inferCellType, isEmptyCellData } from './cell-store'
 import type { SetCellValueItem } from './command/set-cell-value'
 import type { CellPatch } from './command/types'
 import { TypedEventEmitter } from './events'
-import { FormulaEngine } from './formula-engine'
+import { FormulaEngine, type FormulaEngineOptions } from './formula-engine'
 import { Sheet } from './sheet'
 
 /**
  * Workbook：多 Sheet 管理。
  * 所有 sheet 共享一个公式引擎（跨表引用与增量重算的中枢，组合 @infinitable/formulas）。
  */
+
+/** Workbook 构造选项 */
+export interface WorkbookOptions {
+  /** 实例级自定义公式函数（透传工作簿公式引擎；口径见 FormulaEngineOptions.functions） */
+  functions?: FormulaEngineOptions['functions']
+}
 
 export type WorkbookEvents = {
   /** 激活 sheet 切换 */
@@ -42,7 +48,7 @@ export class Workbook {
   private activeIndex = 0
   private emitter = new TypedEventEmitter<WorkbookEvents>()
   /** 工作簿级公式引擎（全部 sheet 共享） */
-  readonly formulaGraph = new FormulaEngine()
+  readonly formulaGraph: FormulaEngine
 
   /** 批量结构变更深度（beginBatch/endBatch；>0 时结构事件抑制，endBatch 合并补发） */
   private batchDepth = 0
@@ -51,7 +57,8 @@ export class Workbook {
   /** batch 开始时的激活项（endBatch 时对比补发 active-sheet-change） */
   private batchActive: { sheet: Sheet; index: number } | null = null
 
-  constructor() {
+  constructor(options: WorkbookOptions = {}) {
+    this.formulaGraph = new FormulaEngine({ functions: options.functions })
     this.addSheet()
   }
 
@@ -196,20 +203,9 @@ export class Workbook {
     const index = this.sheets.findIndex((sheet) => sheet.name === name)
     if (index < 0) return false
     const [removed] = this.sheets.splice(index, 1)
-    // 注销表 + 重算引用方（返回派生补丁，未应用）
+    // 注销表 + 重算引用方（派生补丁路由应用）
     const patches = this.formulaGraph.unregisterSheet(removed!)
-    // 派生补丁按目标 sheet 路由应用（同一变更通道；不入 undo 历史）
-    const bySheet = new Map<Sheet, CellPatch[]>()
-    for (const patch of patches) {
-      const target = patch.sheet ?? removed!
-      let list = bySheet.get(target)
-      if (!list) {
-        list = []
-        bySheet.set(target, list)
-      }
-      list.push(patch)
-    }
-    for (const [sheet, list] of bySheet) sheet.applyDerivedPatches(list)
+    this.applyDerivedBySheet(patches, removed!)
     // 激活项修正：删除的是激活项之前的项 → 前移；越界（删除末尾）→ 指向新末尾
     if (index < this.activeIndex) {
       this.activeIndex--
@@ -223,6 +219,32 @@ export class Workbook {
       this.emitter.emit('active-sheet-change', { sheet: this.activeSheet, index: this.activeIndex })
     }
     return true
+  }
+
+  /**
+   * 全量重算全部公式格（自定义函数运行时注册后的追溯入口）：派生补丁按目标
+   * sheet 路由应用（同一变更通道；不入 undo 历史）。返回应用前的派生补丁。
+   * 直接消费方为公式引擎的 registerFunction；重算编排口径见 FormulaEngine.recalcAll
+   */
+  recalcAllFormulas(): CellPatch[] {
+    const patches = this.formulaGraph.recalcAll()
+    if (patches.length > 0) this.applyDerivedBySheet(patches, this.activeSheet)
+    return patches
+  }
+
+  /** 派生补丁按目标 sheet 路由应用（同一变更通道；不入 undo 历史；sheet 缺省回落 fallback） */
+  private applyDerivedBySheet(patches: readonly CellPatch[], fallback: Sheet): void {
+    const bySheet = new Map<Sheet, CellPatch[]>()
+    for (const patch of patches) {
+      const target = patch.sheet ?? fallback
+      let list = bySheet.get(target)
+      if (!list) {
+        list = []
+        bySheet.set(target, list)
+      }
+      list.push(patch)
+    }
+    for (const [sheet, list] of bySheet) sheet.applyDerivedPatches(list)
   }
 
   /**

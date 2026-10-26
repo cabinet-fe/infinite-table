@@ -122,11 +122,13 @@ export {
 } from '@infinitable/formulas'
 export type {
   AstNode,
+  EvalValue,
   FormulaError,
   FormulaEvalContext,
   FormulaFunction,
   FormulaFunctionCategory,
   FormulaFunctionInfo,
+  FormulaFunctionOverrides,
   FormulaRefCoord,
   FormulaResolver,
   FormulaShiftResult,
