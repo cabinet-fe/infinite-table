@@ -51,7 +51,7 @@ import { PivotGrid, type PivotDimension } from 'infinitable/pivot'
 - 注册函数：宿主注入扩展点的写入面（`registerFormulaFunction`、`EditorRegistry`、`defaultCommandRegistry` 等）。
 - 插件接口与工厂：`TablePlugin` 契约，`createChartPlugin` / `createWatermarkPlugin` / `createPrintPlugin` 及其配置与 handle 类型。
 
-**不导出（只能经包内深路径消费）**
+**不导出（包内实现细节，不属于公共契约）**
 
 - 内部实现细节：滚动状态源 `ScrollManager`、模型绑定 `ModelBinding`、取值管线 `CellValuePipeline`、公式词法/AST 求值原语 `tokenizeFormula` / `evaluateAst`、`coerceTo*` 强制转换族、图表加载与渲染实现等。
 - 实验性 API：未定稿能力不进入发布面。

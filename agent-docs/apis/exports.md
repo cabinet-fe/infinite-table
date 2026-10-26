@@ -11,7 +11,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 
 ## 判据
 
-三层入口（主入口 / `./sheet` 子路径 / 各子包 `src/index.ts`）同一判据，逐项判定：
+四层入口（主入口 / `./sheet` 子路径 / `./pivot` 子路径 / 各子包 `src/index.ts`）同一判据，逐项判定：
 
 **导出**——稳定公共 API：
 
