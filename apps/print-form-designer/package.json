@@ -9,9 +9,10 @@
     "dev:web": "vp dev",
     "build": "vp build",
     "preview": "vp preview",
-    "test": "bun test"
+    "test": "bun test --conditions=dev"
   },
   "dependencies": {
+    "@infinitable/sheet": "workspace:*",
     "hono": "^4.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

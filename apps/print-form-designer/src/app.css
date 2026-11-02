@@ -1,4 +1,4 @@
-/* 打印单设计器应用壳样式（P2 数据管理页；设计画布样式在 P3 挂入时补） */
+/* 打印单设计器应用壳样式（P2 数据管理页 + P3 设计画布） */
 body {
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
@@ -12,6 +12,11 @@ body {
   padding: 32px 24px;
 }
 
+/* 设计器视图横向铺开（画布 + 波段面板并排） */
+.shell.shell-wide {
+  max-width: 1280px;
+}
+
 .app-header {
   display: flex;
   align-items: center;
@@ -21,6 +26,11 @@ body {
 .app-header h1 {
   margin: 0;
   font-size: 20px;
+}
+
+.view-switch {
+  display: flex;
+  gap: 8px;
 }
 
 .hint {
@@ -183,3 +193,119 @@ button.primary:hover:not(:disabled) {
   background: #f9fafb;
 }
 
+/* ── P3 设计器画布 ───────────────────────────────────────────── */
+
+.toolbar h2,
+.band-panel h2,
+.canvas-panel h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+
+.toolbar-row + .toolbar-row {
+  margin-top: 10px;
+}
+
+.toolbar-row label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: #374151;
+}
+
+.toolbar-row select,
+.toolbar-row input[type='color'] {
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.toolbar-row input[type='color'] {
+  padding: 2px;
+  width: 34px;
+  height: 28px;
+}
+
+.num-input {
+  width: 64px;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: #e5e7eb;
+}
+
+.designer-body {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.band-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.band-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-top: 1px solid #f3f4f6;
+  border-radius: 4px;
+}
+
+.band-item.active {
+  background: #eff6ff;
+}
+
+.band-item select {
+  padding: 3px 4px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.band-item .item-actions button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.pick-toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.canvas-panel {
+  overflow: hidden;
+}
+
+.canvas-mount {
+  width: 100%;
+  height: 560px;
+}
+
+.canvas-mount .canvas-host {
+  width: 100%;
+  height: 100%;
+}

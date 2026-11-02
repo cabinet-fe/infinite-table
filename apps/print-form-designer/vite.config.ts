@@ -6,6 +6,10 @@ import { defineConfig } from 'vite-plus'
 export default defineConfig({
   // react() 的类型出自 vite 8 类型链，与 vite-plus 内置版本对不上（playground 对 tailwindcss 同款处置）
   plugins: [react() as any],
+  resolve: {
+    // 仓内应用经 dev 条件吃 workspace 源码（对齐 playground 约定）；外部消费者走 import → dist
+    conditions: ['dev'],
+  },
   server: {
     port: 5174,
     proxy: {
