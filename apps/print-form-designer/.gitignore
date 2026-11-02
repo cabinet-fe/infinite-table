@@ -1,2 +1,2 @@
-# 运行时 SQLite 数据（含 WAL/SHM 伴生文件）不入库
-data/
+# 运行时 SQLite 数据（含 WAL/SHM 伴生文件）不入库（锚定应用根，避免误伤 src/data 等源码目录）
+/data/

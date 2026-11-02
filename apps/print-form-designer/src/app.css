@@ -1,4 +1,4 @@
-/* 打印单设计器应用壳样式（P1 底座；设计器 UI 成型后按需替换） */
+/* 打印单设计器应用壳样式（P2 数据管理页；设计画布样式在 P3 挂入时补） */
 body {
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
@@ -7,9 +7,20 @@ body {
 }
 
 .shell {
-  max-width: 640px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 32px 24px;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 20px;
 }
 
 .hint {
@@ -19,3 +30,156 @@ body {
 .error {
   color: #dc2626;
 }
+
+.page-error {
+  min-height: 1.5em;
+  margin: 16px 0 0;
+}
+
+.panel {
+  margin-top: 24px;
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-header h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.form-grid label {
+  color: #374151;
+  font-size: 13px;
+  text-align: right;
+}
+
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font: inherit;
+}
+
+.form-grid textarea {
+  min-height: 72px;
+  font-family: ui-monospace, 'SF Mono', monospace;
+}
+
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+button {
+  padding: 5px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+/* 状态行：固定高度占位，接口报错/成功提示就地展示不挤布局 */
+.status {
+  grid-column: 1 / -1;
+  min-height: 1.5em;
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.status.error {
+  color: #dc2626;
+}
+
+.item-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid #f3f4f6;
+  font-size: 14px;
+}
+
+.meta {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.editing-hint {
+  padding-left: 4px;
+}
+
+.item-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 执行预览：原始行表格（列名 + 行数组直出） */
+.preview {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+.preview table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.preview th,
+.preview td {
+  padding: 4px 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.preview th {
+  background: #f9fafb;
+}
+

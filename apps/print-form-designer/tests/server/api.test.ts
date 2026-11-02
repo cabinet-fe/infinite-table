@@ -1,4 +1,4 @@
-// P1 骨架口径：内存库上验证启动建表、清单路由空集/直查库、占位路由 501、数据源提供者注册点。
+// 骨架口径：内存库上验证启动建表、清单路由空集/直查库、模板占位路由 501、数据源提供者注册点。
 import { describe, expect, test } from 'bun:test'
 import { openDatabase, resolveDbPath } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
@@ -29,13 +29,13 @@ describe('资源路由骨架', () => {
     ])
   })
 
-  test('未落实方法为占位 501（三组资源）', async () => {
+  test('模板资源未落实方法仍为占位 501（P5 落实）', async () => {
     const app = createApp(openDatabase(':memory:'))
-    for (const resource of ['datasources', 'datasets', 'templates']) {
-      const created = await app.request(`/api/${resource}`, { method: 'POST', body: '{}' })
-      expect(created.status).toBe(501)
-      const fetched = await app.request(`/api/${resource}/d1`)
-      expect(fetched.status).toBe(501)
+    const created = await app.request('/api/templates', { method: 'POST', body: '{}' })
+    expect(created.status).toBe(501)
+    for (const method of ['GET', 'PUT', 'DELETE'] as const) {
+      const res = await app.request('/api/templates/t1', { method })
+      expect(res.status).toBe(501)
     }
   })
 })
@@ -62,7 +62,7 @@ describe('数据源提供者注册点', () => {
       kind: 'concept-only',
       async testConnection() {},
       async execute() {
-        return []
+        return { columns: [], rows: [] }
       },
     }
     registerDataSourceProvider(provider)

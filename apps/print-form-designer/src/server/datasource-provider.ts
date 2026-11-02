@@ -5,12 +5,18 @@ export type DataSourceKind = string
 /** 数据源配置的开放结构：各源自定义字段（sqlite 为文件路径） */
 export type DataSourceConfig = Record<string, unknown>
 
+/** SQL 执行结果：原始列名 + 原始行（行是按列序的值数组），服务端不做任何重塑 */
+export interface QueryResult {
+  columns: string[]
+  rows: unknown[][]
+}
+
 export interface DataSourceProvider {
   readonly kind: DataSourceKind
   /** 用给定配置测试连通性；失败以异常抛出 */
   testConnection(config: DataSourceConfig): Promise<void>
   /** 执行 SQL 返回原始行；不做服务端重塑（重塑在前端转换管线） */
-  execute(config: DataSourceConfig, sql: string): Promise<Record<string, unknown>[]>
+  execute(config: DataSourceConfig, sql: string): Promise<QueryResult>
 }
 
 const providers = new Map<DataSourceKind, DataSourceProvider>()
