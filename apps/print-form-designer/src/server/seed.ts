@@ -1,10 +1,13 @@
-// seed 演练库：首次启动幂等内置一个 SQLite 演练数据源（销售订单两表）与三个演练数据集，
-// 数据口径覆盖内置模板取数——列表样（销售明细平铺）与中式单据（订单头 + 明细，嵌套重塑交给前端转换器）。
+// seed 演练库：首次启动幂等内置一个 SQLite 演练数据源（销售订单两表）、三个演练数据集
+// 与两份内置起点模板（P9 列表样/中式单据），数据口径覆盖模板取数——列表样（销售明细
+// 平铺）与中式单据（订单头 + 明细，嵌套重塑交给前端转换器）。空库首启即可加载模板、
+// 绑定 seed 数据集并直接预览打印，无需手工建数据。
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { DEFAULT_DB_PATH } from './db'
 import type { DatasetRow, DatasourceRow } from './rows'
+import { SEED_TEMPLATES } from './seed-templates'
 
 export const SEED_DATASOURCE_ID = 'seed-datasource-demo'
 
@@ -130,6 +133,16 @@ export function seedDemoLibrary(db: Database, options: SeedOptions = {}): Dataso
   )
   for (const dataset of SEED_DATASETS) {
     insertDataset.run(dataset.id, datasource.id, dataset.name, dataset.sql, SEED_CREATED_AT)
+  }
+
+  // 内置起点模板：bands 列口径与模板 REST 一致（FormTemplate 去 name 原样序列化）；
+  // 用户改存（UPDATE）不改 id，再启不覆盖；删除后重启按 id 重新补种
+  const insertTemplate = db.query(
+    'INSERT OR IGNORE INTO template (id, name, bands, created_at) VALUES (?, ?, ?, ?)',
+  )
+  for (const { id, template } of SEED_TEMPLATES) {
+    const { name, ...payload } = template
+    insertTemplate.run(id, name, JSON.stringify(payload), SEED_CREATED_AT)
   }
   return datasource
 }
