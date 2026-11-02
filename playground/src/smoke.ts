@@ -5,7 +5,9 @@
 // 编辑闭环（双击/键盘/API/滚动跟随与滚出提交）、原生滚动条档真实传播路径交互
 // （指针单击/拖选/Ctrl 加选、双击进编辑提交、焦点契约键盘导航、滚轮无双滚）、
 // 透视表引擎（多列树形行头跨行合并/图标折叠与组块选区/折叠载体小计/多级列维度表头/
-// collapsible 平铺配置/明细下钻/动态勾选与聚合切换/协议插件跨引擎挂载）。
+// collapsible 平铺配置/明细下钻/动态勾选与聚合切换/协议插件跨引擎挂载）、
+// 打印单配置驱动供数（headless 消费 paginate/buildDocumentHtml 产物：列表样重复表头
+// 与页脚占位符求值、单据每单一页/标题跨全列/合并格/四边完整边框、格式化与签名图 img）。
 // 结果写 window.__SMOKE__ 与 document.title。
 
 import { normalizeRange } from '@infinitable/grid'
@@ -64,6 +66,13 @@ import {
   REPORT_ROWS,
   REPORT_TITLE_BACKGROUND,
 } from './sections/report'
+import {
+  createPrintFormSource,
+  formatAmount,
+  formatDateCn,
+  PRINT_FORM_DOC_ID,
+  PRINT_FORM_LIST_ID,
+} from './sections/print-form'
 
 export interface SmokeResult {
   done: boolean
@@ -1036,6 +1045,196 @@ async function checkPivot(checker: Checker, demos: DemoHandles): Promise<void> {
   })
 }
 
+// ---- 打印单（printForm 演示区：headless 消费 paginate/buildDocumentHtml 产物，不触打印对话框） ----
+
+/**
+ * 打印单冒烟：两种形态各按「配置 + 数据集 → 打印产物」断言。分页/文档经 demo 句柄的
+ * 插件 headless 产物（paginate/buildDocumentHtml）消费；期望值全部由配置与数据集手算
+ * 锚定（页脚合计走 cellValue 原始数值通道、单据边界走 col 0 分组通道，与打印内核同源）。
+ */
+async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<void> {
+  const demo = demos.printForm
+
+  await checker.step('打印单·列表样：A4 纵向 fitpage ≥2 页，每页重复表头区间', () => {
+    assert(demo.getConfig().id === PRINT_FORM_LIST_ID, '演示区初始配置应为列表样')
+    const repeat = demo.getConfig().layout.headerRepeatRows ?? 0
+    assert(repeat > 0, '列表样配置未声明重复表头行')
+    const pages = demo.getPlugin().paginate()
+    assert(pages.length >= 2, `分页数 ${pages.length}，期望 ≥2（46 行明细应跨页）`)
+    for (const [index, page] of pages.entries()) {
+      assert(
+        page.headerRows?.start === 0 && page.headerRows.end === repeat,
+        `第 ${index + 1} 页表头区间 ${JSON.stringify(page.headerRows)}，期望 [0,${repeat})`,
+      )
+    }
+  })
+
+  await checker.step('打印单·列表样：每页重复表头带，页脚页码与本页合计已求值', () => {
+    const config = demo.getConfig()
+    const plugin = demo.getPlugin()
+    const pages = plugin.paginate()
+    const doc = new DOMParser().parseFromString(plugin.buildDocumentHtml(), 'text/html')
+    const pageEls = doc.querySelectorAll('.print-page')
+    assert(pageEls.length === pages.length, `文档页数 ${pageEls.length} ≠ 分页数 ${pages.length}`)
+    // 表头带标记：首列标题（无组列纵合并格）+ 组标题（相邻同组列横跨格）
+    const bandTexts = [
+      config.columns[0]!.title,
+      config.columns.find((column) => column.group)?.group ?? '',
+    ].filter((text) => text !== '')
+    // 本页合计锚点：{pageSum:COL} 的求值通道即 cellValue 原始数值，按页区间手算
+    const footerRight = config.layout.headerFooter?.footer?.right ?? ''
+    const sumToken = footerRight.match(/\{pageSum:(\d+)\}/)
+    assert(sumToken, '列表样页脚未声明 {pageSum:COL} 本页合计占位符')
+    const amountCol = Number(sumToken[1]!)
+    const sumPrefix = footerRight.slice(0, footerRight.indexOf('{pageSum:'))
+    const footerCenterTpl = config.layout.headerFooter?.footer?.center ?? ''
+    const source = createPrintFormSource(config)
+    pageEls.forEach((el, index) => {
+      const firstRowText = el.querySelector('.print-table tr')?.textContent ?? ''
+      for (const text of bandTexts) {
+        assert(
+          firstRowText.includes(text),
+          `第 ${index + 1} 页首行缺表头带文案「${text}」（表头未重复）`,
+        )
+      }
+      const center = el.querySelector('.print-footer .hf-center')?.textContent ?? ''
+      const expectedCenter = footerCenterTpl
+        .replace(/\{page\}/g, String(index + 1))
+        .replace(/\{pageCount\}/g, String(pages.length))
+      assert(
+        center === expectedCenter,
+        `第 ${index + 1} 页页脚页码「${center}」，期望「${expectedCenter}」`,
+      )
+      let sum = 0
+      const page = pages[index]!
+      for (let row = page.rowRange.start; row < page.rowRange.end; row++) {
+        const value = source.cellValue(amountCol, row)
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          sum += value
+        }
+      }
+      const right = el.querySelector('.print-footer .hf-right')?.textContent ?? ''
+      assert(right.startsWith(sumPrefix), `第 ${index + 1} 页页脚右侧「${right}」缺本页合计前缀`)
+      assert(
+        Math.abs(Number(right.slice(sumPrefix.length)) - sum) < 1e-6,
+        `第 ${index + 1} 页本页合计 ${right.slice(sumPrefix.length)}，期望 ${sum}`,
+      )
+    })
+  })
+
+  await checker.step('打印单·单据：每单一页，各页 rowRange 不跨单据边界', () => {
+    demo.switchConfig(PRINT_FORM_DOC_ID)
+    const config = demo.getConfig()
+    assert(config.kind === 'document', '切换后配置应为单据形态')
+    const groupField = config.groupField ?? ''
+    const docNos = new Set(config.records.map((record) => String(record[groupField])))
+    assert(docNos.size >= 2, '数据集单据数不足 2 张（无法验证不跨单据）')
+    const pages = demo.getPlugin().paginate()
+    assert(
+      pages.length === docNos.size,
+      `分页数 ${pages.length} ≠ 单据数 ${docNos.size}（应每单一页）`,
+    )
+    // 单据边界锚点：col 0 恒为所在块单据号（groupBreakBy 同一分组通道）
+    const source = createPrintFormSource(config)
+    const seen = new Set<string>()
+    for (const [index, page] of pages.entries()) {
+      const pageDocs: string[] = []
+      for (let row = page.rowRange.start; row < page.rowRange.end; row++) {
+        pageDocs.push(String(source.cellValue(0, row)))
+      }
+      assert(
+        new Set(pageDocs).size === 1,
+        `第 ${index + 1} 页 rowRange 跨 ${new Set(pageDocs).size} 张单据`,
+      )
+      seen.add(pageDocs[0]!)
+    }
+    assert(seen.size === docNos.size, '有单据未出现在任何页')
+  })
+
+  await checker.step('打印单·单据：标题格跨全列、信息/签字区 ≥1 处合并、数据格四边边框', () => {
+    const config = demo.getConfig()
+    const doc = new DOMParser().parseFromString(demo.getPlugin().buildDocumentHtml(), 'text/html')
+    const colCount = config.columns.length
+    const pageEls = doc.querySelectorAll('.print-page')
+    assert(pageEls.length > 0, '单据文档无页面')
+    for (const [index, el] of pageEls.entries()) {
+      const titleCell = el.querySelector('.print-table tr td')
+      assert(
+        titleCell?.textContent === config.title,
+        `第 ${index + 1} 页首格非标题「${titleCell?.textContent}」`,
+      )
+      assert(
+        titleCell?.getAttribute('colspan') === String(colCount),
+        `标题格 colspan ${titleCell?.getAttribute('colspan')}，期望 ${colCount}（跨全列）`,
+      )
+    }
+    const cells = [...doc.querySelectorAll('.print-table td')]
+    // 信息区/签字区合并（验收口径 ≥1 处）：信息区标签值格横跨分段列即满足（签字区
+    // 3 字段标签+签名格恰好占满全列时无剩余列可吞并，合并不恒在）
+    const infoLabel = config.infoFields?.[0]
+    assert(infoLabel, '单据配置未声明信息区字段')
+    const infoCell = cells.find((td) => td.textContent?.startsWith(infoLabel.label))
+    assert(infoCell, '未找到信息区标签值格')
+    assert(
+      Number(infoCell.getAttribute('colspan') ?? 1) > 1,
+      '信息区/签字区无合并单元格（标签值格未横跨分段列）',
+    )
+    // 数据格四边边框：首条记录在首列字段上的明细格按文本锚定
+    const materialCell = cells.find(
+      (td) => td.textContent === String(config.records[0]![config.columns[0]!.field]),
+    )
+    assert(materialCell, '未找到首条明细数据格')
+    const style = materialCell.getAttribute('style') ?? ''
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      assert(style.includes(`border-${side}:`), `明细数据格缺 border-${side} 声明（完整边框破坏）`)
+    }
+  })
+
+  await checker.step('打印单·格式化与签名图：日期非 ISO、金额千分位、签名格输出 img', () => {
+    const config = demo.getConfig()
+    const plugin = demo.getPlugin()
+    const html = plugin.buildDocumentHtml()
+    const first = config.records[0]!
+    const groupField = config.groupField ?? ''
+    // 日期：infoFields 声明 date-cn 的字段在打印 HTML 呈现格式化文本、ISO 原文不出现
+    const dateField = config.infoFields?.find((field) => field.format === 'date-cn')?.field
+    assert(dateField, '单据信息区未声明日期格式化字段')
+    const expectedDate = formatDateCn(String(first[dateField]))
+    assert(html.includes(expectedDate), `打印 HTML 缺格式化日期「${expectedDate}」`)
+    assert(!html.includes(String(first[dateField])), '打印 HTML 仍含 ISO 原始日期（未格式化）')
+    // 金额千分位：首单合计与首条明细金额均以 formatAmount 口径（含千分位逗号）出现
+    const summaryField = config.summaryField ?? ''
+    const docNo = String(first[groupField])
+    let total = 0
+    for (const record of config.records) {
+      if (String(record[groupField]) === docNo) {
+        total += Number(record[summaryField] ?? 0)
+      }
+    }
+    const formattedTotal = formatAmount(total)
+    assert(formattedTotal.includes(','), `首单合计 ${total} 未达千分位量级（断言口径失效）`)
+    assert(html.includes(formattedTotal), `打印 HTML 缺千分位合计「${formattedTotal}」`)
+    const formattedDetail = formatAmount(Number(first[summaryField]))
+    assert(
+      formattedDetail.includes(',') && html.includes(formattedDetail),
+      `打印 HTML 缺千分位明细金额「${formattedDetail}」`,
+    )
+    // 签名格：每张单据的制单人签名 dataURL 输出为 <img src="...">（cellImage 通道）
+    const images = [
+      ...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('.print-table img'),
+    ]
+    assert(images.length >= 3, `签名图 img 数 ${images.length}，期望 ≥3（每单一处）`)
+    for (const img of images) {
+      assert(
+        img.getAttribute('src')?.startsWith('data:image/svg+xml,') === true,
+        '签名格 img src 非 dataURL 图源',
+      )
+    }
+    // 恢复缺省列表样配置（演示区回到初始状态）
+    demo.switchConfig(PRINT_FORM_LIST_ID)
+  })
+}
+
 /** 页内冒烟入口：逐项跑完后把结果写到 window.__SMOKE__ 与 document.title */
 export async function runSmoke(demos: DemoHandles): Promise<void> {
   const checker = new Checker()
@@ -1049,6 +1248,7 @@ export async function runSmoke(demos: DemoHandles): Promise<void> {
   await checkReport(checker)
   await checkNativeScroll(checker, demos)
   await checkPivot(checker, demos)
+  await checkPrintForm(checker, demos)
   await checker.step('无控制台错误：挂载与断言全程零 error', () => {
     const errors = collectedErrors()
     assert(errors.length === 0, `控制台错误 ${errors.length} 条：${errors.slice(0, 5).join('；')}`)
