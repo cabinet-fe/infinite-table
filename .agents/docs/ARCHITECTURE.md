@@ -22,6 +22,7 @@
 - `@infinitable/pivot`（透视表引擎：PivotGrid 平级领域引擎——多列树形行头（每行维度一列，同组跨行合并，点击组格左缘展开图标折叠、其余区域点击选区覆盖该组全部维度数据，collapsible 可配置为始终平铺，折叠组收敛为自带聚合的单行载体）× 多级列维度表头（列维度逐层 + 度量行，引擎冻结行 + 合并区落地，表头区行维度列按维度分列）× 度量聚合为包内状态机，行/列维度与度量动态勾选、聚合方式可切、结构原地落地）依赖 table（经 TableEngine 装配，对外转发 EngineAssembly）
 - 四层 canvas 自下而上：L0 ground（underlay painter 预留层，默认无内容，可用于衬底水印）→ L1 body（单元格背景、网格线/边框与滚动窗口）→ L2 media（chart/图片，cell 级位图缓存 LRU）→ L3 sky（选区/滚动条/编辑器）；所有层由唯一 ScrollManager 状态机驱动
 - 失效模型三档统一：原 `cell` 档更名去表格语义（如 `region`）/ row-band / full；滚动、交互、图片加载、批量更新共用同一失效语言
+- 应用边界：`apps/print-form-designer`（独立全栈应用：打印表单设计器——前端设计器 + Bun/bun:sqlite/Hono 后端），落在 `packages/` 分层之外，与根目录 `playground`（示例与基准应用）平级
 
 ### 技术栈
 
@@ -32,8 +33,9 @@
 | 渲染 | 通用渲染工具包 `@infinitable/render`（canvas 2d，多 region 失效，路径原语与内建图元） | 替代 @visactor/vrender 全家 |
 | 工具库 | `@cat-kit/core`（cabinet-fe 核心工具包） | 替代 @visactor/vutils |
 | 测试 | vitest（vite-plus 内置） | 浏览器行为用浏览器模式冒烟 |
-| 应用 UI（仅 playground） | React + shadcn/ui + Tailwind CSS | vite MPA；不进任何 packages |
-| 部署 | 公开 npm 包 `infinitable`（changesets + CI 发布） | 其余子包与 playground 私有不发 |
+| 应用 UI（playground） | React + shadcn/ui + Tailwind CSS | vite MPA；不进任何 packages |
+| 应用后端（apps/print-form-designer） | Bun + bun:sqlite + Hono | 打印表单设计器全栈应用的后端；不进任何 packages |
+| 部署 | 公开 npm 包 `infinitable`（changesets + CI 发布） | 其余子包与应用（playground、print-form-designer）私有不发 |
 
 ## 未决
 

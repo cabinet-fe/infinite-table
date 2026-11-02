@@ -11,7 +11,7 @@ infinitable 是一个库，不是应用框架。它负责把数据渲染成 canv
 - **公式与电子表格**：A1 地址解析、公式求值、依赖图增量重算、`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv 导入导出。
 - **插件与扩展**：图表、打印、水印，以及宿主自写插件；官方能力和用户扩展走同一条注册路径。
 
-下游产品（例如 ultra-ui）在自己的页面里消费这些能力。仓库内的 `playground` 是唯一的应用，用于示例、架构与 API 边界总览、量化基准和冒烟自检，不进入任何发布的包。
+下游产品（例如 ultra-ui）在自己的页面里消费这些能力。仓库内的 `playground` 是库的示例与基准应用，用于示例、架构与 API 边界总览、量化基准和冒烟自检，不进入任何发布的包；另有独立全栈应用 `apps/print-form-designer`（打印表单设计器：前端设计器 + Bun/bun:sqlite/Hono 后端）。
 
 ```mermaid
 flowchart LR
@@ -34,7 +34,8 @@ flowchart LR
 | 渲染                     | 自研 `@infinitable/render`（canvas 2d、多区域失效）     | 不依赖 vrender 系列                       |
 | 工具库                   | `@cat-kit/core`                                         | 公式引擎精确计算依赖 `$n`                 |
 | 测试                     | vitest                                                  | 浏览器行为用冒烟自检                      |
-| 应用 UI（仅 playground） | React + shadcn/ui + Tailwind CSS                        | 不进入任何 `packages/`                    |
+| 应用 UI（playground）    | React + shadcn/ui + Tailwind CSS                        | 不进入任何 `packages/`                    |
+| 应用后端（apps/print-form-designer） | Bun + bun:sqlite + Hono                     | 打印表单设计器全栈应用的后端             |
 
 ### 为什么是重写而非改造
 
