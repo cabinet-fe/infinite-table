@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { PrintOrientation, PrintPaperPreset } from '@infinitable/plugins'
-import type { CellRange, CellStylePatch } from '@infinitable/sheet'
+import type { CellAddress, CellRange, CellStylePatch } from '@infinitable/sheet'
 import { BORDER_STYLE_WIDTH } from '@infinitable/sheet'
 
+import { BindingEditor } from './BindingEditor'
 import { FormDoc, normalizeRange, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
 import { DEFAULT_PAPER_GUIDES, type PaperGuidesConfig } from './paper-guides'
@@ -13,7 +14,7 @@ import { BAND_KINDS, BAND_KIND_LABELS, type BandKind, type FormBand } from './te
 /**
  * 设计画布页：模板面板（保存/另存/列表打开，P5）+ 波段面板（增删/排序/标记明细）+
  * 格样式工具栏（线框/填充/字体/对齐/numFmt/合并/行高列宽，经 sheet 命令与快照条目
- * 可撤销）+ SheetGrid 画布（占位符配置态、选区拦截为 P6 绑定编辑让位）。
+ * 可撤销）+ SheetGrid 画布（占位符配置态）+ 绑定编辑面板（拾取模式点选格唤起，P6）。
  * 模板加载经 setDoc 替换文档，画布随 effect 重建完整还原；数据态预览/打印弹框在 P8。
  * 纸张边界/分页参考线（P4）为画布 overlay 显示层：配置只在本组件 React 状态，
  * 不落模板（真实分页以打印弹框预览为准）。
@@ -56,7 +57,7 @@ export function DesignerPage() {
   const [hist, setHist] = useState<DocHistoryState>({ canUndo: false, canRedo: false })
   const [activeBandRow, setActiveBandRow] = useState<number | undefined>(undefined)
   const [pickMode, setPickMode] = useState(false)
-  const [picked, setPicked] = useState<string>('')
+  const [editingAddr, setEditingAddr] = useState<CellAddress | undefined>(undefined)
   const [addKind, setAddKind] = useState<BandKind>('detail')
   // 纸张参考线配置（显示层，不落模板）；缺省 A4 纵向开启——画布即见纸张边界
   const [guides, setGuides] = useState<PaperGuidesConfig | null>(DEFAULT_PAPER_GUIDES)
@@ -68,14 +69,8 @@ export function DesignerPage() {
       container: el,
       doc,
       onSelectionChange: ({ band }) => setActiveBandRow(band?.startRow),
-      onCellPick: (addr) => {
-        const binding = doc.getCellBinding(addr)
-        setPicked(
-          binding
-            ? `行${addr.row + 1} 列${addr.col + 1}：已绑定 ${binding.path}`
-            : `行${addr.row + 1} 列${addr.col + 1}：未绑定（P6 绑定编辑入口）`,
-        )
-      },
+      // 拾取模式点选格 → 绑定编辑面板目标格（选区被拦截不落模型）
+      onCellPick: (addr) => setEditingAddr(addr),
       // 画布重建（含模板加载换 doc）按当前参考线配置挂载；运行时切换走下方同步 effect
       paperGuides: guides ?? undefined,
     })
@@ -84,11 +79,11 @@ export function DesignerPage() {
     // sheet 命令（画布键入/工具栏）与快照条目统一刷新撤销按钮态
     const offDocHistory = doc.on('history-change', () => setHist(doc.history.getState()))
     const offSheetHistory = doc.sheet.on('history-change', () => setHist(doc.history.getState()))
-    // 模板加载替换 doc 后同步面板状态（新画布拾取默认关闭，选区归零）
+    // 模板加载替换 doc 后同步面板状态（新画布拾取默认关闭，选区/绑定编辑归零）
     setBands(doc.bands.map((band) => ({ ...band })))
     setActiveBandRow(undefined)
     setPickMode(false)
-    setPicked('')
+    setEditingAddr(undefined)
     setHist(doc.history.getState())
     return () => {
       offBands()
@@ -136,7 +131,7 @@ export function DesignerPage() {
   const togglePickMode = (): void => {
     const next = !pickMode
     setPickMode(next)
-    setPicked(next ? '拾取模式：点选画布任意格' : '')
+    if (!next) setEditingAddr(undefined)
     canvasRef.current?.setPickMode(next)
   }
 
@@ -319,14 +314,16 @@ export function DesignerPage() {
               追加波段
             </button>
           </div>
-          <p className="hint">
-            明细波段在画布上以淡蓝底色标记；绑定编辑入口（P6）经拾取模式接管选区
-          </p>
+          <p className="hint">明细波段在画布上以淡蓝底色标记；拾取模式下点选画布格编辑字段绑定</p>
           <label className="pick-toggle">
             <input type="checkbox" checked={pickMode} onChange={togglePickMode} />
             拾取模式（选区拦截）
           </label>
-          {picked ? <p className="meta">{picked}</p> : null}
+          <BindingEditor
+            doc={doc}
+            addr={editingAddr}
+            onEdited={() => canvasRef.current?.refresh()}
+          />
         </section>
 
         <section className="panel canvas-panel">

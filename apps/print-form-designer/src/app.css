@@ -326,3 +326,106 @@ button.primary:hover:not(:disabled) {
 .template-panel .status {
   margin: 10px 0 0;
 }
+
+/* ── P6 绑定编辑 ─────────────────────────────────────────────── */
+
+.binding-editor {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.binding-editor h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.binding-field {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.binding-field select,
+.binding-field input {
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.binding-field input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+.binding-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.binding-tree-wrap {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #f3f4f6;
+  border-radius: 4px;
+}
+
+.binding-tree {
+  margin: 0;
+  padding: 4px 0 4px 8px;
+  list-style: none;
+  font-size: 13px;
+}
+
+.binding-tree ul {
+  padding-left: 14px;
+}
+
+.binding-tree summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.binding-tree summary::-webkit-details-marker {
+  display: none;
+}
+
+.binding-tree details {
+  position: relative;
+}
+
+.binding-tree details::before {
+  content: '▸';
+  position: absolute;
+  left: -12px;
+  top: 2px;
+  color: #9ca3af;
+  font-size: 10px;
+}
+
+.binding-tree details[open]::before {
+  content: '▾';
+}
+
+.tree-pick {
+  padding: 1px 4px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: #1f2937;
+  cursor: pointer;
+}
+
+.tree-pick:hover {
+  background: #eff6ff;
+  border-radius: 4px;
+}

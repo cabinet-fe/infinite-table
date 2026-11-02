@@ -373,7 +373,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     this.applySnapshotEdit(() => this.sheet.setColWidth(col, width))
   }
 
-  // ─── 绑定 sidecar（值由 P6 写入；此处提供模型口径） ─────────────────────────
+  // ─── 绑定 sidecar（P6 绑定编辑写入；模型口径） ──────────────────────────────
 
   /** 读取格绑定（合并格解析锚点）；未绑定返回 undefined */
   getCellBinding(addr: CellAddress): FormCellBinding | undefined {

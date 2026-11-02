@@ -49,15 +49,21 @@ export interface FormBand {
 }
 
 /**
- * 格级字段绑定的 cell-meta sidecar 载荷形状（P3 定型；绑定值由 P6 写入）。
+ * 格级字段绑定的 cell-meta sidecar 载荷形状（P3 定型；P6 起由绑定编辑写入）。
  * 存储在 `FORM_BINDING_META_NAMESPACE` 命名空间下，随 SheetSnapshot.meta 序列化。
  */
 export interface FormCellBinding {
   /** 目标数据集 id（P2 数据集域） */
   datasetId: string
   /**
+   * 数据集重塑表达式（P7 转换器定义）：以 `rows` 为唯一入参的 JS 表达式，
+   * 求值结果即该数据集的取数形态；缺省 = 原始行数组直接作形态。预览与打印
+   * 共用 reshapeRows 唯一管线求值。
+   */
+  expression?: string
+  /**
    * 数据集重塑后形态内的取数路径：点分段字符串，段为数组时可用下标（items[0]）
-   * 或空段（items[].price，明细波段内逐行取值）；求值在 P6 数据态管线。
+   * 或空段（items[].price，明细波段内逐行取值）；求值在数据态管线。
    */
   path: string
   /** 聚合方式（合计格常用；缺省 = 直取值，明细波段格忽略聚合） */
