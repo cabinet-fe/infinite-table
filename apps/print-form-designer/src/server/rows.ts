@@ -16,3 +16,11 @@ export interface DatasetRow {
   sql: string
   created_at: string
 }
+
+export interface TemplateRow {
+  id: string
+  name: string
+  /** 模板文档 JSON 文本（FormTemplate 去掉 name 后原样序列化） */
+  bands: string
+  created_at: string
+}

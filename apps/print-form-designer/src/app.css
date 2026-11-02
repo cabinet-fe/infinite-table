@@ -309,3 +309,20 @@ button.primary:hover:not(:disabled) {
   width: 100%;
   height: 100%;
 }
+
+/* ── P5 模板面板 ─────────────────────────────────────────────── */
+
+.template-panel {
+  margin-bottom: 16px;
+}
+
+.template-panel .toolbar-row input[type='text'] {
+  width: 180px;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.template-panel .status {
+  margin: 10px 0 0;
+}

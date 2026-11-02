@@ -1,4 +1,5 @@
-// 骨架口径：内存库上验证启动建表、清单路由空集/直查库、模板占位路由 501、数据源提供者注册点。
+// 骨架口径：内存库上验证启动建表、清单路由空集/直查库、数据源提供者注册点。
+// 模板 CRUD 行为与 round-trip 在 template.test.ts 覆盖（P5 落实后占位 501 断言移除）。
 import { describe, expect, test } from 'bun:test'
 import { openDatabase, resolveDbPath } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
@@ -27,16 +28,6 @@ describe('资源路由骨架', () => {
     expect(await res.json()).toEqual([
       { id: 'd1', name: '演练库', type: 'sqlite', path: 'demo.db', created_at: '2026-11-02' },
     ])
-  })
-
-  test('模板资源未落实方法仍为占位 501（P5 落实）', async () => {
-    const app = createApp(openDatabase(':memory:'))
-    const created = await app.request('/api/templates', { method: 'POST', body: '{}' })
-    expect(created.status).toBe(501)
-    for (const method of ['GET', 'PUT', 'DELETE'] as const) {
-      const res = await app.request('/api/templates/t1', { method })
-      expect(res.status).toBe(501)
-    }
   })
 })
 

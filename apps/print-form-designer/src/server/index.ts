@@ -1,4 +1,4 @@
-// 后端入口：装配 Hono 应用（数据源/数据集路由已落实，模板占位）并经 Bun.serve 启动。
+// 后端入口：装配 Hono 应用（数据源/数据集/模板三组 REST 齐备）并经 Bun.serve 启动。
 // 直接执行时监听 PORT（默认 8787），数据库路径见 db.ts，启动即幂等内置 seed 演练库。
 import { Hono } from 'hono'
 import type { Database } from 'bun:sqlite'

@@ -5,12 +5,14 @@ import { BORDER_STYLE_WIDTH } from '@infinitable/sheet'
 
 import { FormDoc, normalizeRange, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
+import { TemplatePanel } from './TemplatePanel'
 import { BAND_KINDS, BAND_KIND_LABELS, type BandKind, type FormBand } from './template'
 
 /**
- * 设计画布页：波段面板（增删/排序/标记明细）+ 格样式工具栏（线框/填充/字体/对齐/
- * numFmt/合并/行高列宽，经 sheet 命令与快照条目可撤销）+ SheetGrid 画布（占位符
- * 配置态、选区拦截为 P6 绑定编辑让位）。模板保存/加载在 P5 接线。
+ * 设计画布页：模板面板（保存/另存/列表打开，P5）+ 波段面板（增删/排序/标记明细）+
+ * 格样式工具栏（线框/填充/字体/对齐/numFmt/合并/行高列宽，经 sheet 命令与快照条目
+ * 可撤销）+ SheetGrid 画布（占位符配置态、选区拦截为 P6 绑定编辑让位）。
+ * 模板加载经 setDoc 替换文档，画布随 effect 重建完整还原；数据态预览/打印弹框在 P8。
  */
 
 type NumFmtOption = 'none' | 'date' | 'thousands' | 'fixed2' | 'cnUpper'
@@ -41,9 +43,8 @@ function numFmtPatch(option: NumFmtOption): CellStylePatch {
 }
 
 export function DesignerPage() {
-  const docRef = useRef<FormDoc | null>(null)
-  if (!docRef.current) docRef.current = FormDoc.create()
-  const doc = docRef.current
+  // doc 作为可替换状态：模板加载（TemplatePanel onLoaded）换新文档，画布随 effect 重建
+  const [doc, setDoc] = useState<FormDoc>(() => FormDoc.create())
   const mountRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<FormCanvas | null>(null)
 
@@ -75,6 +76,11 @@ export function DesignerPage() {
     // sheet 命令（画布键入/工具栏）与快照条目统一刷新撤销按钮态
     const offDocHistory = doc.on('history-change', () => setHist(doc.history.getState()))
     const offSheetHistory = doc.sheet.on('history-change', () => setHist(doc.history.getState()))
+    // 模板加载替换 doc 后同步面板状态（新画布拾取默认关闭，选区归零）
+    setBands(doc.bands.map((band) => ({ ...band })))
+    setActiveBandRow(undefined)
+    setPickMode(false)
+    setPicked('')
     setHist(doc.history.getState())
     return () => {
       offBands()
@@ -123,6 +129,8 @@ export function DesignerPage() {
 
   return (
     <div className="designer">
+      <TemplatePanel doc={doc} onLoaded={setDoc} />
+
       <section className="panel toolbar">
         <h2>格样式</h2>
         <div className="toolbar-row">

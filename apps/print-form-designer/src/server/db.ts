@@ -19,8 +19,8 @@ export function openDatabase(path: string = resolveDbPath()): Database {
   return db
 }
 
-// 三张表对齐三组 REST 资源（数据源/数据集/模板）；模板 bands 存波段式 JSON 文本。
-// 列在 P2/P5 落实读写时按需扩展。
+// 三张表对齐三组 REST 资源（数据源/数据集/模板）；模板 bands 列存模板文档 JSON 文本
+// （FormTemplate 去掉 name 后原样序列化，name 走独立列供清单查询）。
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS datasource (
   id TEXT PRIMARY KEY,
