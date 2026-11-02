@@ -24,6 +24,7 @@ import { buildPrintPreview, paperLabel, type PrintPreview } from '../print-previ
 import {
   mountPrintForm,
   PRINT_FORM_CONFIGS,
+  PRINT_FORM_DATASET,
   type PrintFormConfig,
   type PrintFormDemo,
   type PrintFormKind,
@@ -131,7 +132,7 @@ export function PrintFormPage() {
 
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
             {config
-              ? `当前：${KIND_LABEL[config.kind]} · ${config.records.length} 行明细 · ` +
+              ? `当前：${KIND_LABEL[config.kind]} · ${PRINT_FORM_DATASET.records.length} 行明细 · ` +
                 `${paperLabel(config.layout.paperSize)} ${config.layout.orientation ?? 'portrait'}`
               : '配置装载中…'}
           </p>

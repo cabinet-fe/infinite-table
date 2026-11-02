@@ -70,8 +70,10 @@ import {
   createPrintFormSource,
   formatAmount,
   formatDateCn,
+  PRINT_FORM_DATASET,
   PRINT_FORM_DOC_ID,
   PRINT_FORM_LIST_ID,
+  resolveFormPrintConfig,
 } from './sections/print-form'
 
 export interface SmokeResult {
@@ -1054,13 +1056,14 @@ async function checkPivot(checker: Checker, demos: DemoHandles): Promise<void> {
  */
 async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<void> {
   const demo = demos.printForm
+  const records = PRINT_FORM_DATASET.records
 
   await checker.step('打印单·列表样：A4 纵向 fitpage ≥2 页，每页重复表头区间', () => {
     assert(demo.getConfig().id === PRINT_FORM_LIST_ID, '演示区初始配置应为列表样')
     const repeat = demo.getConfig().layout.headerRepeatRows ?? 0
     assert(repeat > 0, '列表样配置未声明重复表头行')
     const pages = demo.getPlugin().paginate()
-    assert(pages.length >= 2, `分页数 ${pages.length}，期望 ≥2（46 行明细应跨页）`)
+    assert(pages.length >= 2, `分页数 ${pages.length}，期望 ≥2（${records.length} 行明细应跨页）`)
     for (const [index, page] of pages.entries()) {
       assert(
         page.headerRows?.start === 0 && page.headerRows.end === repeat,
@@ -1081,8 +1084,9 @@ async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<voi
       config.columns[0]!.title,
       config.columns.find((column) => column.group)?.group ?? '',
     ].filter((text) => text !== '')
-    // 本页合计锚点：{pageSum:COL} 的求值通道即 cellValue 原始数值，按页区间手算
-    const footerRight = config.layout.headerFooter?.footer?.right ?? ''
+    // 本页合计锚点：{pageSum:COL} 的列下标经 resolveFormPrintConfig 按当前列结构动态重写，
+    // 求值通道即 cellValue 原始数值，按页区间手算
+    const footerRight = resolveFormPrintConfig(config).headerFooter?.footer?.right ?? ''
     const sumToken = footerRight.match(/\{pageSum:(\d+)\}/)
     assert(sumToken, '列表样页脚未声明 {pageSum:COL} 本页合计占位符')
     const amountCol = Number(sumToken[1]!)
@@ -1127,7 +1131,7 @@ async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<voi
     const config = demo.getConfig()
     assert(config.kind === 'document', '切换后配置应为单据形态')
     const groupField = config.groupField ?? ''
-    const docNos = new Set(config.records.map((record) => String(record[groupField])))
+    const docNos = new Set(records.map((record) => String(record[groupField])))
     assert(docNos.size >= 2, '数据集单据数不足 2 张（无法验证不跨单据）')
     const pages = demo.getPlugin().paginate()
     assert(
@@ -1181,7 +1185,7 @@ async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<voi
     )
     // 数据格四边边框：首条记录在首列字段上的明细格按文本锚定
     const materialCell = cells.find(
-      (td) => td.textContent === String(config.records[0]![config.columns[0]!.field]),
+      (td) => td.textContent === String(records[0]![config.columns[0]!.field]),
     )
     assert(materialCell, '未找到首条明细数据格')
     const style = materialCell.getAttribute('style') ?? ''
@@ -1194,7 +1198,7 @@ async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<voi
     const config = demo.getConfig()
     const plugin = demo.getPlugin()
     const html = plugin.buildDocumentHtml()
-    const first = config.records[0]!
+    const first = records[0]!
     const groupField = config.groupField ?? ''
     // 日期：infoFields 声明 date-cn 的字段在打印 HTML 呈现格式化文本、ISO 原文不出现
     const dateField = config.infoFields?.find((field) => field.format === 'date-cn')?.field
@@ -1206,7 +1210,7 @@ async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<voi
     const summaryField = config.summaryField ?? ''
     const docNo = String(first[groupField])
     let total = 0
-    for (const record of config.records) {
+    for (const record of records) {
       if (String(record[groupField]) === docNo) {
         total += Number(record[summaryField] ?? 0)
       }
@@ -1220,10 +1224,14 @@ async function checkPrintForm(checker: Checker, demos: DemoHandles): Promise<voi
       `打印 HTML 缺千分位明细金额「${formattedDetail}」`,
     )
     // 签名格：每张单据的制单人签名 dataURL 输出为 <img src="...">（cellImage 通道）
+    const docCount = new Set(records.map((record) => String(record[groupField]))).size
     const images = [
       ...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('.print-table img'),
     ]
-    assert(images.length >= 3, `签名图 img 数 ${images.length}，期望 ≥3（每单一处）`)
+    assert(
+      images.length >= docCount,
+      `签名图 img 数 ${images.length}，期望 ≥${docCount}（每单一处）`,
+    )
     for (const img of images) {
       assert(
         img.getAttribute('src')?.startsWith('data:image/svg+xml,') === true,
