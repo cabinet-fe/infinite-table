@@ -1,6 +1,6 @@
 // 页面 HTML 构建单测（P2 headless）：@page CSS（纸张/方向/边距）、合并 → rowspan/colspan、
-// cellStyle 内联 CSS、fit-width 列宽缩放、fixrows 末页空白行、每页平铺水印、页眉页脚
-// 占位符集成。断言全部落在 HTML 字符串上，零 DOM。
+// cellStyle 内联 CSS、cellImage 格内图片、fit-width 列宽缩放、fixrows 末页空白行、每页
+// 平铺水印、页眉页脚占位符集成。断言全部落在 HTML 字符串上，零 DOM。
 
 import { describe, expect, it } from 'vitest'
 
@@ -10,15 +10,16 @@ import { buildPrintDocumentHtml, buildPrintPageHtml } from '../../src/print/page
 import { paginate } from '../../src/print/paginate'
 import type { PrintConfig, PrintSource } from '../../src/print/types'
 
-/** 测试数据源工厂：行高/列宽数组 + 行主序值矩阵 + 合并区 + 逐格样式 */
+/** 测试数据源工厂：行高/列宽数组 + 行主序值矩阵 + 合并区 + 逐格样式 + 可选格图通道 */
 function makeSource(options: {
   rowHeights: number[]
   colWidths: number[]
   values?: unknown[][]
   merges?: CellRange[]
   styles?: Record<string, CellStyle>
+  cellImage?: (col: number, row: number) => string | null | undefined
 }): PrintSource {
-  const { rowHeights, colWidths, values = [], merges = [], styles = {} } = options
+  const { rowHeights, colWidths, values = [], merges = [], styles = {}, cellImage } = options
   return {
     name: '测试表',
     rowCount: rowHeights.length,
@@ -29,6 +30,7 @@ function makeSource(options: {
     cellValue: (col, row) => values[row]?.[col],
     cellStyle: (col, row) => styles[`${row},${col}`],
     displayValue: (col, row) => values[row]?.[col],
+    cellImage,
   }
 }
 
@@ -149,6 +151,71 @@ describe('页面构建：合并单元格与格样式', () => {
       PAPER_254,
     )
     expect(html).toContain('&lt;b&gt;&amp;"x"&lt;/b&gt;')
+  })
+})
+
+describe('页面构建：cellImage 格内图片通道', () => {
+  const SIGN_DATA_URL = 'data:image/png;base64,iVBORw0KGgo='
+
+  it('提供通道且命中格：输出 <img>（src 属性转义），命中格不出显示文本，未命中格维持文本', () => {
+    const source = makeSource({
+      rowHeights: [30, 40],
+      colWidths: [120, 100],
+      values: [
+        ['签名图', '金额'],
+        ['张三的签名文本（不应出现）', 100],
+      ],
+      cellImage: (col, row) => (col === 0 && row === 1 ? SIGN_DATA_URL : null),
+    })
+    const html = buildPrintDocumentHtml(source, PAPER_254)
+    expect(html).toContain(`<img src="${SIGN_DATA_URL}">`)
+    // 命中格不再输出 displayValue 文本；未命中格维持纯文本
+    expect(html).not.toContain('张三的签名文本（不应出现）')
+    expect(html).toContain('>签名图<')
+    expect(html).toContain('>100<')
+    // 文档级格内尺寸约束（不撑破列宽/行高栅格）
+    expect(html).toContain(
+      '.print-table img { max-width: 100%; max-height: 100%; object-fit: contain; }',
+    )
+  })
+
+  it('不提供通道：输出无 <img>（既有纯文本行为不变）', () => {
+    const source = makeSource({
+      rowHeights: [30],
+      colWidths: [120],
+      values: [['纯文本格']],
+    })
+    const html = buildPrintDocumentHtml(source, PAPER_254)
+    expect(html).not.toContain('<img')
+    expect(html).toContain('>纯文本格<')
+  })
+
+  it('通道提供但命中格返回 null/undefined/空串：回落显示文本（两态同源）', () => {
+    const emptyReturns = [null, undefined, ''] as const
+    for (const empty of emptyReturns) {
+      const source = makeSource({
+        rowHeights: [30],
+        colWidths: [120],
+        values: [['回落数值']],
+        cellImage: () => empty,
+      })
+      const html = buildPrintDocumentHtml(source, PAPER_254)
+      expect(html).not.toContain('<img')
+      expect(html).toContain('>回落数值<')
+    }
+  })
+
+  it('src 含 & 与双引号时经属性转义，不破坏属性边界', () => {
+    const source = makeSource({
+      rowHeights: [30],
+      colWidths: [120],
+      values: [['x']],
+      cellImage: () => 'https://cdn.example.com/sig?a=1&b=2&c="q"',
+    })
+    const html = buildPrintDocumentHtml(source, PAPER_254)
+    expect(html).toContain(
+      '<img src="https://cdn.example.com/sig?a=1&amp;b=2&amp;c=&quot;q&quot;">',
+    )
   })
 })
 

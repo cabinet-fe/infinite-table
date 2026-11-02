@@ -38,6 +38,12 @@ export interface PrintSource {
   cellStyle(col: number, row: number): CellStyle | undefined
   /** 显示值（P2 页面构建消费；经显示链产出展示形态） */
   displayValue(col: number, row: number): unknown
+  /**
+   * 可选格图通道（P2 页面构建消费）：返回图源 URL/dataURL 的格在打印页输出 <img>
+   * （约束在格内，不再输出显示文本），返回空值回落显示文本。屏上对应引擎 media 层
+   * resolveCellImage（ListTableOptions 同名 hook），同一数据源两口径。
+   */
+  cellImage?: (col: number, row: number) => string | null | undefined
 }
 
 // ---- 纸张与布局 ----

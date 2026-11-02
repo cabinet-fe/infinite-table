@@ -1,13 +1,13 @@
 ---
 title: createPrintPlugin 打印插件
-description: infinitable 打印插件 createPrintPlugin（ureport2 双模式移植，headless 内核 + DOM 输出）：handle.paginate 分页（fitpage 行高累加 / fixrows 固定行数、重复表头、分组换页、fit-width 缩放）、buildDocumentHtml 页面 HTML、print iframe 打印输出与 openPreview 预览弹层；PrintSource 供数适配，PrintConfig 纸张/边距/页眉页脚占位符（{page}/{pageSum:COL}）与水印配置。
+description: infinitable 打印插件 createPrintPlugin（ureport2 双模式移植，headless 内核 + DOM 输出）：handle.paginate 分页（fitpage 行高累加 / fixrows 固定行数、重复表头、分组换页、fit-width 缩放）、buildDocumentHtml 页面 HTML、print iframe 打印输出与 openPreview 预览弹层；PrintSource 供数适配（cellImage 格内图片通道——签名图等经 <img> 进打印），PrintConfig 纸张/边距/页眉页脚占位符（{page}/{pageSum:COL}）与水印配置。
 aliases: [print 插件, 打印, 打印预览, paginate, 分页, printPages, openPrintPreview]
-keywords: [createPrintPlugin, PrintPluginOptions, PrintPluginHandle, paginate, buildDocumentHtml, print, openPreview, PrintConfig, PrintSource, paperSize, A4, orientation, landscape, fitpage, fixrows, headerRepeatRows, groupBreakBy, "pageSum", PrintPaperPreset, 打印, 分页, 页眉页脚, 套打, 打印预览]
+keywords: [createPrintPlugin, PrintPluginOptions, PrintPluginHandle, paginate, buildDocumentHtml, print, openPreview, PrintConfig, PrintSource, cellImage, paperSize, A4, orientation, landscape, fitpage, fixrows, headerRepeatRows, groupBreakBy, "pageSum", PrintPaperPreset, 打印, 分页, 页眉页脚, 套打, 打印预览]
 ---
 
 # createPrintPlugin 打印插件
 
-`infinitable`（plugins 层）导出 `createPrintPlugin(options)` 工厂（ureport2 双模式移植）：返回值同时是 `TablePlugin`（可经构造 `plugins` / `table.use()` 注册；mount 为契约占位，注册与销毁均无表侧副作用）与运行时 handle——打印链路本身 headless（不接线表格任何挂点），`paginate`（分页纯函数零 DOM）、`buildDocumentHtml`（页面 HTML 构建：页眉页脚占位符求值 + 表格页 + 水印平铺）、`print`（隐藏 iframe 装载 → 调起打印）与 `openPreview`（DOM 预览薄壳）全部经 handle 方法达成，可脱离表格直接以 handle 形态消费。供数走 `PrintSource` 窄接口（普通对象字面量或宿主模型适配器均可）；配置走 `PrintConfig`（纸张/方向/边距/缩放/分页/重复表头/分组换页/页眉页脚/水印），方法调用可逐次覆盖插件 options 的基线 config。原散装函数（`paginate`/`printPages`/`openPrintPreview` 等，0.1.2 起不再导出）收敛为 handle 方法。
+`infinitable`（plugins 层）导出 `createPrintPlugin(options)` 工厂（ureport2 双模式移植）：返回值同时是 `EnginePlugin`（可经构造 `plugins` / `table.use()` 注册；mount 为契约占位，注册与销毁均无表侧副作用）与运行时 handle——打印链路本身 headless（不接线表格任何挂点），`paginate`（分页纯函数零 DOM）、`buildDocumentHtml`（页面 HTML 构建：页眉页脚占位符求值 + 表格页 + 水印平铺）、`print`（隐藏 iframe 装载 → 调起打印）与 `openPreview`（DOM 预览薄壳）全部经 handle 方法达成，可脱离表格直接以 handle 形态消费。供数走 `PrintSource` 窄接口（普通对象字面量或宿主模型适配器均可）；配置走 `PrintConfig`（纸张/方向/边距/缩放/分页/重复表头/分组换页/页眉页脚/水印），方法调用可逐次覆盖插件 options 的基线 config。原散装函数（`paginate`/`printPages`/`openPrintPreview` 等，0.1.2 起不再导出）收敛为 handle 方法。
 
 ## 快速上手
 
@@ -59,6 +59,9 @@ export interface PrintSource {
   cellValue(col: number, row: number): unknown
   cellStyle(col: number, row: number): CellStyle | undefined
   displayValue(col: number, row: number): unknown
+  /** 可选格图通道：返回图源 URL/dataURL 的格输出 <img>（约束在格内，不出显示文本）；
+   *  空值回落显示文本；屏上对应引擎 resolveCellImage，同一数据源两口径 */
+  cellImage?: (col: number, row: number) => string | null | undefined
 }
 
 /**
@@ -126,8 +129,8 @@ export interface PrintPluginOptions {
   }
 }
 
-/** 打印插件句柄：TablePlugin 契约 + 打印链路既有入口（可脱离表格 headless 调用） */
-export interface PrintPluginHandle extends TablePlugin {
+/** 打印插件句柄：EnginePlugin 契约 + 打印链路既有入口（可脱离表格 headless 调用） */
+export interface PrintPluginHandle extends EnginePlugin {
   /** 打印分页（headless 纯函数零 DOM）：按配置把数据源划分为页 */
   paginate(config?: PrintConfig): PrintPage[]
   /** 构建完整打印文档 HTML（headless 纯函数：分页 + 各页拼装） */
@@ -184,9 +187,11 @@ export function createPrintPlugin(options: PrintPluginOptions): PrintPluginHandl
 
 `PrintSource.rowHeight/colWidth` 单位 px（96dpi）；`cellValue` 是分组换页判定口径（显示变换不改变分组语义），`displayValue` 是页面渲染口径。
 
+`PrintSource.cellImage` 是可选格图通道（类型 `(col: number, row: number) => string | null | undefined`，缺省不提供）：返回图源 URL/dataURL 的格在打印页输出 `<img src="…">`（src 经属性转义，图经文档级 `.print-table img { max-width: 100%; max-height: 100%; object-fit: contain; }` 约束在格内，不改变列宽/行高栅格），命中格不再输出 `displayValue` 文本；未提供通道或返回 `null`/`undefined`/空串的格维持纯文本输出。一行用法：`cellImage: (col, row) => rows[row].signDataUrl ?? null`——屏上对应 `ListTableOptions.resolveCellImage`（media 层按图渲染），同一数据源两口径，签名图等图片字段屏上与打印一致呈现。
+
 ## 方法与事件
 
-`createPrintPlugin(options)` — 返回 `PrintPluginHandle`（name `'print'`，同时是 `TablePlugin`；mount/unmount 无表侧副作用）：
+`createPrintPlugin(options)` — 返回 `PrintPluginHandle`（name `'print'`，同时是 `EnginePlugin`；mount/unmount 无表侧副作用）：
 
 - `paginate(config?): PrintPage[]` — 同步纯函数零 DOM：
   - fitpage：行高（× scale）累加至放不下即换页；重复表头行每页先占高；单行高超可用页高时该行独占一页按原样输出（不截断行）。
@@ -298,7 +303,7 @@ await print.print(config) // 桩接管打印触发
 > - 行高/列宽单位是 px（96dpi），与引擎行列尺寸同口径；mm 纸张换算由内核处理，宿主不要二次换算。
 > - `groupBreakBy` 按 `cellValue`（原始值）判定分组，显示链（numFmt 等）不影响换页。
 > - 占位符求值对未识别的 `{...}` 原样保留——宿主自定义文案里的花括号不会被清空。
-> - `PrintSource` 是纯表格供数接口（值/样式/合并/行列几何）：浮动图不进打印输出（浮动图收数口随死代码清理整体删除——渲染口从未实现）。
+> - `PrintSource` 是纯表格供数接口（值/样式/合并/行列几何/格内图）：浮动图与图表不进打印输出，格内静态图仅经可选 `cellImage` 通道输出 `<img>`（浮动图收数口随死代码清理整体删除——渲染口从未实现）。
 
 ## 常见问题
 

@@ -250,9 +250,13 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
       if (css) {
         attrs.push(`style="${escapeAttr(css)}"`)
       }
-      parts.push(
-        `<td${attrs.length > 0 ? ` ${attrs.join(' ')}` : ''}>${cellText(source.displayValue(col, row))}</td>`,
-      )
+      // 格图通道：命中格只出 <img>（src 属性转义；空值回落显示文本，与屏上
+      // resolveCellImage 的「有图不画文本」口径一致）
+      const image = source.cellImage?.(col, row)
+      const content = image
+        ? `<img src="${escapeAttr(image)}">`
+        : cellText(source.displayValue(col, row))
+      parts.push(`<td${attrs.length > 0 ? ` ${attrs.join(' ')}` : ''}>${content}</td>`)
     }
     parts.push('</tr>')
   }
@@ -351,6 +355,9 @@ function buildDocumentCss(config: PrintConfig, area: PrintableArea): string {
     '.print-table tr { break-inside: avoid; }',
     '.print-table td { box-sizing: border-box; padding: 0 8px; overflow: hidden; white-space: nowrap;' +
       ' vertical-align: middle; text-align: left; }',
+    // 格图约束（cellImage 通道命中格）：不撑破列宽/行高栅格（table-layout: fixed 下
+    // max-width: 100% 按列宽、max-height: 100% 按行高封顶，contain 保比例，对齐屏上缺省 fit）
+    '.print-table img { max-width: 100%; max-height: 100%; object-fit: contain; }',
     '.print-watermark { position: absolute; inset: 0; background-repeat: repeat; pointer-events: none; }',
   ].join('\n')
 }
