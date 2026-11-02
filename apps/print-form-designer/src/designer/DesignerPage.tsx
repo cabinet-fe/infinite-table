@@ -8,6 +8,7 @@ import { BindingEditor } from './BindingEditor'
 import { FormDoc, normalizeRange, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
 import { DEFAULT_PAPER_GUIDES, type PaperGuidesConfig } from './paper-guides'
+import { PrintDialog } from './PrintDialog'
 import { TemplatePanel } from './TemplatePanel'
 import { BAND_KINDS, BAND_KIND_LABELS, type BandKind, type FormBand } from './template'
 
@@ -61,6 +62,10 @@ export function DesignerPage() {
   const [addKind, setAddKind] = useState<BandKind>('detail')
   // 纸张参考线配置（显示层，不落模板）；缺省 A4 纵向开启——画布即见纸张边界
   const [guides, setGuides] = useState<PaperGuidesConfig | null>(DEFAULT_PAPER_GUIDES)
+  // 模板名提升到本页（模板面板与打印弹框共用：打印文档标题取模板名）
+  const [templateName, setTemplateName] = useState('')
+  // 打印弹框开关（P8）：弹框配置只存弹框运行态，不落模板
+  const [printOpen, setPrintOpen] = useState(false)
 
   useEffect(() => {
     const el = mountRef.current
@@ -137,7 +142,12 @@ export function DesignerPage() {
 
   return (
     <div className="designer">
-      <TemplatePanel doc={doc} onLoaded={setDoc} />
+      <TemplatePanel
+        doc={doc}
+        name={templateName}
+        onNameChange={setTemplateName}
+        onLoaded={setDoc}
+      />
 
       <section className="panel toolbar">
         <h2>格样式</h2>
@@ -149,6 +159,9 @@ export function DesignerPage() {
             重做
           </button>
           <span className="toolbar-sep" />
+          <button className="primary" onClick={() => setPrintOpen(true)}>
+            打印
+          </button>
           <label>
             边框{' '}
             <select
@@ -375,6 +388,13 @@ export function DesignerPage() {
           <div ref={mountRef} className="canvas-mount" />
         </section>
       </div>
+      {printOpen ? (
+        <PrintDialog
+          doc={doc}
+          title={templateName.trim() || '打印单'}
+          onClose={() => setPrintOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }

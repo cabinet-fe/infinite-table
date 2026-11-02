@@ -222,6 +222,8 @@ const SHEET_ENTRY_VALUES = [
   'NUMERIC_TEXT_RE',
   'RemoveCellImageCommand',
   'RemoveImageCommand',
+  'SHEET_DEFAULT_COL_WIDTH',
+  'SHEET_DEFAULT_ROW_HEIGHT',
   'SelectionModel',
   'SetAxisStyleCommand',
   'SetCellFormulaCommand',
@@ -262,6 +264,7 @@ const SHEET_ENTRY_VALUES = [
   'findPrev',
   'findPrevFrom',
   'formatAddress',
+  'formatByNumFmt',
   'formatRange',
   'generateFill',
   'importCsv',
@@ -276,6 +279,7 @@ const SHEET_ENTRY_VALUES = [
   'rangesEqual',
   'rangesIntersect',
   'replaceWorkbookWithSnapshots',
+  'sheetStyleToEngineStyle',
 ]
 
 const SHEET_ENTRY_TYPES = [

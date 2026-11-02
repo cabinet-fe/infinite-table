@@ -1,5 +1,5 @@
 // 聚合导出为公开 API 白名单（迁移自 sheet-core 主入口，P9 定稿）：
-// 仅测试引用的内部符号（如 rangeContainsRange、formatByNumFmt、mergeCellStyle）
+// 仅测试引用的内部符号（如 rangeContainsRange、mergeCellStyle）
 // 不在此导出，测试一律深导入 src 子路径（TypedEventEmitter 例外，见下方具名导出）。
 // 公式引擎 API 不从本包转售——sheet 模型消费 @infinitable/formulas（FormulaEngine
 // 为组合门面），下游直接 import '@infinitable/formulas'。
@@ -22,6 +22,12 @@ export {
   type CellAddress,
   type CellRange,
 } from './core/address'
+
+// 显示链纯投影（P8 打印供数起公开）：导出/打印类适配经此消费，与屏上渲染共用
+// 同一份 numFmt 显示文本、样式映射与内置缺省行列尺寸，保证「所见即所打」。
+export { SHEET_DEFAULT_COL_WIDTH, SHEET_DEFAULT_ROW_HEIGHT } from './core/defaults'
+export { formatByNumFmt } from './core/format'
+export { sheetStyleToEngineStyle } from './grid/grid-style-map'
 
 export {
   NUMERIC_TEXT_RE,

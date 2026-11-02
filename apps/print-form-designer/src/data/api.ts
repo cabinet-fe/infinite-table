@@ -1,5 +1,6 @@
 // 数据管理侧 API 客户端：统一 fetch 包装；行/执行结果类型字段口径与后端库表一致（snake_case 原样透出）。
 import type { FormTemplate } from '../designer/template'
+import type { SourceRow } from '../transform/reshape'
 
 export interface DatasourceRow {
   id: string
@@ -28,6 +29,13 @@ export interface DatasetInput {
 export interface QueryResult {
   columns: string[]
   rows: unknown[][]
+}
+
+/** SQL 执行结果 → 数据集原始行（列名 → 值），重塑管线的入参形态（绑定编辑/打印共用） */
+export function toSourceRows(result: QueryResult): SourceRow[] {
+  return result.rows.map((row) =>
+    Object.fromEntries(result.columns.map((col, index) => [col, row[index]])),
+  )
 }
 
 /** 模板清单项（列表路由摘要，不含模板文档） */

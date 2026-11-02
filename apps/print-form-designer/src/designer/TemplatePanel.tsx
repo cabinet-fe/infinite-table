@@ -8,12 +8,14 @@ import { FormDoc } from './form-doc'
 
 interface Props {
   doc: FormDoc
+  /** 模板名（受控；提升到设计页，打印弹框标题共用） */
+  name: string
+  onNameChange: (name: string) => void
   /** 模板加载完成：以还原出的新文档替换当前 doc（画布随之重建） */
   onLoaded: (doc: FormDoc) => void
 }
 
-export function TemplatePanel({ doc, onLoaded }: Props) {
-  const [name, setName] = useState('')
+export function TemplatePanel({ doc, name, onNameChange, onLoaded }: Props) {
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [templates, setTemplates] = useState<TemplateSummary[] | null>(null)
   const [openId, setOpenId] = useState('')
@@ -70,7 +72,7 @@ export function TemplatePanel({ doc, onLoaded }: Props) {
       const record = await api.getTemplate(openId)
       onLoaded(FormDoc.fromTemplate(record.template))
       setCurrentId(record.id)
-      setName(record.template.name)
+      onNameChange(record.template.name)
     }, '模板已加载')
 
   return (
@@ -82,7 +84,7 @@ export function TemplatePanel({ doc, onLoaded }: Props) {
           <input
             type="text"
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => onNameChange(event.target.value)}
             placeholder="如：出库单"
           />
         </label>

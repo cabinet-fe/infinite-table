@@ -429,3 +429,106 @@ button.primary:hover:not(:disabled) {
   background: #eff6ff;
   border-radius: 4px;
 }
+
+/* ── P8 打印弹框 ───────────────────────────────────────────── */
+
+.print-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 17, 23, 0.55);
+}
+
+.print-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - 48px));
+  height: calc(100vh - 64px);
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.print-dialog-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.print-dialog-bar h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.print-dialog-bar button {
+  margin-left: auto;
+}
+
+.print-dialog-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.print-dialog-config {
+  flex: none;
+  width: 264px;
+  padding: 14px 16px;
+  border-right: 1px solid #e5e7eb;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.print-dialog-config label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.print-dialog-config .num-input {
+  width: 72px;
+}
+
+.print-dialog-config .meta {
+  margin: 4px 0 0;
+}
+
+.print-dialog-stage {
+  flex: 1;
+  padding: 16px;
+  background: #eef0f4;
+  overflow: auto;
+}
+
+.print-dialog-stage iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+
+.print-dialog-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.print-dialog-foot button {
+  margin-left: auto;
+}

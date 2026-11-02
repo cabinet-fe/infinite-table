@@ -2,7 +2,7 @@
 title: "@infinitable/sheet 电子表格核心"
 description: infinitable 电子表格能力（infinitable/sheet 子路径转出 @infinitable/sheet 全量）：Sheet 单表模型（值/公式/样式/合并/冻结/浮动图/嵌入图/超链接/元数据，写操作一律经命令系统可撤销）、Workbook 多表簿（共享公式引擎跨表联动）、SheetGrid 画布装配适配层，以及 xlsx/csv 导入导出、快照持久化、填充生成与查找。
 aliases: [sheet, 电子表格, Sheet 模型, Workbook, SheetGrid, 工作簿, 表格模型]
-keywords: [Sheet, Workbook, SheetGrid, FormulaEngine, setCellValue, setCellFormula, setCellStyle, mergeCells, setFrozen, snapshot, restore, undo, redo, importXlsx, exportWorkbookXlsx, importCsv, exportSheetCsv, generateFill, setCellLink, setCellImage, registerFunction, recalcAllFormulas, 自定义公式, 合并单元格, 冻结, 撤销, 快照, 电子表格, xlsx 导入导出]
+keywords: [Sheet, Workbook, SheetGrid, FormulaEngine, setCellValue, setCellFormula, setCellStyle, mergeCells, setFrozen, snapshot, restore, undo, redo, importXlsx, exportWorkbookXlsx, importCsv, exportSheetCsv, generateFill, setCellLink, setCellImage, registerFunction, recalcAllFormulas, SHEET_DEFAULT_ROW_HEIGHT, SHEET_DEFAULT_COL_WIDTH, formatByNumFmt, sheetStyleToEngineStyle, 自定义公式, 合并单元格, 冻结, 撤销, 快照, 电子表格, xlsx 导入导出]
 ---
 
 # @infinitable/sheet 电子表格核心
@@ -181,7 +181,7 @@ export class FormulaEngine {
 }
 ```
 
-独立函数（填充 / 查找 / IO）：
+独立函数（填充 / 查找 / IO / 显示链投影）：
 
 ```ts
 /** 由源选区 + 扩展选区 + 方向算出需填充的目标区（无新增区域返回 null） */
@@ -216,6 +216,12 @@ export function replaceWorkbookWithSnapshots(
   snapshots: readonly SheetReplaceItem[],
   activeIndex: number,
 ): void // worker 导入链路：快照数组整簿替换
+
+// ---- 显示链纯投影（导出/打印适配与屏上渲染共用同一口径，「所见即所打」）----
+export const SHEET_DEFAULT_ROW_HEIGHT = 28 // 内置缺省行高（px；模型未声明 defaultRowHeight 时的回落值）
+export const SHEET_DEFAULT_COL_WIDTH = 80 // 内置缺省列宽（px）
+export function formatByNumFmt(value: number, fmt: NumFmt): string // numFmt 数字显示文本（date/thousands/cnUpper/fixed(digits)）
+export function sheetStyleToEngineStyle(style: CellStyle | undefined): CellStyle | null // sheet 样式 → 引擎样式纯映射（入参为本子路径 CellStyle，返回 grid 词汇 CellStyle；font pt→px、thin/medium/thick 归并 solid；空样式 → null 沿用主题分区 token）
 ```
 
 ## 参数说明
@@ -411,7 +417,7 @@ if (hit) sheet.selectRange({ start: hit.addr, end: hit.addr })
 > - 公式口径：`setCellValue` 识别 `'='` 前缀转公式；解析失败记 `#ERROR!`；循环引用记 `#CYCLE!`；被引表删除后引用方记 `#REF!`（不入 undo）；公式原文存 `CellData.f`（不带 `'='`），`getDisplayValue` 返回计算缓存。
 > - 合并值保留规则（同 Excel）：仅保留包围盒内按行主序第一个有值格的值写入新锚点，其余被覆盖格清空；相交合并自动取包围盒。
 > - `SheetGrid` 的 `theme`/`scrollbar`/`editorInsideBorder`/`openCellLinkOnClick` 均为引擎 `ListTable` 同形透传：主题以内置 `SHEET_GRID_THEME` 为底经 `extendsTheme` 深覆盖；`mode: 'native'` 原生滚动条档下内建滚轮接线自动让位（引擎 `table.usesNativeScrollbar` 判定）。
-> - 默认行列尺寸：`sheet.setDefaultRowHeight`/`setDefaultColWidth` 声明（px，不进 undo）后 `SheetGrid` 全部默认尺寸消费点优先读模型，未声明回落内置缺省 28px / 80px。xlsx 导入按文件声明写入：行高 pt→px `Math.round(v * 4 / 3)`（缺省 15pt→20px），列宽字符→px `Math.round(v * 7 + 5)`（缺省 8.43→64px）。
+> - 默认行列尺寸：`sheet.setDefaultRowHeight`/`setDefaultColWidth` 声明（px，不进 undo）后 `SheetGrid` 全部默认尺寸消费点优先读模型，未声明回落内置缺省 28px / 80px（`SHEET_DEFAULT_ROW_HEIGHT`/`SHEET_DEFAULT_COL_WIDTH`，导出/打印适配消费同一常量）。xlsx 导入按文件声明写入：行高 pt→px `Math.round(v * 4 / 3)`（缺省 15pt→20px），列宽字符→px `Math.round(v * 7 + 5)`（缺省 8.43→64px）。
 > - IO 映射：xlsx 往返日期用 1900 系序列数（`t: 'd'`）保真；`exportWorkbookXlsx`/`exportSheetXlsx` 对合并区覆盖格按有效样式（覆盖格解析到锚点，列 → 行 → 格叠加）自动物化纯样式格（值仍空），多行/列合并的外边框在 Excel 端完整渲染；`importCsv` 从 A1 覆盖写入既有表（空格不覆盖既有格，空串清除目标格）；`exportSheetCsv` 合并覆盖格输出空（同 Excel）、带 UTF-8 BOM。
 > - 本库 A1 坐标系统有两套：本子路径的 `parseAddress`/`formatAddress`/`CellRange`（0 基格坐标域）与 formulas 层的 `parseCellRef`/`CellRef`（公式引用域）分立，禁止混用。
 

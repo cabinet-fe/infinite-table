@@ -18,6 +18,17 @@ import {
 /** 数据集 id → 重塑后取数形态（reshapeDatasetData 的产物集合） */
 export type DatasetShapes = Map<string, unknown>
 
+/**
+ * 数据集形态键（P6 评审口径，P8 落地）：形态属于「数据集 × 重塑表达式」对——
+ * 同一数据集被多个绑定以不同表达式引用时，各绑定按自己的表达式取形态（表达式
+ * 是绑定的一部分，不归属数据集）。无表达式的绑定共用裸 datasetId 键（原始行
+ * 数组直接作形态），与 P6 既有调用方口径兼容。
+ */
+export function datasetShapeKey(datasetId: string, expression?: string): string {
+  const trimmed = expression?.trim()
+  return trimmed ? `${datasetId}\u0000${trimmed}` : datasetId
+}
+
 /** 快照里的绑定 sidecar 表：row|col → 绑定（明细行数探测与格取值共用） */
 function bindingIndex(
   items: readonly CellMetaSnapshotItem[] | undefined,
@@ -49,7 +60,10 @@ function bandCopies(
     if (item.namespace !== FORM_BINDING_META_NAMESPACE) continue
     if (item.row < band.startRow || item.row > band.endRow) continue
     const binding = item.payload as FormCellBinding
-    const array = detailLoopArray(shapes.get(binding.datasetId), binding)
+    const array = detailLoopArray(
+      shapes.get(datasetShapeKey(binding.datasetId, binding.expression)),
+      binding,
+    )
     if (!array) continue
     found = true
     count = Math.max(count, array.length)
@@ -93,7 +107,7 @@ export function renderDataState(doc: FormDoc, shapes: DatasetShapes): SheetSnaps
       .map((row, copyIndex) => {
         if (!binding) return { ...cell, row }
         const value = resolveBindingValue(
-          shapes.get(binding.datasetId),
+          shapes.get(datasetShapeKey(binding.datasetId, binding.expression)),
           binding,
           inDetail ? { each: copyIndex } : {},
         )

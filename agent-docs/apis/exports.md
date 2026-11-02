@@ -46,7 +46,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 | plugins 值 | `createChartPlugin`、`createWatermarkPlugin`、`createPrintPlugin`、`createEnginePrintSource` | 官方插件三工厂（插件对象形态：同时是 TablePlugin 与运行时 handle）；`createEnginePrintSource` 为引擎供数适配（0.4.0 起新增，P7 落地）：把装配协议的导出读取面（`engine.read`）适配为 `PrintSource`，宿主打印引擎实例不再自写适配器 |
 | plugins 类型 | `ChartPluginOptions`、`ChartPluginHandle`、`ChartCellDeclaration`、`ChartDatasetDeclaration`、`ChartDatasetSpec`、`ChartSpec`、`ChartSpecType`、`ChartType`、`WatermarkHandle`、`WatermarkTextConfig`、`PrintPluginOptions`、`PrintPluginHandle`、`PrintConfig`、`PrintSource`、`PrintPaperPreset`、`PrintPaperSpec`、`PrintOrientation`、`PrintMargin`、`PrintScaleMode`、`PrintPagingMode`、`PrintHeaderFooterConfig`、`PrintHeaderFooterSection` | 三插件的配置与声明/预设形态（`WatermarkTextConfig` 与打印水印共享同一模型，经插件入口一并转出；`PrintSource` 纯表格供数） |
 
-## ./sheet 子路径逐项清单（src/sheet.ts，79 值 + 94 类型）
+## ./sheet 子路径逐项清单（src/sheet.ts，83 值 + 96 类型）
 
 与 `packages/sheet/src/index.ts` 白名单同步维护（同判据、同集合）。公式引擎 API 不在此转售（下游直接 `import '@infinitable/formulas'`）。分组与理由：
 
@@ -61,6 +61,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 | 命令与撤销 | `HistoryManager`、`CommandRegistry`、`defaultCommandRegistry` 与 17 个 `XxxCommand` 类；类型 `HistoryState`、`PatchDirection`、`CellPatch`、`MergePatch`、`StructureChange`、`StructurePatch`、`SnapshotPatch`、`ImagePatch`、`CellMetaPatch`、`AxisStylePatch`、`Patch`、`Mutation`、`CommandResult`、`CommandContext`、`Command`、`SetCellValueItem` 与各命令 `*Params` 族 |
 | 图片 | `createImageId`、`cloneImageAnchor`、`cloneSheetImage`、`IMAGE_MIME`；类型 `SheetImageType`、`SheetImageAnchor`、`SheetImage`、`ImageInput`、`ImageFitMode` |
 | IO | `exportWorkbookXlsx`、`exportSheetXlsx`、`exportSheetCsv`、`importXlsx`、`importCsv`、`replaceWorkbookWithSnapshots`；类型 `SheetReplaceItem` |
+| 显示链纯投影 | `SHEET_DEFAULT_ROW_HEIGHT`、`SHEET_DEFAULT_COL_WIDTH`（内置缺省行高/列宽 px：模型未声明 `defaultRowHeight`/`defaultColWidth` 时视图与导出共同的回落值）、`formatByNumFmt`（numFmt 数字显示文本：date/thousands/cnUpper/fixed(digits)）、`sheetStyleToEngineStyle`（sheet 样式 → 引擎 CellStyle 纯映射：font pt→px、thin/medium/thick 归并 solid）；导出/打印适配与屏上渲染共用同一显示口径（P8 打印供数起公开） |
 | SheetGrid 适配 | `SheetGrid`；类型 `ResolveCellRenderer`、`SheetGridHighlight`（公式引用拾取染色框条目）、`SheetGridOptions`、`SelectionInterceptMeta`（选区拦截手势载荷，配 `SheetGridOptions.interceptSelection`/`onSelectionIntercept`）、`ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 原生滚动条档，0.1.4 起新增）、`ResolveCellStyleHook`、`ResolveDisplayValue`、`SheetGridContextMenuInfo`、`SheetGridContextMenuKind`、`SheetGridHeaderOptions`、`GridCellEditor`、`GridEditorRect`、`GridEditorSession`、`SheetGridEditorsOptions`、`CellRenderer`、`CellRenderTarget` |
 
 ## ./pivot 子路径逐项清单（src/pivot.ts，6 值 + 8 类型）

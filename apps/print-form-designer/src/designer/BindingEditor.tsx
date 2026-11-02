@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import type { CellAddress } from '@infinitable/sheet'
 
-import { api, type DatasetRow, type QueryResult } from '../data/api'
+import { api, toSourceRows, type DatasetRow } from '../data/api'
 import type { SourceRow } from '../transform/reshape'
 import {
   buildBindingTree,
@@ -35,13 +35,6 @@ const AGGREGATES: { value: Aggregate | ''; label: string }[] = [
   { value: 'max', label: '最大' },
   { value: 'min', label: '最小' },
 ]
-
-/** SQL 执行结果 → 数据集原始行（列名 → 值），重塑管线的入参形态 */
-function toSourceRows(result: QueryResult): SourceRow[] {
-  return result.rows.map((row) =>
-    Object.fromEntries(result.columns.map((col, index) => [col, row[index]])),
-  )
-}
 
 export function BindingEditor({ doc, addr, onEdited }: Props) {
   const [datasets, setDatasets] = useState<DatasetRow[] | null>(null)

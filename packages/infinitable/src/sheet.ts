@@ -20,6 +20,11 @@ export {
   iterateRange,
   type CellAddress,
   type CellRange,
+  // 显示链纯投影（P8 打印供数起公开）：缺省行列尺寸 / numFmt 显示文本 / 样式映射
+  SHEET_DEFAULT_ROW_HEIGHT,
+  SHEET_DEFAULT_COL_WIDTH,
+  formatByNumFmt,
+  sheetStyleToEngineStyle,
   NUMERIC_TEXT_RE,
   normalizeInputValue,
   inferCellType,
