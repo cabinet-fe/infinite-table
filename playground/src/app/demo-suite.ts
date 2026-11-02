@@ -14,7 +14,6 @@ import { mountMedia } from '../sections/media'
 import { mountNativeScroll } from '../sections/native-scroll'
 import { mountPivot } from '../sections/pivot'
 import { mountPrint } from '../sections/print'
-import { mountPrintForm } from '../sections/print-form'
 import { createReportHandle, mountReport } from '../sections/report'
 import { mountWatermark } from '../sections/watermark'
 import type { DemoHandles } from './types'
@@ -29,7 +28,6 @@ export function mountDemoSuite(root: HTMLElement): DemoHandles {
     chart: mountChart(root),
     watermark: mountWatermark(root),
     print: mountPrint(root),
-    printForm: mountPrintForm(root),
     editing: mountEditing(root),
     nativeScroll: mountNativeScroll(root),
     pivot: mountPivot(root),

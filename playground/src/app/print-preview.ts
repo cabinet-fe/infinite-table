@@ -1,4 +1,4 @@
-// 打印产物预览构建（PrintPage / PrintFormPage 共用）：分页信息 + 从 buildDocumentHtml
+// 打印产物预览构建（PrintPage 用）：分页信息 + 从 buildDocumentHtml
 // 产物经 DOMParser 切出逐页独立文档。文档级 CSS 随独立 iframe 隔离（@page 规则不外溢
 // 宿主），纸张容器按预设 mm 尺寸换算显示宽高。
 

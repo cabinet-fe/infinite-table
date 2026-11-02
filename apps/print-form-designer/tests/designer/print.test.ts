@@ -52,6 +52,21 @@ function itemRows(count: number): SourceRow[] {
   return Array.from({ length: count }, (_, i) => ({ name: `货品${i + 1}`, no: i + 1 }))
 }
 
+/** 纯明细波段模板（1 行明细，4 列）：分组换页断言用最小形态（col 0 组键 / col 1 明细） */
+function groupedDoc(): FormDoc {
+  const template: FormTemplate = {
+    schemaVersion: TEMPLATE_SCHEMA_VERSION,
+    name: 't',
+    bands: [{ kind: 'detail', startRow: 0, endRow: 0 }],
+    cols: 4,
+    sheet: new Sheet('form').snapshot(),
+  }
+  const doc = FormDoc.fromTemplate(template)
+  doc.setCellBinding(ADDR(0, 0), { datasetId: 'ds1', path: '[].group' })
+  doc.setCellBinding(ADDR(0, 1), { datasetId: 'ds1', path: '[].name' })
+  return doc
+}
+
 describe('PrintSource 适配（数据态快照 → print 插件供数）', () => {
   test('行列几何：自定义行高列宽生效，未自定义回落内置缺省', () => {
     const doc = detailDoc()
@@ -170,6 +185,39 @@ describe('明细波段跨页自动分页', () => {
     // 每页 HTML 都带表头文本
     const html = session.previewHtml(config)
     expect(html.match(/页眉标题/g)?.length).toBe(pages.length)
+  })
+
+  test('分组换页：组值变化处强制分页，每页只含一组明细（不跨组）', () => {
+    const doc = groupedDoc()
+    const rows: SourceRow[] = [
+      { group: '单A', name: '货品1' },
+      { group: '单A', name: '货品2' },
+      { group: '单B', name: '货品3' },
+      { group: '单B', name: '货品4' },
+      { group: '单B', name: '货品5' },
+    ]
+    const session = preparePrintSession(doc, new Map([['ds1', rows]]), 't')
+    const config = toPrintConfig({
+      ...DEFAULT_PRINT_SETTINGS,
+      headerRepeatRows: 0,
+      groupBreakCol: 1,
+    })
+    // 分页产物：两组各一页，行区间恰按组边界切分（2 + 3 行），不跨组
+    const pages = session.plugin.paginate(config)
+    expect(pages.map((page) => [page.rowRange.start, page.rowRange.end])).toEqual([
+      [0, 2],
+      [2, 5],
+    ])
+    // 页面构建产物：每页只含本组明细（分组列值与明细值都不越页）
+    const parsed = new win.DOMParser().parseFromString(session.previewHtml(config), 'text/html')
+    const pageEls = parsed.querySelectorAll('.print-page')
+    expect(pageEls.length).toBe(2)
+    expect(pageEls[0]!.textContent).toContain('单A')
+    expect(pageEls[0]!.textContent).toContain('货品2')
+    expect(pageEls[0]!.textContent).not.toContain('单B')
+    expect(pageEls[1]!.textContent).toContain('单B')
+    expect(pageEls[1]!.textContent).toContain('货品5')
+    expect(pageEls[1]!.textContent).not.toContain('单A')
   })
 })
 
