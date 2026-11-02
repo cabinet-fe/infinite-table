@@ -107,6 +107,7 @@ graph TD
     playground --> pivot
     playground --> sheet
     print-form-designer --> sheet
+    print-form-designer --> plugins
 ```
 
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）

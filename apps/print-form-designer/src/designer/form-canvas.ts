@@ -2,6 +2,11 @@ import { SheetGrid, type CellAddress, type CellStyle } from '@infinitable/sheet'
 
 import type { FormDoc } from './form-doc'
 import {
+  createPaperGuidesOverlay,
+  type PaperGuidesConfig,
+  type PaperGuidesOverlay,
+} from './paper-guides'
+import {
   FORM_BINDING_META_NAMESPACE,
   bandAtRow,
   formatBindingPlaceholder,
@@ -16,8 +21,10 @@ import {
  *   永不进画布；数据态渲染在预览/打印管线，P5/P6 接线）；
  * - 明细波段底色标记（resolveCellStyle 叠加淡色填充，不写模型、不进快照）；
  * - 选区拦截：拾取模式下经 interceptSelection 接管画布选区（选区不落模型），
- *   点选以 onCellPick 回交——P6 绑定编辑的入口让位；常规模式选区正常流动，
- *   选区变化回带所在波段（波段/格选中语义）。
+ *   点选以 onCellPick 回交——绑定编辑（P6）的唤起入口；常规模式选区正常流动，
+ *   选区变化回带所在波段（波段/格选中语义）；
+ * - 纸张边界/分页参考线（P4）：overlay painter 经协议 setOverlayPainter 挂 sky 层，
+ *   网格重建时随 createGrid 重挂；仅显示层——配置由宿主持有，不写模型、不进快照。
  */
 
 /** 明细波段底色（无显式填充的格叠加；仅画布显示层） */
@@ -54,6 +61,8 @@ export interface FormCanvasOptions {
   onSelectionChange?(info: { addr: CellAddress; band: FormBand | undefined }): void
   /** 拾取模式点选格（选区被拦截不落模型；P6 绑定编辑入口） */
   onCellPick?(addr: CellAddress): void
+  /** 纸张边界/分页参考线初始配置（overlay 显示层；缺省关闭，运行时经 setPaperGuides 切换） */
+  paperGuides?: PaperGuidesConfig
   width?: number
   height?: number
 }
@@ -61,6 +70,13 @@ export interface FormCanvasOptions {
 export interface FormCanvas {
   /** 拾取模式开关（true = 画布点选走拦截回调，不改变选区） */
   setPickMode(on: boolean): void
+  /**
+   * 整表重绘（几何同步 + repaint）：cell-meta 单格写入不发引擎事件，
+   * 绑定编辑写入/清除占位符后由宿主调用
+   */
+  refresh(): void
+  /** 纸张边界/分页参考线开关/配置（null 关闭；仅 overlay 显示层，不落模板） */
+  setPaperGuides(config: PaperGuidesConfig | null): void
   /** 当前画布实例（画布级回归测试断言引擎几何/合并用；业务代码不要依赖） */
   getGrid(): SheetGrid | undefined
   release(): void
@@ -77,6 +93,8 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   /** 上次同步到引擎的几何态（键集缩小或合并区变化须重建网格） */
   let mountedGeometry = captureGeometry(doc)
   const disposers: (() => void)[] = []
+  /** 纸张边界/分页参考线 overlay（每次网格创建/重建随 createGrid 重挂新引擎） */
+  const guides: PaperGuidesOverlay = createPaperGuidesOverlay(options.paperGuides ?? null)
 
   const createGrid = (): SheetGrid => {
     const host = document.createElement('div')
@@ -109,6 +127,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     mountedRows = doc.rows
     mountedGeometry = captureGeometry(doc)
     wrapper = host
+    guides.attach(instance)
     return instance
   }
 
@@ -138,6 +157,8 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     grid?.applyAxisSizes('row', [...geometry.rowKeys])
     grid?.applyAxisSizes('col', [...geometry.colKeys])
     grid?.updateTheme({})
+    // 行高/列宽就地同步后参考线随 sky 整层失效重绘（重建路径经 createGrid 重挂已覆盖）
+    guides.refresh()
   }
 
   // 波段结构或撤销链变化（快照级编辑的静默 restore 不发 sheet 事件，统一走这里）
@@ -164,12 +185,19 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     setPickMode(on: boolean): void {
       pickMode = on
     },
+    refresh(): void {
+      syncView()
+    },
+    setPaperGuides(config: PaperGuidesConfig | null): void {
+      guides.update(config)
+    },
     getGrid(): SheetGrid | undefined {
       return grid
     },
     release(): void {
       if (released) return
       released = true
+      guides.detach()
       for (const dispose of disposers) dispose()
       disposers.length = 0
       grid?.release()

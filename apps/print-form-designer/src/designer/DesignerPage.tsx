@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
+import type { PrintOrientation, PrintPaperPreset } from '@infinitable/plugins'
 import type { CellRange, CellStylePatch } from '@infinitable/sheet'
 import { BORDER_STYLE_WIDTH } from '@infinitable/sheet'
 
 import { FormDoc, normalizeRange, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
+import { DEFAULT_PAPER_GUIDES, type PaperGuidesConfig } from './paper-guides'
 import { TemplatePanel } from './TemplatePanel'
 import { BAND_KINDS, BAND_KIND_LABELS, type BandKind, type FormBand } from './template'
 
@@ -13,6 +15,8 @@ import { BAND_KINDS, BAND_KIND_LABELS, type BandKind, type FormBand } from './te
  * 格样式工具栏（线框/填充/字体/对齐/numFmt/合并/行高列宽，经 sheet 命令与快照条目
  * 可撤销）+ SheetGrid 画布（占位符配置态、选区拦截为 P6 绑定编辑让位）。
  * 模板加载经 setDoc 替换文档，画布随 effect 重建完整还原；数据态预览/打印弹框在 P8。
+ * 纸张边界/分页参考线（P4）为画布 overlay 显示层：配置只在本组件 React 状态，
+ * 不落模板（真实分页以打印弹框预览为准）。
  */
 
 type NumFmtOption = 'none' | 'date' | 'thousands' | 'fixed2' | 'cnUpper'
@@ -54,6 +58,8 @@ export function DesignerPage() {
   const [pickMode, setPickMode] = useState(false)
   const [picked, setPicked] = useState<string>('')
   const [addKind, setAddKind] = useState<BandKind>('detail')
+  // 纸张参考线配置（显示层，不落模板）；缺省 A4 纵向开启——画布即见纸张边界
+  const [guides, setGuides] = useState<PaperGuidesConfig | null>(DEFAULT_PAPER_GUIDES)
 
   useEffect(() => {
     const el = mountRef.current
@@ -70,6 +76,8 @@ export function DesignerPage() {
             : `行${addr.row + 1} 列${addr.col + 1}：未绑定（P6 绑定编辑入口）`,
         )
       },
+      // 画布重建（含模板加载换 doc）按当前参考线配置挂载；运行时切换走下方同步 effect
+      paperGuides: guides ?? undefined,
     })
     canvasRef.current = canvas
     const offBands = doc.on('bands-change', () => setBands(doc.bands.map((band) => ({ ...band }))))
@@ -90,6 +98,11 @@ export function DesignerPage() {
       canvas.release()
     }
   }, [doc])
+
+  // 参考线配置切换 → 画布 overlay 同步（null 关闭；显示层配置永不进 doc/模板）
+  useEffect(() => {
+    canvasRef.current?.setPaperGuides(guides)
+  }, [guides])
 
   /** 当前选区（无选区时工具栏操作无效） */
   const selectionRange = (): CellRange | null => doc.sheet.getSelection().ranges[0] ?? null
@@ -318,6 +331,50 @@ export function DesignerPage() {
 
         <section className="panel canvas-panel">
           <h2>画布（配置态：只显示占位符，不填充数据）</h2>
+          <div className="toolbar-row">
+            <label className="pick-toggle">
+              <input
+                type="checkbox"
+                checked={guides !== null}
+                onChange={() => setGuides(guides ? null : DEFAULT_PAPER_GUIDES)}
+              />
+              纸张参考线
+            </label>
+            {guides ? (
+              <>
+                <label>
+                  纸张{' '}
+                  <select
+                    value={guides.paperSize}
+                    onChange={(event) =>
+                      setGuides({ ...guides, paperSize: event.target.value as PrintPaperPreset })
+                    }
+                  >
+                    <option value="A3">A3</option>
+                    <option value="A4">A4</option>
+                    <option value="A5">A5</option>
+                    <option value="Letter">Letter</option>
+                  </select>
+                </label>
+                <label>
+                  方向{' '}
+                  <select
+                    value={guides.orientation}
+                    onChange={(event) =>
+                      setGuides({
+                        ...guides,
+                        orientation: event.target.value as PrintOrientation,
+                      })
+                    }
+                  >
+                    <option value="portrait">纵向</option>
+                    <option value="landscape">横向</option>
+                  </select>
+                </label>
+              </>
+            ) : null}
+            <span className="meta">分页参考线仅设计参照，不写入模板；真实分页以打印预览为准</span>
+          </div>
           <div ref={mountRef} className="canvas-mount" />
         </section>
       </div>

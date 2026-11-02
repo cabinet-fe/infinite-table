@@ -12,6 +12,7 @@
     "test": "bun test --conditions=dev"
   },
   "dependencies": {
+    "@infinitable/plugins": "workspace:*",
     "@infinitable/sheet": "workspace:*",
     "hono": "^4.0.0",
     "react": "^19.3.1",
