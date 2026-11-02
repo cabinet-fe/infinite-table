@@ -11,6 +11,7 @@ import type { MediaDemo } from '../sections/media'
 import type { NativeScrollDemo } from '../sections/native-scroll'
 import type { PivotDemo } from '../sections/pivot'
 import type { PrintDemo } from '../sections/print'
+import type { PrintFormDemo } from '../sections/print-form'
 import type { WatermarkDemo } from '../sections/watermark'
 
 export interface DemoHandles {
@@ -22,6 +23,7 @@ export interface DemoHandles {
   chart: ChartDemo
   watermark: WatermarkDemo
   print: PrintDemo
+  printForm: PrintFormDemo
   editing: EditingDemo
   nativeScroll: NativeScrollDemo
   pivot: PivotDemo

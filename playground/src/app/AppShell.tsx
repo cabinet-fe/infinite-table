@@ -17,6 +17,7 @@ import { InfiniteSheetPage } from './views/InfiniteSheetPage'
 import { InteractionPage } from './views/InteractionPage'
 import { MediaPage } from './views/MediaPage'
 import { NativeScrollPage } from './views/NativeScrollPage'
+import { PrintFormPage } from './views/PrintFormPage'
 import { PrintPage } from './views/PrintPage'
 import { ReportPage } from './views/ReportPage'
 import { SmokePage } from './views/SmokePage'
@@ -37,6 +38,7 @@ const PAGES: Record<PageKey, ComponentType> = {
   chart: ChartPage,
   watermark: WatermarkPage,
   print: PrintPage,
+  'print-form': PrintFormPage,
   editing: EditingPage,
   pivot: PivotPage,
   report: ReportPage,

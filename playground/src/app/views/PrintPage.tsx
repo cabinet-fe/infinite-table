@@ -10,7 +10,6 @@ import type {
   PrintOrientation,
   PrintPaperPreset,
   PrintPagingMode,
-  PrintPluginHandle,
   PrintScaleMode,
 } from '@infinitable/plugins'
 
@@ -35,6 +34,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { buildPrintPreview, paperLabel, type PrintPreview } from '../print-preview'
 import { mountPrint, PRINT_HEADER_ROWS, type PrintDemo } from '../../sections/print'
 
 /** 打印参数（面板当前值；打开预览/打印时合成 PrintConfig） */
@@ -60,24 +60,6 @@ const DEFAULT_SETTINGS: PrintSettings = {
 /** fixrows 行数合法区间（总行数含重复表头；非法值在合成配置时夹取） */
 const FIX_ROWS_MIN = PRINT_HEADER_ROWS + 1
 const FIX_ROWS_MAX = 40
-
-/** 纸张预设 mm 尺寸（portrait 口径，landscape 交换宽高；预览纸张容器的显示用换算） */
-const PAPER_MM: Record<PrintPaperPreset, [number, number]> = {
-  A3: [297, 420],
-  A4: [210, 297],
-  A5: [148, 210],
-  Letter: [216, 279],
-}
-
-const MM_TO_PX = 96 / 25.4
-
-/** 纸张标注（状态行显示用；预设代号或自定义 mm 尺寸） */
-function paperLabel(paper: PrintConfig['paperSize']): string {
-  if (paper === undefined) {
-    return 'A4'
-  }
-  return typeof paper === 'object' ? `自定义 ${paper.widthMm}×${paper.heightMm}mm` : paper
-}
 
 /** 缩放标注（状态行显示用；模式代号或自定义百分比） */
 function scaleLabel(scale: PrintConfig['scale']): string {
@@ -106,46 +88,6 @@ function buildPrintConfig(settings: PrintSettings): PrintConfig {
       header: { left: '{title}', right: '{date} {time}' },
       footer: { left: '本页小计 {pageSum:4}', center: '第 {page} 页 / 共 {pageCount} 页' },
     },
-  }
-}
-
-/** 预览产物：分页信息（缩略列表标注）+ 逐页独立文档（当前页 iframe 装载） */
-interface PrintPreview {
-  pageCount: number
-  /** 逐页行区间/补空行标注（源表数据行 1 起计） */
-  rowLabels: string[]
-  /** 逐页独立文档：文档级 CSS（与打印输出同源）+ 单页片段，所见即所得 */
-  pageDocs: string[]
-  /** 纸张显示尺寸（px，含边距整页口径） */
-  paperWidth: number
-  paperHeight: number
-}
-
-/** 构建预览：分页结果 + 从完整文档切出逐页文档（@page 规则随独立 iframe 隔离，不外溢宿主） */
-function buildPrintPreview(plugin: PrintPluginHandle, config: PrintConfig): PrintPreview {
-  const pages = plugin.paginate(config)
-  const parsed = new DOMParser().parseFromString(plugin.buildDocumentHtml(config), 'text/html')
-  const css = parsed.querySelector('style')?.textContent ?? ''
-  const wrapPage = (html: string): string =>
-    `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${html}</body></html>`
-  const pageDocs =
-    pages.length > 0
-      ? Array.from(parsed.querySelectorAll('.print-page'), (el) => wrapPage(el.outerHTML))
-      : [plugin.buildDocumentHtml(config)] // 空表兜底：整文档（自带空表页）
-  const [widthMm, heightMm] =
-    PAPER_MM[typeof config.paperSize === 'string' ? config.paperSize : 'A4']
-  const [paperWidthMm, paperHeightMm] =
-    config.orientation === 'landscape' ? [heightMm, widthMm] : [widthMm, heightMm]
-  return {
-    pageCount: pageDocs.length,
-    rowLabels: pages.map(
-      (page) =>
-        `行 ${page.rowRange.start + 1}–${page.rowRange.end}` +
-        (page.blankRows > 0 ? ` · 补空 ${page.blankRows} 行` : ''),
-    ),
-    pageDocs,
-    paperWidth: Math.round(paperWidthMm * MM_TO_PX),
-    paperHeight: Math.round(paperHeightMm * MM_TO_PX),
   }
 }
 

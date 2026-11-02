@@ -19,6 +19,7 @@ import {
   Palette,
   Pencil,
   Printer,
+  ReceiptText,
   Table2,
   Timer,
 } from 'lucide-react'
@@ -39,6 +40,7 @@ export type RouteKey =
   | 'chart'
   | 'watermark'
   | 'print'
+  | 'print-form'
   | 'editing'
   | 'pivot'
   | 'report'
@@ -176,6 +178,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: '打印预览与输出',
         icon: Printer,
         desc: 'fitpage/fixrows 分页 · 重复表头 · 页脚占位符',
+      },
+      {
+        key: 'print-form',
+        label: '打印单示例',
+        icon: ReceiptText,
+        desc: '配置 + 数据集 → 渲染打印 · 列表样/中国式单据',
       },
       {
         key: 'report',

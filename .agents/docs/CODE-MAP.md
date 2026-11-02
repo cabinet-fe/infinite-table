@@ -71,7 +71,7 @@ infinitable/
 
 ### playground — `playground`
 
-- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 16 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
+- 壳与路由：`src/app/**`（React 应用壳 + hash 路由 + 17 页面；`?smoke=1` 全量挂载在 `src/app/SmokeMode.tsx`）
 - 示例：`src/sections/**` 十四演示区（display/native-scroll/data-forms/interaction/hyperlink-image/media/chart/watermark/print/editing/pivot/report/print-form/infinite-sheet；native-scroll 为 ListTable + SheetGrid 双实例浏览器原生滚动条模式，pivot 为透视表引擎演示区（多列树形行头跨行合并 + 图标折叠/组格整行高亮 + collapsible 平铺开关 + 行/列维度与度量动态勾选排序 + 初始两级列维度表头（年份/月份日期层级示例）+ 聚合切换 + 双击明细下钻 + 水印插件跨引擎挂载），末者为不指定行列数的 WPS 式无限表格；hyperlink-image 为单元格超链接 + 格内嵌入图 + 浮动图右键三合一演示区；print-form 为打印单配置驱动演示区（列表样/中国式单据两形态代码内配置 + 扁平行记录数据集适配 PrintSource，屏上只读渲染与 print 插件输出同源供数））；`?smoke=1` 页内自检写 `window.__SMOKE__`。sheet 电子表格示例已移除（下游 ultra-ui 自实现 sheet 包；`@infinitable/sheet` 包与 playground 依赖保留——report 区与 bench S5 场景仍在用）
 - 架构页：`src/app/views/ArchitecturePage.tsx` + `src/app/architecture-data.ts`（子包分层/职责/公共 API 边界单一事实源；值导出名册由 `architecture-data.test.ts` 对照各包模块守卫）
 - 基准：`src/bench/headless.test.ts` 并入 `vp test run`（headless 回归，无独立命令）+ `bench.html` 浏览器入口，10 场景 JSON 落档 `results/`
