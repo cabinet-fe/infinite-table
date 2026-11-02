@@ -1,0 +1,2 @@
+# 运行时 SQLite 数据（含 WAL/SHM 伴生文件）不入库
+data/

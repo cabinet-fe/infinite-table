@@ -1,0 +1,21 @@
+/* 打印单设计器应用壳样式（P1 底座；设计器 UI 成型后按需替换） */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #1f2937;
+  background: #f8fafc;
+}
+
+.shell {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.hint {
+  color: #6b7280;
+}
+
+.error {
+  color: #dc2626;
+}

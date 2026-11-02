@@ -35,7 +35,7 @@ infinitable/
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口显式转售各层公共 API + `./sheet`、`./pivot` 子路径（`@infinitable/sheet` / `@infinitable/pivot` 白名单转售），vp build 整体打成自包含 dist（render/grid/table/formulas 钉进单一共享 engine chunk 保跨入口 `instanceof`、chart 保持动态分包、@cat-kit/core 外部化，契约由 `scripts/check-package-exports.mjs` 守卫），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版统一走发版技能 `.agents/skills/release`（changesets + CI） | `src/index.ts` |
 | playground | `playground` | 应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、架构与 API 边界页、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ArchitecturePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
-| print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界 | 以盘上为准 |
+| print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界 | `src/server/index.ts`、`src/main.tsx` |
 
 ## 模块内检索
 
@@ -110,7 +110,7 @@ graph TD
 
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）
 - infinitable 为发布层：devDependencies 挂内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
-- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、react 技术栈（react/react-dom、shadcn/ui、tailwind css；仅 playground，不进任何 packages）
+- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、react 技术栈（react/react-dom、shadcn/ui、tailwind css；react/react-dom 亦用于 print-form-designer，shadcn/ui 与 tailwind css 仅 playground，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 走 dev 条件直接吃源码；包间消费统一走公共入口（grid 无 `./src/*` 深路径导出）
 
 ## 关键路径
