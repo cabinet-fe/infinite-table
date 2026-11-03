@@ -17,6 +17,7 @@
   "dependencies": {
     "@infinitable/formulas": "workspace:*",
     "@infinitable/grid": "workspace:*",
+    "@infinitable/protocol": "workspace:*",
     "@infinitable/table": "workspace:*",
     "hucre": "^1.2.0"
   },

@@ -21,20 +21,23 @@ export type { CellBorder, CellBorderEdge, CellStyle } from './cell-style'
 export { extendsTheme } from '@infinitable/grid'
 export type { TableTheme, ThemeOverride } from '@infinitable/grid'
 export { EditorRegistry } from './editor-registry'
-export type { TablePlugin } from './plugin'
-// 引擎装配协议（P7）：中立本体（EngineAssembly，四类平级引擎的公共装配路径）+
-// 导出读取面（EngineReadView）+ 表格引擎协议面（TableEngine，领域公共操作增量，
-// SheetGrid 等适配层消费）；ListTable 为协议的 table 引擎实现
-export type { EngineAssembly, EngineReadView, TableEngine } from './engine'
+// 引擎装配协议（P7）：中立契约（EngineAssembly / EngineReadView / EnginePlugin 与
+// painter 槽位类型）定义在 @infinitable/protocol，此处转出维持既有公共路径；
+// 表格引擎协议面 TableEngine（领域公共操作增量，SheetGrid 等适配层消费）为
+// table 本体领域面——ListTable 为协议的 table 引擎实现
+export type {
+  EngineAssembly,
+  EnginePlugin,
+  EngineReadView,
+  OverlayPainter,
+  UnderlayPainter,
+} from '@infinitable/protocol'
+export type { TableEngine } from './engine'
 export { normalizeRange } from '@infinitable/grid'
 export type { RangeBounds, SelectionSnapshot } from '@infinitable/grid'
 export type { HighlightRange } from './interaction-overlay'
 // 填充柄拖拽结束事件（onFillDragEnd 回调入参形态；填充生成不在内核）
 export type { FillDragEndEvent } from './fill-handle'
-// ground / sky 整层绘制预留位（水印等 underlay/overlay 绘制方挂点）：painter 类型
-// + 其收到的绘制上下文与视口尺寸（渲染窄接口复用转出，消费方零引擎内部依赖）
-export type { UnderlayPainter } from './list-table'
-export type { OverlayPainter } from './list-table'
 export type { RenderContext, Size } from '@infinitable/render'
 export type { LoadedImage } from '@infinitable/grid'
 export type {

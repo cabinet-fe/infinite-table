@@ -21,19 +21,21 @@
 
 import {
   ListTable,
-  type CellChangeEvent,
   type CellRenderer,
   type CellRenderTarget,
   type CellStyle,
   type ColumnDefine,
-  type EngineAssembly,
   type ListTableOptions,
-  type OverlayPainter,
   type TableEngine,
-  type TablePlugin,
   type ThemeOverride,
-  type UnderlayPainter,
 } from '@infinitable/table'
+import type {
+  CellChangeEvent,
+  EngineAssembly,
+  EnginePlugin,
+  OverlayPainter,
+  UnderlayPainter,
+} from '@infinitable/protocol'
 
 import { PivotModel } from './pivot-model'
 import type { PivotGridOptions, PivotMeasure, PivotRecord } from './types'
@@ -314,7 +316,7 @@ export class PivotGrid implements EngineAssembly {
     this.table.setOverlayPainter(painter)
   }
 
-  use(plugin: TablePlugin): void {
+  use(plugin: EnginePlugin): void {
     this.table.use(plugin)
   }
 

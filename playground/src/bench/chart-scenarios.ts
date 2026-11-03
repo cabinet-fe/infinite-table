@@ -3,12 +3,8 @@
 // 场景只依赖 BenchEnv 抽象，headless 与浏览器跑同一份逻辑；失效口径同现有场景
 // （每帧失效像素面积 / 视口面积，full 全量重绘要求为 0，出图位图落 L2 media cell 级缓存）。
 
-import type {
-  ColumnDefine,
-  ListTableOptions,
-  ResolveDisplayValue,
-  TablePlugin,
-} from '@infinitable/table'
+import type { ColumnDefine, ListTableOptions, ResolveDisplayValue } from '@infinitable/table'
+import type { EnginePlugin } from '@infinitable/protocol'
 import type { RenderHost } from '@infinitable/render'
 import type { ChartCellDeclaration } from '@infinitable/plugins'
 
@@ -135,7 +131,7 @@ const chartDisplayValue: ResolveDisplayValue = (col, row) => (col === 0 ? `地�
 /** chart 口径 ListTable 参数（headless 与浏览器同一份表口径）：host 与 chart 插件由 env 注入 */
 export function chartTableOptions(
   host: RenderHost,
-  plugins: readonly TablePlugin[],
+  plugins: readonly EnginePlugin[],
 ): ListTableOptions {
   return {
     width: VIEWPORT_WIDTH,

@@ -1,0 +1,21 @@
+{
+  "name": "@infinitable/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "dev": "./src/index.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "scripts": {
+    "build": "vp build"
+  },
+  "dependencies": {
+    "@infinitable/grid": "workspace:*",
+    "@infinitable/render": "workspace:*"
+  }
+}

@@ -5,7 +5,7 @@
 // 最后由 src/index.ts / src/sheet.ts / src/pivot.ts 源文本同口径生成根 index.d.ts、
 // sheet.d.ts 与 pivot.d.ts 垫片（入口均为纯 re-export，垫片 = 源文本 + 裸说明符改写，
 // dist 类型面与 src 显式导出面恒一致）。
-// 前置：七内部包与本体 vp build 已完成。
+// 前置：八内部包与本体 vp build 已完成。
 
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = path.resolve(pkgRoot, '../..')
-const INTERNAL = ['render', 'grid', 'table', 'formulas', 'plugins', 'sheet', 'pivot']
+const INTERNAL = ['render', 'grid', 'protocol', 'table', 'formulas', 'plugins', 'sheet', 'pivot']
 const typesDir = path.join(pkgRoot, 'dist', 'types')
 
 function walkDts(dir) {
@@ -46,7 +46,7 @@ for (const name of INTERNAL) {
  */
 function rewriteBareSpecifiers(source, fromFile) {
   return source.replace(
-    /((?:\bfrom|\bimport)\s*\(?\s*)(['"])@infinitable\/(render|grid|table|plugins|formulas|sheet|pivot)(?:\/(src\/[\w./-]+))?\2/g,
+    /((?:\bfrom|\bimport)\s*\(?\s*)(['"])@infinitable\/(render|grid|protocol|table|plugins|formulas|sheet|pivot)(?:\/(src\/[\w./-]+))?\2/g,
     (match, prefix, quote, name, srcPath) => {
       const target = srcPath
         ? path.join(typesDir, name, `${srcPath.slice('src/'.length)}.js`)

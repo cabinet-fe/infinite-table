@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TablePlugin } from '../src/index'
+import type { EnginePlugin } from '../src/index'
 
 describe('plugins 公共入口', () => {
-  it('插件契约类型可用：TablePlugin 形态对象可赋值（name/mount/可选 unmount）', () => {
+  it('插件契约类型可用：EnginePlugin 形态对象可赋值（name/mount/可选 unmount）', () => {
     const mounted: string[] = []
-    const plugin: TablePlugin = {
+    const plugin: EnginePlugin = {
       name: 'entry-smoke',
       mount: (engine) => {
         // 参数类型为引擎装配协议面 EngineAssembly（P7：契约类型断言在编译层完成）；
@@ -16,11 +16,11 @@ describe('plugins 公共入口', () => {
     }
     expect(plugin.name).toBe('entry-smoke')
     expect(typeof plugin.mount).toBe('function')
-    plugin.mount?.({} as Parameters<TablePlugin['mount']>[0])
+    plugin.mount?.({} as Parameters<EnginePlugin['mount']>[0])
     expect(mounted).toEqual(['mounted'])
 
     // 可选卸载钩子可省略
-    const minimal: TablePlugin = { name: 'minimal', mount: () => {} }
+    const minimal: EnginePlugin = { name: 'minimal', mount: () => {} }
     expect('unmount' in minimal).toBe(false)
   })
 })

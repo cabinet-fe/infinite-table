@@ -1,4 +1,4 @@
-// 打印插件单测（happy-dom）：TablePlugin 契约（name/mount 记录挂载引擎、无引擎侧
+// 打印插件单测（happy-dom）：EnginePlugin 契约（name/mount 记录挂载引擎、无引擎侧
 // 副作用）、handle 方法与包内深路径实现逐字节同产物（分页/文档构建委托）、基线
 // config 回落、print/openPreview 触 DOM 链路经 options.hooks 注入桩、引擎协议面
 // 供数（装配协议导出读取面 → PrintSource，G12-G15）。
@@ -6,7 +6,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 
-import { ListTable, type EngineAssembly } from '@infinitable/table'
+import { ListTable } from '@infinitable/table'
+import type { EngineAssembly } from '@infinitable/protocol'
 
 import { createEnginePrintSource } from '../../src/print/engine-source'
 import { createPrintPlugin } from '../../src/print/print-plugin'
@@ -52,7 +53,7 @@ function createEngine(): EngineAssembly {
 }
 
 describe('createPrintPlugin 插件契约', () => {
-  it('name + mount 满足 TablePlugin 契约，mount 仅记录挂载引擎（无引擎侧副作用）', () => {
+  it('name + mount 满足 EnginePlugin 契约，mount 仅记录挂载引擎（无引擎侧副作用）', () => {
     const plugin = createPrintPlugin({ source: SOURCE })
     expect(plugin.name).toBe('print')
     expect(typeof plugin.mount).toBe('function')

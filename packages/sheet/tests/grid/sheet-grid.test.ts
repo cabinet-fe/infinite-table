@@ -5,7 +5,8 @@
 
 import './setup'
 
-import type { CellRenderer, EngineAssembly, TablePlugin } from '@infinitable/table'
+import type { CellRenderer } from '@infinitable/table'
+import type { EngineAssembly, EnginePlugin } from '@infinitable/protocol'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CellAddress } from '../../src/core/address'
@@ -951,7 +952,7 @@ describe('SheetGrid 协议面装配（P7）', () => {
   it('插件槽位与 painter 槽位经协议面可用；release 走协议生命周期（destroy 幂等）', async () => {
     const { grid, table } = createGrid()
     const mounted: EngineAssembly[] = []
-    const plugin: TablePlugin = {
+    const plugin: EnginePlugin = {
       name: 'assembly-probe',
       mount(engine) {
         mounted.push(engine)

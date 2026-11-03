@@ -12,6 +12,7 @@
   "references": [
     { "path": "../render" },
     { "path": "../grid" },
+    { "path": "../protocol" },
     { "path": "../table" },
     { "path": "../formulas" },
     { "path": "../plugins" },

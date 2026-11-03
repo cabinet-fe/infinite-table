@@ -17,6 +17,7 @@
       "name": "@infinitable/print-form-designer",
       "version": "0.0.0",
       "dependencies": {
+        "@infinitable/formulas": "workspace:*",
         "@infinitable/plugins": "workspace:*",
         "@infinitable/sheet": "workspace:*",
         "hono": "^4.0.0",
@@ -53,6 +54,7 @@
         "@infinitable/grid": "workspace:*",
         "@infinitable/pivot": "workspace:*",
         "@infinitable/plugins": "workspace:*",
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",
         "@infinitable/table": "workspace:*",
@@ -65,6 +67,7 @@
       "name": "@infinitable/pivot",
       "version": "0.0.0",
       "dependencies": {
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/table": "workspace:*",
       },
     },
@@ -73,10 +76,19 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinitable/grid": "workspace:*",
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/table": "workspace:*",
         "chart.js": "^4.6.1",
       },
       "devDependencies": {
+        "@infinitable/render": "workspace:*",
+      },
+    },
+    "packages/protocol": {
+      "name": "@infinitable/protocol",
+      "version": "0.0.0",
+      "dependencies": {
+        "@infinitable/grid": "workspace:*",
         "@infinitable/render": "workspace:*",
       },
     },
@@ -90,6 +102,7 @@
       "dependencies": {
         "@infinitable/formulas": "workspace:*",
         "@infinitable/grid": "workspace:*",
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/table": "workspace:*",
         "hucre": "^1.2.0",
       },
@@ -102,6 +115,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@infinitable/grid": "workspace:*",
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/render": "workspace:*",
       },
     },
@@ -112,6 +126,7 @@
         "@infinitable/grid": "workspace:*",
         "@infinitable/pivot": "workspace:*",
         "@infinitable/plugins": "workspace:*",
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",
         "@infinitable/table": "workspace:*",
@@ -382,6 +397,8 @@
     "@infinitable/plugins": ["@infinitable/plugins@workspace:packages/plugins"],
 
     "@infinitable/print-form-designer": ["@infinitable/print-form-designer@workspace:apps/print-form-designer"],
+
+    "@infinitable/protocol": ["@infinitable/protocol@workspace:packages/protocol"],
 
     "@infinitable/render": ["@infinitable/render@workspace:packages/render"],
 

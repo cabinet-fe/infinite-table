@@ -45,10 +45,10 @@ const table = new ListTable({
 
 同一页面、同一数据（10 万 / 100 万行 × 20 列）、同视口，对称跑序取均值：
 
-| 口径     | infinitable  | VTable 1.26.8 |
-| -------- | ------------ | ------------- |
-| minified | **230.1KB**  | 2076.3KB      |
-| gzip     | **61.4KB**   | 514.8KB       |
+| 口径     | infinitable | VTable 1.26.8 |
+| -------- | ----------- | ------------- |
+| minified | **230.1KB** | 2076.3KB      |
+| gzip     | **61.4KB**  | 514.8KB       |
 
 完整 20 项指标（TTFF/滚动 FPS/写入吞吐/整表重建，17/22 项领先 0 项落后）见 [仓库 README](https://github.com/cabinet-fe/infinite-table)。
 

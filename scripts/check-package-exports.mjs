@@ -20,6 +20,7 @@ if (typeof domWindow.ResizeObserver === 'function')
 const PACKAGES = [
   { name: '@infinitable/render', dir: 'packages/render', bundle: 'dist/render.js' },
   { name: '@infinitable/grid', dir: 'packages/grid', bundle: 'dist/grid.js' },
+  { name: '@infinitable/protocol', dir: 'packages/protocol', bundle: 'dist/protocol.js' },
   { name: '@infinitable/table', dir: 'packages/table', bundle: 'dist/table.js' },
   { name: '@infinitable/formulas', dir: 'packages/formulas', bundle: 'dist/formulas.js' },
   { name: '@infinitable/plugins', dir: 'packages/plugins', bundle: 'dist/plugins.js' },

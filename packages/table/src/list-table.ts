@@ -31,10 +31,11 @@
 // 协作模块以 ListTable 实例为参数，只触碰标注 @internal 的内部成员；
 // @internal 成员不构成公共 API（公共 API 以 src/index.ts 显式导出为准）。
 //
-// 引擎装配协议（P7）：本类实现 TableEngine（含中立本体 EngineAssembly——渲染宿主 /
-// 数据面 / 主题 / painter 槽位 / 插件槽位 / 生命周期，组成件定义见 engine.ts）。
-// 协议成员全部复用既有公共方法，仅新增导出读取面入口（read getter，组合
-// getCellText / getCellValue / getCellStyle / getMergeRanges 与行列几何读取）。
+// 引擎装配协议（P7）：本类实现 TableEngine（中立本体 EngineAssembly 的 table 引擎
+// 实现——渲染宿主 / 数据面 / 主题 / painter 槽位 / 插件槽位 / 生命周期，中立契约
+// 定义见 @infinitable/protocol）。协议成员全部复用既有公共方法，仅新增导出读取面
+// 入口（read getter，组合 getCellText / getCellValue / getCellStyle / getMergeRanges
+// 与行列几何读取）。
 
 import {
   createRenderHost,
@@ -104,12 +105,17 @@ import {
   updateSceneWindow,
 } from './list-table-scene'
 import type { ImageCellNode } from './media/image-cell-node'
-import type { EngineReadView, TableEngine } from './engine'
+import type { TableEngine } from './engine'
+import type {
+  EnginePlugin,
+  EngineReadView,
+  OverlayPainter,
+  UnderlayPainter,
+} from '@infinitable/protocol'
 import { ImageService, type LoadedImage } from '@infinitable/grid'
 import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
 import { NativeScrollbarHost } from '@infinitable/grid'
-import type { TablePlugin } from './plugin'
 import {
   MIN_COL_WIDTH,
   MIN_ROW_HEIGHT,
@@ -156,20 +162,9 @@ import type {
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
 
-/**
- * ground 层（L0）绘制预留位：宿主/插件注入的整层绘制回调（水印等 underlay 内容）。
- * 每次整层重绘（setUnderlayPainter 变更、容器 resize、整层失效）时以层上下文与
- * 视口尺寸调用；ground 层不参与滚动带失效与位图平移，绘制内容天然锚定视口。
- */
-export type UnderlayPainter = (ctx: RenderContext, viewport: Size) => void
-
-/**
- * 顶层 overlay 绘制预留位（与 UnderlayPainter 完全对称）：宿主/插件注入的整层
- * 绘制回调（水印等覆盖在表格内容之上的内容）。每次整层重绘（setOverlayPainter
- * 变更、容器 resize、sky 整层失效）时以层上下文与视口尺寸调用；sky 层不参与
- * 滚动带失效与位图平移，绘制内容天然锚定视口。
- */
-export type OverlayPainter = (ctx: RenderContext, viewport: Size) => void
+// UnderlayPainter / OverlayPainter（ground / sky 整层绘制槽位类型）与
+// EngineReadView 等协议契约同住在 @infinitable/protocol；本文件按 table 引擎的
+// 分层落地实现两个槽位（ground 承载节点与 sky 承载节点见下）。
 
 /**
  * ground 层 painter 承载节点：整层尺寸、不可命中，paint 委托注入的 painter
@@ -316,7 +311,7 @@ export class ListTable implements TableEngine {
    */
   floatLayer: FloatObjectLayer | null = null
   /** 已注册插件（销毁时逆序卸载） */
-  private readonly plugins: TablePlugin[] = []
+  private readonly plugins: EnginePlugin[] = []
   /** @internal 当前窗口内的数据格节点，key 见 cellKey（合并区只登记主格，随窗口重建） */
   readonly cellNodes = new Map<number, CellNode>()
   /** @internal 当前窗口内的列头节点，key 为列号（滚动帧增量维护） */
@@ -716,7 +711,7 @@ export class ListTable implements TableEngine {
   }
 
   /** 插件统一注册路径：注册即挂载生效，销毁时逆序卸载 */
-  use(plugin: TablePlugin): void {
+  use(plugin: EnginePlugin): void {
     this.plugins.push(plugin)
     plugin.mount(this)
   }

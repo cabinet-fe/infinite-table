@@ -1,9 +1,10 @@
-// 图表插件工厂：实现 table TablePlugin 契约，经既有插件注册路径挂载
+// 图表插件工厂：实现 EnginePlugin 契约（领域面插件：能力经构造缝 chartMediaResolver 注入，挂载只做记录），经既有插件注册路径挂载
 // （构造 options.plugins 或 table.use()，与 @infinitable/sheet 插件同一注册方式）。
 // 格声明解析 + Chart.js 按需加载封装 + 离屏出图路由注入：mount 时把「格 → 图表媒体」
 // 解析器写入 table（table L2 media 的 chart 预留位），位图经 cell 级 MediaCache blit 上屏。
 
-import type { CellChartMedia, ListTable, TablePlugin } from '@infinitable/table'
+import type { CellChartMedia, ListTable } from '@infinitable/table'
+import type { EnginePlugin } from '@infinitable/protocol'
 
 import { loadChartJs, type ChartJsModule } from './chart-loader'
 import { parseChartDeclaration } from './parse'
@@ -20,8 +21,8 @@ export interface ChartPluginOptions {
   chartJsModule?: ChartJsModule | Promise<ChartJsModule>
 }
 
-/** 图表插件句柄：TablePlugin 契约 + 渲染通路消费的解析/加载入口 */
-export interface ChartPluginHandle extends TablePlugin {
+/** 图表插件句柄：EnginePlugin 契约 + 渲染通路消费的解析/加载入口 */
+export interface ChartPluginHandle extends EnginePlugin {
   /** 解析指定格的图表声明为 ChartSpec；未声明或非法声明返回 null（不抛异常） */
   getChartSpec(col: number, row: number): ChartSpec | null
   /** 按需加载 Chart.js（首次调用触发动态 import，之后共享模块缓存） */

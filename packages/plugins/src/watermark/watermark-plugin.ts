@@ -1,4 +1,4 @@
-// 水印插件（univer watermark 移植，文字平铺形态）：TablePlugin 契约经引擎装配协议的
+// 水印插件（univer watermark 移植，文字平铺形态）：EnginePlugin 契约经引擎装配协议的
 // 顶层 overlay 槽位挂载（P7：挂载参数为协议面 EngineAssembly，不绑定 ListTable 具体类型）
 // ——mount 经协议 setOverlayPainter 写 painter（enabled 时）并触发 sky 整层失效
 // （晚挂载一帧内生效），unmount 置 null 还原槽位（承载节点摘除、绘制面清空）。
@@ -8,15 +8,15 @@
 // 配置与打印水印共享 P1 的 WatermarkTextConfig（三端同模型）；handle 支持运行时
 // updateConfig（任一项变更经 painter 重写一帧内重绘）与读取当前配置/开关态。
 // 槽位为单写方（同 chartMediaResolver 先例），挂载期由本插件独占写入。import 面
-// 零引擎内部 API：只经 @infinitable/table 公开入口。
+// 零引擎内部 API：只经 @infinitable/protocol 契约面。
 
-import type { EngineAssembly, OverlayPainter, TablePlugin } from '@infinitable/table'
+import type { EngineAssembly, EnginePlugin, OverlayPainter } from '@infinitable/protocol'
 
 import type { WatermarkTextConfig } from '../print/types'
 import { drawTextWatermark, resolveWatermarkStyle } from './tile'
 
-/** 水印插件句柄：TablePlugin 契约 + 运行时配置读写 */
-export interface WatermarkHandle extends TablePlugin {
+/** 水印插件句柄：EnginePlugin 契约 + 运行时配置读写 */
+export interface WatermarkHandle extends EnginePlugin {
   /** 运行时更新配置（浅合并；任一项变更触发 sky 整层失效，一帧内重绘生效；值未变的补丁无操作） */
   updateConfig(patch: Partial<WatermarkTextConfig>): void
   /** 当前完整配置快照（缺省值已并入，返回副本） */
@@ -41,7 +41,7 @@ function sameWatermarkConfig(a: WatermarkTextConfig, b: WatermarkTextConfig): bo
 
 /**
  * 创建水印插件：配置必给 enabled/text（样式字段可选，缺省见 WATERMARK_TEXT_DEFAULTS）。
- * 构造 options.plugins 或引擎 use() 注册即挂载；返回值既是 TablePlugin 也是运行时句柄。
+ * 构造 options.plugins 或引擎 use() 注册即挂载；返回值既是 EnginePlugin 也是运行时句柄。
  */
 export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHandle {
   let current: WatermarkTextConfig = { ...config }

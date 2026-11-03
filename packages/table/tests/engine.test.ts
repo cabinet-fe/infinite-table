@@ -7,8 +7,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '../src/list-table'
-import type { EngineAssembly, TableEngine } from '../src/engine'
-import type { TablePlugin } from '../src/plugin'
+import type { TableEngine } from '../src/engine'
+import type { EngineAssembly, EnginePlugin } from '@infinitable/protocol'
 import type { CellChangeEvent, TableModel } from '../src/types'
 import { StubHost } from './testing/stub-host'
 
@@ -99,7 +99,7 @@ describe('引擎装配协议契约（table 实现）', () => {
   it('插件槽位：use 挂载参数为协议面（不绑定引擎具体类型与事件类型）', () => {
     const mounted: EngineAssembly[] = []
     const unmounted: EngineAssembly[] = []
-    const plugin: TablePlugin = {
+    const plugin: EnginePlugin = {
       name: 'contract-probe',
       mount(engine) {
         mounted.push(engine)

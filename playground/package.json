@@ -12,6 +12,7 @@
     "@infinitable/grid": "workspace:*",
     "@infinitable/pivot": "workspace:*",
     "@infinitable/plugins": "workspace:*",
+    "@infinitable/protocol": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@infinitable/sheet": "workspace:*",
     "@infinitable/table": "workspace:*",

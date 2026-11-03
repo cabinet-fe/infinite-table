@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@infinitable/grid": "workspace:*",
+    "@infinitable/protocol": "workspace:*",
     "@infinitable/render": "workspace:*"
   }
 }

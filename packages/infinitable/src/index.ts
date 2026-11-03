@@ -1,11 +1,11 @@
-// 统一发布入口：单包显式转售五层公共 API（仓内按 workspace 分包开发，仅发布时合并）。
+// 统一发布入口：单包显式转售六层公共 API（含纯类型的引擎装配协议层）（仓内按 workspace 分包开发，仅发布时合并）。
 // 导出判据（逐项判定，全量清单与移出项过渡方案见 agent-docs/apis/exports.md）：
 // 稳定公共 API（类型 / 配置 / 注册函数 / 插件接口 / 插件工厂）→ 导出；内部实现
 // 细节、实验性 API、跨层内部工具 → 不导出。各层各自的 src/index.ts 已按同判据
 // 先行收敛（子包公共面即红线文档面），本入口显式转售、不二次放大。
 // 禁止星号导出（export star）：导出符号集合由 tests/public-surface.test.ts 快照冻结，
 // 增删导出必须显式改快照。同源符号去重：RenderContext/Size（render 定义、
-// table 亦转出）与 TablePlugin（table 定义、plugins 亦转出）各从定义包导出一次；
+// table 亦转出）与 EnginePlugin（protocol 定义、table/plugins 亦转出）各从定义包导出一次；
 // CellRef 同名消歧见文件末尾。
 // ./sheet 子路径（@infinitable/sheet 全量白名单）见 src/sheet.ts，不经本入口转售。
 
@@ -61,12 +61,21 @@ export type {
   ThemeOverride,
 } from '@infinitable/grid'
 
-// ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 插件契约 / 引擎装配协议）----
+// ---- protocol 层（引擎装配协议：四类平级引擎的公共装配契约，纯类型零运行时）----
+export type {
+  CellChangeEvent,
+  EngineAssembly,
+  EnginePlugin,
+  EngineReadView,
+  OverlayPainter,
+  UnderlayPainter,
+} from '@infinitable/protocol'
+
+// ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 表格引擎协议面）----
 export { EditorRegistry, ListTable, SheetModel, projectCellStyle } from '@infinitable/table'
 export type {
   // 文档源注入形态（ListTableOptions.doc：无 DOM 环境经它创建 canvas 构造出图）
   CanvasDocSource,
-  CellChangeEvent,
   CellChartMedia,
   CellLink,
   CellLinkClickEvent,
@@ -75,23 +84,17 @@ export type {
   CellRenderer,
   ColumnDefine,
   DataRecord,
-  // 引擎装配协议（中立本体 / 可选导出读取面 / 表格引擎协议面，SheetGrid 等适配层消费）
-  EngineAssembly,
-  EngineReadView,
   FillDragEndEvent,
   HighlightRange,
   ImageLinkClickEvent,
   ImageLinkClickListener,
   ListTableOptions,
-  OverlayPainter,
   ResolveCellImageLink,
   ResolveCellLink,
   ResolveDisplayValue,
   TableContextMenuEvent,
   TableEngine,
   TableModel,
-  TablePlugin,
-  UnderlayPainter,
 } from '@infinitable/table'
 
 // ---- formulas 层（公式引擎：A1 地址 / 解析与求值 / 函数注册表 / 依赖图 / 引用平移）----

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '../src/list-table'
-import type { TablePlugin } from '../src/plugin'
+import type { EnginePlugin } from '@infinitable/protocol'
 import { StubHost } from './testing/stub-host'
 
-function recordPlugin(name: string, log: string[]): TablePlugin {
+function recordPlugin(name: string, log: string[]): EnginePlugin {
   return {
     name,
     mount(table) {
@@ -16,7 +16,7 @@ function recordPlugin(name: string, log: string[]): TablePlugin {
   }
 }
 
-function createTable(plugins?: readonly TablePlugin[]) {
+function createTable(plugins?: readonly EnginePlugin[]) {
   const host = new StubHost()
   const table = new ListTable({
     width: 800,

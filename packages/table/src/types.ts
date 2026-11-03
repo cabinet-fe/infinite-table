@@ -10,7 +10,7 @@ import type { RenderCanvas, RenderHost, RenderHostOptions, SceneEvent } from '@i
 import type { CellType, ResolveCellRenderer } from './cell-renderer'
 import type { CellStyle, ResolveCellStyle } from './cell-style'
 import type { EditorRegistry } from './editor-registry'
-import type { TablePlugin } from './plugin'
+import type { CellChangeEvent, EnginePlugin } from '@infinitable/protocol'
 
 export type { CellRef, ScrollbarMode, ScrollbarOptions } from '@infinitable/grid'
 
@@ -49,15 +49,9 @@ export interface ColumnDefine {
  */
 export type ResolveDisplayValue = (col: number, row: number, value: unknown) => string
 
-/** 模型单元格变更事件 */
-export interface CellChangeEvent {
-  col: number
-  row: number
-  /** 变更前取值（外部模型给不出时为 undefined） */
-  oldValue: unknown
-  /** 变更后取值 */
-  newValue: unknown
-}
+// 模型单元格变更事件：协议契约词汇（EngineAssembly.onCellChange 回调入参），
+// 定义在 @infinitable/protocol；此处 import 供本文件消费并转出维持既有公共路径。
+export type { CellChangeEvent } from '@infinitable/protocol'
 
 /** 编辑会话开始事件：会话真正打开（可编判定通过、浮层已开）后通知 */
 export interface EditStartEvent {
@@ -346,7 +340,7 @@ export interface ListTableOptions {
   /** 主题覆盖：基于默认主题 extends 派生（缺省用默认主题） */
   theme?: ThemeOverride
   /** 插件：构造即挂载生效，销毁时逆序卸载 */
-  plugins?: readonly TablePlugin[]
+  plugins?: readonly EnginePlugin[]
   /** 列宽调整能力：返回 false 禁止该列拖拽改宽（缺省全部允许） */
   canResizeCol?: (col: number) => boolean
   /** 行高调整能力：返回 false 禁止该行拖拽改高（canResizeRow 补丁行为，缺省全部允许） */

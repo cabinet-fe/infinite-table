@@ -4,7 +4,7 @@
 // 引擎未提供导出读取面（engine.read 缺失）时 fail-fast 抛错（透视 / 甘特等引擎
 // 按自身几何语义决定是否提供，消费方探测后降级）。
 
-import type { EngineAssembly } from '@infinitable/table'
+import type { EngineAssembly } from '@infinitable/protocol'
 
 import type { PrintSource } from './types'
 

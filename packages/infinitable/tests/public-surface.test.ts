@@ -43,7 +43,7 @@ function parseNamedExports(source: string): NamedExports {
   return { values: values.sort(), types: types.sort() }
 }
 
-// ---- 显式快照：主入口（render + grid + table + formulas + plugins 五层显式转售 + CellRef 消歧）----
+// ---- 显式快照：主入口（render + grid + protocol + table + formulas + plugins 六层显式转售 + CellRef 消歧）----
 
 const MAIN_ENTRY_VALUES = [
   'DependencyGraph',
@@ -106,7 +106,7 @@ const MAIN_ENTRY_TYPES = [
   'SceneNodeInit',
   'SceneEventType',
   'Size',
-  // grid + table 层（原 core 公共面拆分：网格内核与表格主体词汇按定义包直引；清单字母序混排）
+  // grid + protocol + table 层（原 core 公共面拆分：网格内核、装配协议契约与表格主体词汇按定义包直引；清单字母序混排）
   'CanvasDocSource',
   'CellBorder',
   'CellBorderEdge',
@@ -121,8 +121,9 @@ const MAIN_ENTRY_TYPES = [
   'CellStyle',
   'ColumnDefine',
   'DataRecord',
-  // 引擎装配协议（P7）：中立本体 / 可选导出读取面 / 表格引擎协议面
+  // 引擎装配协议（P7，@infinitable/protocol）：中立本体 / 插件契约 / 可选导出读取面
   'EngineAssembly',
+  'EnginePlugin',
   'EngineReadView',
   'FillDragEndEvent',
   'FloatContextMenuEvent',
@@ -150,7 +151,6 @@ const MAIN_ENTRY_TYPES = [
   'TableContextMenuEvent',
   'TableEngine',
   'TableModel',
-  'TablePlugin',
   'TableTheme',
   'ThemeOverride',
   'UnderlayPainter',

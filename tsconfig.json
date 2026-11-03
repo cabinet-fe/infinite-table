@@ -15,6 +15,7 @@
   "references": [
     { "path": "packages/render" },
     { "path": "packages/grid" },
+    { "path": "packages/protocol" },
     { "path": "packages/table" },
     { "path": "packages/formulas" },
     { "path": "packages/plugins" },

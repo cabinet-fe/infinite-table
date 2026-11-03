@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// 图表插件单测（happy-dom 挂载安全）：TablePlugin 契约注册、格声明解析入口、
+// 图表插件单测（happy-dom 挂载安全）：EnginePlugin 契约注册、格声明解析入口、
 // Chart.js 按需加载；container 挂载 + destroy 清理全链路不抛错。
 
 import { describe, expect, it } from 'vitest'

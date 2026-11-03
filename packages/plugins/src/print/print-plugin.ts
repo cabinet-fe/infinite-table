@@ -1,4 +1,4 @@
-// 打印插件：print 散装能力（分页 / 文档构建 / 打印输出 / DOM 预览）收拢为 TablePlugin
+// 打印插件：print 散装能力（分页 / 文档构建 / 打印输出 / DOM 预览）收拢为 EnginePlugin
 // 对象形态。print 链路本身 headless（不接线引擎任何挂点）：mount 仅为记录挂载引擎
 // （协议面，P7），既有能力全部经 handle 方法达成——分页 paginate、文档构建
 // buildDocumentHtml、打印输出 print（触 DOM）、DOM 预览 openPreview（触 DOM）。
@@ -9,7 +9,7 @@
 // 两者皆缺时 handle 方法 fail-fast。实现细节模块（paginate/page-html/header-footer/
 // print-output/preview/engine-source）保留在包内深路径，不经公共入口转出。
 
-import type { EngineAssembly, TablePlugin } from '@infinitable/table'
+import type { EngineAssembly, EnginePlugin } from '@infinitable/protocol'
 
 import { createEnginePrintSource } from './engine-source'
 import { buildPrintDocumentHtml } from './page-html'
@@ -31,8 +31,8 @@ export interface PrintPluginOptions {
   hooks?: PrintHooks
 }
 
-/** 打印插件句柄：TablePlugin 契约 + 打印链路既有入口（可脱离引擎 headless 调用） */
-export interface PrintPluginHandle extends TablePlugin {
+/** 打印插件句柄：EnginePlugin 契约 + 打印链路既有入口（可脱离引擎 headless 调用） */
+export interface PrintPluginHandle extends EnginePlugin {
   /** 打印分页（headless）：按配置把数据源划分为页 */
   paginate(config?: PrintConfig): PrintPage[]
   /** 构建完整打印文档 HTML（headless 纯函数：分页 + 各页拼装） */

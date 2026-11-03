@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable, type EngineAssembly, type TablePlugin } from '@infinitable/table'
+import { ListTable } from '@infinitable/table'
+import type { EngineAssembly, EnginePlugin } from '@infinitable/protocol'
 
 import { createWatermarkPlugin } from '../../src/watermark/watermark-plugin'
 import { StubHost } from '../testing/stub-host'
@@ -32,7 +33,7 @@ function skyChildren(host: StubHost): number {
   return host.layers.get('sky')?.root.children.length ?? 0
 }
 
-function createTable(host: StubHost, plugins?: TablePlugin[]): ListTable {
+function createTable(host: StubHost, plugins?: EnginePlugin[]): ListTable {
   return new ListTable({
     width: 400,
     height: 200,
