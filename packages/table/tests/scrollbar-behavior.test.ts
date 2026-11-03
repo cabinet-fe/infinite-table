@@ -345,7 +345,7 @@ describe("'scrolling'/'hover' 显隐状态机", () => {
       expect(table.scrollbarHover).toBeNull()
       // 销毁清理：隐藏定时器与画布外接续解绑（回调不再翻转可见性）
       table.destroy()
-      expect(table.scrollbarReleaseCapture).toBeNull()
+      expect(table.pointerSessionRelease).toBeNull()
       vi.advanceTimersByTime(10_000)
       expect(table.scrollbarVisible).toBe(true)
     } finally {

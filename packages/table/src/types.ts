@@ -215,7 +215,7 @@ export interface CanvasDocSource {
 
 /**
  * 指针捕获接续的事件宿主最小面（真实 Window 天然满足，无头/测试注入替身）：
- * 滚动条拖拽等画布外指针接续会话在它上面挂/解 pointermove/pointerup 监听。
+ * 滚动条拖拽、行列 resize 等画布外指针接续会话在它上面挂/解 pointermove/pointerup 监听。
  */
 export interface PointerEventHost {
   addEventListener(type: 'pointermove' | 'pointerup', listener: (event: PointerEvent) => void): void
@@ -331,8 +331,8 @@ export interface ListTableOptions {
    */
   doc?: CanvasDocSource
   /**
-   * 指针捕获接续的事件宿主（注入缺省运行环境 window）：滚动条拖拽等画布外指针会话
-   * 在它上面挂 pointermove/pointerup 接续监听。真实 Window 天然满足；无 window 环境
+   * 指针捕获接续的事件宿主（注入缺省运行环境 window）：滚动条拖拽、行列 resize 等画布外
+   * 指针会话在它上面挂 pointermove/pointerup 接续监听。真实 Window 天然满足；无 window 环境
    * （无头/SSR）不注入也不缺省可得不挂接续（画布内会话不受影响），测试注入替身可
    * 直接驱动画布外接续。
    */

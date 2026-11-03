@@ -115,7 +115,7 @@ export interface FillDragEndEvent {
 | `onFillHandleDoubleClick` | 填充柄双击（与拖拽结束互斥） | `{ range }`；Excel 语义为按相邻列连续数据块向下自动填充，写入由宿主完成（`infinitable/sheet` 的 `generateFill` 是配套写入面，见 `apis/sheet.md`） |
 | `onColResizeEnd` / `onRowResizeEnd` | 列宽/行高拖拽会话结束 | `{ col, width }` / `{ row, height }`（夹取后生效值，宽高下限 20px） |
 
-引擎内置交互（无需宿主接线）：指针拖选、Ctrl/Cmd 加选（`ctrlMultiSelect: true`）、表头拖选整列/行号列拖选整行、填充柄拖拽与双击事件、行列 resize 手柄（列手柄在列头区列右缘、行手柄在行号列区行下缘；`canResizeCol`/`canResizeRow` 返回 false 的行列不可拖）、触控惯性滚动、方向键/Tab 键盘导航。
+引擎内置交互（无需宿主接线）：指针拖选、Ctrl/Cmd 加选（`ctrlMultiSelect: true`）、表头拖选整列/行号列拖选整行、填充柄拖拽与双击事件、行列 resize 手柄（列手柄在列头区列右缘、行手柄在行号列区行下缘；`canResizeCol`/`canResizeRow` 返回 false 的行列不可拖；末列右侧空白无命中时拖拽仍跟手（事件由 sky 根接回），指针移出容器后走画布外接续，松手提交，越界指示线钳在数据视口边缘）、触控惯性滚动、方向键/Tab 键盘导航。
 
 ## 典型示例
 
@@ -205,6 +205,7 @@ function syncFromExternal(): void {
 > - 填充生成算法不在内核：引擎只画柄与抛 `onFillHandleDown`/`onFillDragEnd`/`onFillHandleDoubleClick` 事件，写入由宿主完成（`infinitable/sheet` 的 `computeFillTargetRange` + `generateFill` 纯函数是配套写入面，见 `apis/sheet.md`）。
 > - 选区状态机与交互浮层（原 `SelectionState`/`InteractionOverlay`，0.1.2 起不再导出）为引擎内部实现：选区读写只走 `table.select*/getSelection/applyExternalSelection`；拖拽进行中收到与当前拖拽段归一化边界等值的外部快照时，引擎只同步焦点不替换段（保拖拽锚点），宿主不需要也不应该绕过。
 > - 列头关闭（`showColHeader: false`）后列 resize 手柄不可命中；行号列关闭后行 resize 手柄不可命中——没有表头带就没有可抓的边缘。
+> - 行列 resize：末列右缘往右是容器内空白（无可拾取节点）时，move/up 由 sky 根接回会话，列宽随指针增加；指针离开容器后改由 `pointerEventHost`（缺省 `window`）接续。松手提交夹取后的宽高（下限 20px）。指示线绘制钳在数据视口内（距边缘 1px），钳制不改变提交尺寸。无 `window` 且未注入 `pointerEventHost` 时，仅容器外的那一段不接续。填充柄拖拽不走这两路接续。
 > - 本库 `ctrlMultiSelect` 缺省 false（点选替换选区）；Excel 式 Ctrl 加选须显式开启 `ctrlMultiSelect: true`（引擎缺省即关；`SheetGrid` 装配固定传 `ctrlMultiSelect: false`——电子表格形态 Ctrl 加选不可用）。
 
 ## 常见问题

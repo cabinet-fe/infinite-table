@@ -98,9 +98,18 @@ const TRANSFORM_CURSOR: Record<FloatTransformHandle, string> = {
   rotate: 'grab',
 }
 
-/** 场景事件统一接线：指针/触摸在 body 根（sky 浮层不可拾取，事件穿透），键盘在最顶层根 */
+/**
+ * 场景事件统一接线：指针/触摸在 body 根（sky 浮层不可拾取，事件穿透），键盘在最顶层根。
+ * 未命中时事件只从最顶层根派发（见 EventSystem）——末列右侧空白在容器内、但没有可拾取节点，
+ * body 收不到 move/up。resize / 滚动条会话期间改由 sky 根接上这路事件。
+ */
 export function bindInteractionEvents(table: ListTable): void {
   const bodyRoot = table.body.root
+  const forwardSessionPointer = (event: SceneEvent): void => {
+    if (!table.resizeSession && !table.scrollbarDrag) return
+    if (event.type === 'pointermove') onPointerMove(table, event)
+    else if (event.type === 'pointerup') onPointerUp(table, event)
+  }
   table.eventUnsubscribers.push(
     bodyRoot.on('pointerdown', (event) => onPointerDown(table, event)),
     bodyRoot.on('pointermove', (event) => onPointerMove(table, event)),
@@ -110,6 +119,8 @@ export function bindInteractionEvents(table: ListTable): void {
     bodyRoot.on('touchmove', (event) => onTouchMove(table, event)),
     bodyRoot.on('touchend', (event) => onTouchEnd(table, event)),
     bodyRoot.on('touchcancel', () => onTouchCancel(table)),
+    table.sky.root.on('pointermove', forwardSessionPointer),
+    table.sky.root.on('pointerup', forwardSessionPointer),
     table.sky.root.on('keydown', (event) => onKeyDown(table, event)),
     table.selection.onChange(() => refreshOverlay(table)),
   )
@@ -192,6 +203,9 @@ function onPointerDown(table: ListTable, event: SceneEvent): void {
     )
     // 按下即钉住对应轴向光标（触控无悬停阶段，会话期不依赖上一次 move）
     table.setContainerCursor(RESIZE_CURSOR[handle.kind])
+    // 最右列/最下行的边缘贴画布缘，向右/向下拖会立刻出容器：场景事件只在容器内派发，
+    // 不接续则指示线停更、松手也不提交
+    bindPointerSessionCapture(table)
     return
   }
   // 填充柄按下：开启拖拽会话并抛按下事件（不改选区，填充生成不在内核）；
@@ -350,6 +364,12 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     return
   }
   if (table.resizeSession) {
+    // 画布外松手兜底：真实指针事件携带 buttons 位集，无按键即视为已释放——
+    // 浏览器窗外释放时 up 事件不可达，会话在此提交并终结（与滚动条拖拽同口径）
+    if (pointerButtons(event) === 0) {
+      onPointerUp(table, event)
+      return
+    }
     // 会话期光标恒为对应轴向（列缘会话滑进表体/另一列上也不闪回缺省）
     table.setContainerCursor(RESIZE_CURSOR[table.resizeSession.target.kind])
     updateResizeLine(table, event)
@@ -443,6 +463,8 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   }
   if (table.resizeSession) {
     const session = table.resizeSession
+    // 先解绑画布外接续再清会话：提交路径（含 buttons===0 兜底）不会被接续监听重入
+    releasePointerSessionCapture(table)
     table.resizeSession = null
     table.resizeLine = null
     const pointer = session.target.kind === 'col' ? event.x : event.y
@@ -691,7 +713,12 @@ function updateResizeLine(table: ListTable, event: SceneEvent): void {
     const size = session.sizeAt(event.x)
     table.resizeLine = {
       orientation: 'vertical',
-      position: edge + (size - table.getColWidth(index)),
+      // 浮层按数据视口裁剪：不钳制时指针拖出画布右缘线整段不可见
+      position: clampResizeLinePosition(
+        table,
+        'vertical',
+        edge + (size - table.getColWidth(index)),
+      ),
     }
   } else {
     const index = session.target.index
@@ -705,10 +732,30 @@ function updateResizeLine(table: ListTable, event: SceneEvent): void {
     const size = session.sizeAt(event.y)
     table.resizeLine = {
       orientation: 'horizontal',
-      position: edge + (size - table.rowHeightAt(index)),
+      position: clampResizeLinePosition(
+        table,
+        'horizontal',
+        edge + (size - table.rowHeightAt(index)),
+      ),
     }
   }
   refreshOverlay(table)
+}
+
+/**
+ * 指示线钳在数据视口内（内缩 1px）。只影响绘制位置：尺寸仍按指针位移计算，
+ * 指针拖出画布时线贴边，松手提交的宽高不受钳制。
+ */
+function clampResizeLinePosition(
+  table: ListTable,
+  orientation: 'vertical' | 'horizontal',
+  position: number,
+): number {
+  const viewport = table.bodyViewport
+  if (orientation === 'vertical') {
+    return Math.min(Math.max(position, viewport.x + 1), viewport.x + viewport.width - 1)
+  }
+  return Math.min(Math.max(position, viewport.y + 1), viewport.y + viewport.height - 1)
 }
 
 /** 按拖拽目标抛列/行结束事件（订阅者集合为空时零开销） */
@@ -1299,7 +1346,7 @@ function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEve
     pendingOffset: undefined,
   }
   table.pokeScrollbar()
-  bindScrollbarPointerCapture(table)
+  bindPointerSessionCapture(table)
   table.setContainerCursor('default')
 }
 
@@ -1310,20 +1357,25 @@ function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEve
 function endScrollbarDrag(table: ListTable, event: SceneEvent): void {
   table.scrollbarCommitTask()
   table.scrollbarDrag = null
-  releaseScrollbarCapture(table)
+  releasePointerSessionCapture(table)
   updatePointerCursor(table, event)
 }
 
+/** 画布外接续仍需喂事件的会话：滚动条拖拽或行列 resize（填充柄不在此列） */
+function pointerSessionActive(table: ListTable): boolean {
+  return table.scrollbarDrag !== null || table.resizeSession !== null
+}
+
 /**
- * 滚动条拖拽的画布外指针接续（setPointerCapture 的等价机制）：场景事件只在容器
- * （EventSystem 事件源）内派发，指针移出画布后 move/up 丢失——原「移出画布会话
- * 悬挂、回画布未按住仍滚动」缺陷的根因。会话期间在事件宿主（options.pointerEventHost
- * 注入，缺省运行环境 window）挂 pointermove/pointerup，画布外事件按容器矩形换算回
- * 层坐标后直接喂交互处理；目标仍在容器内的事件跳过（已经场景系统派发，重复喂会
- * 双触发）。无事件宿主（离屏/无 DOM 且未注入）不挂。
+ * 指针会话的画布外接续（setPointerCapture 的等价机制）：场景事件只在容器
+ * （EventSystem 事件源）内派发，指针移出画布后 move/up 丢失——滚动条「移出画布
+ * 会话悬挂」、列宽「贴右缘向右拖不宽」的同一根因。会话期间在事件宿主
+ * （options.pointerEventHost 注入，缺省运行环境 window）挂 pointermove/pointerup，
+ * 画布外事件按容器矩形换算回层坐标后直接喂交互处理；目标仍在容器内的事件跳过
+ * （已经场景系统派发，重复喂会双触发）。无事件宿主（离屏/无 DOM 且未注入）不挂。
  */
-function bindScrollbarPointerCapture(table: ListTable): void {
-  releaseScrollbarCapture(table)
+function bindPointerSessionCapture(table: ListTable): void {
+  releasePointerSessionCapture(table)
   const eventHost = table.options.pointerEventHost ?? defaultPointerEventHost()
   if (!eventHost) {
     return
@@ -1349,21 +1401,21 @@ function bindScrollbarPointerCapture(table: ListTable): void {
     }
   }
   const onMove = (dom: PointerEvent): void => {
-    if (!table.scrollbarDrag || insideCanvasHost(dom)) {
+    if (!pointerSessionActive(table) || insideCanvasHost(dom)) {
       return
     }
     onPointerMove(table, synthesize('pointermove', dom))
   }
   const onUp = (dom: PointerEvent): void => {
-    releaseScrollbarCapture(table)
-    if (!table.scrollbarDrag || insideCanvasHost(dom)) {
+    releasePointerSessionCapture(table)
+    if (!pointerSessionActive(table) || insideCanvasHost(dom)) {
       return
     }
     onPointerUp(table, synthesize('pointerup', dom))
   }
   eventHost.addEventListener('pointermove', onMove)
   eventHost.addEventListener('pointerup', onUp)
-  table.scrollbarReleaseCapture = () => {
+  table.pointerSessionRelease = () => {
     eventHost.removeEventListener('pointermove', onMove)
     eventHost.removeEventListener('pointerup', onUp)
   }
@@ -1378,9 +1430,9 @@ function defaultPointerEventHost(): PointerEventHost | null {
 }
 
 /** 解绑画布外指针接续（会话结束/表销毁；幂等） */
-function releaseScrollbarCapture(table: ListTable): void {
-  table.scrollbarReleaseCapture?.()
-  table.scrollbarReleaseCapture = null
+function releasePointerSessionCapture(table: ListTable): void {
+  table.pointerSessionRelease?.()
+  table.pointerSessionRelease = null
 }
 
 /** 刷新 sky 浮层；仅在（或曾在）有内容时提交 sky 失效，避免空浮层空转整层重绘 */

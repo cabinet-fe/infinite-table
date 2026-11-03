@@ -786,6 +786,135 @@ describe('ListTable 行列 resize', () => {
   })
 })
 
+describe('resize 画布外指针接续', () => {
+  /** 指针事件宿主替身：记录挂/解监听，dispatch 直接驱动（无 window/DOM 依赖路径） */
+  class FakePointerHost {
+    private readonly listeners = new Map<string, Set<(event: PointerEvent) => void>>()
+    addEventListener(
+      type: 'pointermove' | 'pointerup',
+      listener: (event: PointerEvent) => void,
+    ): void {
+      this.bucket(type).add(listener)
+    }
+    removeEventListener(
+      type: 'pointermove' | 'pointerup',
+      listener: (event: PointerEvent) => void,
+    ): void {
+      this.bucket(type).delete(listener)
+    }
+    count(type: 'pointermove' | 'pointerup'): number {
+      return this.bucket(type).size
+    }
+    dispatch(
+      type: 'pointermove' | 'pointerup',
+      init: { clientX: number; clientY: number; buttons?: number },
+    ): void {
+      const event = { button: 0, ...init } as PointerEvent
+      for (const listener of this.bucket(type)) {
+        listener(event)
+      }
+    }
+    private bucket(type: string): Set<(event: PointerEvent) => void> {
+      let bucket = this.listeners.get(type)
+      if (!bucket) {
+        bucket = new Set()
+        this.listeners.set(type, bucket)
+      }
+      return bucket
+    }
+  }
+
+  function createCaptured() {
+    const host = new StubHost()
+    const pointerHost = new FakePointerHost()
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      records: [{ name: 'a' }],
+      host,
+      pointerEventHost: pointerHost,
+      // 关掉滚动条：视口右缘即画布右缘，钳制断言不掺 gutter
+      scrollbar: false,
+    })
+    host.submitted.length = 0
+    return { host, table, pointerHost }
+  }
+
+  it('画布外 move 更新指示线并钳在视口右缘，画布外 up 提交列宽并解绑接续', () => {
+    const { host, table, pointerHost } = createCaptured()
+    // 第 0 列右缘视口 x = 48 + 100 = 148
+    fireBody(host, 'pointerdown', { x: 148, y: 10 })
+    expect(pointerHost.count('pointermove')).toBe(1)
+    expect(pointerHost.count('pointerup')).toBe(1)
+
+    // 无容器：接续事件一律判为画布外。1200 远超视口右缘（48 + 752 - 1 = 799）
+    pointerHost.dispatch('pointermove', { clientX: 1200, clientY: 10, buttons: 1 })
+    const viewport = table.bodyViewport
+    expect(table.resizeLine).toEqual({
+      orientation: 'vertical',
+      position: viewport.x + viewport.width - 1,
+    })
+    expect(table.getColWidth(0)).toBe(100)
+
+    pointerHost.dispatch('pointerup', { clientX: 1200, clientY: 10 })
+    // 100 + (1200 - 148)
+    expect(table.getColWidth(0)).toBe(1152)
+    expect(table.resizeSession).toBeNull()
+    expect(table.resizeLine).toBeNull()
+    expect(pointerHost.count('pointermove')).toBe(0)
+    expect(pointerHost.count('pointerup')).toBe(0)
+
+    // 会话已结束：画布外 move 不再改宽
+    pointerHost.dispatch('pointermove', { clientX: 1400, clientY: 10, buttons: 1 })
+    expect(table.getColWidth(0)).toBe(1152)
+    table.destroy()
+  })
+
+  it('画布内 move 携带 buttons 0 时提交并终结悬挂会话', () => {
+    const { host, table, pointerHost } = createCaptured()
+    fireBody(host, 'pointerdown', { x: 148, y: 10 })
+    fireBody(host, 'pointermove', { x: 200, y: 10, originalEvent: { buttons: 0 } })
+    expect(table.getColWidth(0)).toBe(152)
+    expect(table.resizeSession).toBeNull()
+    expect(pointerHost.count('pointermove')).toBe(0)
+    expect(pointerHost.count('pointerup')).toBe(0)
+    table.destroy()
+  })
+
+  it('末列右侧空白（无命中，事件只到 sky）向右拖仍加宽', () => {
+    // 画布宽于列内容：3 列右缘 348，右侧到 800 没有可拾取节点（设计器 H 列右侧即此形态）
+    const host = new StubHost()
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      columns: Array.from({ length: 3 }, (_, i) => ({ field: 'name', title: `C${i}` })),
+      records: [{ name: 'a' }],
+      host,
+      scrollbar: false,
+    })
+    fireBody(host, 'pointerdown', { x: 348, y: 10 })
+    expect(table.resizeSession?.target).toEqual({ kind: 'col', index: 2 })
+
+    fireSky(host, 'pointermove', { x: 520, y: 10 })
+    expect(table.resizeLine).toEqual({ orientation: 'vertical', position: 520 })
+    expect(table.getColWidth(2)).toBe(100)
+
+    fireSky(host, 'pointerup', { x: 520, y: 10 })
+    // 100 + (520 - 348)
+    expect(table.getColWidth(2)).toBe(272)
+    expect(table.resizeSession).toBeNull()
+    table.destroy()
+  })
+
+  it('destroy 解绑尚未结束的 resize 接续监听', () => {
+    const { host, table, pointerHost } = createCaptured()
+    fireBody(host, 'pointerdown', { x: 148, y: 10 })
+    expect(pointerHost.count('pointermove')).toBe(1)
+    table.destroy()
+    expect(table.pointerSessionRelease).toBeNull()
+    expect(pointerHost.count('pointermove')).toBe(0)
+    expect(pointerHost.count('pointerup')).toBe(0)
+  })
+})
+
 describe('ListTable 批量更新', () => {
   it('batchUpdate 内多次变更只提交一次 band 失效（区域为各格包围盒的并集）', () => {
     const model = new EchoModel(100)

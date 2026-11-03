@@ -362,8 +362,8 @@ export class ListTable implements TableEngine {
   scrollbarHover: 'vertical' | 'horizontal' | null = null
   /** @internal 'scrolling'/'hover' 档静止隐藏定时器 */
   private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null
-  /** @internal 滚动条拖拽画布外指针接续的解绑器（会话结束/销毁时调用） */
-  scrollbarReleaseCapture: (() => void) | null = null
+  /** @internal 画布外指针接续的解绑器（滚动条拖拽 / 行列 resize；会话结束/销毁时调用） */
+  pointerSessionRelease: (() => void) | null = null
   /**
    * @internal 滚动条拖拽提交任务（稳定引用供帧调度去重）：同帧多次 pointermove 的
    * 待提交目标收敛为一次 setScroll；会话结束时同步冲刷末次目标。
@@ -1753,8 +1753,8 @@ export class ListTable implements TableEngine {
     this.destroyed = true
     this.inertia.stop()
     this.scrollbarDrag = null
-    this.scrollbarReleaseCapture?.()
-    this.scrollbarReleaseCapture = null
+    this.pointerSessionRelease?.()
+    this.pointerSessionRelease = null
     if (this.scrollbarHideTimer !== null) {
       clearTimeout(this.scrollbarHideTimer)
       this.scrollbarHideTimer = null
