@@ -4,7 +4,7 @@
 // 嵌套数组逐层下钻；点选画布格经 P3 选区拦截入口（onCellPick）唤起本面板。
 import { useEffect, useMemo, useState } from 'react'
 
-import type { CellAddress } from '@infinitable/sheet'
+import { formatAddress, type CellAddress } from '@infinitable/sheet'
 
 import { api, toSourceRows, type DatasetRow } from '../data/api'
 import type { SourceRow } from '../transform/reshape'
@@ -111,7 +111,8 @@ export function BindingEditor({ doc, addr, onEdited }: Props) {
     }
   }, [path])
 
-  const inDetail = addr !== undefined && bandAtRow(doc.bands, addr.row)?.kind === 'detail'
+  const band = addr ? bandAtRow(doc.bands, addr.row) : undefined
+  const inDetail = band?.kind === 'detail'
   const current = addr ? doc.getCellBinding(addr) : undefined
 
   const apply = (): void => {
@@ -135,20 +136,23 @@ export function BindingEditor({ doc, addr, onEdited }: Props) {
 
   return (
     <div className="binding-editor">
-      <h3>绑定编辑</h3>
-      {!addr ? (
-        <p className="meta">开启拾取模式后点选画布格</p>
+      {addr ? (
+        <div className="binding-target">
+          <span className="addr">{formatAddress(addr)}</span>
+          <span className="meta">
+            {inDetail ? '明细区：按数据条数循环展开取值' : '非明细区：取聚合后的单值'}
+          </span>
+        </div>
       ) : (
-        <p className="meta">
-          目标格：行{addr.row + 1} 列{addr.col + 1}
-          {inDetail ? '（明细波段，循环展开取值）' : ''}
-        </p>
+        <p className="hint">开启拾取模式后点选画布格，即可为它绑定数据字段。</p>
       )}
+
       {error ? <p className="status error">{error}</p> : null}
-      <label className="binding-field">
-        数据集{' '}
+
+      <label className="field-col">
+        <span className="field-label">数据集</span>
         <select value={datasetId} onChange={(event) => setDatasetId(event.target.value)}>
-          <option value="">请选择</option>
+          <option value="">请选择数据集</option>
           {datasets?.map((row) => (
             <option key={row.id} value={row.id}>
               {row.name}
@@ -156,8 +160,9 @@ export function BindingEditor({ doc, addr, onEdited }: Props) {
           ))}
         </select>
       </label>
-      <label className="binding-field">
-        重塑表达式（JS，入参 rows）
+
+      <label className="field-col">
+        <span className="field-label">重塑表达式（JS，入参 rows）</span>
         <textarea
           rows={3}
           value={expression}
@@ -166,48 +171,62 @@ export function BindingEditor({ doc, addr, onEdited }: Props) {
         />
       </label>
       {reshapeError ? <p className="status error">{reshapeError}</p> : null}
+
       <div className="binding-tree-wrap">
         {tree.length > 0 ? (
           <BindingTree nodes={tree} depth={0} onPick={setPath} />
         ) : (
-          <p className="meta">{sourceRows ? '重塑形态无可选路径' : '选择数据集后生成路径树'}</p>
+          <p className="hint">{sourceRows ? '重塑结果暂无可选路径' : '选择数据集后生成路径树'}</p>
         )}
       </div>
-      <label className="binding-field">
-        路径{' '}
-        <input
-          value={path}
-          onChange={(event) => setPath(event.target.value)}
-          placeholder="如 items[].price"
-        />
-      </label>
+
+      <div className="binding-split">
+        <label className="field-col">
+          <span className="field-label">路径</span>
+          <input
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            placeholder="如 items[].price"
+          />
+        </label>
+        <label className="field-col">
+          <span className="field-label">聚合</span>
+          <select
+            value={aggregate}
+            onChange={(event) => setAggregate(event.target.value as Aggregate | '')}
+            disabled={inDetail}
+            title={inDetail ? '明细区按行取值，不支持聚合' : '合计格常用求和/平均等'}
+          >
+            {AGGREGATES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {pathError ? <p className="status error">{pathError}</p> : null}
-      <label className="binding-field">
-        聚合{' '}
-        <select
-          value={aggregate}
-          onChange={(event) => setAggregate(event.target.value as Aggregate | '')}
-          disabled={inDetail}
-        >
-          {AGGREGATES.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+
       {addr ? (
-        <div className="form-actions">
-          <button className="primary" onClick={apply} disabled={!datasetId || !path || !!pathError}>
+        <div className="binding-actions">
+          <button
+            type="button"
+            className="primary"
+            onClick={apply}
+            disabled={!datasetId || !path || !!pathError}
+          >
             应用绑定
           </button>
-          <button onClick={clear} disabled={!current}>
-            清除
+          <button type="button" onClick={clear} disabled={!current}>
+            清除绑定
           </button>
           {status ? <span className="meta">{status}</span> : null}
         </div>
       ) : null}
-      {current ? <p className="meta">当前：{formatBindingPlaceholder(current)}</p> : null}
+
+      {current ? (
+        <p className="binding-current">当前：{formatBindingPlaceholder(current)}</p>
+      ) : null}
     </div>
   )
 }

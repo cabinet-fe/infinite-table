@@ -1,0 +1,470 @@
+/* 设计器：画布区（标题栏 / 选区 chip / 画布卡片 / 公式栏）、区域列表、绑定编辑 */
+
+/* ─── 画布标题栏 ────────────────────────────────────────────────────────── */
+.canvas-header {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  min-height: 32px;
+}
+
+.canvas-heading {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+}
+
+.canvas-heading h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* 当前选区 chip：A1 记法 + 所在区域中文名 */
+.selection-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.selection-chip .addr {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.selection-chip .region-tag {
+  padding-left: 6px;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+}
+
+/* 画布右侧的纸张/方向/参考线控件 */
+.canvas-hint {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-tools {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  align-items: center;
+}
+
+.canvas-tools > select {
+  height: 26px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.canvas-tools > select.w-paper {
+  width: 76px;
+}
+
+.canvas-tools > select.w-orientation {
+  width: 76px;
+}
+
+/* ─── 画布卡片 ──────────────────────────────────────────────────────────── */
+.canvas-frame {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* 拾取模式：画布边框给出 accent 提示 */
+.canvas-frame.pick-active {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.canvas-mount {
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-mount .canvas-host {
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── 区域列表 ──────────────────────────────────────────────────────────── */
+.region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.region-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 6px 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.region-item:hover {
+  background: var(--bg-hover);
+}
+
+.region-item.active {
+  background: var(--accent-soft);
+}
+
+/* 选中区域左侧 accent 竖条 */
+.region-item.active::before {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: '';
+}
+
+/* 主行：色点 + 类型 + 行号范围 + 行数步进 + 图标按钮 */
+.region-line {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 区域类型色点（与画布左侧竖条同色，靠颜色建立对应关系） */
+.region-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* 类型选择器做成 chip：无重边框、小号 */
+.region-kind {
+  flex: none;
+  width: 70px;
+  height: 24px;
+  padding: 0 18px 0 7px;
+  border-color: transparent;
+  background-color: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.region-item.active .region-kind {
+  background-color: transparent;
+}
+
+.region-range {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 行数步进器：− N 行 + */
+.region-stepper {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  align-items: center;
+}
+
+.region-stepper .icon-button {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.region-rows {
+  min-width: 26px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.region-actions {
+  display: flex;
+  flex: none;
+  gap: 1px;
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.region-item:hover .region-actions,
+.region-item.active .region-actions {
+  opacity: 1;
+}
+
+.region-actions .icon-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+}
+
+/* 说明句：区域「打印时会怎样」，直接可见（不藏在 title 里） */
+.region-hint {
+  padding-left: 13px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.region-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.region-add > select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ─── 字段绑定 ──────────────────────────────────────────────────────────── */
+.pick-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pick-row > .hint {
+  margin-left: auto;
+  text-align: right;
+}
+
+/* 绑定卡整体进入拾取态时的左侧强调 */
+.card.binding-card.picking {
+  border-color: var(--accent-border);
+}
+
+.binding-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.binding-target {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.binding-target .addr {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 路径树容器 */
+.binding-tree-wrap {
+  max-height: 200px;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.binding-tree {
+  font-size: 12px;
+}
+
+.binding-tree ul {
+  padding-left: 12px;
+}
+
+.binding-tree summary {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+}
+
+.binding-tree summary::-webkit-details-marker {
+  display: none;
+}
+
+.binding-tree summary::before {
+  flex: none;
+  width: 10px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  content: '▸';
+}
+
+.binding-tree details[open] > summary::before {
+  content: '▾';
+}
+
+.binding-tree .tree-pick {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.binding-tree .tree-pick:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.binding-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 10px;
+}
+
+.binding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.binding-current {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+/* ─── 公式栏 ────────────────────────────────────────────────────────────── */
+.formula-bar {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+
+/* 地址框：等宽、只读、固定宽 */
+.formula-addr {
+  flex: none;
+  width: 88px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-right: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 已绑定提示：不禁止编辑，只说明「打印时会被绑定值替换」 */
+.formula-bound {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.formula-fx {
+  flex: none;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.formula-fx:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.formula-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.formula-input:hover:not(:disabled) {
+  border-color: var(--border-subtle);
+}
+
+.formula-input:focus {
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+/* 公式求值出错（#VALUE! 等）时输入框转为危险色 */
+.formula-input.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.formula-input:disabled {
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: default;
+}

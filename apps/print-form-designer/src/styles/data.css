@@ -1,0 +1,232 @@
+/* 数据视图：标题行 + 两栏（数据源 / 数据集）卡片，表单竖排字段组 */
+
+.data-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+.data-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+
+.data-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.data-grid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .data-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.data-card {
+  min-width: 0;
+}
+
+.data-card > .card-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.data-card > .card-head h3 {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+}
+
+.data-card > .card-head .head-icon {
+  color: var(--text-tertiary);
+}
+
+.data-card > .card-head > button {
+  margin-left: auto;
+}
+
+.data-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.data-form > .button-row {
+  margin-top: 2px;
+}
+
+.data-form textarea {
+  min-height: 96px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-subtle);
+}
+
+/* 列表：行 hover 高亮 + 右侧 ghost 图标按钮 */
+.data-list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+}
+
+.data-list > li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
+}
+
+.data-list > li:hover {
+  background: var(--bg-hover);
+}
+
+.data-list .item-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.data-list .item-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-list .item-sub {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-list .item-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.data-list .icon-button {
+  width: 26px;
+  height: 26px;
+  color: var(--text-tertiary);
+}
+
+.data-list .icon-button:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.data-list .icon-button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.data-list .empty {
+  padding: 10px 8px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.data-card .status {
+  padding: 0 14px 12px;
+}
+
+.data-card .status:empty {
+  display: none;
+}
+
+/* 执行预览：粘性表头 + 圆角外框 + 最大高度滚动 */
+.preview {
+  padding: 0 14px 14px;
+}
+
+.preview-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.preview-scroll {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.preview table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.preview th,
+.preview td {
+  max-width: 260px;
+  padding: 6px 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-weight: 600;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.preview tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+.preview tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 页面级错误提示条 */
+.page-error {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid #fecdca;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
+}

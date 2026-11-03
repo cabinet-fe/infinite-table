@@ -1,62 +1,41 @@
+// 设计页：模板面板（保存/另存/列表打开）+ 区域面板（增删/排序/类型/行数）+ 字段绑定 +
+// 格样式工具条 + 公式栏 + SheetGrid 画布 + 函数库弹框 + 打印弹框。
+// 本组件只做表现层编排：模板序列化、绑定写入、打印管线均由既有领域模块承担。
 import { useEffect, useRef, useState } from 'react'
 
 import type { PrintOrientation, PrintPaperPreset } from '@infinitable/plugins'
-import type { CellAddress, CellRange, CellStylePatch } from '@infinitable/sheet'
-import { BORDER_STYLE_WIDTH } from '@infinitable/sheet'
+import { formatRange, type CellAddress } from '@infinitable/sheet'
 
 import { BindingEditor } from './BindingEditor'
-import { FormDoc, normalizeRange, type DocHistoryState } from './form-doc'
+import { FormDoc, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
+import { FormulaBar, type FormulaBarHandle } from './FormulaBar'
+import { FunctionLibraryDialog } from './FunctionLibraryDialog'
 import { DEFAULT_PAPER_GUIDES, type PaperGuidesConfig } from './paper-guides'
 import { PrintDialog } from './PrintDialog'
+import { RegionPanel } from './RegionPanel'
+import { StyleToolbar } from './StyleToolbar'
 import { TemplatePanel } from './TemplatePanel'
-import { BAND_KINDS, BAND_KIND_LABELS, type BandKind, type FormBand } from './template'
+import { BAND_KIND_LABELS, bandAtRow, type BandKind, type FormBand } from './template'
+import { useSelectionStyle } from './use-selection-style'
 
-/**
- * 设计画布页：模板面板（保存/另存/列表打开，P5）+ 波段面板（增删/排序/标记明细）+
- * 格样式工具栏（线框/填充/字体/对齐/numFmt/合并/行高列宽，经 sheet 命令与快照条目
- * 可撤销）+ SheetGrid 画布（占位符配置态）+ 绑定编辑面板（拾取模式点选格唤起，P6）。
- * 模板加载经 setDoc 替换文档，画布随 effect 重建完整还原；数据态预览/打印弹框在 P8。
- * 纸张边界/分页参考线（P4）为画布 overlay 显示层：配置只在本组件 React 状态，
- * 不落模板（真实分页以打印弹框预览为准）。
- */
-
-type NumFmtOption = 'none' | 'date' | 'thousands' | 'fixed2' | 'cnUpper'
-type BorderOption = 'none' | 'thin' | 'medium' | 'thick' | 'dashed'
-
-/** 边框预设：四边同线型（无 = 四边全清） */
-function borderPatch(option: BorderOption): CellStylePatch {
-  if (option === 'none') {
-    return { border: { top: null, right: null, bottom: null, left: null } }
-  }
-  const edge = { style: option, width: BORDER_STYLE_WIDTH[option], color: '#000000' }
-  return { border: { top: edge, right: edge, bottom: edge, left: edge } }
-}
-
-function numFmtPatch(option: NumFmtOption): CellStylePatch {
-  switch (option) {
-    case 'date':
-      return { numFmt: { type: 'date' } }
-    case 'thousands':
-      return { numFmt: { type: 'thousands' } }
-    case 'fixed2':
-      return { numFmt: { type: 'fixed', digits: 2 } }
-    case 'cnUpper':
-      return { numFmt: { type: 'cnUpper' } }
-    default:
-      return { numFmt: null }
-  }
-}
+/** 纸张预设（设计参考线用；真实分页以打印预览为准） */
+const PAPER_PRESETS: { value: PrintPaperPreset; label: string }[] = [
+  { value: 'A3', label: 'A3' },
+  { value: 'A4', label: 'A4' },
+  { value: 'A5', label: 'A5' },
+  { value: 'Letter', label: 'Letter' },
+]
 
 export function DesignerPage() {
   // doc 作为可替换状态：模板加载（TemplatePanel onLoaded）换新文档，画布随 effect 重建
   const [doc, setDoc] = useState<FormDoc>(() => FormDoc.create())
   const mountRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<FormCanvas | null>(null)
+  const formulaBarRef = useRef<FormulaBarHandle>(null)
 
   const [bands, setBands] = useState<FormBand[]>(() => doc.bands.map((band) => ({ ...band })))
   const [hist, setHist] = useState<DocHistoryState>({ canUndo: false, canRedo: false })
-  const [activeBandRow, setActiveBandRow] = useState<number | undefined>(undefined)
   const [pickMode, setPickMode] = useState(false)
   const [editingAddr, setEditingAddr] = useState<CellAddress | undefined>(undefined)
   const [addKind, setAddKind] = useState<BandKind>('detail')
@@ -64,8 +43,17 @@ export function DesignerPage() {
   const [guides, setGuides] = useState<PaperGuidesConfig | null>(DEFAULT_PAPER_GUIDES)
   // 模板名提升到本页（模板面板与打印弹框共用：打印文档标题取模板名）
   const [templateName, setTemplateName] = useState('')
-  // 打印弹框开关（P8）：弹框配置只存弹框运行态，不落模板
+  // 打印弹框开关：弹框配置只存弹框运行态，不落模板
   const [printOpen, setPrintOpen] = useState(false)
+  // 函数库弹框开关
+  const [fnLibraryOpen, setFnLibraryOpen] = useState(false)
+
+  // 选区/样式状态：工具条控件回显 + 区域高亮 + 选区 chip 同源
+  const selection = useSelectionStyle(doc)
+  const activeBand = selection.range ? bandAtRow(doc.bands, selection.range.start.row) : undefined
+  const bound = selection.activeCell
+    ? doc.getCellBinding(selection.activeCell) !== undefined
+    : false
 
   useEffect(() => {
     const el = mountRef.current
@@ -73,7 +61,6 @@ export function DesignerPage() {
     const canvas = mountFormCanvas({
       container: el,
       doc,
-      onSelectionChange: ({ band }) => setActiveBandRow(band?.startRow),
       // 拾取模式点选格 → 绑定编辑面板目标格（选区被拦截不落模型）
       onCellPick: (addr) => setEditingAddr(addr),
       // 画布重建（含模板加载换 doc）按当前参考线配置挂载；运行时切换走下方同步 effect
@@ -84,9 +71,8 @@ export function DesignerPage() {
     // sheet 命令（画布键入/工具栏）与快照条目统一刷新撤销按钮态
     const offDocHistory = doc.on('history-change', () => setHist(doc.history.getState()))
     const offSheetHistory = doc.sheet.on('history-change', () => setHist(doc.history.getState()))
-    // 模板加载替换 doc 后同步面板状态（新画布拾取默认关闭，选区/绑定编辑归零）
+    // 模板加载替换 doc 后同步面板状态（新画布拾取默认关闭，绑定编辑归零）
     setBands(doc.bands.map((band) => ({ ...band })))
-    setActiveBandRow(undefined)
     setPickMode(false)
     setEditingAddr(undefined)
     setHist(doc.history.getState())
@@ -104,290 +90,180 @@ export function DesignerPage() {
     canvasRef.current?.setPaperGuides(guides)
   }, [guides])
 
-  /** 当前选区（无选区时工具栏操作无效） */
-  const selectionRange = (): CellRange | null => doc.sheet.getSelection().ranges[0] ?? null
-
-  const applyStyle = (patch: CellStylePatch): void => {
-    const range = selectionRange()
-    if (range) doc.sheet.setCellStyle(normalizeRange(range), patch)
-  }
-
-  const mergeSelection = (): void => {
-    const range = selectionRange()
-    if (range) doc.sheet.mergeCells(normalizeRange(range))
-  }
-
-  const unmergeSelection = (): void => {
-    const range = selectionRange()
-    if (range) doc.sheet.unmergeCells(normalizeRange(range))
-  }
-
-  /** 活动格所在行/列的尺寸编辑（快照条目，可撤销） */
-  const applyRowHeight = (value: string): void => {
-    const active = doc.sheet.getSelection().activeCell
-    if (active) doc.setRowHeight(active.row, Number(value) || 0)
-  }
-
-  const applyColWidth = (value: string): void => {
-    const active = doc.sheet.getSelection().activeCell
-    if (active) doc.setColWidth(active.col, Number(value) || 0)
-  }
-
-  const togglePickMode = (): void => {
-    const next = !pickMode
+  const togglePickMode = (next: boolean): void => {
     setPickMode(next)
     if (!next) setEditingAddr(undefined)
     canvasRef.current?.setPickMode(next)
   }
 
+  // ⌘P / Ctrl+P 唤起打印预览（拦截浏览器默认打印）
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
+        event.preventDefault()
+        setPrintOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const selectionText = selection.range ? formatRange(selection.range) : '未选中'
+
   return (
-    <div className="designer">
-      <TemplatePanel
+    <>
+      <StyleToolbar
         doc={doc}
-        name={templateName}
-        onNameChange={setTemplateName}
-        onLoaded={setDoc}
+        canUndo={hist.canUndo}
+        canRedo={hist.canRedo}
+        onPrint={() => setPrintOpen(true)}
       />
 
-      <section className="panel toolbar">
-        <h2>格样式</h2>
-        <div className="toolbar-row">
-          <button onClick={() => doc.history.undo()} disabled={!hist.canUndo}>
-            撤销
-          </button>
-          <button onClick={() => doc.history.redo()} disabled={!hist.canRedo}>
-            重做
-          </button>
-          <span className="toolbar-sep" />
-          <button className="primary" onClick={() => setPrintOpen(true)}>
-            打印
-          </button>
-          <label>
-            边框{' '}
-            <select
-              defaultValue="none"
-              onChange={(event) => applyStyle(borderPatch(event.target.value as BorderOption))}
-            >
-              <option value="none">无</option>
-              <option value="thin">细线</option>
-              <option value="medium">中线</option>
-              <option value="thick">粗线</option>
-              <option value="dashed">虚线</option>
-            </select>
-          </label>
-          <label>
-            填充{' '}
-            <input
-              type="color"
-              onChange={(event) => applyStyle({ fill: { color: event.target.value } })}
-            />
-          </label>
-          <button onClick={() => applyStyle({ fill: {} })}>清除填充</button>
-          <label>
-            字色{' '}
-            <input
-              type="color"
-              onChange={(event) => applyStyle({ font: { color: event.target.value } })}
-            />
-          </label>
-          <button onClick={() => applyStyle({ font: { bold: true } })}>加粗</button>
-          <button onClick={() => applyStyle({ font: { bold: null } })}>取消加粗</button>
-          <label>
-            字号{' '}
-            <input
-              type="number"
-              min={6}
-              max={72}
-              defaultValue={11}
-              className="num-input"
-              onChange={(event) => applyStyle({ font: { size: Number(event.target.value) || 11 } })}
-            />
-          </label>
-        </div>
-        <div className="toolbar-row">
-          <label>
-            水平{' '}
-            <select
-              defaultValue="left"
-              onChange={(event) =>
-                applyStyle({
-                  align: { horizontal: event.target.value as 'left' | 'center' | 'right' },
-                })
-              }
-            >
-              <option value="left">左</option>
-              <option value="center">中</option>
-              <option value="right">右</option>
-            </select>
-          </label>
-          <label>
-            垂直{' '}
-            <select
-              defaultValue="middle"
-              onChange={(event) =>
-                applyStyle({
-                  align: { vertical: event.target.value as 'top' | 'middle' | 'bottom' },
-                })
-              }
-            >
-              <option value="top">上</option>
-              <option value="middle">中</option>
-              <option value="bottom">下</option>
-            </select>
-          </label>
-          <label>
-            格式{' '}
-            <select
-              defaultValue="none"
-              onChange={(event) => applyStyle(numFmtPatch(event.target.value as NumFmtOption))}
-            >
-              <option value="none">常规</option>
-              <option value="date">日期</option>
-              <option value="thousands">千分位</option>
-              <option value="fixed2">两位小数</option>
-              <option value="cnUpper">中文大写</option>
-            </select>
-          </label>
-          <button onClick={mergeSelection}>合并</button>
-          <button onClick={unmergeSelection}>取消合并</button>
-          <label>
-            行高{' '}
-            <input
-              type="number"
-              min={0}
-              defaultValue={28}
-              className="num-input"
-              onChange={(event) => applyRowHeight(event.target.value)}
-            />
-          </label>
-          <label>
-            列宽{' '}
-            <input
-              type="number"
-              min={0}
-              defaultValue={96}
-              className="num-input"
-              onChange={(event) => applyColWidth(event.target.value)}
-            />
-          </label>
-        </div>
-      </section>
-
-      <div className="designer-body">
-        <section className="panel band-panel">
-          <h2>波段</h2>
-          <ul className="band-list">
-            {bands.map((band, index) => (
-              <li
-                key={index}
-                className={band.startRow === activeBandRow ? 'band-item active' : 'band-item'}
-              >
-                <select
-                  value={band.kind}
-                  onChange={(event) => doc.setBandKind(index, event.target.value as BandKind)}
-                >
-                  {BAND_KINDS.map((kind) => (
-                    <option key={kind} value={kind}>
-                      {BAND_KIND_LABELS[kind]}
-                    </option>
-                  ))}
-                </select>
-                <span className="meta">
-                  {band.startRow + 1}-{band.endRow + 1} 行
-                </span>
-                <span className="item-actions">
-                  <button onClick={() => doc.moveBand(index, -1)} disabled={index === 0}>
-                    上移
-                  </button>
-                  <button
-                    onClick={() => doc.moveBand(index, 1)}
-                    disabled={index === bands.length - 1}
-                  >
-                    下移
-                  </button>
-                  <button onClick={() => doc.removeBand(index)} disabled={bands.length <= 1}>
-                    删除
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <div className="form-actions">
-            <select
-              value={addKind}
-              onChange={(event) => setAddKind(event.target.value as BandKind)}
-            >
-              {BAND_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {BAND_KIND_LABELS[kind]}
-                </option>
-              ))}
-            </select>
-            <button className="primary" onClick={() => doc.addBand(addKind)}>
-              追加波段
-            </button>
-          </div>
-          <p className="hint">明细波段在画布上以淡蓝底色标记；拾取模式下点选画布格编辑字段绑定</p>
-          <label className="pick-toggle">
-            <input type="checkbox" checked={pickMode} onChange={togglePickMode} />
-            拾取模式（选区拦截）
-          </label>
-          <BindingEditor
+      <div className="app-body">
+        <aside className="sidebar">
+          <TemplatePanel
             doc={doc}
-            addr={editingAddr}
-            onEdited={() => canvasRef.current?.refresh()}
+            name={templateName}
+            onNameChange={setTemplateName}
+            onLoaded={setDoc}
           />
-        </section>
 
-        <section className="panel canvas-panel">
-          <h2>画布（配置态：只显示占位符，不填充数据）</h2>
-          <div className="toolbar-row">
-            <label className="pick-toggle">
-              <input
-                type="checkbox"
-                checked={guides !== null}
-                onChange={() => setGuides(guides ? null : DEFAULT_PAPER_GUIDES)}
-              />
-              纸张参考线
-            </label>
-            {guides ? (
-              <>
-                <label>
-                  纸张{' '}
+          <section className="card region-panel">
+            <details open>
+              <summary>
+                区域
+                <span className="chevron">›</span>
+              </summary>
+              <div className="card-body">
+                <RegionPanel
+                  doc={doc}
+                  bands={bands}
+                  activeStartRow={activeBand?.startRow}
+                  addKind={addKind}
+                  onAddKindChange={setAddKind}
+                />
+              </div>
+            </details>
+          </section>
+
+          <section className={pickMode ? 'card binding-card picking' : 'card binding-card'}>
+            <details open>
+              <summary>
+                字段绑定
+                <span className="chevron">›</span>
+              </summary>
+              <div className="card-body">
+                <div className="pick-row">
+                  <label
+                    className="switch"
+                    title="开启后，点击画布单元格不会移动选区，而是选中它做绑定"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={pickMode}
+                      onChange={(event) => togglePickMode(event.target.checked)}
+                    />
+                    <span className="switch-track" />
+                    拾取模式
+                  </label>
+                  <span className="hint">点选画布格后编辑绑定</span>
+                </div>
+                <BindingEditor
+                  doc={doc}
+                  addr={editingAddr}
+                  onEdited={() => canvasRef.current?.refresh()}
+                />
+              </div>
+            </details>
+          </section>
+        </aside>
+
+        <div className="workspace">
+          <div className="canvas-header">
+            <span className="canvas-heading">
+              <h2>画布</h2>
+              <span className="badge" title="画布只显示占位符，实际数据在打印时按绑定取数">
+                配置态
+              </span>
+            </span>
+
+            {selection.range ? (
+              <span className="selection-chip" title="当前选区（A1 记法）与所在区域">
+                <span className="addr">{selectionText}</span>
+                {activeBand ? (
+                  <span className="region-tag">{BAND_KIND_LABELS[activeBand.kind]}</span>
+                ) : null}
+              </span>
+            ) : null}
+
+            <span className="hint canvas-hint">参考线仅作设计参照，实际分页以打印预览为准</span>
+
+            <div className="canvas-tools">
+              <label className="switch" title="显示纸张边界与分页参考线（不写入模板）">
+                <input
+                  type="checkbox"
+                  checked={guides !== null}
+                  onChange={() => setGuides(guides ? null : DEFAULT_PAPER_GUIDES)}
+                />
+                <span className="switch-track" />
+                参考线
+              </label>
+              {guides ? (
+                <>
                   <select
+                    className="w-paper"
                     value={guides.paperSize}
+                    aria-label="纸张"
+                    title="纸张尺寸（仅影响参考线）"
                     onChange={(event) =>
                       setGuides({ ...guides, paperSize: event.target.value as PrintPaperPreset })
                     }
                   >
-                    <option value="A3">A3</option>
-                    <option value="A4">A4</option>
-                    <option value="A5">A5</option>
-                    <option value="Letter">Letter</option>
+                    {PAPER_PRESETS.map((preset) => (
+                      <option key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </option>
+                    ))}
                   </select>
-                </label>
-                <label>
-                  方向{' '}
                   <select
+                    className="w-orientation"
                     value={guides.orientation}
+                    aria-label="方向"
+                    title="纸张方向（仅影响参考线）"
                     onChange={(event) =>
-                      setGuides({
-                        ...guides,
-                        orientation: event.target.value as PrintOrientation,
-                      })
+                      setGuides({ ...guides, orientation: event.target.value as PrintOrientation })
                     }
                   >
                     <option value="portrait">纵向</option>
                     <option value="landscape">横向</option>
                   </select>
-                </label>
-              </>
-            ) : null}
-            <span className="meta">分页参考线仅设计参照，不写入模板；真实分页以打印预览为准</span>
+                </>
+              ) : null}
+            </div>
           </div>
-          <div ref={mountRef} className="canvas-mount" />
-        </section>
+
+          <FormulaBar
+            ref={formulaBarRef}
+            doc={doc}
+            activeCell={selection.activeCell}
+            bound={bound}
+            onOpenFunctionLibrary={() => setFnLibraryOpen(true)}
+            onChanged={() => canvasRef.current?.refresh()}
+          />
+
+          <div className={pickMode ? 'canvas-frame pick-active' : 'canvas-frame'}>
+            <div ref={mountRef} className="canvas-mount" />
+          </div>
+        </div>
       </div>
+
+      {fnLibraryOpen ? (
+        <FunctionLibraryDialog
+          onClose={() => setFnLibraryOpen(false)}
+          onInsert={(text) => formulaBarRef.current?.insertAtCursor(text)}
+        />
+      ) : null}
+
       {printOpen ? (
         <PrintDialog
           doc={doc}
@@ -395,6 +271,6 @@ export function DesignerPage() {
           onClose={() => setPrintOpen(false)}
         />
       ) : null}
-    </div>
+    </>
   )
 }

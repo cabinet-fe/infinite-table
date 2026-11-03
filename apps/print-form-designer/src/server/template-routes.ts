@@ -1,7 +1,7 @@
-// 模板 REST：波段式 JSON 增删改查（P5 落实，替换 P1 占位路由）。
+// 模板 REST：区域式 JSON 增删改查（P5 落实，替换 P1 占位路由）。
 // 库表 name 列独立存名，bands 列存模板文档（name 之外的 FormTemplate 字段原样序列化），
 // 读取时回填 name——服务端对文档字段透传不重塑，保存→加载 round-trip 等价由前后端共用
-// FormDoc 序列化入口保证；波段行区连续性等深层校验在加载侧 FormDoc.fromTemplate 把关，
+// FormDoc 序列化入口保证；区域行区连续性等深层校验在加载侧 FormDoc.fromTemplate 把关，
 // 此处只做浅层形状校验。
 import type { Hono } from 'hono'
 import type { Database } from 'bun:sqlite'

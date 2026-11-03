@@ -8,6 +8,7 @@ import {
   type DatasourceRow,
   type QueryResult,
 } from './api'
+import { IconDataset, IconEdit, IconPlus, IconTable, IconTrash } from '../ui/icons'
 
 interface Props {
   datasources: DatasourceRow[] | null
@@ -59,42 +60,54 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
   const noDatasource = datasources !== null && datasources.length === 0
 
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <h2>数据集{datasets === null ? '' : ` · ${datasets.length}`}</h2>
-        <button onClick={resetForm}>新建数据集</button>
+    <section className="card data-card">
+      <div className="card-head">
+        <h3>
+          <IconDataset className="head-icon" />
+          数据集
+        </h3>
+        <span className="meta">{datasets === null ? '读取中…' : `共 ${datasets.length} 个`}</span>
+        <button type="button" onClick={resetForm} title="清空表单，开始新建数据集">
+          <IconPlus />
+          新建数据集
+        </button>
       </div>
-      <div className="form-grid">
-        <label htmlFor="dset-name">名称</label>
-        <input
-          id="dset-name"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="如：销售明细（列表样）"
-        />
-        <label htmlFor="dset-source">数据源</label>
-        <select
-          id="dset-source"
-          value={form.datasource_id}
-          onChange={(e) => setForm({ ...form, datasource_id: e.target.value })}
-          disabled={noDatasource}
-        >
-          {noDatasource ? <option value="">请先创建数据源</option> : null}
-          {datasources?.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.name}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="dset-sql">SQL</label>
-        <textarea
-          id="dset-sql"
-          value={form.sql}
-          onChange={(e) => setForm({ ...form, sql: e.target.value })}
-          placeholder="SELECT ... FROM ...（只读单条查询）"
-        />
-        <div className="form-actions">
+
+      <div className="data-form">
+        <label className="field-col">
+          <span className="field-label">名称</span>
+          <input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="如：销售明细（列表样）"
+          />
+        </label>
+        <label className="field-col">
+          <span className="field-label">数据源</span>
+          <select
+            value={form.datasource_id}
+            onChange={(e) => setForm({ ...form, datasource_id: e.target.value })}
+            disabled={noDatasource}
+          >
+            {noDatasource ? <option value="">请先创建数据源</option> : null}
+            {datasources?.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field-col">
+          <span className="field-label">SQL（只读单条查询）</span>
+          <textarea
+            value={form.sql}
+            onChange={(e) => setForm({ ...form, sql: e.target.value })}
+            placeholder="SELECT ... FROM ..."
+          />
+        </label>
+        <div className="button-row">
           <button
+            type="button"
             className="primary"
             disabled={busy || noDatasource || formInvalid}
             onClick={() =>
@@ -107,6 +120,7 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
             保存
           </button>
           <button
+            type="button"
             disabled={busy || noDatasource || formInvalid}
             onClick={() =>
               run(async () => {
@@ -117,49 +131,56 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
               })
             }
           >
+            <IconTable />
             执行预览
           </button>
-          {editingId !== null ? (
-            <span className="meta editing-hint">正在编辑已保存的数据集</span>
-          ) : null}
+          {editingId !== null ? <span className="meta">正在编辑已保存的数据集</span> : null}
         </div>
         <p className={status.error ? 'status error' : 'status'}>{status.text}</p>
       </div>
+
       {preview !== null ? <PreviewTable result={preview} /> : null}
-      <ul className="item-list">
+
+      <ul className="data-list">
+        {datasets?.length === 0 ? <li className="empty">还没有数据集</li> : null}
         {datasets?.map((row) => (
           <li key={row.id}>
-            <span>
-              {row.name}
-              <span className="meta">
-                （
+            <span className="item-main">
+              <span className="item-title">{row.name}</span>
+              <span className="item-sub">
                 {datasources?.find((source) => source.id === row.datasource_id)?.name ??
                   '数据源缺失'}
-                ）
               </span>
             </span>
             <span className="item-actions">
               <button
+                type="button"
+                className="icon-button"
                 disabled={busy}
+                title="编辑该数据集"
                 onClick={() => {
                   setEditingId(row.id)
                   setForm(formFromRow(row))
                   setPreview(null)
                 }}
               >
-                编辑
+                <IconEdit />
               </button>
               <button
+                type="button"
+                className="icon-button danger"
                 disabled={busy}
-                onClick={() =>
-                  run(async () => {
+                title="删除该数据集"
+                onClick={() => {
+                  if (!window.confirm(`删除数据集「${row.name}」？`)) return
+                  void run(async () => {
                     await api.deleteDataset(row.id)
                     if (editingId === row.id) resetForm()
                     return '数据集已删除'
                   })
-                }
+                }}
               >
-                删除
+                <IconTrash />
               </button>
             </span>
           </li>
@@ -172,24 +193,32 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
 function PreviewTable({ result }: { result: QueryResult }) {
   return (
     <div className="preview">
-      <table>
-        <thead>
-          <tr>
-            {result.columns.map((column, index) => (
-              <th key={index}>{column}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {result.rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              {row.map((cell, cellIndex) => (
-                <td key={cellIndex}>{cell === null || cell === undefined ? '' : String(cell)}</td>
+      <div className="preview-head">
+        <span className="section-label">执行结果</span>
+        <span className="meta">
+          {result.rows.length} 行 · {result.columns.length} 列
+        </span>
+      </div>
+      <div className="preview-scroll">
+        <table>
+          <thead>
+            <tr>
+              {result.columns.map((column, index) => (
+                <th key={index}>{column}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {result.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex}>{cell === null || cell === undefined ? '' : String(cell)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

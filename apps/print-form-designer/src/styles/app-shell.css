@@ -1,0 +1,204 @@
+/* 应用壳：全屏三段式（顶栏 / 工具栏 ribbon / 主体），不再整页滚动 */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── 顶栏 ──────────────────────────────────────────────────────────────── */
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: var(--h-topbar);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.brand {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.brand-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* 视图切换：分段控件（容器浅底，选中项白底浮起） */
+.segmented {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.segmented button {
+  height: 26px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.segmented button:hover:not(:disabled) {
+  background: rgba(16, 24, 40, 0.04);
+  color: var(--text-primary);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ─── 主体：侧栏 + 工作区 ───────────────────────────────────────────────── */
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 视图面板：设计页与数据页都常驻挂载，切换只显隐（保留各自状态） */
+.view-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.view-panel[hidden] {
+  display: none;
+}
+
+.sidebar {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 12px;
+  width: 320px;
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+/* ─── 侧栏卡片 ──────────────────────────────────────────────────────────── */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+
+.card > details {
+  display: block;
+}
+
+.card > details > summary,
+.card > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.card > details > summary::-webkit-details-marker,
+.card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.card > details > summary:hover,
+.card > summary:hover {
+  color: var(--text-primary);
+}
+
+/* 折叠箭头：收起朝右、展开朝下，用细线字符保持轻量 */
+.card > details > summary .chevron,
+.card > summary .chevron {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease;
+}
+
+.card > details[open] > summary .chevron,
+.card[open] > summary .chevron {
+  transform: rotate(90deg);
+}
+
+.card > details[open] > summary,
+.card[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.card-body > .status {
+  margin-top: -2px;
+}
+
+/* 侧栏里嵌套的无边框子块（区域列表 / 绑定编辑共用） */
+.card-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.section-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 窄屏：侧栏收窄，工作区优先 */
+@media (max-width: 1180px) {
+  .sidebar {
+    width: 288px;
+  }
+}

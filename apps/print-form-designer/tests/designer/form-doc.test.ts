@@ -65,7 +65,7 @@ describe('默认文档与波段结构', () => {
     doc.removeBand(0)
     doc.removeBand(0)
     expect(doc.bands.length).toBe(1)
-    expect(() => doc.removeBand(0)).toThrow('至少保留一个波段')
+    expect(() => doc.removeBand(0)).toThrow('至少保留一个区域')
   })
 
   test('波段排序：相邻交换后内容随行块平移', () => {
@@ -214,6 +214,72 @@ describe('统一撤销链（波段结构 × 样式命令交错）', () => {
   })
 })
 
+describe('区域行数调整（resizeBand）', () => {
+  test('变高：底部插入空行、内容不动、后续区域行号顺延；变矮：底部行被移除；均可撤销重做', () => {
+    const doc = FormDoc.create()
+    // 默认骨架：pageHeader 0-1 / info 2-3 / detail 4-6 / summary 7 / signature 8-9
+    doc.sheet.setCellValue(ADDR(0, 0), '标题')
+    doc.sheet.setCellValue(ADDR(3, 0), '信息尾行')
+    doc.sheet.setCellValue(ADDR(4, 0), '明细首行')
+    doc.sheet.setCellValue(ADDR(7, 0), '合计')
+
+    // ─── 变高：info 区域 2 行 → 4 行 ───
+    doc.resizeBand(1, 4)
+    expect(doc.rows).toBe(12)
+    expect(doc.bands[1]).toEqual({ kind: 'info', startRow: 2, endRow: 5 })
+    // 后续区域整体下移 2 行
+    expect(doc.bands[2]).toEqual({ kind: 'detail', startRow: 6, endRow: 8 })
+    expect(doc.bands[3]!.startRow).toBe(9)
+    expect(doc.bands[4]).toEqual({ kind: 'signature', startRow: 10, endRow: 11 })
+    // 内容留在原处（标题/信息尾行不动，明细与合计随区域下移）
+    expect(doc.sheet.getDisplayValue(ADDR(0, 0))).toBe('标题')
+    expect(doc.sheet.getDisplayValue(ADDR(3, 0))).toBe('信息尾行')
+    expect(doc.sheet.getDisplayValue(ADDR(6, 0))).toBe('明细首行')
+    expect(doc.sheet.getDisplayValue(ADDR(9, 0))).toBe('合计')
+    // 新增的两行是空的
+    expect(doc.sheet.getDisplayValue(ADDR(4, 0))).toBeUndefined()
+    expect(doc.sheet.getDisplayValue(ADDR(5, 0))).toBeUndefined()
+
+    // 撤销回到原状
+    expect(doc.history.undo()).toBe(true)
+    expect(doc.rows).toBe(10)
+    expect(doc.bands[1]).toEqual({ kind: 'info', startRow: 2, endRow: 3 })
+    expect(doc.bands[2]).toEqual({ kind: 'detail', startRow: 4, endRow: 6 })
+    expect(doc.sheet.getDisplayValue(ADDR(4, 0))).toBe('明细首行')
+    expect(doc.sheet.getDisplayValue(ADDR(7, 0))).toBe('合计')
+
+    // 重做还原变高结果
+    expect(doc.history.redo()).toBe(true)
+    expect(doc.rows).toBe(12)
+    expect(doc.bands[1]).toEqual({ kind: 'info', startRow: 2, endRow: 5 })
+
+    // ─── 变矮：detail 区域 3 行 → 1 行（从底部删 2 行） ───
+    doc.sheet.setCellValue(ADDR(8, 0), '明细尾行') // 当前 detail 为 6-8
+    doc.resizeBand(2, 1)
+    expect(doc.rows).toBe(10)
+    expect(doc.bands[2]).toEqual({ kind: 'detail', startRow: 6, endRow: 6 })
+    expect(doc.bands[3]!.startRow).toBe(7)
+    // 首行内容保留，底部两行（含明细尾行）随删除消失
+    expect(doc.sheet.getDisplayValue(ADDR(6, 0))).toBe('明细首行')
+    expect(doc.sheet.getDisplayValue(ADDR(8, 0))).toBeUndefined()
+
+    // 撤销回到变矮前
+    expect(doc.history.undo()).toBe(true)
+    expect(doc.rows).toBe(12)
+    expect(doc.bands[2]).toEqual({ kind: 'detail', startRow: 6, endRow: 8 })
+    expect(doc.sheet.getDisplayValue(ADDR(8, 0))).toBe('明细尾行')
+  })
+
+  test('行数不变或小于 1 时不做任何改动（不入撤销链）', () => {
+    const doc = FormDoc.create()
+    const before = JSON.stringify(doc.bands)
+    doc.resizeBand(1, 2) // 与当前相同
+    doc.resizeBand(1, 0) // 非法
+    expect(JSON.stringify(doc.bands)).toBe(before)
+    expect(doc.history.canUndo).toBe(false)
+  })
+})
+
 describe('模板 JSON 序列化', () => {
   test('round-trip：保存 → 加载 → 再保存等价', () => {
     const doc = FormDoc.create()
@@ -267,7 +333,7 @@ describe('模板 JSON 序列化', () => {
         { kind: 'info', startRow: 3, endRow: 4 }, // 行区断档
       ],
     }
-    expect(() => FormDoc.fromTemplate(broken)).toThrow('波段行区不连续')
+    expect(() => FormDoc.fromTemplate(broken)).toThrow('区域行区不连续')
   })
 })
 

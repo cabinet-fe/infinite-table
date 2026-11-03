@@ -2,7 +2,7 @@
 //
 // 配置态画布永不填充数据（P3 口径）；本管线是预览与打印共用的唯一数据态入口，
 // P8 打印弹框从这里取快照渲染。输出即 SheetSnapshot 形态：格取值已解析、明细
-// 波段按绑定数组循环展开（数组每个元素复制一份波段行区，值按元素下探），可直接
+// 区域按绑定数组循环展开（数组每个元素复制一份区域行区，值按元素下探），可直接
 // 喂给以 sheet 快照为基准的打印适配。
 import type { CellMetaSnapshotItem, SheetSnapshot } from '@infinitable/sheet'
 
@@ -46,8 +46,8 @@ function bindingIndex(
   return index
 }
 
-/** 波段展开份数：明细波段取波段内绑定循环数组的最大长度；解析到空数组 = 0 份（塌缩），
- *  波段内没有任何有效循环数组（未绑定/数组缺失）时保持 1 份（按模板形态出） */
+/** 区域展开份数：明细区取区域内绑定循环数组的最大长度；解析到空数组 = 0 份（塌缩），
+ *  区域内没有任何有效循环数组（未绑定/数组缺失）时保持 1 份（按模板形态出） */
 function bandCopies(
   band: FormBand,
   items: readonly CellMetaSnapshotItem[] | undefined,
@@ -74,7 +74,7 @@ function bandCopies(
 /**
  * 渲染数据态表单快照：
  * - 非明细格：绑定按路径直取（`[]` 循环路径需聚合，否则无值），未绑定格回落模板存储值；
- * - 明细波段：按绑定数组长度逐元素复制行区，`[]` 路径按元素下标取值，样式/行高随行复制；
+ * - 明细区：按绑定数组长度逐元素复制行区，`[]` 路径按元素下标取值，样式/行高随行复制；
  * - 合并区整体落在同一展开份数的行上则随份复制，跨明细边界的合并在数据态丢弃；
  * - 绑定 sidecar 不进数据态快照（已解析为值）。
  */
@@ -82,7 +82,7 @@ export function renderDataState(doc: FormDoc, shapes: DatasetShapes): SheetSnaps
   const snapshot = doc.sheet.snapshot()
   const bindings = bindingIndex(snapshot.meta)
 
-  // 模板行 → 展开后行号列表（明细行多份；元素外层、波段行区内层，块序即元素序）
+  // 模板行 → 展开后行号列表（明细行多份；元素外层、区域行区内层，块序即元素序）
   const targets: number[][] = Array.from({ length: snapshot.rows }, () => [])
   let nextRow = 0
   for (const band of doc.bands) {

@@ -14,6 +14,7 @@ import type {
 import { api, toSourceRows } from '../data/api'
 import type { FormDoc } from './form-doc'
 import { collectPrintBindings, preparePrintSession, type PrintSession } from './print-source'
+import { IconClose, IconPrint } from '../ui/icons'
 
 /** 弹框打印配置（运行态，不落模板）：与 PrintConfig 的差异只在 UI 便捷形态 */
 export interface DialogPrintSettings {
@@ -60,7 +61,7 @@ export function toPrintConfig(settings: DialogPrintSettings): PrintConfig {
   }
 }
 
-/** 缺省重复表头行数：首个波段为页眉时取其行数（页眉波段每页重复的波段语义） */
+/** 缺省重复表头行数：首个区域为页眉时取其行数（页眉区域每页重复的区域语义） */
 function leadingPageHeaderRows(doc: FormDoc): number {
   const first = doc.bands[0]
   return first?.kind === 'pageHeader' ? first.endRow - first.startRow + 1 : 0
@@ -147,139 +148,165 @@ export function PrintDialog({ doc, title, onClose }: Props) {
 
   return (
     <div className="print-dialog-overlay">
-      <div className="print-dialog">
+      <div className="print-dialog" role="dialog" aria-modal="true" aria-label="打印预览">
         <div className="print-dialog-bar">
-          <h2>打印</h2>
-          <span className="meta">{title}</span>
-          <span className="meta">{preview ? `共 ${preview.pages} 页` : '取数中…'}</span>
-          <button onClick={onClose}>关闭</button>
+          <h2>打印预览</h2>
+          <span className="doc-name" title={title}>
+            {title}
+          </span>
+          <span className="meta pages-badge">{preview ? `共 ${preview.pages} 页` : '取数中…'}</span>
+          <button type="button" className="bar-close" onClick={onClose} title="关闭打印预览（Esc）">
+            <IconClose />
+            关闭
+          </button>
         </div>
+
         <div className="print-dialog-body">
           <section className="print-dialog-config">
-            <label>
-              纸张{' '}
-              <select
-                value={settings.paper}
-                onChange={(event) => patch({ paper: event.target.value as PrintPaperPreset })}
-              >
-                <option value="A3">A3</option>
-                <option value="A4">A4</option>
-                <option value="A5">A5</option>
-                <option value="Letter">Letter</option>
-              </select>
-            </label>
-            <label>
-              方向{' '}
-              <select
-                value={settings.orientation}
-                onChange={(event) => patch({ orientation: event.target.value as PrintOrientation })}
-              >
-                <option value="portrait">纵向</option>
-                <option value="landscape">横向</option>
-              </select>
-            </label>
-            <label>
-              边距（px）{' '}
-              <input
-                type="number"
-                min={0}
-                className="num-input"
-                value={settings.marginPx}
-                onChange={(event) => patch({ marginPx: Number(event.target.value) || 0 })}
-              />
-            </label>
-            <label>
-              缩放{' '}
-              <select
-                value={settings.scaleMode}
-                onChange={(event) =>
-                  patch({ scaleMode: event.target.value as DialogPrintSettings['scaleMode'] })
-                }
-              >
-                <option value="origin">原始尺寸</option>
-                <option value="fit-width">按页宽缩放</option>
-                <option value="percent">自定义百分比</option>
-              </select>
-            </label>
-            {settings.scaleMode === 'percent' ? (
+            <div className="print-config-group">
+              <h3>纸张</h3>
               <label>
-                百分比（%）{' '}
+                纸张
+                <select
+                  value={settings.paper}
+                  onChange={(event) => patch({ paper: event.target.value as PrintPaperPreset })}
+                >
+                  <option value="A3">A3</option>
+                  <option value="A4">A4</option>
+                  <option value="A5">A5</option>
+                  <option value="Letter">Letter</option>
+                </select>
+              </label>
+              <label>
+                方向
+                <select
+                  value={settings.orientation}
+                  onChange={(event) =>
+                    patch({ orientation: event.target.value as PrintOrientation })
+                  }
+                >
+                  <option value="portrait">纵向</option>
+                  <option value="landscape">横向</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="print-config-group">
+              <h3>布局</h3>
+              <label>
+                边距（px）
+                <input
+                  type="number"
+                  min={0}
+                  value={settings.marginPx}
+                  onChange={(event) => patch({ marginPx: Number(event.target.value) || 0 })}
+                />
+              </label>
+              <label>
+                缩放
+                <select
+                  value={settings.scaleMode}
+                  onChange={(event) =>
+                    patch({ scaleMode: event.target.value as DialogPrintSettings['scaleMode'] })
+                  }
+                >
+                  <option value="origin">原始尺寸</option>
+                  <option value="fit-width">按页宽缩放</option>
+                  <option value="percent">自定义百分比</option>
+                </select>
+              </label>
+              {settings.scaleMode === 'percent' ? (
+                <label>
+                  百分比（%）
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={settings.percent}
+                    onChange={(event) => patch({ percent: Number(event.target.value) || 100 })}
+                  />
+                </label>
+              ) : null}
+            </div>
+
+            <div className="print-config-group">
+              <h3>分页</h3>
+              <label>
+                分页模式
+                <select
+                  value={settings.paging}
+                  onChange={(event) => patch({ paging: event.target.value as PrintPagingMode })}
+                >
+                  <option value="fitpage">按行高</option>
+                  <option value="fixrows">固定行数</option>
+                </select>
+              </label>
+              {settings.paging === 'fixrows' ? (
+                <label>
+                  每页行数（含表头）
+                  <input
+                    type="number"
+                    min={1}
+                    value={settings.fixRows}
+                    onChange={(event) => patch({ fixRows: Number(event.target.value) || 0 })}
+                  />
+                </label>
+              ) : null}
+              <label>
+                重复表头行数
+                <input
+                  type="number"
+                  min={0}
+                  value={settings.headerRepeatRows}
+                  onChange={(event) => patch({ headerRepeatRows: Number(event.target.value) || 0 })}
+                />
+              </label>
+              <label>
+                分组换页列（1 起）
                 <input
                   type="number"
                   min={1}
-                  max={1000}
-                  className="num-input"
-                  value={settings.percent}
-                  onChange={(event) => patch({ percent: Number(event.target.value) || 100 })}
+                  value={settings.groupBreakCol}
+                  onChange={(event) =>
+                    patch({
+                      groupBreakCol: event.target.value === '' ? '' : Number(event.target.value),
+                    })
+                  }
                 />
               </label>
-            ) : null}
-            <label>
-              分页模式{' '}
-              <select
-                value={settings.paging}
-                onChange={(event) => patch({ paging: event.target.value as PrintPagingMode })}
-              >
-                <option value="fitpage">按行高</option>
-                <option value="fixrows">固定行数</option>
-              </select>
-            </label>
-            {settings.paging === 'fixrows' ? (
-              <label>
-                每页行数（含表头）{' '}
-                <input
-                  type="number"
-                  min={1}
-                  className="num-input"
-                  value={settings.fixRows}
-                  onChange={(event) => patch({ fixRows: Number(event.target.value) || 0 })}
-                />
-              </label>
-            ) : null}
-            <label>
-              重复表头行数{' '}
-              <input
-                type="number"
-                min={0}
-                className="num-input"
-                value={settings.headerRepeatRows}
-                onChange={(event) => patch({ headerRepeatRows: Number(event.target.value) || 0 })}
-              />
-            </label>
-            <label>
-              分组换页列（1 起）{' '}
-              <input
-                type="number"
-                min={1}
-                className="num-input"
-                value={settings.groupBreakCol}
-                onChange={(event) =>
-                  patch({
-                    groupBreakCol: event.target.value === '' ? '' : Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <p className="meta">配置仅在本弹框生效，不写入模板</p>
+              <p className="meta config-note">这些配置只在本次打印生效，不会写入模板。</p>
+            </div>
           </section>
+
           <div className="print-dialog-stage">
             {error ? (
               <p className="status error">{error}</p>
             ) : preview?.error ? (
               <p className="status error">{preview.error}</p>
+            ) : preview?.html ? (
+              <iframe title="打印预览" srcDoc={preview.html} />
             ) : (
-              <iframe title="打印预览" srcDoc={preview?.html ?? ''} />
+              <p className="stage-placeholder">正在生成预览…</p>
             )}
           </div>
         </div>
+
         <div className="print-dialog-foot">
-          <span className="meta">预览与打印输出同一份渲染产物（同输入同输出）</span>
+          <span className="meta">预览与打印输出同一份渲染产物，所见即所打。</span>
           <button
+            type="button"
             className="primary"
             disabled={!preview || !!preview.error || !!error || printing}
             onClick={runPrint}
           >
-            {printing ? '打印中…' : '打印'}
+            {printing ? (
+              '打印中…'
+            ) : (
+              <>
+                <IconPrint />
+                打印
+              </>
+            )}
           </button>
         </div>
       </div>

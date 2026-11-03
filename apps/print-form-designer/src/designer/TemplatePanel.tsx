@@ -1,4 +1,4 @@
-// 模板面板：保存（有当前模板则更新、否则新建）/ 另存（强制新建）/ 模板列表打开。
+// 模板面板：保存（已存在模板则更新、否则新建）/ 另存（强制新建）/ 模板列表打开。
 // 序列化与还原共用 FormDoc.toTemplate / fromTemplate 入口，画布还原由 DesignerPage
 // 替换 doc 驱动；round-trip 等价由 app 内测试守住。
 import { useCallback, useEffect, useState } from 'react'
@@ -56,7 +56,7 @@ export function TemplatePanel({ doc, name, onNameChange, onLoaded }: Props) {
           : await api.createTemplate(template)
         setCurrentId(record.id)
       },
-      currentId ? '模板已保存' : '模板已保存（新建）',
+      currentId ? '模板已保存' : '已保存为新模板',
     )
 
   /** 另存：无论当前状态一律新建 */
@@ -66,7 +66,7 @@ export function TemplatePanel({ doc, name, onNameChange, onLoaded }: Props) {
       setCurrentId(record.id)
     }, '已另存为新模板')
 
-  /** 打开：拉取模板 JSON 还原为新文档（含波段/格样式/合并/行高列宽/绑定 sidecar） */
+  /** 打开：拉取模板 JSON 还原为新文档（含区域/格样式/合并/行高列宽/绑定 sidecar） */
   const open = () =>
     run(async () => {
       const record = await api.getTemplate(openId)
@@ -76,41 +76,70 @@ export function TemplatePanel({ doc, name, onNameChange, onLoaded }: Props) {
     }, '模板已加载')
 
   return (
-    <section className="panel toolbar template-panel">
-      <h2>模板</h2>
-      <div className="toolbar-row">
-        <label>
-          模板名{' '}
-          <input
-            type="text"
-            value={name}
-            onChange={(event) => onNameChange(event.target.value)}
-            placeholder="如：出库单"
-          />
-        </label>
-        <button className="primary" disabled={busy || name.trim() === ''} onClick={save}>
-          {currentId ? '保存' : '保存（新建）'}
-        </button>
-        <button disabled={busy || name.trim() === ''} onClick={saveAs}>
-          另存
-        </button>
-        <span className="toolbar-sep" />
-        <label>
-          模板列表{' '}
-          <select value={openId} onChange={(event) => setOpenId(event.target.value)}>
-            <option value="">选择模板…</option>
-            {templates?.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button disabled={busy || openId === ''} onClick={open}>
-          打开
-        </button>
-      </div>
-      <p className={status.error ? 'status error' : 'status'}>{status.text}</p>
+    <section className="card template-panel" aria-label="模板">
+      <details open>
+        <summary>
+          模板
+          <span className="chevron">›</span>
+        </summary>
+        <div className="card-body">
+          <label className="field-col">
+            <span className="field-label">模板名</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(event) => onNameChange(event.target.value)}
+              placeholder="如：销售出库单"
+            />
+          </label>
+
+          <div className="button-row">
+            <button
+              type="button"
+              className="primary"
+              disabled={busy || name.trim() === ''}
+              onClick={save}
+              title={currentId ? '覆盖保存当前模板' : '以当前内容创建新模板'}
+            >
+              {currentId ? '保存' : '保存为新模板'}
+            </button>
+            <button
+              type="button"
+              disabled={busy || name.trim() === ''}
+              onClick={saveAs}
+              title="总是创建一份新模板"
+            >
+              另存
+            </button>
+          </div>
+
+          <div className="button-row">
+            <select
+              className="grow"
+              value={openId}
+              aria-label="模板列表"
+              onChange={(event) => setOpenId(event.target.value)}
+            >
+              <option value="">选择已有模板…</option>
+              {templates?.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={busy || openId === ''}
+              onClick={open}
+              title="加载所选模板"
+            >
+              打开
+            </button>
+          </div>
+
+          <p className={status.error ? 'status error' : 'status'}>{status.text}</p>
+        </div>
+      </details>
     </section>
   )
 }

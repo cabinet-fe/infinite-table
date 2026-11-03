@@ -1,0 +1,278 @@
+/* 格样式工具条（ribbon）：定高横条，分组之间以 1px 竖线分隔，主操作固定最右 */
+.toolbar.ribbon {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  height: var(--h-ribbon);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+/* 可横向滚动的分组区：不换行（换行会把条高撑爆），滚动条隐藏保持观感 */
+.ribbon-scroll {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.ribbon-scroll::-webkit-scrollbar {
+  height: 0;
+}
+
+.ribbon-group {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+}
+
+/* 分组分隔：竖线两侧各留 8px（对齐 gap），线本身不参与收缩 */
+.ribbon-group + .ribbon-group {
+  padding-left: 9px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* 主操作固定在右端，分区滚动时始终可见 */
+.ribbon-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  padding-left: 8px;
+}
+
+/* ─── 图标按钮（28 高、6 圆角、按下态用 accent-soft 底色） ─────────────── */
+.icon-button {
+  width: 28px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-button[aria-pressed='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 图标 + 文字的次要按钮（撤销/重做/合并等） */
+.text-button {
+  height: 28px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.text-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.text-button .button-icon {
+  color: var(--text-tertiary);
+}
+
+.text-button:hover:not(:disabled) .button-icon {
+  color: var(--text-secondary);
+}
+
+/* ─── 工具条内的小字段（select / number / 色块） ───────────────────────── */
+.ribbon-field {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ribbon-field > select {
+  height: 28px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.ribbon-field > input[type='number'] {
+  height: 28px;
+  padding: 0 6px;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.ribbon-field.w-border > select {
+  width: 84px;
+}
+
+.ribbon-field.w-font-size > input {
+  width: 56px;
+}
+
+.ribbon-field.w-row-height > input {
+  width: 56px;
+}
+
+.ribbon-field.w-col-width > input {
+  width: 64px;
+}
+
+.ribbon-field.w-format > select {
+  width: 92px;
+}
+
+/* 色块按钮：28x28 内含原生 color picker，外框做描边圆角 */
+.color-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+
+.color-swatch:hover {
+  border-color: var(--accent);
+}
+
+.color-swatch > .swatch-preview {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  /* 透明底纹：斜向细线，避免白色色块与底板混淆 */
+  background-image:
+    linear-gradient(45deg, #eceef2 25%, transparent 25%, transparent 75%, #eceef2 75%),
+    linear-gradient(45deg, #eceef2 25%, transparent 25%, transparent 75%, #eceef2 75%);
+  background-position:
+    0 0,
+    3px 3px;
+  background-size: 6px 6px;
+}
+
+.color-swatch > input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+/* 色块下方的字色提示：A 字形 + 当前色横条 */
+.color-swatch .swatch-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+/* ─── switch（iOS 风格小开关，checkbox 隐藏、轨道自绘） ─────────────────── */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 9px;
+  background: var(--border-strong);
+  transition: background 0.15s ease;
+}
+
+.switch-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.2);
+  transition: transform 0.15s ease;
+  content: '';
+}
+
+.switch > input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch > input:checked + .switch-track::after {
+  transform: translateX(13px);
+}
+
+.switch > input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.switch > input:disabled + .switch-track {
+  opacity: 0.45;
+}
+
+/* ─── 数字格式快捷组（取代原下拉框：金额大写等常用格式一键切换） ───────── */
+.numfmt-group {
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.numfmt-button {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.numfmt-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.numfmt-button[aria-pressed='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}

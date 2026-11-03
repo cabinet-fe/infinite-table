@@ -164,6 +164,9 @@ export function drawPageGuides(
  * 参考线 painter（协议 OverlayPainter 结构兼容形态）：开启且画布在挂载态时，
  * 从当前引擎读取面估算分页并绘制；画布内容原点取 (0,0) 格的视口矩形（含行号列/
  * 列头偏移），无可见原点（空画布）跳过绘制。
+ *
+ * 注意：本 painter 只负责参考线。sky 层槽位由 canvas-overlay 的组合 painter 统一持有
+ * （区域轨道 + 参考线），本函数作为其内部子画笔被调用。
  */
 export function createPaperGuidesPainter(
   getGrid: () => SheetGrid | undefined,
@@ -178,48 +181,5 @@ export function createPaperGuidesPainter(
     const origin = table.getCellRelativeRect(0, 0)
     if (!origin) return
     drawPageGuides(ctx, viewport, computePageGuides(createEnginePrintSource(table), config), origin)
-  }
-}
-
-/**
- * 参考线 overlay 接线（form-canvas 的挂载层调用）：attach 随每次网格创建/重建把
- * painter 写进新引擎的 overlay 槽位（单写方，watermark 先例）；update 切配置或关闭
- * （null = 槽位还原空置）；refresh 以同一 painter 原位重写触发 sky 整层失效——
- * 行高/列宽就地同步后参考线随重绘对齐（协议 setOverlayPainter 非空写入恒提交失效）。
- */
-export interface PaperGuidesOverlay {
-  attach(grid: SheetGrid): void
-  update(config: PaperGuidesConfig | null): void
-  refresh(): void
-  detach(): void
-}
-
-export function createPaperGuidesOverlay(initial: PaperGuidesConfig | null): PaperGuidesOverlay {
-  let config: PaperGuidesConfig | null = initial
-  let grid: SheetGrid | undefined
-  const painter = createPaperGuidesPainter(
-    () => grid,
-    () => config,
-  )
-  const apply = (): void => {
-    grid?.getTable().setOverlayPainter(config ? painter : null)
-  }
-  return {
-    attach(next) {
-      grid = next
-      apply()
-    },
-    update(next) {
-      config = next
-      apply()
-    },
-    refresh() {
-      if (grid && config) grid.getTable().setOverlayPainter(painter)
-    },
-    detach() {
-      if (grid) grid.getTable().setOverlayPainter(null)
-      grid = undefined
-      config = null
-    },
   }
 }

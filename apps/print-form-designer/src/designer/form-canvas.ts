@@ -1,11 +1,9 @@
 import { SheetGrid, type CellAddress, type CellStyle } from '@infinitable/sheet'
 
+import { FORM_CANVAS_THEME } from './canvas-theme'
+import { createCanvasOverlay, type CanvasOverlay } from './canvas-overlay'
 import type { FormDoc } from './form-doc'
-import {
-  createPaperGuidesOverlay,
-  type PaperGuidesConfig,
-  type PaperGuidesOverlay,
-} from './paper-guides'
+import type { PaperGuidesConfig } from './paper-guides'
 import {
   FORM_BINDING_META_NAMESPACE,
   bandAtRow,
@@ -19,15 +17,15 @@ import {
  *
  * - 配置态口径：绑定格只显示占位符（resolveDisplayValue 读 sidecar，数据行
  *   永不进画布；数据态渲染在预览/打印管线，P5/P6 接线）；
- * - 明细波段底色标记（resolveCellStyle 叠加淡色填充，不写模型、不进快照）；
+ * - 明细区底色标记（resolveCellStyle 叠加淡色填充，不写模型、不进快照）；
  * - 选区拦截：拾取模式下经 interceptSelection 接管画布选区（选区不落模型），
  *   点选以 onCellPick 回交——绑定编辑（P6）的唤起入口；常规模式选区正常流动，
- *   选区变化回带所在波段（波段/格选中语义）；
+ *   选区变化回带所在区域（区域/格选中语义）；
  * - 纸张边界/分页参考线（P4）：overlay painter 经协议 setOverlayPainter 挂 sky 层，
  *   网格重建时随 createGrid 重挂；仅显示层——配置由宿主持有，不写模型、不进快照。
  */
 
-/** 明细波段底色（无显式填充的格叠加；仅画布显示层） */
+/** 明细区底色（无显式填充的格叠加；仅画布显示层） */
 const DETAIL_BAND_TINT = '#eef4ff'
 
 /** 视图几何态：行高/列宽自定义键集 + 合并区签名（静默 restore 后的失配检测基准） */
@@ -57,7 +55,7 @@ function keySetShrunk(prev: ReadonlySet<number>, next: ReadonlySet<number>): boo
 export interface FormCanvasOptions {
   container: HTMLElement
   doc: FormDoc
-  /** 常规模式选区变化（含所在波段；波段面板据此高亮） */
+  /** 常规模式选区变化（含所在区域；区域面板据此高亮） */
   onSelectionChange?(info: { addr: CellAddress; band: FormBand | undefined }): void
   /** 拾取模式点选格（选区被拦截不落模型；P6 绑定编辑入口） */
   onCellPick?(addr: CellAddress): void
@@ -93,8 +91,19 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   /** 上次同步到引擎的几何态（键集缩小或合并区变化须重建网格） */
   let mountedGeometry = captureGeometry(doc)
   const disposers: (() => void)[] = []
-  /** 纸张边界/分页参考线 overlay（每次网格创建/重建随 createGrid 重挂新引擎） */
-  const guides: PaperGuidesOverlay = createPaperGuidesOverlay(options.paperGuides ?? null)
+  /** 纸张参考线配置（显示层状态，由宿主经 setPaperGuides 写入） */
+  let guidesConfig: PaperGuidesConfig | null = options.paperGuides ?? null
+  /** sky 层组合 overlay（区域轨道 + 参考线；每次网格创建/重建随 createGrid 重挂新引擎） */
+  const overlay: CanvasOverlay = createCanvasOverlay({
+    getGrid: () => grid,
+    getPaperGuides: () => guidesConfig,
+    getBands: () => doc.bands,
+    // 当前选中区域：活动格所在区域的起始行（画布/侧栏联动的同一口径）
+    getActiveBandStartRow: () => {
+      const active = doc.sheet.getSelection().activeCell
+      return active ? bandAtRow(doc.bands, active.row)?.startRow : undefined
+    },
+  })
 
   const createGrid = (): SheetGrid => {
     const host = document.createElement('div')
@@ -107,6 +116,8 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
       cols: doc.cols,
       width: options.width,
       height: options.height,
+      // 设计器观感：表头/网格线/选区配色（仅颜色，不改行列尺寸与字号）
+      theme: FORM_CANVAS_THEME,
       // 设计画布固定行列：模板行数即画布行数，滚动不扩容
       growOnScroll: false,
       // 配置态占位符：绑定格显示 {{path}}，其余回落存储值；数据行不进画布
@@ -114,7 +125,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
         const binding = doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE)
         return binding ? formatBindingPlaceholder(binding) : base
       },
-      // 明细波段淡色标记：仅叠加在无显式填充的格上（用户填充优先）
+      // 明细区淡色标记：仅叠加在无显式填充的格上（用户填充优先）
       resolveCellStyle: (addr, base): CellStyle | undefined => {
         const band = bandAtRow(doc.bands, addr.row)
         if (band?.kind !== 'detail' || base?.fill) return undefined
@@ -127,7 +138,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     mountedRows = doc.rows
     mountedGeometry = captureGeometry(doc)
     wrapper = host
-    guides.attach(instance)
+    overlay.attach(instance)
     return instance
   }
 
@@ -135,7 +146,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
 
   /**
    * 模型变更后的视图同步：行数变化、行高/列宽键清除或合并区变化（快照级静默
-   * restore 清空模型键、波段平移改写合并——引擎侧行高覆盖无清除 API、合并 Map
+   * restore 清空模型键、区域平移改写合并——引擎侧行高覆盖无清除 API、合并 Map
    * 仅事件驱动同步，非重建路径无法表达）时重建网格；其余同步尺寸并整表重绘。
    */
   function syncView(): void {
@@ -157,14 +168,14 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     grid?.applyAxisSizes('row', [...geometry.rowKeys])
     grid?.applyAxisSizes('col', [...geometry.colKeys])
     grid?.updateTheme({})
-    // 行高/列宽就地同步后参考线随 sky 整层失效重绘（重建路径经 createGrid 重挂已覆盖）
-    guides.refresh()
+    // 行高/列宽就地同步后区域轨道/参考线随 sky 整层失效重绘（重建路径经 createGrid 重挂已覆盖）
+    overlay.refresh()
   }
 
-  // 波段结构或撤销链变化（快照级编辑的静默 restore 不发 sheet 事件，统一走这里）
+  // 区域结构或撤销链变化（快照级编辑的静默 restore 不发 sheet 事件，统一走这里）
   disposers.push(doc.on('bands-change', syncView))
   disposers.push(doc.on('history-change', syncView))
-  // 常规模式选区流动：回带活动格所在波段（波段/格选中语义）
+  // 常规模式选区流动：回带活动格所在区域（区域/格选中语义）
   disposers.push(
     doc.sheet.on('selection-change', (state) => {
       if (released || pickMode || !state.activeCell) return
@@ -189,7 +200,8 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
       syncView()
     },
     setPaperGuides(config: PaperGuidesConfig | null): void {
-      guides.update(config)
+      guidesConfig = config
+      overlay.refresh()
     },
     getGrid(): SheetGrid | undefined {
       return grid
@@ -197,7 +209,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     release(): void {
       if (released) return
       released = true
-      guides.detach()
+      overlay.detach()
       for (const dispose of disposers) dispose()
       disposers.length = 0
       grid?.release()

@@ -16,15 +16,16 @@ import {
   type FormCellBinding,
   type FormTemplate,
 } from './template'
+import { deleteSnapshotRows, insertSnapshotRows, swapSnapshotRowBlocks } from './snapshot-rows'
 
 /**
- * 设计文档 = Sheet 模型 + 波段注册表 + 统一 undo 门面。
+ * 设计文档 = Sheet 模型 + 区域注册表 + 统一 undo 门面。
  *
  * 撤销链路口径（app 内测试覆盖）：
  * - 格值/样式/合并/绑定 sidecar 一律走 Sheet 命令系统（样式池落地，天然可撤销），
  *   画布键入、工具栏命令同链；
- * - 波段结构（增删/排序/标记明细）与行高列宽不在 Sheet undo 覆盖内（行列结构命令
- *   无法携带波段注册表、行高列宽明确不进 undo），经「快照纯变换 + 静默 restore」
+ * - 区域结构（增删/排序/标记明细）与行高列宽不在 Sheet undo 覆盖内（行列结构命令
+ *   无法携带区域注册表、行高列宽明确不进 undo），经「快照纯变换 + 静默 restore」
  *   落地，由 DocHistory 以快照条目补齐撤销；
  * - DocHistory 惰性观测 sheet.undoSize：新编辑（无论来源）清空重做栈，撤销先走
  *   sheet 历史、耗尽到快照条目记录深度再弹快照条目——两套来源交错成单条撤销链。
@@ -43,16 +44,16 @@ export interface DocHistoryState {
 }
 
 export type FormDocEvents = {
-  /** 波段结构/类型变化（波段面板重渲染；画布行数变化需重建网格） */
+  /** 区域结构/类型变化（区域面板重渲染；画布行数变化需重建网格） */
   'bands-change': undefined
   /** 撤销链变化（工具栏按钮置灰；画布按行数变化决定重建或就地重绘） */
   'history-change': DocHistoryState
 }
 
-/** 波段操作参数：目标波段下标越界时抛错（面板禁用已保证，防御性兜底） */
+/** 区域操作参数：目标区域下标越界时抛错（面板禁用已保证，防御性兜底） */
 function bandAt(bands: readonly FormBand[], index: number): FormBand {
   const band = bands[index]
-  if (!band) throw new Error(`波段下标越界: ${index}`)
+  if (!band) throw new Error(`区域下标越界: ${index}`)
   return band
 }
 
@@ -65,78 +66,10 @@ function captureDoc(doc: FormDoc): DocCapture {
   }
 }
 
-// ─── 快照行变换（纯函数：波段操作与行高列宽撤销的共享底座） ────────────────────
-
-/** 行映射函数：返回目标行号；null = 该行删除 */
-type RowMap = (row: number) => number | null
-
-/** 按行映射重写快照（值/样式/合并/meta/行高列宽/行默认样式随行平移） */
-function mapSnapshotRows(snapshot: SheetSnapshot, map: RowMap, rows: number): SheetSnapshot {
-  return {
-    ...snapshot,
-    rows,
-    cells: snapshot.cells.flatMap(({ row, col, ...data }) => {
-      const next = map(row)
-      return next === null ? [] : [{ row: next, col, ...data }]
-    }),
-    meta: snapshot.meta?.flatMap((item) => {
-      const next = map(item.row)
-      return next === null ? [] : [{ ...item, row: next }]
-    }),
-    merges: snapshot.merges.flatMap((range) => {
-      // 合并区首尾行独立映射；映射后区间坍缩（起点越过终点）视为被删丢弃
-      const start = map(range.start.row)
-      const end = map(range.end.row)
-      if (start === null || end === null || start > end) return []
-      return [{ ...range, start: { ...range.start, row: start }, end: { ...range.end, row: end } }]
-    }),
-    rowHeights: snapshot.rowHeights?.flatMap(([row, height]) => {
-      const next = map(row)
-      return next === null ? [] : ([[next, height]] as [number, number][])
-    }),
-    rowStyles: snapshot.rowStyles?.flatMap(([row, id]) => {
-      const next = map(row)
-      return next === null ? [] : ([[next, id]] as [number, number][])
-    }),
-  }
-}
-
-/** 在 at 行处插入 count 行空白（下方内容下移） */
-function insertSnapshotRows(snapshot: SheetSnapshot, at: number, count: number): SheetSnapshot {
-  return mapSnapshotRows(snapshot, (row) => (row >= at ? row + count : row), snapshot.rows + count)
-}
-
-/** 删除 [at, at+count) 行（下方内容上移） */
-function deleteSnapshotRows(snapshot: SheetSnapshot, at: number, count: number): SheetSnapshot {
-  const end = at + count
-  return mapSnapshotRows(
-    snapshot,
-    (row) => (row < at ? row : row >= end ? row - count : null),
-    Math.max(0, snapshot.rows - count),
-  )
-}
-
-/** 交换相邻两个行块（first 在上、second 紧随其后；行数可不同） */
-function swapSnapshotRowBlocks(
-  snapshot: SheetSnapshot,
-  first: { start: number; count: number },
-  second: { start: number; count: number },
-): SheetSnapshot {
-  return mapSnapshotRows(
-    snapshot,
-    (row) => {
-      if (row >= first.start && row < first.start + first.count) return row + second.count
-      if (row >= second.start && row < second.start + second.count) return row - first.count
-      return row
-    },
-    snapshot.rows,
-  )
-}
-
 // ─── 统一 undo 门面 ──────────────────────────────────────────────────────────
 
 /**
- * 撤销门面：sheet 命令历史（值/样式/合并/meta）+ 快照条目（波段结构/行高列宽）
+ * 撤销门面：sheet 命令历史（值/样式/合并/meta）+ 快照条目（区域结构/行高列宽）
  * 交错成单条撤销链。
  *
  * 不变量：快照条目栈内 atDepth 非严格递减（自底向上），且恒有
@@ -166,7 +99,7 @@ export class DocHistory {
     this.lastDepth = depth
   }
 
-  /** 记录一次快照级编辑（波段结构/行高列宽；before/after 均为深拷贝） */
+  /** 记录一次快照级编辑（区域结构/行高列宽；before/after 均为深拷贝） */
   pushSnapshotEdit(before: DocCapture, after: DocCapture): void {
     if (JSON.stringify(before) === JSON.stringify(after)) return
     this.observe()
@@ -241,12 +174,12 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     this.history = new DocHistory(this, (state) => this.emit('history-change', state))
   }
 
-  /** 画布总行数（波段行区合计） */
+  /** 画布总行数（区域行区合计） */
   get rows(): number {
     return templateRows(this.bands)
   }
 
-  /** 新建空文档（默认五类波段骨架；内容为空，内置起点模板在后续阶段注入） */
+  /** 新建空文档（默认五类区域骨架；内容为空，内置起点模板在后续阶段注入） */
   static create(cols = 8): FormDoc {
     const bands: FormBand[] = []
     let row = 0
@@ -269,7 +202,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     return doc
   }
 
-  /** 序列化为模板 JSON（波段 + 画布快照；P5 保存共用入口） */
+  /** 序列化为模板 JSON（区域 + 画布快照；P5 保存共用入口） */
   toTemplate(name: string): FormTemplate {
     return {
       schemaVersion: TEMPLATE_SCHEMA_VERSION,
@@ -289,7 +222,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
 
   /**
    * 快照回放（撤销/重做路径）：静默 restore（不清 sheet 历史，样式命令的撤销
-   * 能力保留）+ 重建波段注册表；波段有变时补发 bands-change 驱动面板与画布同步。
+   * 能力保留）+ 重建区域注册表；区域有变时补发 bands-change 驱动面板与画布同步。
    * @internal 仅供本模块 DocHistory 回放调用，业务代码不要直接调
    */
   restoreCapture(capture: DocCapture): void {
@@ -300,9 +233,9 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     if (changed) this.emit('bands-change', undefined)
   }
 
-  // ─── 波段结构操作 ──────────────────────────────────────────────────────────
+  // ─── 区域结构操作 ──────────────────────────────────────────────────────────
 
-  /** 在指定波段下方插入新波段（index 缺省追加到末尾；返回新波段） */
+  /** 在指定区域下方插入新区域（index 缺省追加到末尾；返回新区域） */
   addBand(kind: BandKind, index?: number, rows = DEFAULT_BAND_ROWS[kind]): FormBand {
     const at = index === undefined ? this.bands.length - 1 : index
     const anchor = bandAt(this.bands, at)
@@ -317,10 +250,10 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     return band
   }
 
-  /** 删除指定波段（其行区整体移除，下方波段上移）；最后一个波段不可删 */
+  /** 删除指定区域（其行区整体移除，下方区域上移）；最后一个区域不可删 */
   removeBand(index: number): void {
     const band = bandAt(this.bands, index)
-    if (this.bands.length <= 1) throw new Error('模板至少保留一个波段')
+    if (this.bands.length <= 1) throw new Error('模板至少保留一个区域')
     this.applySnapshotEdit(() => {
       const snapshot = deleteSnapshotRows(
         this.sheet.snapshot(),
@@ -333,7 +266,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     this.emit('bands-change', undefined)
   }
 
-  /** 波段上移/下移一位（相邻交换，内容随行块整体平移） */
+  /** 区域上移/下移一位（相邻交换，内容随行块整体平移） */
   moveBand(index: number, dir: -1 | 1): void {
     const target = index + dir
     if (target < 0 || target >= this.bands.length) return
@@ -353,10 +286,28 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     this.emit('bands-change', undefined)
   }
 
-  /** 更改波段类型（标记/取消明细等；纯注册表变更，同样可撤销） */
+  /** 更改区域类型（标记/取消明细等；纯注册表变更，同样可撤销） */
   setBandKind(index: number, kind: BandKind): void {
     this.applySnapshotEdit(() => {
       this.bands = this.bands.map((band, i) => (i === index ? { ...band, kind } : band))
+    })
+    this.emit('bands-change', undefined)
+  }
+
+  /** 调整区域行数：变高补底部空行、变矮删底行（内容留原处）；可撤销 */
+  resizeBand(index: number, rows: number): void {
+    const band = bandAt(this.bands, index)
+    const delta = rows - (band.endRow - band.startRow + 1)
+    if (rows < 1 || delta === 0) return
+    const at = delta > 0 ? band.endRow + 1 : band.endRow + delta + 1
+    const op = delta > 0 ? insertSnapshotRows : deleteSnapshotRows
+    this.applySnapshotEdit(() => {
+      this.sheet.restore(op(this.sheet.snapshot(), at, Math.abs(delta)))
+      // 行区恒首尾相接：本区域起 endRow 平移，其后区域 startRow 也平移
+      this.bands.forEach((b, i) => {
+        b.endRow += i >= index ? delta : 0
+        if (i > index) b.startRow += delta
+      })
     })
     this.emit('bands-change', undefined)
   }
@@ -387,13 +338,13 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
   }
 }
 
-// ─── 波段注册表纯变换 ────────────────────────────────────────────────────────
+// ─── 区域注册表纯变换 ────────────────────────────────────────────────────────
 
 function bandRowCount(band: FormBand): number {
   return band.endRow - band.startRow + 1
 }
 
-/** 在 insertAt 行处插入新波段行区，既有波段行区平移（调用方保证 insertAt 为波段边界或末尾） */
+/** 在 insertAt 行处插入新区域行区，既有区域行区平移（调用方保证 insertAt 为区域边界或末尾） */
 function insertBandRange(
   bands: FormBand[],
   insertAt: number,
@@ -417,7 +368,7 @@ function insertBandRange(
   return next
 }
 
-/** 移除下标波段，下方波段上移 */
+/** 移除下标区域，下方区域上移 */
 function removeBandRange(bands: FormBand[], index: number): FormBand[] {
   const removed = bandAt(bands, index)
   const rows = bandRowCount(removed)
@@ -430,7 +381,7 @@ function removeBandRange(bands: FormBand[], index: number): FormBand[] {
     )
 }
 
-/** 交换相邻波段（数组顺序对调，行区按行块交换后重算） */
+/** 交换相邻区域（数组顺序对调，行区按行块交换后重算） */
 function swapBands(bands: FormBand[], first: number, second: number): FormBand[] {
   const a = bandAt(bands, first)
   const b = bandAt(bands, second)
@@ -438,31 +389,31 @@ function swapBands(bands: FormBand[], first: number, second: number): FormBand[]
   const bRows = bandRowCount(b)
   const base = a.startRow
   const next = bands.map((band) => ({ ...band }))
-  // first 位换成原 second 波段（内容已随行块上移到 base 起）
+  // first 位换成原 second 区域（内容已随行块上移到 base 起）
   next[first] = { ...b, startRow: base, endRow: base + bRows - 1 }
-  // second 位换成原 first 波段（内容已随行块下移到其后）
+  // second 位换成原 first 区域（内容已随行块下移到其后）
   next[second] = { ...a, startRow: base + bRows, endRow: base + bRows + aRows - 1 }
   return next
 }
 
-/** 行号所在波段（存在性断言版；波段行区连续覆盖时恒命中） */
+/** 行号所在区域（存在性断言版；区域行区连续覆盖时恒命中） */
 function bandAtRowStrict(bands: FormBand[], row: number): FormBand {
   const band = bands.find((item) => row >= item.startRow && row <= item.endRow)
-  if (!band) throw new Error(`行 ${row} 不属于任何波段`)
+  if (!band) throw new Error(`行 ${row} 不属于任何区域`)
   return band
 }
 
-/** 规范化模板波段（校验行区连续覆盖；供 fromTemplate 入口把关） */
+/** 规范化模板区域（校验行区连续覆盖；供 fromTemplate 入口把关） */
 function normalizeBands(bands: FormBand[]): FormBand[] {
-  if (bands.length === 0) throw new Error('模板至少需要一个波段')
+  if (bands.length === 0) throw new Error('模板至少需要一个区域')
   const normalized = bands.map((band) => ({ ...band }))
   let expect = 0
   for (const band of normalized) {
     if (band.startRow !== expect) {
-      throw new Error(`波段行区不连续：期望起始 ${expect}，实际 ${band.startRow}`)
+      throw new Error(`区域行区不连续：期望起始 ${expect}，实际 ${band.startRow}`)
     }
     if (band.endRow < band.startRow)
-      throw new Error(`波段行区非法：${band.startRow} > ${band.endRow}`)
+      throw new Error(`区域行区非法：${band.startRow} > ${band.endRow}`)
     expect = band.endRow + 1
   }
   return normalized

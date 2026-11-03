@@ -118,7 +118,7 @@ function mergeBinding(
   doc.sheet.mergeCells(region)
 }
 
-/** 空画布起建：骨架波段 → FormDoc → 布局回调 → 序列化模板 JSON */
+/** 空画布起建：骨架区域 → FormDoc → 布局回调 → 序列化模板 JSON */
 function buildTemplate(
   name: string,
   bands: FormBand[],
@@ -236,7 +236,7 @@ function buildCnReceiptTemplate(): FormTemplate {
     [
       { kind: 'pageHeader', startRow: 0, endRow: 1 },
       { kind: 'info', startRow: 2, endRow: 3 },
-      // 列头独立成表头波段：明细波段整段按元素复制，列头混入会逐行重复
+      // 列头独立成表头区域：明细区整段按元素复制，列头混入会逐行重复
       { kind: 'pageHeader', startRow: 4, endRow: 4 },
       { kind: 'detail', startRow: 5, endRow: 5 },
       { kind: 'summary', startRow: 6, endRow: 6 },

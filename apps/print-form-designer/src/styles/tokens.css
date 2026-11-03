@@ -1,0 +1,298 @@
+/* 设计令牌 + 原生控件规范化 + 通用工具类（全部表现层，不含业务语义） */
+:root {
+  /* 底色与表面 */
+  --bg-app: #f4f5f7;
+  --bg-surface: #fff;
+  --bg-subtle: #f8f9fb;
+  --bg-hover: #f1f3f6;
+  --bg-active: #eef3ff;
+  /* 描边 */
+  --border-subtle: #eceef2;
+  --border: #e2e5ea;
+  --border-strong: #d3d8e0;
+  /* 文本 */
+  --text-primary: #101828;
+  --text-secondary: #475467;
+  --text-tertiary: #8a93a3;
+  /* 强调色 */
+  --accent: #2f62f0;
+  --accent-hover: #2453d6;
+  --accent-soft: #eef3ff;
+  --accent-border: #c9d8ff;
+  /* 语义色 */
+  --danger: #d92d20;
+  --danger-soft: #fef3f2;
+  /* 圆角 / 阴影 */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.1);
+  /* 字体 */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* 应用壳高度 */
+  --h-topbar: 56px;
+  --h-ribbon: 52px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+/* ─── 按钮基线：默认次要按钮（描边 + 白底） ─────────────────────────────── */
+button {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 主色描边的次要主操作（如添加区域） */
+button.accent-outline {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+button.accent-outline:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ─── 输入控件基线 ──────────────────────────────────────────────────────── */
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+/* 文本类输入统一基线；checkbox/radio/color 另有自绘或原生外观，单独处理 */
+input:not([type]),
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input[type='search'],
+select,
+textarea {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+/* 原生下拉箭头替换为细线 chevron（颜色写死：原生控件无法读变量） */
+select {
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a93a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  appearance: none;
+  cursor: pointer;
+}
+
+textarea {
+  height: auto;
+  padding: 6px 8px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+input:not([type]):focus,
+input[type='text']:focus,
+input[type='number']:focus,
+input[type='password']:focus,
+input[type='search']:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+input[type='color'] {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type='color']::-webkit-color-swatch {
+  border: 0;
+}
+
+/* ─── 通用工具类 ────────────────────────────────────────────────────────── */
+.meta {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status {
+  min-height: 16px;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.status.error,
+.error {
+  color: var(--danger);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* 竖向字段组：label 小灰字 + 控件占满宽 */
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-col > .field-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.field-col > input,
+.field-col > select,
+.field-col > textarea {
+  width: 100%;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 撑满剩余宽度的表单控件（按钮行内的 select/input） */
+.button-row > .grow {
+  flex: 1;
+  min-width: 0;
+}

@@ -152,7 +152,7 @@ const PAGE_SCRIPT = `
     return null
   }
   const templatePanel = () => document.querySelector('.template-panel')
-  const bandPanel = () => document.querySelector('.band-panel')
+  const regionPanel = () => document.querySelector('.region-panel')
   // 格样式工具栏（模板面板同有 toolbar class，排除之）
   const styleToolbar = () =>
     Array.from(document.querySelectorAll('section.toolbar')).find((s) => !s.classList.contains('template-panel'))
@@ -224,15 +224,15 @@ const PAGE_SCRIPT = `
   }
 
   async function tweakAndUndo() {
-    const base = bandPanel().querySelectorAll('.band-item').length
-    clickButton(bandPanel(), '追加波段')
-    await waitFor(() => bandPanel().querySelectorAll('.band-item').length === base + 1, '追加波段生效')
+    const base = regionPanel().querySelectorAll('.region-item').length
+    clickButton(regionPanel(), '添加区域')
+    await waitFor(() => regionPanel().querySelectorAll('.region-item').length === base + 1, '添加区域生效')
     const undo = await waitFor(
       () => buttons(styleToolbar(), '撤销').find((b) => !b.disabled) || null,
       '撤销按钮可用',
     )
     undo.click()
-    await waitFor(() => bandPanel().querySelectorAll('.band-item').length === base, '撤销回到原波段结构')
+    await waitFor(() => regionPanel().querySelectorAll('.region-item').length === base, '撤销回到原区域结构')
     return base
   }
 
