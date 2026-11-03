@@ -5,10 +5,12 @@
 > 映射来源：ultra-ui `sheet-core/src/grid/` 逐文件提取的 VTable 依赖面（素材源已归档删除）。
 >
 > **口径更新（migrate-sheet-core P12）**：S3 落地的 sheet 插件族（`packages/plugins/src/sheet`，`createSheetPlugin`）已整体迁入 `@infinitable/sheet` 并从插件包删除——下文表格中标注「S3 已落地」的 sheet 插件落点，现均由 `@infinitable/sheet`（sheet 模型 / 命令 / IO / SheetGrid 装配）承载，`hucre` 依赖随之归属 sheet 包。插件包接口面口径更新为剩余插件：**chart / print / watermark**。
+>
+> **口径更新（multi-engine-refactor 协议归位）**：引擎装配协议契约（`EngineAssembly` / `EngineReadView` / 插件契约）自 `@infinitable/table` 迁出为独立契约包 `@infinitable/protocol`（纯类型、零运行时）；插件契约 `TablePlugin` 更名 **`EnginePlugin`**（挂载参数不变，仍只收 `EngineAssembly`）。插件按挂载点分三类：协议插件（watermark / print——任意引擎可挂）、领域面插件（chart——经 `chartMediaResolver` 构造缝注入 table 引擎）、注册表插件（编辑器 / 公式函数 / 媒体解析器）。分类判据见 `packages/protocol/src/plugin.ts` 头注。
 
 ## 红线：零引擎内部 API
 
-**插件包（`@infinitable/plugins`，现承载 chart/print/watermark）只允许依赖 `@infinitable/table` 与 `@infinitable/grid` 公共入口（`src/index.ts`）显式导出的 API，禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。电子表格能力自 migrate-sheet-core 起由 `@infinitable/sheet` 公共入口承载（其 `hucre` 依赖仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）。**（红线 = 各包公开入口 + hucre（xlsx IO，随 sheet 包），S7 P8 修订、migrate-sheet-core P12 更新；multi-engine-refactor P6：core 拆为 table + grid 后包名同步）
+**插件包（`@infinitable/plugins`，现承载 chart/print/watermark）只允许依赖 `@infinitable/table`、`@infinitable/grid` 与 `@infinitable/protocol`（引擎装配契约包）公共入口（`src/index.ts`）显式导出的 API，禁止 import 引擎任何内部模块、`@internal` 成员与未导出符号。电子表格能力自 migrate-sheet-core 起由 `@infinitable/sheet` 公共入口承载（其 `hucre` 依赖仅限 xlsx 导入导出的映射与装配，不得挪作其它用途）。**（红线 = 各包公开入口 + hucre（xlsx IO，随 sheet 包），S7 P8 修订、migrate-sheet-core P12 更新；multi-engine-refactor P6：core 拆为 table + grid 后包名同步；协议归位：契约消费改走 @infinitable/protocol）
 
 - review 把关：S3/S4 每阶段对照本清单与两包 `src/index.ts` 导出面核查 import 语句。
 - 引擎若确需新增公开面，必须在对应阶段的 spec「影响文件」中显式列出 `packages/table/src/index.ts`（或 `packages/grid/src/index.ts`）并说明新增符号（S1 的 `onEditStart/onEditEnd` 即按此先例）。

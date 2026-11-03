@@ -15,10 +15,10 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 
 **导出**——稳定公共 API：
 
-- 类型：构造/选项/事件载荷/插件契约等对外形态（`ListTableOptions`、`SheetGridOptions`、`TablePlugin`、命令参数类型族…）。
+- 类型：构造/选项/事件载荷/插件契约等对外形态（`ListTableOptions`、`SheetGridOptions`、`EnginePlugin`、命令参数类型族…）。
 - 配置对象与常量：主题、样式键集、边框预设等可定制面（`extendsTheme`、`BORDER_SIDES`…）。
 - 注册函数：宿主注入扩展点的写入面（`registerFormulaFunction`、`EditorRegistry`、`defaultCommandRegistry`…）。
-- 插件接口与工厂：`TablePlugin` 契约、`createChartPlugin` / `createWatermarkPlugin` / `createPrintPlugin` 工厂及其 handle/配置类型。
+- 插件接口与工厂：`EnginePlugin` 契约、`createChartPlugin` / `createWatermarkPlugin` / `createPrintPlugin` 工厂及其 handle/配置类型。
 
 **不导出**——下列性质的符号不进发布面（包间接线统一走子包公共入口，深路径消费已移除）：
 
@@ -26,7 +26,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 - 实验性 API：未定稿能力，不进发布面。
 - 跨层内部工具：为其它包内部接线服务的原语（grid 布局/滚动/滚动条装配纯函数族、`MediaCache`、`CellNode` 等；包间接线统一走子包公共入口——table 经 `@infinitable/grid/src/<module>` 的深路径消费与 grid 的 `./src/*` exports 条目已移除，仓内 `@infinitable/grid/src` 零引用）。
 
-支撑口径（满足其一即可保留在公共面）：仓内非测试消费（playground / 跨包公共入口）、红线文档面（`docs/plugin-interface-map.md` 红线 + `agent-docs/index.md` 速查表逐项覆盖）。同名消歧：grid 的格坐标 `CellRef` 与 formulas 的 A1 引用 `CellRef` 同名——A1 引用保留原名（配 `parseCellRef`/`formatCellRef`/`createRangeRef`），格坐标以 `GridCellRef` 别名从主入口导出。同源去重：`RenderContext`/`Size`（render 定义、table 亦转出）与 `TablePlugin`（table 定义、plugins 亦转出）在主入口各从定义包导出一次。
+支撑口径（满足其一即可保留在公共面）：仓内非测试消费（playground / 跨包公共入口）、红线文档面（`docs/plugin-interface-map.md` 红线 + `agent-docs/index.md` 速查表逐项覆盖）。同名消歧：grid 的格坐标 `CellRef` 与 formulas 的 A1 引用 `CellRef` 同名——A1 引用保留原名（配 `parseCellRef`/`formatCellRef`/`createRangeRef`），格坐标以 `GridCellRef` 别名从主入口导出。同源去重：`RenderContext`/`Size`（render 定义、table 亦转出）与 `EnginePlugin`（protocol 定义、table/plugins 亦转出）在主入口各从定义包导出一次。
 
 ## 主入口逐项清单（src/index.ts，40 值 + 96 类型）
 
@@ -39,11 +39,12 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 | grid 值 | `extendsTheme`、`normalizeCellRange`、`normalizeRange`、`MergeCellMap`、`MergeOverlapError`、`sanitizeMerges`、`warnMergeConflicts` | 共享网格内核的合并区集合与重叠消解、选区段归一化、主题派生公共工具（`MergeCellMap`/`MergeOverlapError`/`sanitizeMerges`/`warnMergeConflicts` 为合并区集合与重叠消解，0.2.0 起新增） |
 | grid 类型 | `CellRange`、`CellRef`→`GridCellRef`、`CellStyle`、`CellBorder`、`CellBorderEdge`、`TableTheme`、`ThemeOverride`、`RangeBounds`、`SelectionSnapshot`、`SanitizedMerges`、`MergeConflict`、`LoadedImage`、`FloatObject`、`FloatTransformEndEvent`、`FloatTransformHandle`、`FloatContextMenuEvent`、`ScrollbarOptions`、`ScrollbarMode` | 网格内核的格/样式/主题/选区/媒体/浮动层词汇：选区状态（G18 下游剪贴板路径）与视口/文本读取所依赖的选区快照形态在此层；`GridCellRef` 为消歧别名；`ScrollbarOptions`/`ScrollbarMode` 为内建滚动条配置（`scrollbar` 选项对象形态，`mode: 'native'` 原生滚动条档，0.1.4 起新增） |
 | table 值 | `ListTable`、`SheetModel`、`EditorRegistry`、`projectCellStyle` | 表格主类、内置模型、编辑器注册表、样式投影纯函数（G7/G9 样式解析链公共面可达） |
-| table 类型 | `ListTableOptions`、`CanvasDocSource`、`ColumnDefine`、`DataRecord`、`TableModel`、`ResolveDisplayValue`、`CellChangeEvent`、`TableContextMenuEvent`、`CellRenderer`、`TablePlugin`、`UnderlayPainter`、`OverlayPainter`、`HighlightRange`、`FillDragEndEvent`、`CellChartMedia`、`CellLink`、`CellLinkClickEvent`、`CellLinkHoverEvent`、`CellLinkLeaveEvent`、`ResolveCellLink`、`ResolveCellImageLink`、`ImageLinkClickEvent`、`ImageLinkClickListener` | 构造/列/模型/事件/选区/媒体/浮动层/插件契约的公共形态；`CanvasDocSource` 为文档源注入形态（`ListTableOptions.doc`：无 DOM 环境经它创建 canvas，构造与出图不依赖全局 document）；`CellLink`/`ResolveCellLink` 与三个链接事件为单元格超链接载荷与事件，`ResolveCellImageLink`/`ImageLinkClick*` 为嵌入图链接 hook 与点击事件 |
-| table 协议 | `EngineAssembly`、`EngineReadView`、`TableEngine` | 引擎装配协议（0.4.0 起新增，P7 落地）：中立本体（渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期，四类平级引擎的公共装配路径）与可选导出读取面（G12-G15 导出类插件读取引擎有效数据/样式/几何/合并区）；`TableEngine` 为表格领域公共操作增量，SheetGrid 等适配层按协议面消费 table 引擎 |
+| table 类型 | `ListTableOptions`、`CanvasDocSource`、`ColumnDefine`、`DataRecord`、`TableModel`、`ResolveDisplayValue`、`TableContextMenuEvent`、`CellRenderer`、`HighlightRange`、`FillDragEndEvent`、`CellChartMedia`、`CellLink`、`CellLinkClickEvent`、`CellLinkHoverEvent`、`CellLinkLeaveEvent`、`ResolveCellLink`、`ResolveCellImageLink`、`ImageLinkClickEvent`、`ImageLinkClickListener` | 构造/列/模型/事件/选区/媒体/浮动层的公共形态；`CanvasDocSource` 为文档源注入形态（`ListTableOptions.doc`：无 DOM 环境经它创建 canvas，构造与出图不依赖全局 document）；`CellLink`/`ResolveCellLink` 与三个链接事件为单元格超链接载荷与事件，`ResolveCellImageLink`/`ImageLinkClick*` 为嵌入图链接 hook 与点击事件 |
+| protocol 契约 | `EngineAssembly`、`EngineReadView`、`EnginePlugin`、`UnderlayPainter`、`OverlayPainter`、`CellChangeEvent` | 引擎装配协议契约包 `@infinitable/protocol`（纯类型零运行时，协议归位起独立成包）：中立本体（渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期，四类平级引擎的公共装配路径）、可选导出读取面（G12-G15 导出类插件读取引擎有效数据/样式/几何/合并区）、插件契约（协议插件/领域面插件/注册表插件三分类）与槽位/事件词汇 |
+| table 协议面 | `TableEngine` | 表格领域公共操作增量（中立本体的 table 领域面），SheetGrid 等适配层按协议面消费 table 引擎 |
 | formulas 值 | `colLetters`、`parseCellRef`、`formatCellRef`、`formatRangeRef`、`createRangeRef`、`formulaError`、`isFormulaError`、`isFormulaErrorCode`、`FormulaParseError`、`tokenText`、`parseFormula`、`astHasVolatileCall`、`collectAstReferences`、`DependencyGraph`、`scanFormulaReferences`、`shiftFormulaText`、`shiftFormulaRefs`、`evaluate`、`FORMULA_FUNCTION_CATEGORIES`、`getFormulaFunction`、`getFormulaFunctionInfo`、`listFormulaFunctions`、`registerFormulaFunction` | A1 地址系统、错误值体系、Pratt 解析、AST 静态分析、依赖图、容错引用扫描、引用平移（`tokenText` 随引用级文本改出公共化）、求值器、函数注册表读写（宿主自定义函数注册面） |
 | formulas 类型 | `CellRef`（原名）、`RangeRef`（A1 区间引用）、`FormulaError`、`AstNode`、`FormulaRefCoord`、`SheetCellCoord`、`FormulaShiftResult`、`FormulaEvalContext`、`FormulaResolver`、`ScalarValue`、`EvalValue`（求值中间值：自定义函数 impl 的入参与返回）、`ScannedReference`（容错引用扫描结果）、`FormulaFunction`、`FormulaFunctionCategory`、`FormulaFunctionInfo`、`FormulaFunctionOverrides`（实例函数集，`evaluate` 的 `options.functions`） | 地址/区间/错误/AST/依赖/平移/求值上下文（自定义函数求值需要）/扫描/注册表元数据与实例函数集形态 |
-| plugins 值 | `createChartPlugin`、`createWatermarkPlugin`、`createPrintPlugin`、`createEnginePrintSource` | 官方插件三工厂（插件对象形态：同时是 TablePlugin 与运行时 handle）；`createEnginePrintSource` 为引擎供数适配（0.4.0 起新增，P7 落地）：把装配协议的导出读取面（`engine.read`）适配为 `PrintSource`，宿主打印引擎实例不再自写适配器 |
+| plugins 值 | `createChartPlugin`、`createWatermarkPlugin`、`createPrintPlugin`、`createEnginePrintSource` | 官方插件三工厂（插件对象形态：同时是 EnginePlugin 与运行时 handle）；`createEnginePrintSource` 为引擎供数适配（0.4.0 起新增，P7 落地）：把装配协议的导出读取面（`engine.read`）适配为 `PrintSource`，宿主打印引擎实例不再自写适配器 |
 | plugins 类型 | `ChartPluginOptions`、`ChartPluginHandle`、`ChartCellDeclaration`、`ChartDatasetDeclaration`、`ChartDatasetSpec`、`ChartSpec`、`ChartSpecType`、`ChartType`、`WatermarkHandle`、`WatermarkTextConfig`、`PrintPluginOptions`、`PrintPluginHandle`、`PrintConfig`、`PrintSource`、`PrintPaperPreset`、`PrintPaperSpec`、`PrintOrientation`、`PrintMargin`、`PrintScaleMode`、`PrintPagingMode`、`PrintHeaderFooterConfig`、`PrintHeaderFooterSection` | 三插件的配置与声明/预设形态（`WatermarkTextConfig` 与打印水印共享同一模型，经插件入口一并转出；`PrintSource` 纯表格供数） |
 
 ## ./sheet 子路径逐项清单（src/sheet.ts，83 值 + 96 类型）
@@ -76,7 +77,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 
 ## 各子包 src/index.ts 复核结论
 
-`packages/{render,grid,table,formulas,plugins,sheet}` 六包公共入口按同一判据复核：原 core 公共面在 P4 拆分时逐项重判后按定义层落入 grid（合并/选区/主题/样式词汇/浮动对象/滚动条配置）与 table（表格主体/编辑/媒体/插件契约），集合不变零移出；P7 新增 table 协议类型（`EngineAssembly`/`EngineReadView`/`TableEngine`）与 plugins 引擎供数适配（`createEnginePrintSource`/`EnginePrintSourceOptions`，后者留在子包面、主入口经 `createEnginePrintSource` 函数签名可达）。子包公共面同时是主入口显式清单的来源与插件红线边界（`docs/plugin-interface-map.md`：插件包只允许依赖 table/grid 公共入口显式导出的 API）。
+`packages/{render,grid,protocol,table,formulas,plugins,sheet}` 各包公共入口按同一判据复核：原 core 公共面在 P4 拆分时逐项重判后按定义层落入 grid（合并/选区/主题/样式词汇/浮动对象/滚动条配置）与 table（表格主体/编辑/媒体/插件契约），集合不变零移出；P7 新增协议类型（中立本体与读取面，协议归位起迁入 `@infinitable/protocol` 契约包）与 plugins 引擎供数适配（`createEnginePrintSource`/`EnginePrintSourceOptions`，后者留在子包面、主入口经 `createEnginePrintSource` 函数签名可达）。子包公共面同时是主入口显式清单的来源与插件红线边界（`docs/plugin-interface-map.md`：插件包只允许依赖 table/grid 公共入口显式导出的 API）。
 
 ## core 拆分更名迁移登记（0.4.0 起，无兼容层）
 

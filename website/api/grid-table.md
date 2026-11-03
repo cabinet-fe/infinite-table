@@ -1,6 +1,6 @@
 ---
 title: 共享类型与模型（grid / table）
-description: grid 与 table 两层的公共 API：SheetModel 与 TablePlugin、主题与样式投影、选区类型与归一化、编辑器注册表与 CellRenderer、合并区集合与重叠消解、媒体与浮动对象、ground/sky 绘制预留位。
+description: grid 与 table 两层的公共 API：SheetModel 与 EnginePlugin、主题与样式投影、选区类型与归一化、编辑器注册表与 CellRenderer、合并区集合与重叠消解、媒体与浮动对象、ground/sky 绘制预留位。
 ---
 
 # 共享类型与模型（grid / table）
@@ -11,7 +11,7 @@ description: grid 与 table 两层的公共 API：SheetModel 与 TablePlugin、�
 
 索引：
 
-- [SheetModel 与 TablePlugin](#sheetmodel-与-tableplugin)
+- [SheetModel 与 EnginePlugin](#sheetmodel-与-tableplugin)
 - [主题](#主题)
 - [样式](#样式)
 - [选区](#选区)
@@ -20,7 +20,7 @@ description: grid 与 table 两层的公共 API：SheetModel 与 TablePlugin、�
 - [媒体与浮动对象](#媒体与浮动对象)
 - [绘制预留位](#绘制预留位)
 
-## SheetModel 与 TablePlugin
+## SheetModel 与 EnginePlugin
 
 ### SheetModel
 
@@ -72,10 +72,10 @@ const table = new ListTable({
 })
 ```
 
-### TablePlugin
+### EnginePlugin
 
 ```ts
-export interface TablePlugin {
+export interface EnginePlugin {
   readonly name: string
   /** 挂载：构造传入 plugins 或引擎 use() 注册时立即调用；参数为引擎装配协议面 */
   mount(engine: EngineAssembly): void
@@ -93,9 +93,9 @@ export interface TablePlugin {
 挂载参数是 `EngineAssembly` 装配协议面（渲染宿主、数据面、主题、painter 槽位、插件槽位与生命周期），不是 `ListTable` 具体类型：`ListTable` 与 pivot 引擎 `PivotGrid` 等平级引擎都实现该面，只依赖协议面的插件可跨引擎挂载。需要表格领域能力（如 `chartMediaResolver`）的插件把参数收窄为 `ListTable`（实现 `TableEngine` 协议面）。协议面成员清单与挂载细节见[插件开发](/guide/plugin-development)。
 
 ```ts
-import type { TablePlugin } from 'infinitable'
+import type { EnginePlugin } from 'infinitable'
 
-const plugin: TablePlugin = {
+const plugin: EnginePlugin = {
   name: 'demo-overlay',
   mount(engine) {
     engine.setOverlayPainter((ctx, viewport) => {
@@ -632,7 +632,7 @@ export interface CellChartMedia {
 | 字段      | 类型                                            | 说明                                                                    |
 | --------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
 | `key`     | `string`                                        | 内容 key；内容变更自然换 key。table 会叠加格尺寸与 DPR 组成完整缓存 key |
-| `produce` | `(size) => LoadedImage \| Promise<LoadedImage>` | 未命中格级缓存时调用；同 key 并发出图由 table 单飞收敛                 |
+| `produce` | `(size) => LoadedImage \| Promise<LoadedImage>` | 未命中格级缓存时调用；同 key 并发出图由 table 单飞收敛                  |
 
 `size` 的类型未单独导出，字段为 `{ width, height, dpr }`。图表语义（类型、数据、渲染库）全部在 chart 插件侧；table 只认内容 key 与位图生产者。
 

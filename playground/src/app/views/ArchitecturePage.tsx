@@ -1,26 +1,34 @@
-// 架构页：子包功能与 API 边界可视化——分层带（自上而下 = 依赖方向）+ 引擎装配协议缝
-// + 包详情（职责 / 公共 API 名册 / 依赖边 / 边界规则）。数据单一事实源在
-// architecture-data.ts（值导出由 architecture-data.test.ts 守卫），本组件只做展示。
+// 架构页：分层图（自上而下 = 依赖方向）+ 装配协议缝 + 场景走读 + 包详情弹框
+// （这层是什么 / 详细作用 / 典型场景 / 扩展举例 / 不做什么 / 依赖边，依赖徽章可
+// 点击跳转对应包）。数据单一事实源在 architecture-data.ts（依赖边与叙事完整性
+// 由 architecture-data.test.ts 守卫），本组件只做展示。
 
 import { ArrowDown } from 'lucide-react'
 import { useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
   ARCH_LAYERS,
   ARCH_PROTOCOLS,
+  ARCH_WALKTHROUGHS,
   findArchPackage,
   type ArchPackage,
   type ArchPackageKey,
 } from '../architecture-data'
 
-/** 分层带 → 包排列（formulas 独立侧包挂在领域层旁，虚线卡示意不在装配链上） */
+/** 分层带 → 包排列（protocol 契约包与 table 同带；formulas 独立侧包挂在领域层旁，虚线卡示意不在装配链上） */
 const LAYER_PACKAGES: Record<(typeof ARCH_LAYERS)[number]['key'], ArchPackageKey[]> = {
   publish: ['infinitable'],
   domain: ['pivot', 'sheet', 'plugins', 'formulas'],
-  engine: ['table'],
+  engine: ['protocol', 'table'],
   kernel: ['grid'],
   render: ['render'],
 }
@@ -67,104 +75,176 @@ function PackageCard({
   )
 }
 
-function PackageDetail({ pkg }: { pkg: ArchPackage }) {
+function BulletList({ items, dotClass }: { items: readonly string[]; dotClass: string }) {
   return (
-    <Card className="py-5">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="font-mono text-base">{pkg.name}</span>
-          <span className="font-mono text-xs font-normal text-muted-foreground">{pkg.dir}</span>
-        </CardTitle>
-        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{pkg.tagline}</p>
-      </CardHeader>
-      <CardContent className="grid gap-6 lg:grid-cols-2">
-        <div className="flex flex-col gap-4">
+    <ul className="flex flex-col gap-1.5">
+      {items.map((item) => (
+        <li key={item} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
+          <span className={cn('mt-1.5 size-1 shrink-0 rounded-full', dotClass)} />
+          {item}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function PackageDetailBody({
+  pkg,
+  onJump,
+}: {
+  pkg: ArchPackage
+  onJump: (key: ArchPackageKey) => void
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      <section>
+        <h3 className="mb-1.5 text-xs font-semibold tracking-wide text-foreground">这层是什么</h3>
+        <p className="text-xs leading-relaxed text-muted-foreground">{pkg.role}</p>
+      </section>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="flex flex-col gap-5">
           <section>
-            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">具体功能</h3>
-            <ul className="flex flex-col gap-1.5">
-              {pkg.responsibilities.map((item) => (
-                <li key={item} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
-                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary/60" />
-                  {item}
-                </li>
-              ))}
-            </ul>
+            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">详细作用</h3>
+            <BulletList items={pkg.responsibilities} dotClass="bg-primary/60" />
           </section>
           <section>
-            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">依赖边</h3>
+            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">
+              依赖边（点击跳转）
+            </h3>
             <div className="flex flex-wrap gap-1.5">
               {pkg.dependsOn.length === 0 ? (
                 <span className="text-xs text-muted-foreground">无（依赖链底座）</span>
               ) : (
                 pkg.dependsOn.map((dep) => (
-                  <Badge key={dep} variant="secondary" className="font-mono text-[10px]">
+                  <button
+                    key={dep}
+                    type="button"
+                    onClick={() => onJump(dep)}
+                    className="rounded-md bg-secondary font-mono text-[10px] text-secondary-foreground transition-colors hover:bg-secondary/70"
+                  >
                     → {findArchPackage(dep).name}
-                  </Badge>
+                  </button>
                 ))
               )}
             </div>
           </section>
+        </div>
+        <div className="flex flex-col gap-5">
           <section>
-            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">边界规则</h3>
-            <ul className="flex flex-col gap-1.5">
-              {pkg.boundaries.map((item) => (
-                <li key={item} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
-                  <span className="mt-1.5 size-1 shrink-0 rounded-full bg-amber-500/70" />
-                  {item}
-                </li>
-              ))}
-            </ul>
+            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">典型场景</h3>
+            <BulletList items={pkg.scenarios} dotClass="bg-sky-500/70" />
+          </section>
+          <section>
+            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">
+              扩展举例（想加能力时动这层）
+            </h3>
+            <BulletList items={pkg.extensions} dotClass="bg-emerald-500/70" />
+          </section>
+          <section>
+            <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">
+              不做什么（边界心智）
+            </h3>
+            <BulletList items={pkg.boundaries} dotClass="bg-amber-500/70" />
           </section>
         </div>
-        <section>
-          <h3 className="mb-2 text-xs font-semibold tracking-wide text-foreground">
-            公共 API 边界（关键面）
-          </h3>
-          <div className="overflow-hidden rounded-lg border">
-            <table className="w-full text-xs">
-              <tbody>
-                {pkg.apis.map((api) => (
-                  <tr key={api.name} className="border-b last:border-b-0">
-                    <td className="w-4 whitespace-nowrap px-2.5 py-1.5 align-top">
-                      <Badge
-                        variant={api.kind === 'value' ? 'default' : 'secondary'}
-                        className="px-1 text-[9px]"
-                      >
-                        {api.kind === 'value' ? '值' : '型'}
-                      </Badge>
-                    </td>
-                    <td className="whitespace-nowrap px-1 py-1.5 align-top font-mono text-[11.5px] font-medium">
-                      {api.name}
-                    </td>
-                    <td className="px-2.5 py-1.5 leading-relaxed text-muted-foreground">
-                      {api.desc}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      </div>
+    </div>
+  )
+}
+
+function PackageDetailDialog({
+  pkgKey,
+  onOpenChange,
+  onJump,
+}: {
+  pkgKey: ArchPackageKey | null
+  onOpenChange: (open: boolean) => void
+  onJump: (key: ArchPackageKey) => void
+}) {
+  const pkg = pkgKey === null ? null : findArchPackage(pkgKey)
+  return (
+    <Dialog open={pkg !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-0 p-0 sm:max-w-4xl">
+        {pkg && (
+          <>
+            <DialogHeader className="border-b px-6 py-4 pr-12">
+              <DialogTitle className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="font-mono text-base">{pkg.name}</span>
+                <span className="font-mono text-xs font-normal text-muted-foreground">
+                  {pkg.dir}
+                </span>
+              </DialogTitle>
+              <DialogDescription className="text-[13px] leading-relaxed">
+                {pkg.tagline}
+              </DialogDescription>
+            </DialogHeader>
+            {/* key 随包切换重建，滚动位置归零 */}
+            <div key={pkg.key} className="max-h-[70vh] overflow-y-auto px-6 py-5">
+              <PackageDetailBody pkg={pkg} onJump={onJump} />
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function WalkthroughSection() {
+  return (
+    <div className="rounded-xl border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="text-sm font-semibold tracking-tight">场景走读：各层怎么协作</h3>
+        <span className="text-[11px] text-muted-foreground">
+          心智模型的主入口——比记住每个包更重要的是记住一次交互的传播路径
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3.5 xl:grid-cols-2">
+        {ARCH_WALKTHROUGHS.map((walkthrough) => (
+          <div
+            key={walkthrough.key}
+            className="flex flex-col gap-2.5 rounded-lg border bg-background/40 px-4 py-3.5"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+              <h4 className="text-[13px] font-semibold">{walkthrough.title}</h4>
+              <span className="text-[11px] text-muted-foreground">{walkthrough.question}</span>
+            </div>
+            <ol className="flex flex-col gap-1.5">
+              {walkthrough.steps.map((step, index) => (
+                <li key={step} className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
+                  <span className="mt-px flex size-4 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[9px] font-medium text-muted-foreground">
+                    {index + 1}
+                  </span>
+                  {step}
+                </li>
+              ))}
+            </ol>
+            <p className="rounded-md bg-primary/5 px-2.5 py-1.5 text-[11px] leading-relaxed text-foreground/90">
+              <span className="font-semibold">锚点：</span>
+              {walkthrough.takeaway}
+            </p>
           </div>
-        </section>
-      </CardContent>
-    </Card>
+        ))}
+      </div>
+    </div>
   )
 }
 
 export function ArchitecturePage() {
-  const [selected, setSelected] = useState<ArchPackageKey>('table')
-  const selectedPkg = findArchPackage(selected)
+  const [selected, setSelected] = useState<ArchPackageKey | null>(null)
 
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-xl border bg-card px-6 py-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h2 className="text-xl font-semibold tracking-tight">架构与 API 边界</h2>
+          <h2 className="text-xl font-semibold tracking-tight">架构</h2>
           <Badge variant="secondary">多包单体</Badge>
         </div>
         <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
-          七个子包自底向上逐层收窄：渲染层不含表格语义，内核层沉淀跨引擎网格机器，引擎层实现
-          ListTable 与装配协议，领域与插件层经协议接入，发布层统一出口。点击包卡片查看具体功能、
-          公共 API 名册与边界规则；API 名册由守卫测试对照真实导出验证。
+          八个功能子包 + 一个发布包自底向上逐层收窄，依赖只能向下。读这页的三个抓手：
+          <b>分层图</b>——每层存在的原因（下层的存在让上层不用重复造）；
+          <b>场景走读</b>——一次渲染 / 滚动 / 编辑 / 扩展中数据怎么流过各层；
+          <b>包详情弹框</b>
+          ——点卡片打开每包的详细作用、典型场景与扩展举例（想加某类能力时该动哪层），弹框内依赖徽章可直接跳转对应包。
         </p>
       </div>
 
@@ -203,31 +283,42 @@ export function ArchitecturePage() {
               </div>
               {/* 引擎装配协议缝：领域层与引擎层之间 */}
               {layer.key === 'domain' ? (
-                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-dashed bg-muted/30 px-3.5 py-2.5">
+                <div className="mt-3 flex flex-col gap-1.5 rounded-lg border border-dashed bg-muted/30 px-3.5 py-2.5">
                   <span className="text-[11px] font-semibold tracking-wide text-foreground">
-                    ⌇ 引擎装配协议缝（packages/table/src/engine.ts）
+                    ⌇ 引擎装配协议：引擎被拆成的部件约定（@infinitable/protocol
+                    契约包，纯类型零运行时）
                   </span>
-                  {ARCH_PROTOCOLS.map((protocol) => (
-                    <span
-                      key={protocol.name}
-                      className="text-[10.5px] leading-relaxed text-muted-foreground"
-                    >
-                      <code className="font-mono font-medium text-foreground">{protocol.name}</code>
-                      ：{protocol.desc}
-                    </span>
-                  ))}
+                  <div className="flex flex-wrap gap-x-5 gap-y-1">
+                    {ARCH_PROTOCOLS.map((protocol) => (
+                      <span
+                        key={protocol.name}
+                        className="text-[10.5px] leading-relaxed text-muted-foreground"
+                      >
+                        <span className="font-medium text-foreground">{protocol.name}</span>：
+                        {protocol.desc}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>
           ))}
         </div>
         <p className="mt-3 text-[11px] text-muted-foreground">
-          箭头 = 依赖方向（上层依赖下层）；formulas 与 grid/table 互不依赖，由 sheet 的
-          FormulaEngine 适配层接线；react 技术栈只进 playground，不进任何 packages。
+          箭头 = 依赖方向（上层依赖下层）；formulas 与网格/表格引擎互不依赖，由 sheet
+          的公式接线层接线；react 技术栈只进 playground，不进任何 packages。
         </p>
       </div>
 
-      <PackageDetail pkg={selectedPkg} />
+      <WalkthroughSection />
+
+      <PackageDetailDialog
+        pkgKey={selected}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null)
+        }}
+        onJump={setSelected}
+      />
     </div>
   )
 }

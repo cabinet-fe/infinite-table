@@ -91,7 +91,7 @@ function Hero() {
         <div className="mt-6 flex flex-wrap items-center gap-2.5">
           <Button onClick={() => navigateTo('architecture')}>
             <Layers className="size-4" />
-            架构与 API 边界
+            架构与分层
           </Button>
           <a
             href="bench.html"
@@ -140,12 +140,12 @@ function PackageCard() {
         <CardTitle className="text-base">多包单体：七层各司其职</CardTitle>
         <CardDescription>
           render → grid → table 自底向上逐层收窄，pivot / sheet 经引擎装配协议接入，infinitable
-          统一发布；每个子包的职责与公共 API 边界见架构页。
+          统一发布；每个子包的作用、典型场景与扩展举例见架构页。
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Button variant="outline" size="sm" onClick={() => navigateTo('architecture')}>
-          查看子包功能与 API 边界
+          查看分层与场景走读
           <ArrowRight className="size-3.5" />
         </Button>
       </CardContent>

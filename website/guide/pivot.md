@@ -10,7 +10,12 @@ pivot 是透视表领域引擎：行维度展开为多列树形布局、列维�
 消费口径是 `infinitable/pivot` 子路径（不经主入口转售）：
 
 ```ts
-import { PivotGrid, type PivotDimension, type PivotMeasure, type PivotRecord } from 'infinitable/pivot'
+import {
+  PivotGrid,
+  type PivotDimension,
+  type PivotMeasure,
+  type PivotRecord,
+} from 'infinitable/pivot'
 ```
 
 ## 快速上手
@@ -54,20 +59,20 @@ pivot.destroy() // 卸载；幂等
 
 `PivotRecord` 与引擎的 `DataRecord` 同形：字段 key 到值的普通对象。维度池与度量池是勾选候选全集，运行时勾选决定聚合矩阵形态。
 
-| 字段               | 类型                          | 默认                        | 说明                                                         |
-| ------------------ | ----------------------------- | --------------------------- | ------------------------------------------------------------ |
-| `container`        | `HTMLElement`                 | 必填                        | 挂载容器（四层画布落点），需 `position` 非 `static`          |
-| `width` / `height` | `number`                      | 容器当前尺寸（缺省 760/480） | 视口尺寸（CSS 像素）                                         |
-| `dpr`              | `number`                      | 跟随环境                    | 设备像素比；像素断言等确定性场景可锁 `1`                     |
-| `dimensions`       | `readonly PivotDimension[]`   | 必填                        | 维度池：`key` / `title` / 行头列宽 `width`                   |
-| `measures`         | `readonly PivotMeasure[]`     | 必填                        | 度量池：`key` / `title` / 记录字段 `field` / 聚合 `agg` / 列宽 `width` |
-| `records`          | `readonly PivotRecord[]`      | 必填                        | 原始记录                                                      |
-| `rowDimensions`    | `readonly string[]`           | 全部维度                    | 初始行维度 key 序列；顺序即树层级序，至少一个                |
-| `columnDimensions` | `readonly string[]`           | `[]`                        | 初始列维度 key 序列；顺序即多级表头层级序，空序列度量直排    |
-| `activeMeasures`   | `readonly string[]`           | 全部度量                    | 初始度量 key 序列；顺序即数据列分组序，至少一个              |
-| `showGrandTotal`   | `boolean`                     | `true`                      | 总计行                                                       |
-| `collapsible`      | `boolean`                     | `true`                      | 行维度树可折叠；`false` 时始终平铺展开、不绘展开钮           |
-| `theme`            | `ThemeOverride`               | —                           | 主题覆盖（`ThemeOverride` 从主入口导入）；选区边框宽被压 `0`（高亮为纯填充），宿主可经 `interaction` 显式覆盖 |
+| 字段               | 类型                        | 默认                         | 说明                                                                                                          |
+| ------------------ | --------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `container`        | `HTMLElement`               | 必填                         | 挂载容器（四层画布落点），需 `position` 非 `static`                                                           |
+| `width` / `height` | `number`                    | 容器当前尺寸（缺省 760/480） | 视口尺寸（CSS 像素）                                                                                          |
+| `dpr`              | `number`                    | 跟随环境                     | 设备像素比；像素断言等确定性场景可锁 `1`                                                                      |
+| `dimensions`       | `readonly PivotDimension[]` | 必填                         | 维度池：`key` / `title` / 行头列宽 `width`                                                                    |
+| `measures`         | `readonly PivotMeasure[]`   | 必填                         | 度量池：`key` / `title` / 记录字段 `field` / 聚合 `agg` / 列宽 `width`                                        |
+| `records`          | `readonly PivotRecord[]`    | 必填                         | 原始记录                                                                                                      |
+| `rowDimensions`    | `readonly string[]`         | 全部维度                     | 初始行维度 key 序列；顺序即树层级序，至少一个                                                                 |
+| `columnDimensions` | `readonly string[]`         | `[]`                         | 初始列维度 key 序列；顺序即多级表头层级序，空序列度量直排                                                     |
+| `activeMeasures`   | `readonly string[]`         | 全部度量                     | 初始度量 key 序列；顺序即数据列分组序，至少一个                                                               |
+| `showGrandTotal`   | `boolean`                   | `true`                       | 总计行                                                                                                        |
+| `collapsible`      | `boolean`                   | `true`                       | 行维度树可折叠；`false` 时始终平铺展开、不绘展开钮                                                            |
+| `theme`            | `ThemeOverride`             | —                            | 主题覆盖（`ThemeOverride` 从主入口导入）；选区边框宽被压 `0`（高亮为纯填充），宿主可经 `interaction` 显式覆盖 |
 
 聚合器 `PivotAggregator` 五种：`sum` / `avg` / `min` / `max` 按 `field` 数值聚合，`count` 统计记录数（忽略 `field`）。同一记录字段可挂多个不同聚合的度量。聚合值显示：整数千分位、非整数保留 1 位小数。
 
@@ -84,27 +89,27 @@ pivot.destroy() // 卸载；幂等
 
 勾选与折叠都是「结构重算 + 引擎几何原地落地」，不重建实例：
 
-| 方法                                              | 说明                                                         |
-| ------------------------------------------------- | ------------------------------------------------------------ |
-| `setRowDimensions(keys)`                          | 勾选行维度序列（顺序即层级序；至少一个）                     |
-| `setColumnDimensions(keys)`                       | 勾选列维度序列（空序列度量直排）                             |
-| `setMeasures(keys)`                               | 勾选度量序列（顺序即数据列分组序）                           |
-| `updateMeasure(key, patch)`                       | 更新度量定义（`agg` / `title` / `width`；不改勾选序列）      |
-| `toggleNode(path)` / `expandAll()` / `collapseAll()` | 折叠切换 / 全部展开 / 全部收起（收拢到一级）               |
-| `getCollapsible()` / `setCollapsible(enabled)`    | 读取/切换可折叠配置（关闭时折叠态清空、整树平铺）            |
+| 方法                                                 | 说明                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------- |
+| `setRowDimensions(keys)`                             | 勾选行维度序列（顺序即层级序；至少一个）                |
+| `setColumnDimensions(keys)`                          | 勾选列维度序列（空序列度量直排）                        |
+| `setMeasures(keys)`                                  | 勾选度量序列（顺序即数据列分组序）                      |
+| `updateMeasure(key, patch)`                          | 更新度量定义（`agg` / `title` / `width`；不改勾选序列） |
+| `toggleNode(path)` / `expandAll()` / `collapseAll()` | 折叠切换 / 全部展开 / 全部收起（收拢到一级）            |
+| `getCollapsible()` / `setCollapsible(enabled)`       | 读取/切换可折叠配置（关闭时折叠态清空、整树平铺）       |
 
 查询面（勾选面板回读引擎真实结构）：
 
-| 方法                       | 说明                                            |
-| -------------------------- | ----------------------------------------------- |
+| 方法                       | 说明                                             |
+| -------------------------- | ------------------------------------------------ |
 | `getVisibleRowCount()`     | 可见数据行数（leaf + 折叠载体 + 总计，不含表头） |
-| `getDataColumnCount()`     | 数据列数（列维度叶子路径数 × 度量数）           |
-| `getRowHeaderCount()`      | 行头列数（= 行维度数）                          |
-| `getHeaderRowCount()`      | 表头行数（列维度层数 + 度量行）                 |
-| `getSubtotalRowCount()`    | 折叠载体行数（小计载体，不含总计）              |
-| `getRecordCount()`         | 记录总数                                        |
-| `getRowDimensionKeys()` 等 | 当前行/列维度与度量 key 序列、度量定义快照      |
-| `getCellRecords(col, row)` | 交叉格明细：该格聚合覆盖的原始记录              |
+| `getDataColumnCount()`     | 数据列数（列维度叶子路径数 × 度量数）            |
+| `getRowHeaderCount()`      | 行头列数（= 行维度数）                           |
+| `getHeaderRowCount()`      | 表头行数（列维度层数 + 度量行）                  |
+| `getSubtotalRowCount()`    | 折叠载体行数（小计载体，不含总计）               |
+| `getRecordCount()`         | 记录总数                                         |
+| `getRowDimensionKeys()` 等 | 当前行/列维度与度量 key 序列、度量定义快照       |
+| `getCellRecords(col, row)` | 交叉格明细：该格聚合覆盖的原始记录               |
 
 ```ts
 pivot.onCellDrill((event) => {
@@ -121,7 +126,7 @@ pivot.onCellDrill((event) => {
 import { createWatermarkPlugin } from 'infinitable'
 import { PivotGrid } from 'infinitable/pivot'
 
-const pivot = new PivotGrid({ /* ... */ })
+const pivot = new PivotGrid({/* ... */})
 
 // 水印是协议插件：挂在 PivotGrid 上同样生效
 pivot.use(createWatermarkPlugin({ enabled: true, text: '内部资料', opacity: 0.12 }))

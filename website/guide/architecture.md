@@ -50,18 +50,19 @@ flowchart LR
 
 重写保留了原实现的行为基线（API 行为、交互口径、渲染结果作为迁移基准），但包结构、渲染引擎和失效模型是新的。
 
-## 八个包的职责与依赖
+## 九个包的职责与依赖
 
 | 包                      | 职责                                                                                                                  | 主要入口                            |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、帧调度、`RenderHost` 窄接口        | `packages/render/src/index.ts`      |
+| `@infinitable/render`   | canvas 渲染引擎：场景树、四层 canvas、多 region 失效、federated 事件、帧调度、`RenderHost` 窄接口                     | `packages/render/src/index.ts`      |
 | `@infinitable/grid`     | 共享网格内核：`ScrollManager`、行列前缀和/虚拟窗口/二分命中、布局与主题投影、选区状态、共享边、cell-range、浮动对象层 | `packages/grid/src/index.ts`        |
-| `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径                                                | `packages/table/src/index.ts`       |
+| `@infinitable/protocol` | 引擎装配协议契约包（纯类型、零运行时）：`EngineAssembly` 中立本体、`EngineReadView` 读取面、`EnginePlugin` 插件契约   | `packages/protocol/src/index.ts`    |
+| `@infinitable/table`    | 表格引擎：`ListTable` 主体与装配、交互、编辑、合并、媒体、插件注册路径（实现中立本体，承载 `TableEngine` 领域面）     | `packages/table/src/index.ts`       |
 | `@infinitable/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、`evaluate`、49 个内置函数、依赖图、容错引用扫描、引用平移            | `packages/formulas/src/index.ts`    |
-| `@infinitable/plugins`  | 官方插件：`TablePlugin` 契约转出 + chart / print / watermark 插件工厂                                                 | `packages/plugins/src/index.ts`     |
+| `@infinitable/plugins`  | 官方插件：`EnginePlugin` 契约转出 + chart / print / watermark 插件工厂                                                | `packages/plugins/src/index.ts`     |
 | `@infinitable/pivot`    | 透视表引擎：`PivotGrid` 装配协议接入的领域引擎（行维度树形布局 × 多级列头 × 度量聚合）                                | `packages/pivot/src/index.ts`       |
 | `@infinitable/sheet`    | 电子表格核心：`Sheet` / `Workbook` 模型、命令与撤销、xlsx/csv IO、`SheetGrid` 适配层                                  | `packages/sheet/src/index.ts`       |
-| `infinitable`           | 唯一 npm 发布包：主入口 re-export 五层公共 API，`./sheet` 子路径导出电子表格核心，`./pivot` 子路径导出透视表引擎      | `packages/infinitable/src/index.ts` |
+| `infinitable`           | 唯一 npm 发布包：主入口 re-export 六层公共 API，`./sheet` 子路径导出电子表格核心，`./pivot` 子路径导出透视表引擎      | `packages/infinitable/src/index.ts` |
 
 ```mermaid
 graph TD
@@ -72,26 +73,33 @@ graph TD
   infinitable --> plugins
   infinitable --> sheet
   infinitable --> pivot
+  infinitable --> protocol
   grid --> render
+  protocol --> grid
+  protocol --> render
   table --> grid
   table --> render
+  table --> protocol
   plugins --> table
   plugins --> grid
+  plugins --> protocol
   sheet --> table
   sheet --> grid
   sheet --> formulas
+  sheet --> protocol
   pivot --> table
+  pivot --> protocol
 ```
 
 依赖方向是单向的：
 
 - `render` 不知道 `grid` / `table` 的存在，只暴露渲染宿主、层句柄、场景树和失效类型。
-- `grid` 只依赖 `render`；`table` 依赖 `grid` 与 `render` 的窄接口，不依赖 `formulas`；表格只负责显示模型给出的值。
+- `grid` 只依赖 `render`；`protocol` 是纯类型契约包（零运行时），只依赖 `grid` 与 `render` 的类型——装配契约只有一个家，不消费 `TableEngine` 的引擎与协议插件无需依赖 `table`；`table` 依赖 `grid`、`render` 与 `protocol`，不依赖 `formulas`，表格只负责显示模型给出的值。
 - `formulas` 不依赖 `grid` / `table`，求值所需的取值能力由宿主以 `FormulaResolver` 形式注入。
-- `plugins` 依赖 `table` 的 `TablePlugin` 契约（挂载参数为 `EngineAssembly` 装配协议面），官方插件与用户插件使用同一个挂载路径。
+- `plugins` 依赖 `protocol` 契约包的 `EnginePlugin` 契约（挂载参数为 `EngineAssembly` 装配协议面），官方插件与用户插件使用同一个挂载路径。插件按挂载点分三类：协议插件（watermark / print——任意引擎可挂）、领域面插件（chart——经构造缝注入 table 引擎）、注册表插件（编辑器 / 公式函数 / 媒体解析器）。
 - `sheet` 同时依赖 `table`、`grid` 和 `formulas`：模型负责单元格存储与命令，公式门面负责图簿联动和增量重算，`SheetGrid` 把 `Sheet` 适配成 `ListTable` 的数据模型。
-- `pivot` 只依赖 `table`：`PivotGrid` 内部构造 `ListTable` 并以 `TableEngine` 协议面持有，维度/度量聚合是包内领域状态机；对外实现 `EngineAssembly` 转发面，协议插件（水印、打印）挂本引擎即生效。
-- `infinitable` 只是发布层，构建时聚合七个内部包产物，引擎实现跨入口共享；不做二次 API 扩张。
+- `pivot` 依赖 `table` 与 `protocol`：`PivotGrid` 内部构造 `ListTable` 并以 `TableEngine` 协议面持有，维度/度量聚合是包内领域状态机；对外实现 `EngineAssembly` 转发面，协议插件（水印、打印）挂本引擎即生效。
+- `infinitable` 只是发布层，构建时聚合八个内部包产物，引擎实现跨入口共享；不做二次 API 扩张。
 
 外部依赖中，`@cat-kit/core` 是公式精确计算的运行时依赖，`chart.js` 由图表插件动态加载，`hucre` 用于 sheet 的 xlsx 导出，React 技术栈只属于 playground。
 
@@ -99,12 +107,12 @@ graph TD
 
 四层画布自下而上叠放，每层有独立的场景树和失效队列：
 
-| 层  | 名称     | 职责                                                                                     | 创建时机                             | 消费策略（`consumption`）  |
-| --- | -------- | ---------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------- |
-| L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 table 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | `band-full-only`           |
-| L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                               | 构造时创建                           | `regions`                  |
-| L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                           | 首次出现图片或图表格时惰性创建       | `regions`                  |
-| L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                     | 构造时创建                           | `always-full`              |
+| 层  | 名称     | 职责                                                                                     | 创建时机                             | 消费策略（`consumption`） |
+| --- | -------- | ---------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------- |
+| L0  | `ground` | underlay painter 预留层（例如位于内容之下的水印）；当前 table 不在此层绘制网格线或斑马纹 | 首次写入 underlay painter 时惰性创建 | `band-full-only`          |
+| L1  | `body`   | 单元格背景、文本、边框、行列头、外框；滚动窗口的主要承载层                               | 构造时创建                           | `regions`                 |
+| L2  | `media`  | 单元格图片、图表格位图；cell 级 MediaCache LRU                                           | 首次出现图片或图表格时惰性创建       | `regions`                 |
+| L3  | `sky`    | 选区、填充柄、滚动条、浮动对象、顶层 overlay painter                                     | 构造时创建                           | `always-full`             |
 
 分层的目的不是视觉分层，而是**变化频率隔离**：
 
@@ -173,7 +181,7 @@ export interface LayerHandle {
 插件契约很小：
 
 ```ts
-export interface TablePlugin {
+export interface EnginePlugin {
   readonly name: string
   mount(engine: EngineAssembly): void
   unmount?(engine: EngineAssembly): void
@@ -189,7 +197,7 @@ export interface TablePlugin {
 
 `destroy()` 时按注册的逆序调用 `unmount`。
 
-官方插件都是 `createXxxPlugin` 工厂返回的对象，同时实现 `TablePlugin` 和运行时 handle：
+官方插件都是 `createXxxPlugin` 工厂返回的对象，同时实现 `EnginePlugin` 和运行时 handle：
 
 - `createWatermarkPlugin` 挂载时经协议面 `setOverlayPainter` 挂在 `sky` 层最顶；需要位于内容之下的衬底水印时，宿主自行使用 `setUnderlayPainter` 挂到 `ground` 层。
 - `createPrintPlugin` 挂载时仅记录引擎，能力经 handle 方法消费；供数可经 `createEnginePrintSource` 从引擎的导出读取面（`engine.read`）适配。

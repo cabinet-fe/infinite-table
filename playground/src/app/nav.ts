@@ -84,10 +84,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       },
       {
         key: 'architecture',
-        label: '架构与 API 边界',
+        label: '架构',
         icon: Layers,
         badge: 'packages',
-        desc: '子包分层 · 职责 · 公共 API 面',
+        desc: '子包分层 · 场景走读 · 扩展举例',
       },
     ],
   },
@@ -163,7 +163,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     title: '插件与场景',
-    desc: 'TablePlugin 契约下的完整形态示例：文字水印、打印分页与只读报表',
+    desc: 'EnginePlugin 契约下的完整形态示例：文字水印、打印分页与只读报表',
     items: [
       {
         key: 'watermark',

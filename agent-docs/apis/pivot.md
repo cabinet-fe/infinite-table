@@ -147,7 +147,7 @@ export class PivotGrid implements EngineAssembly {
   updateTheme(override: ThemeOverride): void
   setUnderlayPainter(painter: UnderlayPainter | null): void
   setOverlayPainter(painter: OverlayPainter | null): void
-  use(plugin: TablePlugin): void
+  use(plugin: EnginePlugin): void
   get read(): EngineReadView
   destroy(): void // 幂等
 }

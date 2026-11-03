@@ -374,4 +374,4 @@ watermark.updateConfig({ text: '机密', rotate: -20 })
 - **水印和角标互相覆盖**：顶层 overlay 只能有一个 painter。多个覆盖内容要合并绘制。
 - **`resolveCellImage` 里做异步请求**：这个 hook 必须同步、纯函数、O(1)。网络加载交给 `imageServiceOptions.loadImage` 或默认图片服务。
 
-继续阅读[打印](/examples/print)了解把表格数据输出为分页报表，或看[插件开发](/guide/plugin-development)了解 `TablePlugin` 契约和自定义 painter。
+继续阅读[打印](/examples/print)了解把表格数据输出为分页报表，或看[插件开发](/guide/plugin-development)了解 `EnginePlugin` 契约和自定义 painter。

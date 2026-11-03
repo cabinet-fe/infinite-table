@@ -1,13 +1,13 @@
 ---
 title: infinitable 插件接入
-description: infinitable 插件体系实战：TablePlugin 契约（mount/unmount）、构造 plugins 与 table.use 两种注册路径、单元格图表插件（createChartPlugin + Chart.js 按需加载）、文字水印插件（createWatermarkPlugin + 顶层 overlay）、自写插件挂引擎预留位（setUnderlayPainter/setOverlayPainter/floatObjects）。完成后得到一个带图表列、水印与自定义整层绘制的表格。
-aliases: [插件开发, 插件接入, plugin, TablePlugin, 挂载插件]
-keywords: [TablePlugin, mount, unmount, table.use, plugins, createChartPlugin, resolveCellChart, chart.js, createWatermarkPlugin, updateConfig, setUnderlayPainter, setOverlayPainter, OverlayPainter, floatObjects, 插件, 自定义插件, 图表列, 水印, 整层绘制]
+description: infinitable 插件体系实战：EnginePlugin 契约（mount/unmount）、构造 plugins 与 table.use 两种注册路径、单元格图表插件（createChartPlugin + Chart.js 按需加载）、文字水印插件（createWatermarkPlugin + 顶层 overlay）、自写插件挂引擎预留位（setUnderlayPainter/setOverlayPainter/floatObjects）。完成后得到一个带图表列、水印与自定义整层绘制的表格。
+aliases: [插件开发, 插件接入, plugin, EnginePlugin, 挂载插件]
+keywords: [EnginePlugin, mount, unmount, table.use, plugins, createChartPlugin, resolveCellChart, chart.js, createWatermarkPlugin, updateConfig, setUnderlayPainter, setOverlayPainter, OverlayPainter, floatObjects, 插件, 自定义插件, 图表列, 水印, 整层绘制]
 ---
 
 # infinitable 插件接入
 
-本指南覆盖插件体系全链路：官方插件（图表 `createChartPlugin`、水印 `createWatermarkPlugin`）接入、`TablePlugin` 契约自写插件、引擎预留位（underlay/overlay painter、浮动对象层）的正确用法。完成后得到一个图表列 + 水印 + 自定义整层角标的表格。适用 `infinitable` 0.1.x；图表须自装 `chart.js` v4。
+本指南覆盖插件体系全链路：官方插件（图表 `createChartPlugin`、水印 `createWatermarkPlugin`）接入、`EnginePlugin` 契约（定义在 `@infinitable/protocol` 契约包）自写插件、引擎预留位（underlay/overlay painter、浮动对象层）的正确用法。插件按挂载点分三类：协议插件（实现 EnginePlugin，mount 只收 EngineAssembly——任意引擎可挂）、领域面插件（消费特定引擎领域 API 组合接入，如 chart 经构造缝注入）、注册表插件（经注册表写入实现，如编辑器/公式函数）。完成后得到一个图表列 + 水印 + 自定义整层角标的表格。适用 `infinitable` 0.1.x；图表须自装 `chart.js` v4。
 
 ## 前置条件
 
@@ -21,10 +21,10 @@ keywords: [TablePlugin, mount, unmount, table.use, plugins, createChartPlugin, r
 1. 注册路径二选一（决策规则）：构造时已知插件用 `options.plugins`（先于首帧场景重建，渲染接线参与首帧）；运行时动态启停用 `table.use(plugin)`（注册即挂载，晚挂载由插件 mount 自行触发全量重建）。销毁时引擎逆序调 `unmount`。
 
    ```ts
-   import type { TablePlugin } from 'infinitable'
+   import type { EnginePlugin } from 'infinitable'
 
    // 自写插件最小形态：
-   const myPlugin: TablePlugin = {
+   const myPlugin: EnginePlugin = {
      name: 'my-plugin',
      mount(table) {
        // 挂载：写引擎预留位 / 订阅事件 / 注入渲染接线
@@ -63,9 +63,9 @@ keywords: [TablePlugin, mount, unmount, table.use, plugins, createChartPlugin, r
 4. 自写插件挂顶层 overlay 预留位（角标/版权条等自绘内容，与水印插件的差别：自管 painter 生命周期）：
 
    ```ts
-   import type { OverlayPainter, TablePlugin } from 'infinitable'
+   import type { OverlayPainter, EnginePlugin } from 'infinitable'
 
-   const badgePlugin: TablePlugin = {
+   const badgePlugin: EnginePlugin = {
      name: 'corner-badge',
      mount(table) {
        const paint: OverlayPainter = (ctx, viewport) => {
@@ -128,7 +128,7 @@ import {
   createWatermarkPlugin,
   ListTable,
   type OverlayPainter,
-  type TablePlugin,
+  type EnginePlugin,
   type WatermarkHandle,
 } from 'infinitable'
 
@@ -152,7 +152,7 @@ const watermark: WatermarkHandle = createWatermarkPlugin({
 })
 
 // 3) 自写插件：右下角徽标（顶层 overlay 预留位）
-const badgePlugin: TablePlugin = {
+const badgePlugin: EnginePlugin = {
   name: 'corner-badge',
   mount(table) {
     const paint: OverlayPainter = (ctx, viewport) => {
@@ -223,15 +223,15 @@ chartPlugin.loadLibrary() // => Promise<typeof import('chart.js')>（按需加�
 > - 顶层 overlay 预留位是单写方槽位：watermark 插件与自写 overlay 插件会互相覆盖 painter（后挂载的覆盖先挂载的）——多种顶层内容须合并成一个 painter 内自绘。
 > - 内容之下的衬底水印用 `setUnderlayPainter`（ground 层恒在最底）：默认主题 body 不透明底色会遮挡它，须配透明底或改用顶层 overlay。
 > - `table.use(plugin)` 重复注册同一插件对象会挂载两次（引擎不去重）；插件列表变更走自管数组 + 销毁重建。
-> - 自写插件禁止 import 引擎内部模块或 `@internal` 成员：只依赖 `infinitable` 公开导出面（`TablePlugin`、`ListTable`、painter 类型等）。
+> - 自写插件禁止 import 引擎内部模块或 `@internal` 成员：只依赖 `infinitable` 公开导出面（`EnginePlugin`、`ListTable`、painter 类型等）。
 > - `unmount` 是可选回调但涉及预留位/事件订阅的插件必须实现：不还原会让下一次挂载的写入方读到旧 painter。
 
 多种顶层内容合并成一个 painter 的写法：
 
 ```ts
-import type { OverlayPainter, TablePlugin } from 'infinitable'
+import type { OverlayPainter, EnginePlugin } from 'infinitable'
 
-const combinedPlugin: TablePlugin = {
+const combinedPlugin: EnginePlugin = {
   name: 'combined-overlay',
   mount(table) {
     const paint: OverlayPainter = (ctx, viewport) => {

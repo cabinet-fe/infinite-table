@@ -137,7 +137,7 @@ export interface ListTableOptions {
   host?: RenderHost
   hostOptions?: Omit<RenderHostOptions, 'width' | 'height'>
   theme?: ThemeOverride
-  plugins?: readonly TablePlugin[]
+  plugins?: readonly EnginePlugin[]
   canResizeCol?: (col: number) => boolean
   canResizeRow?: (row: number) => boolean
   ctrlMultiSelect?: boolean
@@ -180,7 +180,7 @@ export class ListTable {
   get floatObjects(): object
   getTheme(): TableTheme
   updateTheme(override: ThemeOverride): void
-  use(plugin: TablePlugin): void
+  use(plugin: EnginePlugin): void
   destroy(): void
 }
 
@@ -196,7 +196,7 @@ export class SheetModel implements TableModel {
 }
 
 /** 插件契约：构造传入或 table.use() 注册即挂载，销毁逆序卸载 */
-export interface TablePlugin {
+export interface EnginePlugin {
   readonly name: string
   mount(table: ListTable): void
   unmount?(table: ListTable): void
@@ -236,7 +236,7 @@ ListTableOptions 全部字段（五要素）：
 | `host` | `RenderHost` | 自建 | 否 | 注入渲染宿主；注入后 destroy 不销毁宿主 |
 | `hostOptions` | `Partial<RenderHostOptions>` | — | 否 | 未注入 host 时创建 RenderHost 的参数（width/height 取视口尺寸） |
 | `theme` | `ThemeOverride` | 默认主题 | 否 | 基于默认主题 extends 派生 |
-| `plugins` | `readonly TablePlugin[]` | `[]` | 否 | 构造即挂载生效（先于首帧场景重建） |
+| `plugins` | `readonly EnginePlugin[]` | `[]` | 否 | 构造即挂载生效（先于首帧场景重建） |
 | `canResizeCol` | `(col) => boolean` | 全部允许 | 否 | 返回 false 禁止该列拖拽改宽 |
 | `canResizeRow` | `(row) => boolean` | 全部允许 | 否 | 返回 false 禁止该行拖拽改高 |
 | `ctrlMultiSelect` | `boolean` | `false` | 否 | 开启后 Ctrl/Cmd 点数据格追加选区段 |
@@ -250,7 +250,7 @@ ListTableOptions 全部字段（五要素）：
 
 - `getTheme(): TableTheme` — 当前生效主题。
 - `updateTheme(override: ThemeOverride): void` — 以当前主题为 base 深覆盖合并（可多次调用累积），重建场景并整层失效；不触碰滚动/选区/冻结；几何 token 已生效值不重算。
-- `use(plugin: TablePlugin): void` — 注册即挂载；构造期 `plugins` 数组同一路径。
+- `use(plugin: EnginePlugin): void` — 注册即挂载；构造期 `plugins` 数组同一路径。
 - `scrollTo(left, top)` / `scrollBy(dx, dy)` — 位置自动夹取到 `[0, max]`。
 - `getScrollState()` / `getScrollLeft()` / `getScrollTop()` / `setScrollLeft(left)` / `setScrollTop(top)`。
 - `getVisibleRange(): { rows: { start: number; end: number }; cols: { start: number; end: number } }` — 当前滚动窗口（[start, end)，不含冻结区；区间类型未单独导出）。
@@ -317,7 +317,7 @@ export interface EngineAssembly {
   setUnderlayPainter(painter: UnderlayPainter | null): void
   setOverlayPainter(painter: OverlayPainter | null): void
   // 插件槽位：注册即挂载生效，销毁时逆序卸载（不绑定具体事件类型 G2/G21）
-  use(plugin: TablePlugin): void
+  use(plugin: EnginePlugin): void
   // 生命周期
   destroy(): void   // 幂等
   // 导出读取面（可选能力，G12-G15；table 引擎恒提供，透视/甘特等引擎可不提供）
@@ -345,7 +345,7 @@ export interface TableEngine extends EngineAssembly {
 }
 ```
 
-watermark/print 插件的挂载参数与 `TablePlugin.mount` 均为协议面（不再以 `ListTable` 具体类型为挂载参数）；`SheetGrid` 经协议面消费 table 引擎（`getTable()` 返回 `TableEngine`）。导出类插件供数适配见 `apis/print-plugin.md` 的 `createEnginePrintSource`。
+watermark/print 插件的挂载参数与 `EnginePlugin.mount` 均为协议面（不再以 `ListTable` 具体类型为挂载参数）；`SheetGrid` 经协议面消费 table 引擎（`getTable()` 返回 `TableEngine`）。导出类插件供数适配见 `apis/print-plugin.md` 的 `createEnginePrintSource`。
 
 ## 典型示例
 

@@ -7,7 +7,7 @@ keywords: [createChartPlugin, ChartPluginOptions, ChartPluginHandle, resolveCell
 
 # chart 图表插件与 watermark 水印插件
 
-`infinitable`（plugins 层）导出两个官方插件：`createChartPlugin`（单元格图表——格声明（类型 + 数据）经 Chart.js 在插件侧离屏出图，位图落 core L2 media 的 cell 级 MediaCache blit 上屏，滚动滚回命中直贴无闪；Chart.js 按需动态 `import('chart.js')` 独立分包，不强制安装）与 `createWatermarkPlugin`（文字平铺水印——绘制在顶层 overlay 预留位即 sky 层最顶，覆盖在表格内容之上，锚定视口不随滚动平移）。两者都实现 core `TablePlugin` 契约：构造 `options.plugins` 传入或 `table.use()` 注册即挂载。
+`infinitable`（plugins 层）导出两个官方插件：`createChartPlugin`（单元格图表——格声明（类型 + 数据）经 Chart.js 在插件侧离屏出图，位图落 core L2 media 的 cell 级 MediaCache blit 上屏，滚动滚回命中直贴无闪；Chart.js 按需动态 `import('chart.js')` 独立分包，不强制安装）与 `createWatermarkPlugin`（文字平铺水印——绘制在顶层 overlay 预留位即 sky 层最顶，覆盖在表格内容之上，锚定视口不随滚动平移）。两者都实现 `EnginePlugin` 契约（定义在 `@infinitable/protocol` 契约包）：构造 `options.plugins` 传入或 `table.use()` 注册即挂载。插件分类：watermark 为协议插件（mount 只收 `EngineAssembly`，任意引擎可挂，PivotGrid 跨引擎挂载即证明）；chart 为领域面插件（能力经 `ListTableOptions.chartMediaResolver` 构造缝注入 table 引擎，换引擎即失效）。
 
 ## 快速上手
 
@@ -100,8 +100,8 @@ export interface ChartPluginOptions {
   chartJsModule?: typeof import('chart.js') | Promise<typeof import('chart.js')>
 }
 
-/** 插件句柄：TablePlugin 契约 + 渲染通路消费的解析/加载入口 */
-export interface ChartPluginHandle extends TablePlugin {
+/** 插件句柄：EnginePlugin 契约 + 渲染通路消费的解析/加载入口 */
+export interface ChartPluginHandle extends EnginePlugin {
   /** 解析指定格的图表声明为 ChartSpec；未声明或非法声明返回 null（不抛异常） */
   getChartSpec(col: number, row: number): ChartSpec | null
   /** 按需加载 Chart.js（首次触发动态 import 并注册全量 registerables，之后共享模块缓存） */
@@ -133,8 +133,8 @@ export interface WatermarkTextConfig {
 // 缺省值（引擎内置常量，未导出）：fontSize 14、color '#000000'、opacity 0.12、
 // rotate -30、gapX 160、gapY 120
 
-/** 水印插件句柄：TablePlugin 契约 + 运行时配置读写 */
-export interface WatermarkHandle extends TablePlugin {
+/** 水印插件句柄：EnginePlugin 契约 + 运行时配置读写 */
+export interface WatermarkHandle extends EnginePlugin {
   /** 运行时更新配置（浅合并；任一项变更一帧内重绘；值未变的补丁无操作） */
   updateConfig(patch: Partial<WatermarkTextConfig>): void
   /** 当前完整配置快照（缺省值已并入，返回副本） */
@@ -168,7 +168,7 @@ export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHan
 
 ## 方法与事件
 
-`createChartPlugin(options)` — 返回 `ChartPluginHandle`（同时是 `TablePlugin`）：
+`createChartPlugin(options)` — 返回 `ChartPluginHandle`（同时是 `EnginePlugin`）：
 
 - `mount(table)` — 把「格 → 图表媒体」解析器写入引擎 chart 预留位（core L2 media）；晚挂载（`table.use`）补一次全量重建即时上图。
 - `unmount(table)` — 解析器是本插件时置 null。
@@ -177,7 +177,7 @@ export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHan
 
 出图通路（插件内部）：离屏 canvas 上同步确定性出图（`responsive: false` + `animation: false` + 显式 `devicePixelRatio`），双画布协议（chart.js destroy 会清 scratch 画布，产物先拷出到 output 画布）；配色由出图器确定性缺省色板（9 色循环），单元格声明不携带配色。产物位图经 cell 级位图缓存（key = 声明内容 key + 格尺寸 + DPR），同 key 并发出图由 core 单飞收敛。
 
-`createWatermarkPlugin(config)` — 返回 `WatermarkHandle`（同时是 `TablePlugin`）：
+`createWatermarkPlugin(config)` — 返回 `WatermarkHandle`（同时是 `EnginePlugin`）：
 
 - `mount(table)` — `enabled` 时写 overlay painter（sky 层最顶），触发 sky 整层失效一帧内生效。
 - `unmount(table)` — 置 null 还原预留位（承载节点摘除、绘制面清空）。

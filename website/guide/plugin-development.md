@@ -1,6 +1,6 @@
 ---
 title: 插件开发
-description: TablePlugin 契约、构造 plugins 与 table.use 的差异、chart/watermark/print 官方插件挂载方式，以及 setUnderlayPainter/setOverlayPainter 扩展点与最小自定义插件。
+description: EnginePlugin 契约、构造 plugins 与 table.use 的差异、chart/watermark/print 官方插件挂载方式，以及 setUnderlayPainter/setOverlayPainter 扩展点与最小自定义插件。
 ---
 
 # 插件开发
@@ -9,16 +9,16 @@ infinitable 的插件是普通对象，不继承基类、不访问引擎内部�
 
 挂载参数是协议面而不是 `ListTable` 具体类型：`ListTable`、`SheetGrid` 装配与 pivot 引擎 `PivotGrid` 等平级引擎都实现 `EngineAssembly`，只依赖协议面的插件可跨引擎挂载（水印、打印即如此）。需要表格领域能力（如 `chartMediaResolver`、`floatObjects`）的插件把参数收窄为 `ListTable`（实现 `TableEngine` 协议面），此时插件只在表格引擎上生效。
 
-官方插件（chart / watermark / print）本身就是 `TablePlugin` 的实现，因此官方能力与自写插件走同一套注册路径。完整签名见 [插件（plugins）](/api/plugins)。
+官方插件（chart / watermark / print）本身就是 `EnginePlugin` 的实现，因此官方能力与自写插件走同一套注册路径。完整签名见 [插件（plugins）](/api/plugins)。
 
 ## 契约与生命周期
 
-`TablePlugin` 只有三个成员，方法名是 `mount` / `unmount`，不是 `install` / `uninstall`：
+`EnginePlugin` 只有三个成员，方法名是 `mount` / `unmount`，不是 `install` / `uninstall`：
 
 ```ts
 import type { EngineAssembly } from 'infinitable'
 
-interface TablePlugin {
+interface EnginePlugin {
   readonly name: string
   /** 挂载：构造传入或引擎 use() 注册时立即调用；参数为引擎装配协议面 */
   mount(engine: EngineAssembly): void
@@ -44,9 +44,9 @@ interface TablePlugin {
 ### 构造时传入 plugins
 
 ```ts
-import { ListTable, type TablePlugin } from 'infinitable'
+import { ListTable, type EnginePlugin } from 'infinitable'
 
-const plugin: TablePlugin = {
+const plugin: EnginePlugin = {
   name: 'my-plugin',
   mount(engine) {
     // 写入预留位 / 订阅事件
@@ -68,7 +68,7 @@ const table = new ListTable({
 })
 ```
 
-`ListTableOptions.plugins` 的类型是 `readonly TablePlugin[]`。插件在 `rebuildScene` 之前挂载，适合依赖场景装配的渲染接线。
+`ListTableOptions.plugins` 的类型是 `readonly EnginePlugin[]`。插件在 `rebuildScene` 之前挂载，适合依赖场景装配的渲染接线。
 
 ### 运行时 table.use
 
@@ -95,7 +95,7 @@ table.use(plugin) // 立即 mount；返回 void
 
 ## 官方插件挂载
 
-三个插件都实现 `TablePlugin`，都能放进 `plugins` 数组：
+三个插件都实现 `EnginePlugin`，都能放进 `plugins` 数组：
 
 ```ts
 import { createChartPlugin, createPrintPlugin, createWatermarkPlugin, ListTable } from 'infinitable'
@@ -156,11 +156,11 @@ void html
 
 各插件挂载后的实际接线：
 
-| 插件                    | `mount` 做了什么                                                                          | `unmount` 做了什么                   |
-| ----------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------ |
+| 插件                    | `mount` 做了什么                                                                                 | `unmount` 做了什么                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------ |
 | `createChartPlugin`     | 把挂载参数收窄为表格引擎，将「格 → 图表媒体」解析器写入引擎的 chart 预留位；晚挂载时触发全量重建 | 仅当当前解析器仍是自己的解析器时置空 |
-| `createWatermarkPlugin` | `enabled` 时经协议面 `setOverlayPainter` 写入顶层 overlay painter                          | 置空 overlay painter、解除引擎引用   |
-| `createPrintPlugin`     | 仅记录挂载引擎，不接线引擎                                                                | 无表侧副作用                         |
+| `createWatermarkPlugin` | `enabled` 时经协议面 `setOverlayPainter` 写入顶层 overlay painter                                | 置空 overlay painter、解除引擎引用   |
+| `createPrintPlugin`     | 仅记录挂载引擎，不接线引擎                                                                       | 无表侧副作用                         |
 
 图表数据变更后仍需要宿主调 `table.refreshCell(col, row)`。`resolveCellChart` 是拉取式 hook，引擎不会感知声明对象内部的数据变化。`chart.getChartSpec(col, row)` 可独立解析声明，非法声明返回 `null`；`chart.loadLibrary()` 用于预热 Chart.js。
 
@@ -240,9 +240,9 @@ underlay、overlay 与 chart 预留位都是单写方槽位：
 下面这个插件在表格视口底部画一条标尺。它只依赖公开的 `OverlayPainter` 与 `setOverlayPainter`，不 import 任何引擎内部模块。
 
 ```ts
-import { ListTable, type OverlayPainter, type TablePlugin } from 'infinitable'
+import { ListTable, type OverlayPainter, type EnginePlugin } from 'infinitable'
 
-const rulerPlugin: TablePlugin = {
+const rulerPlugin: EnginePlugin = {
   name: 'viewport-ruler',
   mount(engine) {
     const paint: OverlayPainter = (ctx, viewport) => {
@@ -309,7 +309,7 @@ table.use(rulerPlugin) // setOverlayPainter 自动提交 sky 整层失效，下�
 
 ```ts
 // 正确：用户侧从 infinitable 公共入口导入
-import type { ListTable, OverlayPainter, RenderContext, Size, TablePlugin } from 'infinitable'
+import type { ListTable, OverlayPainter, RenderContext, Size, EnginePlugin } from 'infinitable'
 
 // 错误：深路径、内部模块、@internal 成员
 import { rebuildScene } from '@infinitable/table/src/list-table-scene'

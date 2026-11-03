@@ -79,7 +79,7 @@ export interface ListTableOptions {
   hostOptions?: Omit<RenderHostOptions, 'width' | 'height'>
   doc?: CanvasDocSource
   theme?: ThemeOverride
-  plugins?: readonly TablePlugin[]
+  plugins?: readonly EnginePlugin[]
   canResizeCol?: (col: number) => boolean
   canResizeRow?: (row: number) => boolean
   ctrlMultiSelect?: boolean
@@ -181,11 +181,11 @@ export interface ListTableOptions {
 
 ### 插件与宿主
 
-| 参数          | 类型                                           | 默认 | 说明                                                               |
-| ------------- | ---------------------------------------------- | ---- | ------------------------------------------------------------------ |
-| `plugins`     | `readonly TablePlugin[]`                       | `[]` | 构造期按数组顺序挂载，先于首次场景重建                             |
-| `host`        | `RenderHost`                                   | 自建 | 注入渲染宿主。注入后 `destroy()` 不销毁该宿主                      |
-| `hostOptions` | `Omit<RenderHostOptions, 'width' \| 'height'>` | —    | 未注入 `host` 时创建宿主的参数；容器通常在 `hostOptions.container` |
+| 参数          | 类型                                           | 默认            | 说明                                                                                                                                                                           |
+| ------------- | ---------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `plugins`     | `readonly EnginePlugin[]`                      | `[]`            | 构造期按数组顺序挂载，先于首次场景重建                                                                                                                                         |
+| `host`        | `RenderHost`                                   | 自建            | 注入渲染宿主。注入后 `destroy()` 不销毁该宿主                                                                                                                                  |
+| `hostOptions` | `Omit<RenderHostOptions, 'width' \| 'height'>` | —               | 未注入 `host` 时创建宿主的参数；容器通常在 `hostOptions.container`                                                                                                             |
 | `doc`         | `CanvasDocSource`                              | 全局 `document` | 文档源注入：层 canvas 与测量画布创建经它。无 DOM 环境（SSR / 无头测试）注入替身后可构造并出图；`hostOptions.createCanvas` 显式注入仍优先。类型见下方「引擎协议面与文档源注入」 |
 
 ### 滚动条
@@ -227,7 +227,7 @@ export interface ScrollbarOptions {
 | 构造     | `new ListTable(options: ListTableOptions)`   | 构造选项   | `ListTable`  | 装配场景、绑定交互、挂载 `plugins`，并提交首帧                                                                        |
 | 取主题   | `getTheme(): TableTheme`                     | —          | `TableTheme` | 当前生效主题                                                                                                          |
 | 更新主题 | `updateTheme(override: ThemeOverride): void` | 深覆盖片段 | `void`       | 以当前主题为 base 累积深覆盖，重建场景、提交 body 层整层失效并刷新浮层；不触碰滚动/选区/冻结，已生效几何 token 不重算 |
-| 注册插件 | `use(plugin: TablePlugin): void`             | 插件对象   | `void`       | 注册即挂载；销毁时按注册逆序调用 `unmount`                                                                            |
+| 注册插件 | `use(plugin: EnginePlugin): void`            | 插件对象   | `void`       | 注册即挂载；销毁时按注册逆序调用 `unmount`                                                                            |
 
 ### 滚动
 
@@ -337,7 +337,7 @@ export interface ScrollbarOptions {
 | 成员       | 签名                                   | 说明                                                                                                                                                                          |
 | ---------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 图片服务   | `get imageService(): ImageService`     | 可在实例上 `request` / `releaseRef` / `updateWindow` / `hasResource` / `getBitmap` / `invalidate` / `invalidateAll` / `setUrlResolver`，并订阅 `onImageLoad` / `onImageError` |
-| 浮动对象层 | `get floatObjects(): FloatObjectLayer` | 首次访问时惰性建层，挂在 sky 层选区浮层之上、滚动条之下；对象集合、选中、拖拽、缩放/旋转与事件见 [/api/grid-table](/api/grid-table)                                                       |
+| 浮动对象层 | `get floatObjects(): FloatObjectLayer` | 首次访问时惰性建层，挂在 sky 层选区浮层之上、滚动条之下；对象集合、选中、拖拽、缩放/旋转与事件见 [/api/grid-table](/api/grid-table)                                           |
 
 ```ts
 let loaded = 0
@@ -367,7 +367,7 @@ table.floatObjects.add({
 | ----------- | ------------------------------------------------------------ | ----------------- | -------- | --------------------------------------------------------------------------------------- |
 | 取显示文本  | `getCellText(col: number, row: number): string`              | 格坐标            | `string` | 取值管线最终文本；被合并覆盖的格取主格文本                                              |
 | 回驱模型    | `updateCell(col: number, row: number, value: unknown): void` | 格坐标、新值      | `void`   | 只对 `model` 形态生效；无绑定直接返回。模型同步 echo 的派生格变更收集去重后统一局部刷新 |
-| 局部刷新    | `refreshCell(col: number, row: number): void`                | 格坐标            | `void`   | 单格 region 级失效；合并区路由到主格包围盒；窗外溢出源会联动                              |
+| 局部刷新    | `refreshCell(col: number, row: number): void`                | 格坐标            | `void`   | 单格 region 级失效；合并区路由到主格包围盒；窗外溢出源会联动                            |
 | 批量更新    | `batchUpdate(fn: () => void): void`                          | 变更函数          | `void`   | 收集 `fn` 内全部失效，结束时合并为一次 band 提交                                        |
 | ground 预置 | `setUnderlayPainter(painter: UnderlayPainter \| null): void` | painter 或 `null` | `void`   | ground 层整层绘制，内容锚定视口；首次写入时惰性建层                                     |
 | sky 预置    | `setOverlayPainter(painter: OverlayPainter \| null): void`   | painter 或 `null` | `void`   | 挂在 sky 层选区与浮动对象之上（滚动条仍置顶）的整层绘制；不新增 canvas 层、不拦截指针   |
@@ -539,7 +539,7 @@ export interface EngineAssembly {
   updateTheme(override: ThemeOverride): void
   setUnderlayPainter(painter: UnderlayPainter | null): void
   setOverlayPainter(painter: OverlayPainter | null): void
-  use(plugin: TablePlugin): void
+  use(plugin: EnginePlugin): void
   destroy(): void
   /** 导出读取面（可选能力；表格引擎恒提供） */
   readonly read?: EngineReadView
@@ -561,12 +561,12 @@ export interface CanvasDocSource {
 }
 ```
 
-| 类型              | 说明                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 类型              | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `EngineAssembly`  | 引擎装配协议面（中立本体）：渲染宿主 `host`、数据面（`rowCount` / `getCellValue` / `updateCell` / `onCellChange`）、主题（`getTheme` / `updateTheme`）、painter 槽位（`setUnderlayPainter` / `setOverlayPainter`）、插件槽位（`use`）、生命周期（`destroy`）与可选导出读取面 `read`。`ListTable` 与 pivot 引擎 `PivotGrid` 等平级引擎都实现该面，只依赖协议面的插件可跨引擎挂载；成员语义与挂载细节见[插件开发](/guide/plugin-development) |
-| `TableEngine`     | 表格引擎协议面（`extends EngineAssembly`）：协议本体 + 表格领域公共操作。全部成员是 `ListTable` 既有公共 API 的签名集合——即上文「公共方法」「实例属性」两节的视口/几何、滚动与命中、冻结与合并、选区、编辑、事件订阅与 `floatObjects` / `imageService`。sheet 的 `SheetGrid` 装配与 pivot 引擎经本面消费 table 引擎（`pivot.getTable()` 返回的就是它），不触碰具体类 |
-| `EngineReadView`  | 导出读取面（`EngineAssembly.read` 的类型）：导出类插件读取引擎有效数据 / 样式 / 几何 / 合并区的窄接口——有效取值与原始值、有效样式、行列几何、合并区（几何区间语言）。`ListTable` 恒提供（`table.read`）；消费示例见 [/api/plugins](/api/plugins) 的 `createEnginePrintSource` |
-| `CanvasDocSource` | 文档源最小结构（真实 `Document` 天然满足）：层 canvas 与测量画布创建经它。经 `ListTableOptions.doc` 注入，缺省回落运行环境全局 `document`；无 DOM 环境（SSR / 无头测试）注入替身后构造与出图不再依赖运行环境 DOM |
+| `TableEngine`     | 表格引擎协议面（`extends EngineAssembly`）：协议本体 + 表格领域公共操作。全部成员是 `ListTable` 既有公共 API 的签名集合——即上文「公共方法」「实例属性」两节的视口/几何、滚动与命中、冻结与合并、选区、编辑、事件订阅与 `floatObjects` / `imageService`。sheet 的 `SheetGrid` 装配与 pivot 引擎经本面消费 table 引擎（`pivot.getTable()` 返回的就是它），不触碰具体类                                                                       |
+| `EngineReadView`  | 导出读取面（`EngineAssembly.read` 的类型）：导出类插件读取引擎有效数据 / 样式 / 几何 / 合并区的窄接口——有效取值与原始值、有效样式、行列几何、合并区（几何区间语言）。`ListTable` 恒提供（`table.read`）；消费示例见 [/api/plugins](/api/plugins) 的 `createEnginePrintSource`                                                                                                                                                              |
+| `CanvasDocSource` | 文档源最小结构（真实 `Document` 天然满足）：层 canvas 与测量画布创建经它。经 `ListTableOptions.doc` 注入，缺省回落运行环境全局 `document`；无 DOM 环境（SSR / 无头测试）注入替身后构造与出图不再依赖运行环境 DOM                                                                                                                                                                                                                           |
 
 ## 典型用法
 

@@ -1,23 +1,17 @@
-// 架构页数据：子包分层、职责、公共 API 边界与依赖边的单一事实源。
-// API 面为人工策展的关键出口（非穷举），值导出由 architecture-data.test.ts 对照各包
-// 模块命名空间守卫——页面上出现的名字必须真实存在，防止展示与代码漂移。
+// 架构页数据：分层、每包的详细作用、典型场景、扩展举例与依赖边的单一事实源。
+// 面向心智模型，不列 API 名册；依赖边与叙事完整性由 architecture-data.test.ts
+// 守卫，防止展示与代码漂移。
 
 export type ArchPackageKey =
   | 'render'
   | 'grid'
+  | 'protocol'
   | 'table'
   | 'pivot'
   | 'sheet'
   | 'plugins'
   | 'formulas'
   | 'infinitable'
-
-export interface ArchApi {
-  name: string
-  /** value：运行时导出（守卫测试验证存在）；type：纯类型面 */
-  kind: 'value' | 'type'
-  desc: string
-}
 
 export interface ArchPackage {
   key: ArchPackageKey
@@ -26,13 +20,18 @@ export interface ArchPackage {
   dir: string
   /** 一句话定位 */
   tagline: string
-  /** 具体功能清单 */
+  /** 这层是什么：为什么存在、在整体中扮演什么角色（叙事讲机制，不列 API） */
+  role: string
+  /** 详细作用：机制级清单 */
   responsibilities: string[]
+  /** 典型场景：运行时什么时候会经过这层 */
+  scenarios: string[]
+  /** 扩展举例：想加某种能力时在这层做什么、收益是什么 */
+  extensions: string[]
   /** 依赖的包（key 引用 ARCH_PACKAGES；箭头方向 = 本包 → 依赖） */
   dependsOn: ArchPackageKey[]
-  /** 边界规则：耦合方式与禁止事项 */
+  /** 不做什么：这层刻意不管的事与原因 */
   boundaries: string[]
-  apis: ArchApi[]
 }
 
 /** 分层带（自上而下 = 依赖方向自上向下；协议缝独立渲染） */
@@ -43,30 +42,131 @@ export interface ArchLayer {
 }
 
 export const ARCH_LAYERS: readonly ArchLayer[] = [
-  { key: 'publish', title: '发布层', desc: 'npm 单包出口，产物自包含' },
-  { key: 'domain', title: '领域与插件层', desc: '平级领域引擎经装配协议接入，插件只认协议面' },
-  { key: 'engine', title: '引擎层', desc: 'ListTable 表格引擎与装配协议实现' },
-  { key: 'kernel', title: '内核层', desc: '跨引擎共享的网格机器' },
-  { key: 'render', title: '渲染层', desc: 'canvas 渲染工具包，不含表格语义' },
+  {
+    key: 'publish',
+    title: '发布层',
+    desc: '用户只装一个包：统一出口、自包含产物，内部多包结构对外不可见',
+  },
+  {
+    key: 'domain',
+    title: '领域与插件层',
+    desc: '平级领域引擎与官方插件：经装配协议复用引擎层，插件只认契约不认引擎',
+  },
+  {
+    key: 'engine',
+    title: '引擎层',
+    desc: '契约与首个实现：protocol 定契约（纯类型），table 落地第一个引擎',
+  },
+  {
+    key: 'kernel',
+    title: '内核层',
+    desc: '跨引擎共享的网格机器：滚动 / 虚拟窗口 / 几何 / 选区 / 主题',
+  },
+  {
+    key: 'render',
+    title: '渲染层',
+    desc: '通用 canvas 绘制：场景树 / 分层画布 / 脏区重绘，不含任何表格语义',
+  },
 ]
 
-/** 引擎装配协议缝：横切领域层与引擎层的公共装配路径（packages/table/src/engine.ts） */
+/** 引擎装配协议缝：横切领域层与引擎层的公共装配路径（@infinitable/protocol 契约包） */
 export const ARCH_PROTOCOLS: readonly { name: string; desc: string }[] = [
   {
-    name: 'EngineAssembly',
-    desc: '中立装配本体：渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期',
+    name: '装配本体',
+    desc: '一个引擎 = 渲染宿主 + 数据面 + 主题 + 绘制/插件槽位 + 生命周期，四类平级引擎共用这套装配路径',
   },
   {
-    name: 'TableEngine',
-    desc: '表格领域公共操作增量（视口/滚动/冻结合并/选区/编辑），适配层消费不触具体类',
+    name: '插件契约',
+    desc: '插件挂载只收装配面，不绑定引擎与事件类型——「跨引擎生效」即来源于此',
   },
   {
-    name: 'TableModel',
-    desc: '数据面形态：rowCount / getCellValue / updateCell 回驱 / onCellChange',
+    name: '表格领域面',
+    desc: '视口/滚动/冻结合并/选区/编辑等表格操作公共面，供透视/电子表格等上层引擎与领域插件消费',
   },
   {
-    name: 'RenderHost',
-    desc: '渲染窄接口：层创建 / 失效提交 / 帧调度 / 文本测量（render 与 grid/table 的唯一耦合面）',
+    name: '数据面',
+    desc: '引擎怎么拿数据：行数 + 取格值 + 回写 + 变更通知；形态兼容异步窗口取数，不锁同步',
+  },
+  {
+    name: '渲染窄接口',
+    desc: '建层 / 提交失效 / 帧调度 / 文本测量——渲染层暴露给上面的唯一面貌，也是换渲染后端的缝',
+  },
+]
+
+/** 场景走读：一次具体交互中各层怎么协作（心智模型的主入口） */
+export interface ArchWalkthrough {
+  key: string
+  title: string
+  /** 这个场景回答的问题 */
+  question: string
+  /** 层间协作步骤（顺序即数据流向） */
+  steps: string[]
+  /** 心智锚点：读完该记住的一句话 */
+  takeaway: string
+}
+
+export const ARCH_WALKTHROUGHS: readonly ArchWalkthrough[] = [
+  {
+    key: 'first-paint',
+    title: '首屏：10 万行为什么秒开',
+    question: '数据从原始数组到像素，经过哪几层？',
+    steps: [
+      '装配：表格引擎把「数据面（行数 + 取值方式）+ 主题 + 渲染宿主」组合成实例，这一步只发生一次',
+      '定位可视窗口：内核层用行列前缀和算出视口盖住哪几十行、哪几列——其余 9 万多行只是两个数字，从未被处理',
+      '建场景：引擎层只为窗口内的格子建立图形节点（矩形、文本、图片）',
+      '分层上屏：渲染层按层绘制——背景网格、格内容、选区滚动条各在一层，一次合成出像素',
+    ],
+    takeaway:
+      '全链路没有 DOM、没有组件树：数据 → 可视窗口 → 场景节点 → 像素，成本只和「看得见多少」有关。',
+  },
+  {
+    key: 'scroll',
+    title: '滚动：滚一屏和滚一万行一样便宜',
+    question: '最高频的交互为什么不卡？',
+    steps: [
+      '所有滚动（滚轮 / 键盘 / 触控惯性 / 拖滚动条）收口到内核层唯一的滚动状态机——任何引擎只有一套滚动真相',
+      '窗口平移：只有新进入视口的行列需要计算与建节点，滚出的直接丢弃',
+      '变化以「失效登记」表达：只把受影响的行带标脏，粒度按变化大小选（局部 / 行带 / 整层）',
+      '帧调度收敛：一帧内无论标脏多少次，只重绘一次，且只画脏区',
+    ],
+    takeaway: '滚动成本与数据总量无关，只与可视窗口大小有关；表达变化用「失效」而不是「重建」。',
+  },
+  {
+    key: 'formula-edit',
+    title: '编辑一个带公式的格子：一次修改的传播链',
+    question: '改一个格子，哪些层被惊动？',
+    steps: [
+      '编辑提交 → 电子表格模型回写该格，发出变更通知',
+      '公式接线层查依赖图：所有引用该格的公式被标脏（易失函数全图标脏）',
+      '纯计算引擎逐格重算，新值写回模型；循环引用被接线层的递归护栏拦截，得到 #CYCLE! 而非死循环',
+      '只有值真正变化的格子向渲染层报失效 → 单帧内局部重绘',
+    ],
+    takeaway:
+      '公式引擎是不知道界面的纯计算器；「谁依赖谁」的图、求值、界面刷新是三件事，由接线层串起来。',
+  },
+  {
+    key: 'watermark',
+    title: '挂一个水印：为什么一份代码处处生效',
+    question: '扩展能力挂在哪里，凭什么跨引擎？',
+    steps: [
+      '水印插件挂载时只拿到「中立装配面」：渲染宿主与绘制槽位——它不知道自己挂在哪个引擎上',
+      '它往「内容之上的整层绘制槽位」注册一个 painter，锚定视口平铺文字，不随滚动平移',
+      '引擎销毁时按注册逆序卸载，不留残迹',
+      '同一个插件可挂在表格、透视表、未来的甘特引擎上——契约里没有「表格」这个词，所以没有引擎被排除',
+    ],
+    takeaway: '跨引擎生效不是巧合，是契约中立性的直接结果：插件只依赖装配面，装配面不含领域概念。',
+  },
+  {
+    key: 'print',
+    title: '打印导出：表格不在屏幕上也能拿到正确内容',
+    question: '引擎没有被渲染到页面，插件怎么读它？',
+    steps: [
+      '打印插件不碰引擎内部，经契约的「导出读取面」读引擎眼里的有效数据：经取值管线与样式投影后的值、几何、合并区',
+      '无头分页引擎按打印模式切页，不依赖浏览器可见渲染——测试与 bun 环境同样可跑',
+      '构建分页 HTML → iframe 打印或 DOM 预览；需要像素时则复用场景树离屏重放，而不是截图',
+    ],
+    takeaway:
+      '引擎对外的面貌有两套：数据语义（导出读取面）与像素语义（场景树离屏重放），都不需要「真的显示在页面上」。',
   },
 ]
 
@@ -75,39 +175,29 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
     key: 'render',
     name: '@infinitable/render',
     dir: 'packages/render',
-    tagline: '通用 canvas 渲染工具包：场景树 / 分层 canvas / 失效登记 / 事件 / 池化',
+    tagline: '通用 canvas 渲染工具包：场景树 / 分层画布 / 失效登记 / 事件 / 池化',
+    role: '整个仓库最底层、也是唯一真正「画画」的包。它只认识图形不认识表格：把要画的内容组织成一棵场景树，画布分成多层，谁变了只重画谁的脏区。仓库里所有像素都从这层出去。',
     responsibilities: [
-      '场景树（SceneNode）与内建图元节点：矩形 / 文本 / 路径 / 图片',
-      '分层 canvas：多 region 失效（region / band / full 三档），各层消费策略建层参数化',
-      'FrameScheduler 单帧收敛 + federated 事件系统（hitTest / SceneEvent）',
-      'canvas 池化与路径原语；paintTree 支持宿主快照离屏重放',
+      '场景树与图元：所有可视内容都是树上的节点（矩形 / 文本 / 路径 / 图片），节点自带失效登记与事件冒泡',
+      '分层画布：内容按变化频率分层（背景滚动半天不变，选区每动一次就变），分层让每种变化只付自己的代价',
+      '脏区失效三档：局部矩形 / 行带 / 整层，调用方按变化粒度选档，越细的重绘越便宜',
+      '帧调度：一帧内多次标脏收敛成一次绘制',
+      '事件：几何命中测试 + 联合事件系统，鼠标事件路由到具体节点而非浏览器 DOM',
+      '资源池化：canvas / 路径对象复用，降低高频交互下的 GC 压力',
+    ],
+    scenarios: [
+      '表格滚动时只有进入视口的行带被重绘，背景层与交互层互不惊动',
+      '选区拖动时只有最上层的交互层在动，内容层纹丝不动',
+      '导出/打印复用同一棵场景树离屏重放出图，与屏幕渲染共用一套绘制代码',
+    ],
+    extensions: [
+      '要支持新图元（渐变填充、视频帧）：在这层加节点类型，表格、透视表、未来所有引擎同时受益',
+      '要换渲染后端（WebGL/WebGPU）：实现同款宿主窄接口即可，上层全部无感——「渲染可替换」的缝就在这',
     ],
     dependsOn: [],
     boundaries: [
-      '不含任何表格语义（档名已去表格化）；表格概念全部在 grid 之上',
-      '对上只经 RenderHost 窄接口被消费，不感知引擎与领域',
-    ],
-    apis: [
-      {
-        name: 'createRenderHost',
-        kind: 'value',
-        desc: '渲染宿主构造：分层画布 + 帧调度 + 失效提交 + 文本测量',
-      },
-      { name: 'SceneNode', kind: 'value', desc: '场景树节点基类（树组合 / 失效登记 / 事件冒泡）' },
-      { name: 'paintTree', kind: 'value', desc: '场景树绘制（上屏与离屏快照共用）' },
-      { name: 'hitTest', kind: 'value', desc: '场景树命中测试' },
-      { name: 'RectNode', kind: 'value', desc: '矩形图元节点' },
-      { name: 'TextNode', kind: 'value', desc: '文本图元节点' },
-      { name: 'PathNode', kind: 'value', desc: '路径图元节点' },
-      { name: 'ImageNode', kind: 'value', desc: '图片图元节点' },
-      {
-        name: 'union',
-        kind: 'value',
-        desc: 'Region 工具（与 ceil/clip/contains/equals/intersects/spread 同族）',
-      },
-      { name: 'RenderHost', kind: 'type', desc: '渲染宿主窄接口（引擎装配协议的渲染侧）' },
-      { name: 'RenderContext', kind: 'type', desc: '渲染上下文（宿主画布 ctx 封装）' },
-      { name: 'SceneEvent', kind: 'type', desc: 'federated 事件载荷' },
+      '不含任何表格语义：没有行、列、单元格概念——做思维导图、流程图也能直接用它',
+      '对上只经窄接口被消费，不感知任何引擎与领域',
     ],
   },
   {
@@ -115,178 +205,137 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
     name: '@infinitable/grid',
     dir: 'packages/grid',
     tagline: '共享网格内核：滚动 / 虚拟窗口 / 几何命中 / 选区 / 主题投影',
+    role: '「在一张巨大的行列网格上滚动、定位、选择」这套通用机器。表格、电子表格、透视表底层都是行列网格，这层把它们的公共部分沉淀下来——它是「跨引擎复用」的第一站：任何新引擎不用再写一遍滚动和选区。',
     responsibilities: [
-      'ScrollManager 唯一滚动源 + 触控惯性 + 画布内建滚动条（canvas 档 / native 原生档）',
-      '行列前缀和 / 虚拟窗口 / 二分命中（grid-layout）',
-      '共享边、cell-range 与合并区规范化（sanitizeMerges）',
-      '选区状态机、float-object-layer 浮动对象层、主题投影（TableTheme token）',
+      '唯一滚动源：滚轮 / 键盘 / 触控惯性 / 画布内滚动条全部收口到一个滚动状态机，任何引擎不会出现两套滚动真相',
+      '行列几何：前缀和让「第 5 万行在哪个像素」变成一次查表；虚拟窗口 + 二分命中让 10 万行 × 数百列只计算看得见的部分',
+      '选区状态机：锚点/焦点规范化、多选区、与合并区的几何交并',
+      '合并区规范化：重叠合并的检测与收敛',
+      '主题投影：主题 token 深覆盖合并，各引擎共享同一套视觉语言',
+      '浮动对象层：图片、图表这类浮在网格上的对象统一管理',
+    ],
+    scenarios: [
+      '任何引擎里按 Home 跳到开头、触控甩动惯性滑行、拖动格子扩展选区——行为一致，因为滚的是同一台机器',
+      '点一个格子：二分命中把像素坐标反查出行列号，这一步发生在这层',
+    ],
+    extensions: [
+      '要加滚动细节（如按住 Shift 滚动横向）：改一处，所有引擎同时获得',
+      '要做甘特图：时间轴本质也是行列几何，直接复用这层的滚动与命中',
     ],
     dependsOn: ['render'],
     boundaries: [
-      '仅依赖 render 与 @cat-kit/core；被 table / sheet 复用，不感知 ListTable 领域',
-      '与 render 只经 RenderHost 窄接口耦合；禁止具体渲染实现依赖（check-core-deps 守卫）',
+      '不感知任何具体引擎（不知道表格引擎是谁），只提供网格原语',
+      '与渲染层只经窄接口耦合，不碰具体渲染实现',
     ],
-    apis: [
-      {
-        name: 'normalizeCellRange',
-        kind: 'value',
-        desc: 'CellRange 规范化（负向跨度 / 越界钳制）',
-      },
-      {
-        name: 'sanitizeMerges',
-        kind: 'value',
-        desc: '合并区重叠规范化（含 MergeCellMap / warnMergeConflicts）',
-      },
-      { name: 'normalizeRange', kind: 'value', desc: '选区 anchor/focus 规范化' },
-      { name: 'extendsTheme', kind: 'value', desc: '主题深覆盖合并' },
-      { name: 'CellRange', kind: 'type', desc: '合并区 / 命中的几何区间语言' },
-      { name: 'CellRef', kind: 'type', desc: '格坐标' },
-      { name: 'SelectionSnapshot', kind: 'type', desc: '选区快照（anchor + focus + ranges）' },
-      { name: 'TableTheme', kind: 'type', desc: '主题分区 token（header / body / 交叉带…）' },
+  },
+  {
+    key: 'protocol',
+    name: '@infinitable/protocol',
+    dir: 'packages/protocol',
+    tagline: '引擎装配协议契约包（纯类型、零运行时）：多个平级引擎的公共装配路径',
+    role: '一份「引擎由哪些部件组成、插件怎么挂」的纯类型约定，零运行时代码。它回答整个多引擎架构的核心问题：表格、电子表格、透视表、未来的甘特凭什么能互相组装、插件凭什么处处可挂？答案：大家只认这份契约，不认具体类。',
+    responsibilities: [
+      '装配本体：把一个引擎拆成可组合的部件——渲染宿主、数据面、主题、绘制/插件槽位、生命周期',
+      '插件契约：插件挂载只收装配面，天然不绑定具体引擎',
+      '导出读取面：导出类插件经它读「引擎眼里的有效数据」（有效值 / 样式 / 几何 / 合并区），而非引擎内部结构',
+      '中立性红线：契约里不出现行号列、表头这类表格专属概念——引擎专属能力由各引擎自己的公共面承载',
+    ],
+    scenarios: [
+      '水印插件同时挂在表格和透视表上，一份代码两处生效',
+      '写一个新引擎（如甘特）：实现这份契约，现有全部协议插件直接可用',
+    ],
+    extensions: [
+      '要写跨引擎插件（导出、水印、埋点）：依赖这层契约而不是具体引擎，写一次处处可挂',
+      '要给装配面加新部件：先在契约上加类型，再由各引擎实现——契约类型只有一个家',
+    ],
+    dependsOn: ['grid', 'render'],
+    boundaries: [
+      '纯类型零运行时：安装它不增加任何产物字节，依赖边只是类型依赖',
+      '契约一旦烧进领域概念（比如写死「表头」），跨引擎就死了——所以中立性是被测试守卫的红线',
     ],
   },
   {
     key: 'table',
     name: '@infinitable/table',
     dir: 'packages/table',
-    tagline: 'ListTable 表格引擎 + 引擎装配协议（EngineAssembly / TableEngine）',
+    tagline: 'ListTable 表格引擎：装配协议的首个实现 + 表格领域面',
+    role: '第一个引擎实现。装配协议在这里从图纸变成实物：它组合内核层的网格机器与渲染层的画布，往上提供「表格」领域的一切。同时它把表格领域公共操作单独开成一个面——透视表、电子表格把它当底盘驱动，自己只算领域数据。',
     responsibilities: [
-      'ListTable 主体与装配：可视窗口场景增量维护、溢出走廊、填充柄、表头装配',
-      '取值三形态（records / 模型直挂 / rowCount+钩子）与按格 hook 链（显示值 / 样式 / 渲染器 / 图片 / 链接）',
-      '编辑链路（EditorRegistry / SheetModel）、交互、图片与格内图表媒体',
-      '引擎装配协议：中立 EngineAssembly + 表格领域面 TableEngine + 导出读取面 EngineReadView',
+      '实现装配本体：渲染宿主 + 数据面 + 主题 + 槽位 + 生命周期在这层落地成真实引擎',
+      '取值三形态：records 数组直给 / 可回写模型 / 行数 + 钩子的纯拉取形态（大数据与异步窗口友好）',
+      '按格钩子链：显示值 / 样式 / 自定义渲染 / 图片 / 链接，每一环都可按格接管',
+      '编辑链路：编辑器注册表 + 提交回写数据面',
+      '表格领域能力：表头、合并、冻结、溢出走廊、填充柄、格内图片与图表媒体管线',
+      '表格领域公共面：视口/滚动/冻结/选区/编辑等操作面，供上层引擎消费',
     ],
-    dependsOn: ['grid', 'render'],
+    scenarios: [
+      '10 万行记录表首屏秒开：虚拟窗口 + 拉取式取值',
+      '点格进编辑、回车提交、数据回写模型并联动公式',
+      '透视表内部就是持有一个表格引擎实例当渲染底盘，自己只负责聚合计算',
+    ],
+    extensions: [
+      '自定义单元格渲染器 / 编辑器 / 媒体解析器：注册进对应注册表，注册即插拔',
+      '新的表格能力（如列分组拖拽）加在领域面上，不动契约——协议保持中立，领域自由生长',
+    ],
+    dependsOn: ['grid', 'render', 'protocol'],
     boundaries: [
-      '实现装配协议但不绑定宿主；协议本体不烧行号列 / 表头 / 合并等表格领域概念（G17 中立性）',
-      '领域需求由 TableEngine 公共面增量承载，pivot / sheet 等适配层经协议面消费不触具体类',
-      '禁止 @visactor/* 等具体渲染依赖（check-core-deps 守卫）',
-    ],
-    apis: [
-      {
-        name: 'ListTable',
-        kind: 'value',
-        desc: '表格引擎主体（EngineAssembly / TableEngine 的 table 实现）',
-      },
-      { name: 'SheetModel', kind: 'value', desc: '可回写数据模型（模型直挂供数形态）' },
-      { name: 'EditorRegistry', kind: 'value', desc: '编辑器注册表（格级路由）' },
-      {
-        name: 'projectCellStyle',
-        kind: 'value',
-        desc: '主题分区 token → 列级 → 按格 hook 的样式投影链',
-      },
-      {
-        name: 'EngineAssembly',
-        kind: 'type',
-        desc: '中立装配协议本体（四类平级引擎的公共装配路径）',
-      },
-      { name: 'TableEngine', kind: 'type', desc: '表格领域公共操作面（适配层消费窄接口）' },
-      { name: 'EngineReadView', kind: 'type', desc: '导出读取面：有效数据 / 样式 / 几何 / 合并区' },
-      { name: 'TableModel', kind: 'type', desc: '数据面形态（模型直挂 / 异步窗口取数兼容）' },
-      {
-        name: 'TablePlugin',
-        kind: 'type',
-        desc: '插件契约：mount 只收 EngineAssembly（G2/G21 不绑事件类型）',
-      },
-      {
-        name: 'ListTableOptions',
-        kind: 'type',
-        desc: '构造装配面（含 resolveCellRenderer 等按格 hook 缝）',
-      },
-      {
-        name: 'ColumnDefine',
-        kind: 'type',
-        desc: '列定义（field / title / width / cellType / editor / style）',
-      },
-      { name: 'CellStyle', kind: 'type', desc: '格样式（边框逐边独立 / 文本对齐溢出 / 字体）' },
-      {
-        name: 'CellRenderer',
-        kind: 'type',
-        desc: '自定义格渲染器（resolveCellRenderer 返回即接管内容绘制）',
-      },
+      '不依赖任何具体渲染库（可替换渲染后端是架构红线，有守卫检查）',
+      '领域需求由领域面增量承载，不回头改契约',
     ],
   },
   {
     key: 'pivot',
     name: '@infinitable/pivot',
     dir: 'packages/pivot',
-    tagline: '透视表领域引擎：行维度树 × 列维度树 × 度量交叉聚合（装配协议参考实现）',
+    tagline: '透视表领域引擎：行维度树 × 列维度树 × 度量交叉聚合',
+    role: '第二个引擎，也是多引擎架构的「证明题」：它不写一行渲染/滚动/选区代码——内部把表格引擎当底盘（经表格领域面驱动），对外又把自己实现成装配协议的一个引擎，于是协议插件（水印）能原样挂上来。它只做透视表领域的事：把记录聚成交叉矩阵。',
     responsibilities: [
-      'PivotGrid：内部 new ListTable 以 TableEngine 持有，对外转发 EngineAssembly——协议插件跨引擎挂载',
-      '多列树形行头：每行维度一列，同组跨行合并（setMergeCells），点击组格左缘展开图标折叠（collapsible 可配置为始终平铺），点击组格其余区域选区覆盖该组全部维度数据，双击数值格下钻明细',
-      '多级表头：列维度逐层 + 度量行，以引擎冻结行 + 横向合并落地（引擎自带列头关闭，表头区行维度列按维度分列）',
-      'PivotModel：维度树展开 × 列维度树 × 度量聚合矩阵（TableModel 数据面展平，引擎坐标含表头行偏移；组可见行块 groupRange 供选区几何）',
-      '行/列维度与度量运行时勾选、排序、聚合方式切换；结构 setColCount/setFrozenRowCount/setMergeCells 原地落地不重建实例',
+      '聚合模型：原始记录 → 行维度树（可折叠）× 列维度树 × 多度量聚合 → 展平成表格数据面',
+      '树形行头：每个行维度一列，同组跨行合并，点图标折叠/展开，结构原地落地不重建实例',
+      '多级表头：列维度逐层 + 度量行，用引擎冻结行 + 合并落地',
+      '领域交互：维度/度量运行时勾选、排序、聚合方式切换、双击数值格下钻原始明细',
+      '只读引擎：交叉格是聚合值，编辑面整体关闭',
     ],
-    dependsOn: ['table'],
+    scenarios: [
+      '销售数据按「区域→城市」行树 ×「年→月」列树 × 求和度量交叉展示，折叠华东只看汇总，双击格子看明细',
+      '同一个水印插件挂上透视表，零改动生效',
+    ],
+    extensions: [
+      '加新聚合方式（如中位数）：在聚合模型里加一类，引擎层无感',
+      '要做甘特引擎：照它的样子写——算自己的时间/任务模型，把表格引擎当底盘，对外实现装配契约',
+    ],
+    dependsOn: ['table', 'protocol'],
     boundaries: [
-      '平级领域引擎经装配协议接入 table 引擎——多引擎架构的公共装配路径证明（P7）',
-      '只读引擎：交叉格为聚合值，编辑面整体关闭；渲染/滚动/选区全走 table 引擎原语',
-    ],
-    apis: [
-      {
-        name: 'PivotGrid',
-        kind: 'value',
-        desc: '透视表领域引擎（EngineAssembly 转发面 + 树交互 / 明细下钻 API）',
-      },
-      {
-        name: 'PivotModel',
-        kind: 'value',
-        desc: '聚合模型：行维度树 × 列维度树 × 度量 → 展平行序列与聚合矩阵',
-      },
-      { name: 'PIVOT_ROW_HEIGHT', kind: 'value', desc: '数据行高（引擎构造缺省；表头冻结行同高）' },
-      { name: 'PIVOT_HEADER_BACKGROUND', kind: 'value', desc: '多级表头行底色（像素断言锚点）' },
-      { name: 'PIVOT_SUBTOTAL_BACKGROUND', kind: 'value', desc: '折叠载体行底色（像素断言锚点）' },
-      { name: 'PIVOT_GRAND_BACKGROUND', kind: 'value', desc: '总计行底色（像素断言锚点）' },
-      {
-        name: 'PivotDimension',
-        kind: 'type',
-        desc: '维度（行/列挂载的分组字段；序列顺序即树层级/表头层级序）',
-      },
-      { name: 'PivotMeasure', kind: 'type', desc: '度量（五类聚合器；同字段可挂多个度量）' },
-      {
-        name: 'PivotRow',
-        kind: 'type',
-        desc: '展平行：leaf / branch（折叠载体）/ grand + 树深度与展开态',
-      },
-      {
-        name: 'PivotCellDrillEvent',
-        kind: 'type',
-        desc: '双击下钻事件（携带该格聚合覆盖的原始记录）',
-      },
+      '只经表格领域公共面消费引擎，不触内部实现——这是适配层与引擎的边界范本',
+      '渲染/滚动/选区全部复用引擎原语，不另起炉灶',
     ],
   },
   {
     key: 'sheet',
     name: '@infinitable/sheet',
     dir: 'packages/sheet',
-    tagline: '电子表格核心：sheet 模型 / 命令 / 公式接线 / IO / SheetGrid 适配',
+    tagline: '电子表格核心：sheet 模型 / 命令 / 公式接线 / 导出 / 网格适配',
+    role: '电子表格领域核心，也是「接线员」角色的最佳示例：公式引擎是独立纯计算包（不认识网格也不认识渲染），把它和表格引擎接起来——改格子 → 标脏 → 重算 → 回写——的是这层的公式接线适配层。模型、命令、公式编排、导出都在这。',
     responsibilities: [
-      'Sheet 模型与命令层：格存 / 样式池 / 合并 / 选区 / 填充 / 查找',
-      'FormulaEngine 适配层：依赖图标脏 + formulas 逐格求值（图簿联动 / 改名别名 / 易失编排）',
-      'IO：xlsx / csv 导出（hucre）',
-      'SheetGrid：经引擎装配协议消费 table 引擎的电子表格适配',
+      'sheet 模型与命令层：格存储、样式池去重、合并、选区、填充、查找——一切修改走命令，可撤销',
+      '公式接线：依赖图联动（改一格，引用它的公式全部重算）、跨表联动、改名别名、易失函数编排、循环护栏（#CYCLE!）',
+      '实例函数集：自定义公式函数按工作簿隔离注册，多工作簿互不串扰；全局注册为兜底',
+      '导入导出：xlsx / csv',
+      '网格适配：经装配协议消费表格引擎的电子表格网格',
     ],
-    dependsOn: ['table', 'grid', 'formulas'],
+    scenarios: [
+      '改 A1，所有引用 A1 的格子一帧内联动更新；循环引用得到 #CYCLE! 而非死循环',
+      '插入一列，现有公式的引用自动平移改写',
+      '两个工作簿各注册同名自定义函数，互不干扰',
+    ],
+    extensions: [
+      '加新公式函数：注册进实例函数集（隔离）或全局注册表（兜底）',
+      '加新命令（如清除格式）：在模型命令层加一条，天然可撤销',
+    ],
+    dependsOn: ['table', 'grid', 'formulas', 'protocol'],
     boundaries: [
-      'formulas 与 grid/table 互不依赖——求值接线在宿主侧（本包 FormulaEngine 适配层）',
-      '循环护栏在适配层：#CYCLE! 由 FormulaEngine 递归护栏产出，formulas 内无第二套图 / 求值',
-    ],
-    apis: [
-      { name: 'Sheet', kind: 'value', desc: 'sheet 模型主体（快照 / 冻结 / 事件）' },
-      {
-        name: 'FormulaEngine',
-        kind: 'value',
-        desc: '公式接线适配层（依赖图 / 求值编排 / 循环护栏）',
-      },
-      { name: 'SheetGrid', kind: 'value', desc: '电子表格网格（经装配协议消费 table 引擎）' },
-      { name: 'SelectionModel', kind: 'value', desc: '选区模型' },
-      { name: 'StylePool', kind: 'value', desc: '样式池（style 引用去重）' },
-      { name: 'CellMetaStore', kind: 'value', desc: '格元数据存储' },
-      { name: 'composeCellStyles', kind: 'value', desc: '样式合成' },
-      { name: 'exportSheetXlsx', kind: 'value', desc: '单表 xlsx 导出' },
-      { name: 'exportWorkbookXlsx', kind: 'value', desc: '工作簿 xlsx 导出' },
-      { name: 'TypedEventEmitter', kind: 'value', desc: '类型化事件发射器' },
+      '公式引擎与网格/表格引擎互不依赖——接线只发生在这一层，依赖图与求值只有一套',
+      '循环检测在接线层护栏，不进公式引擎',
     ],
   },
   {
@@ -294,86 +343,77 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
     name: '@infinitable/formulas',
     dir: 'packages/formulas',
     tagline: '公式引擎：tokenizer / Pratt parser / 求值 / 依赖图（独立侧包）',
+    role: '一台纯粹的「计算器」：公式文本 → 词法 → 语法树 → 求值，外加一张依赖图。它不知道 canvas，不知道行高列宽，甚至不知道单元格长什么样——取格值由宿主注入。因此它可以脱离整个渲染体系被单独使用和测试。',
     responsibilities: [
-      '地址与错误码、tokenizer、Pratt parser、AST',
-      'evaluate 求值器 + 49 内置函数注册表',
-      '依赖图（DependencyGraph）与静态引用扫描（ast-refs / scan-refs）',
-      '公式平移（shift / 引用重写）',
+      '地址与错误码语言：A1 风格地址、#REF! 等错误值',
+      '词法分析 → Pratt 语法分析 → 抽象语法树',
+      '求值器：语法树 → 值，取格值经宿主注入的回调',
+      '依赖图：静态扫描公式的引用边，支撑标脏传播',
+      '公式平移：插删行列时引用自动重写',
+      '49 个内置函数注册表 + 实例函数集覆盖',
+    ],
+    scenarios: [
+      '单元测试里直接对公式文本做解析/求值断言，不渲染任何东西',
+      '电子表格里输入公式，依赖图标脏驱动增量重算',
+    ],
+    extensions: [
+      '加内置函数：注册表加实现，公式文本立即可用',
+      '复用到非表格场景（报表公式字段等）：它是独立包，直接拿来算',
     ],
     dependsOn: [],
     boundaries: [
-      '与 grid / table 互不依赖（@cat-kit/core 除外）；求值接线由宿主（sheet FormulaEngine）驱动',
-      '边界：无数组公式；循环检测由宿主护栏承担',
-    ],
-    apis: [
-      { name: 'parseFormula', kind: 'value', desc: '公式解析（Pratt parser → AST）' },
-      { name: 'evaluate', kind: 'value', desc: 'AST 求值（经 FormulaResolver 取格值）' },
-      { name: 'DependencyGraph', kind: 'value', desc: '依赖图（引用边 / 标脏）' },
-      { name: 'scanFormulaReferences', kind: 'value', desc: '编辑中容错引用扫描' },
-      { name: 'shiftFormulaText', kind: 'value', desc: '公式文本平移（插入删除行列的引用重写）' },
-      { name: 'isFormulaError', kind: 'value', desc: '错误值判定（#REF! 等）' },
-      { name: 'AstNode', kind: 'type', desc: 'AST 节点' },
-      { name: 'FormulaResolver', kind: 'type', desc: '宿主取格值接口（求值接线缝）' },
+      '与网格/表格引擎互不依赖；不做循环检测（宿主护栏承担）',
+      '不含数组公式——能力边界刻意收窄，换取独立可测',
     ],
   },
   {
     key: 'plugins',
     name: '@infinitable/plugins',
     dir: 'packages/plugins',
-    tagline: '官方插件：chart / print / watermark（TablePlugin 契约）',
+    tagline: '官方插件：chart / print / watermark（三类扩展方式的样板）',
+    role: '官方插件集，同时是三类扩展方式的活样板：watermark/print 是协议插件（只认装配面，任意引擎可挂）；chart 是领域面插件（需要表格领域的能力，换引擎即失效）；编辑器/函数这类是注册表插件（换实现不换机制）。官方特性与用户扩展走同一条路径，插件没有特权。',
     responsibilities: [
-      'chart：声明解析 + Chart.js 按需加载 + 离屏出图（构建断言守 chart.js 不进主产物）',
-      'print：headless 分页引擎（fitpage / fixrows）+ 页面 HTML 构建 + iframe 打印与 DOM 预览',
-      'watermark：文字平铺水印，经引擎装配协议 overlay 绘制槽位挂载（锚定视口）',
+      'watermark：往「内容之上」的整层绘制槽位挂 painter，锚定视口平铺文字',
+      'print：无头分页引擎 + 读导出读取面拿有效数据 + 构建分页 HTML + iframe 打印与 DOM 预览',
+      'chart：声明解析 + Chart.js 按需动态加载 + 离屏出图，注入引擎媒体管线——与格内图片同路，chart.js 不进主产物',
     ],
-    dependsOn: ['table', 'grid'],
+    scenarios: [
+      '水印挂在表格与透视表上零改动（协议插件判据：跨引擎生效）',
+      '打印时表格不在 DOM 里也能分页出正确内容（无头消费）',
+      '图表格滚动出视口再回来，格级位图缓存直接贴回，不重画出图',
+    ],
+    extensions: [
+      '写自己的水印/导出/埋点插件：实现插件契约，挂载只收装配面——天然跨引擎',
+      '只对表格有意义的插件（如列右键菜单）：消费表格领域面，接受换引擎即失效',
+      '只换实现不动机制（编辑器/公式函数/媒体解析器）：走各引擎的注册表',
+    ],
+    dependsOn: ['table', 'grid', 'protocol'],
     boundaries: [
-      'print / watermark 面向引擎装配协议槽位挂载，不再以 ListTable 具体类型为挂载参数',
-      '接口面红线见 docs/plugin-interface-map.md',
-    ],
-    apis: [
-      {
-        name: 'createChartPlugin',
-        kind: 'value',
-        desc: '格内图表插件工厂（离屏出图 → chartMediaResolver 注入）',
-      },
-      { name: 'createPrintPlugin', kind: 'value', desc: '打印插件工厂（分页 + 输出 + 预览）' },
-      {
-        name: 'createWatermarkPlugin',
-        kind: 'value',
-        desc: '水印插件工厂（overlay 槽位，锚定视口）',
-      },
-      {
-        name: 'createEnginePrintSource',
-        kind: 'value',
-        desc: 'PrintSource 抽象的引擎供数实现（读 EngineReadView）',
-      },
-      { name: 'WatermarkHandle', kind: 'type', desc: '水印句柄（updateConfig 即时生效）' },
-      { name: 'PrintPluginHandle', kind: 'type', desc: '打印句柄' },
+      '三类插件各有判据，接口面红线有专门文档守卫——写插件前先对号入座',
+      '注册表类扩展不在本包，随各引擎注册表承载',
     ],
   },
   {
     key: 'infinitable',
     name: 'infinitable',
     dir: 'packages/infinitable',
-    tagline: '统一 npm 发布包：主入口转售五层公共 API + ./sheet 子路径',
+    tagline: '统一 npm 发布包：一个包出口全部能力',
+    role: '唯一的 npm 发布包：用户装一个包得到全部能力。它只做转售与打包——主入口转售各层公共面，电子表格/透视走子路径；构建时把所有内部包打成一个自包含产物。用户不需要知道内部还分成八个功能子包。',
     responsibilities: [
-      '主入口显式 re-export render / grid / table / formulas / plugins 公共面（禁止 export *）',
-      './sheet 子路径转售 sheet 完整面',
-      'vp build 整体自包含 dist（chart 动态分包、@cat-kit/core 外部化）；build-types 装配类型树',
+      '主入口显式转售各层公共面（逐名转出，不用全量转出——公共面是策展出来的）',
+      './sheet、./pivot 子路径分别转售电子表格与透视完整面',
+      '自包含构建：内部包打进单一共享产物（保跨入口类型一致），图表库保持动态分包',
+      '类型树装配：各包类型（含契约类型）并入统一产物',
     ],
-    dependsOn: ['render', 'grid', 'table', 'formulas', 'plugins', 'sheet'],
+    scenarios: [
+      '下游一行依赖装齐表格 + 公式 + 插件，按需 tree-shaking',
+      '仓内 playground 不走这个包、直接吃各子包源码——应用开发热更新快，发布产物另算',
+    ],
+    extensions: ['子包新增公共导出：在转售白名单登记，由导出检查脚本守卫'],
+    dependsOn: ['render', 'grid', 'protocol', 'table', 'formulas', 'plugins', 'sheet', 'pivot'],
     boundaries: [
-      '依赖只出现在 devDependencies（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*',
-      '发版统一走 .agents/skills/release（changesets + CI）',
-    ],
-    apis: [
-      { name: 'ListTable', kind: 'value', desc: '表格引擎（转售 @infinitable/table）' },
-      { name: 'createRenderHost', kind: 'value', desc: '渲染宿主构造（转售 @infinitable/render）' },
-      { name: 'SheetModel', kind: 'value', desc: '可回写数据模型' },
-      { name: 'EditorRegistry', kind: 'value', desc: '编辑器注册表' },
-      { name: 'projectCellStyle', kind: 'value', desc: '样式投影链' },
-      { name: 'SceneNode', kind: 'value', desc: '场景树节点（转售）' },
+      '不含实现代码，只有转售与打包配置；内部包依赖只出现在构建期',
+      '产物自包含：用户装它之后不再依赖任何内部子包',
     ],
   },
 ]

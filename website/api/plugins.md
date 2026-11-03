@@ -5,7 +5,7 @@ description: 官方插件 API：图表（Chart.js 按需加载与单元格声明
 
 # 插件（plugins）
 
-`plugins` 提供三个官方插件工厂，全部实现 `TablePlugin` 契约：
+`plugins` 提供三个官方插件工厂，全部实现 `EnginePlugin` 契约：
 
 | 插件       | 工厂                    | `name`        | 能力                                                      |
 | ---------- | ----------------------- | ------------- | --------------------------------------------------------- |
@@ -18,7 +18,7 @@ description: 官方插件 API：图表（Chart.js 按需加载与单元格声明
 ## 共同挂载与卸载
 
 ```ts
-interface TablePlugin {
+interface EnginePlugin {
   readonly name: string
   mount(engine: EngineAssembly): void
   unmount?(engine: EngineAssembly): void
@@ -87,19 +87,19 @@ interface ChartPluginOptions {
 ### 句柄
 
 ```ts
-interface ChartPluginHandle extends TablePlugin {
+interface ChartPluginHandle extends EnginePlugin {
   getChartSpec(col: number, row: number): ChartSpec | null
   loadLibrary(): Promise<ChartJsModule>
 }
 ```
 
-| 成员                     | 说明                                                                                     |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `name`                   | `'chart'`                                                                                |
+| 成员                     | 说明                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `name`                   | `'chart'`                                                                                                     |
 | `mount(engine)`          | 把挂载参数收窄为表格引擎，将「格 → 图表媒体」解析器写入 `chartMediaResolver` 预留位；晚挂载时触发一次几何重建 |
-| `unmount(engine)`        | 仅当预留位仍指向本插件的解析器时置 `null`                                                |
-| `getChartSpec(col, row)` | 解析该格声明；未声明或非法返回 `null`，不抛异常                                          |
-| `loadLibrary()`          | 按需加载 Chart.js，返回模块（模块级缓存）                                                |
+| `unmount(engine)`        | 仅当预留位仍指向本插件的解析器时置 `null`                                                                     |
+| `getChartSpec(col, row)` | 解析该格声明；未声明或非法返回 `null`，不抛异常                                                               |
+| `loadLibrary()`          | 按需加载 Chart.js，返回模块（模块级缓存）                                                                     |
 
 ### 声明格式
 
@@ -239,7 +239,7 @@ interface WatermarkTextConfig {
 ### 句柄
 
 ```ts
-interface WatermarkHandle extends TablePlugin {
+interface WatermarkHandle extends EnginePlugin {
   updateConfig(patch: Partial<WatermarkTextConfig>): void
   getConfig(): WatermarkTextConfig
   isEnabled(): boolean
@@ -309,15 +309,15 @@ interface PrintSource {
 }
 ```
 
-| 成员                     | 说明                                                        |
-| ------------------------ | ----------------------------------------------------------- |
-| `name`                   | 表名；也是页眉页脚 `{title}` 的缺省来源                      |
-| `rowCount` / `colCount`  | 数据行数 / 列数（含重复表头行）                             |
-| `rowHeight` / `colWidth` | 行高 / 列宽，单位 px（96dpi）                               |
-| `merges`                 | 合并区域列表（grid 的 `CellRange`，0 基闭区间）             |
-| `cellValue`              | 原始格值；分组换页按此判定，不受显示链影响                  |
-| `cellStyle`              | 有效格样式（grid 的 `CellStyle`）；无样式返回 `undefined`   |
-| `displayValue`           | 显示值；页面构建消费                                        |
+| 成员                     | 说明                                                      |
+| ------------------------ | --------------------------------------------------------- |
+| `name`                   | 表名；也是页眉页脚 `{title}` 的缺省来源                   |
+| `rowCount` / `colCount`  | 数据行数 / 列数（含重复表头行）                           |
+| `rowHeight` / `colWidth` | 行高 / 列宽，单位 px（96dpi）                             |
+| `merges`                 | 合并区域列表（grid 的 `CellRange`，0 基闭区间）           |
+| `cellValue`              | 原始格值；分组换页按此判定，不受显示链影响                |
+| `cellStyle`              | 有效格样式（grid 的 `CellStyle`）；无样式返回 `undefined` |
+| `displayValue`           | 显示值；页面构建消费                                      |
 
 ### 引擎供数适配
 
@@ -438,7 +438,7 @@ interface PrintHeaderFooterConfig {
 ### 句柄
 
 ```ts
-interface PrintPluginHandle extends TablePlugin {
+interface PrintPluginHandle extends EnginePlugin {
   paginate(config?: PrintConfig): PrintPage[]
   buildDocumentHtml(config?: PrintConfig): string
   print(config?: PrintConfig): Promise<void>
@@ -449,7 +449,7 @@ interface PrintPluginHandle extends TablePlugin {
 | 成员                         | 说明                                           |
 | ---------------------------- | ---------------------------------------------- |
 | `name`                       | `'print'`                                      |
-| `mount(engine)`              | 仅记录挂载引擎，不做其它接线                  |
+| `mount(engine)`              | 仅记录挂载引擎，不做其它接线                   |
 | `paginate(config?)`          | headless 分页，返回页面数组                    |
 | `buildDocumentHtml(config?)` | headless 构建完整打印文档 HTML                 |
 | `print(config?)`             | 触 DOM：隐藏 iframe 装载文档并调起打印         |

@@ -1,13 +1,13 @@
 ---
 title: infinitable 总览
-description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。主入口含五层模块（render/grid/table/formulas/plugins，core 已拆为 grid+table）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet、./pivot 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、透视表引擎由 @infinitable/pivot 提供，分别经 infinitable 的 ./sheet、./pivot 子路径转出；table 层承载引擎装配协议（EngineAssembly/EngineReadView/TableEngine）。导出面判据、core 拆分迁移登记与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
+description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。主入口含六层模块（render/grid/protocol/table/formulas/plugins，core 已拆为 grid+table，协议归位起新增 protocol 契约层）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet、./pivot 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、透视表引擎由 @infinitable/pivot 提供，分别经 infinitable 的 ./sheet、./pivot 子路径转出；protocol 层为引擎装配协议契约包（EngineAssembly/EngineReadView/EnginePlugin，纯类型零运行时），table 层承载表格引擎协议面 TableEngine。导出面判据、core 拆分迁移登记与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
 aliases: [infinitable, infinite-table, InfiniTable, 表格引擎, canvas 表格]
 keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', '@infinitable/pivot', PivotGrid, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, SHEET_DEFAULT_ROW_HEIGHT, SHEET_DEFAULT_COL_WIDTH, formatByNumFmt, sheetStyleToEngineStyle, 引擎装配协议, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
 ---
 
 # infinitable 总览
 
-infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 61.4KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 五层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、table（表格主体 ListTable 与引擎装配协议）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `TablePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）；透视表引擎经 `infinitable/pivot` 子路径转出（`@infinitable/pivot` 白名单全量——PivotGrid 领域引擎，包本体 private 不发布）。三个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
+infinitable 是多层 canvas 失效驱动渲染 + 全量虚拟滚动的高性能表格引擎，npm 包名 `infinitable`（当前 0.3.4，MIT）。构造与首次渲染只处理可视区窗口，10 万~100 万行数据下性能不随数据量劣化；最小构建 gzip 61.4KB。统一入口 `import { ... } from 'infinitable'` 单包显式 re-export 六层：render（canvas 渲染引擎）、grid（共享网格内核：合并/选区/主题/滚动条配置词汇）、protocol（引擎装配协议契约，纯类型零运行时）、table（表格主体 ListTable 与表格引擎协议面 TableEngine）、formulas（公式引擎）、plugins（官方插件，全部为 `createXxxPlugin` 工厂返回的插件对象：同时是 `EnginePlugin` 与运行时 handle）。原 core 层已拆为 grid + table（0.4.0 起，无兼容层，迁移登记见 `apis/exports.md`）。运行环境为浏览器 DOM（离屏/无 window 环境可构造，编辑与事件能力受限）。电子表格能力经 `infinitable/sheet` 子路径转出（`@infinitable/sheet` 白名单全量）；透视表引擎经 `infinitable/pivot` 子路径转出（`@infinitable/pivot` 白名单全量——PivotGrid 领域引擎，包本体 private 不发布）。三个入口的导出符号集合由 `packages/infinitable/tests/public-surface.test.ts` 快照冻结，判据与逐项清单见 `apis/exports.md`。
 
 ## 安装
 
@@ -33,8 +33,8 @@ bun add infinitable @cat-kit/core
 | `ResolveDisplayValue` / `ResolveCellLink` / `ResolveCellImageLink` | 按格显示与链接解析 hook（取值管线末端；链接格自动链接外观/悬停/单击事件） | `apis/list-table.md` |
 | `ScrollbarOptions` / `ScrollbarMode` | 内建滚动条配置（`scrollbar` 选项对象形态：mode/visibility/hideDelay；`mode: 'native'` 浏览器原生滚动条档，0.1.4 起） | `apis/list-table.md` |
 | `CellChangeEvent` / `CellRef` / `GridCellRef` / `TableContextMenuEvent` / `CellLink` / `CellLinkClickEvent` / `CellLinkHoverEvent` / `CellLinkLeaveEvent` | 格坐标与事件载荷（含单元格超链接载荷与悬停/离开/单击事件） | `apis/list-table.md` |
-| `TablePlugin` | 插件契约（构造 plugins 或 table.use） | `apis/list-table.md` |
-| `UnderlayPainter` / `OverlayPainter` | ground/sky 整层绘制预留位 | `apis/list-table.md` |
+| `EnginePlugin` | 插件契约（mount 只收 EngineAssembly；协议插件/领域面插件/注册表插件三分类判据） | `apis/engine-protocol.md` |
+| `UnderlayPainter` / `OverlayPainter` | ground/sky 整层绘制预留位（painter 槽位词汇） | `apis/engine-protocol.md` |
 | `extendsTheme` / `TableTheme` / `ThemeOverride` | 主题深覆盖派生与分区 token（含滚动条 token） | `apis/theme-style.md` |
 | `CellStyle` / `CellBorder` / `CellBorderEdge` / `projectCellStyle` | 逐格样式、逐边边框与样式投影 | `apis/theme-style.md` |
 | `SelectionSnapshot` / `RangeBounds` / `normalizeRange` | 选区快照与归一化 | `apis/interaction-selection.md` |
@@ -71,7 +71,8 @@ bun add infinitable @cat-kit/core
 | `SheetGrid` / `ResolveCellRenderer` / `SheetGridOptions` / `SelectionInterceptMeta`（选区拦截手势载荷） / `ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 档） / `ResolveCellStyleHook` / `ResolveDisplayValue` / `SheetGridContextMenuInfo` / `SheetGridContextMenuKind` / `SheetGridHeaderOptions` / `GridCellEditor` / `GridEditorRect` / `GridEditorSession` / `SheetGridEditorsOptions` / `CellRenderer` / `CellRenderTarget` | SheetGrid 装配（Sheet 模型 ↔ ListTable 适配层） | `apis/sheet.md` |
 | `@infinitable/pivot` 全部符号经 `infinitable` 的 `./pivot` 子路径转出（透视表领域引擎：行维度树多列树形布局 × 列维度多级表头 × 度量交叉聚合，包本体 private 不发布），按域分见下列各行 | 透视表引擎装配与领域操作（运行时勾选/折叠/下钻，结构原地落地不重建实例） | `apis/pivot.md` |
 | `PivotGrid` / `PivotModel` / `PivotGridOptions` / `PivotDimension` / `PivotMeasure` / `PivotAggregator` / `PivotRecord` / `PivotRow` / `PivotColumn` / `PivotCellDrillEvent`（双击下钻载荷） / `PIVOT_ROW_HEIGHT` / `PIVOT_HEADER_BACKGROUND` / `PIVOT_SUBTOTAL_BACKGROUND` / `PIVOT_GRAND_BACKGROUND`（冒烟像素断言锚点常量） | 透视表引擎（实现 EngineAssembly 转发面，协议插件可跨引擎挂载）、聚合模型（TableModel 数据面）与领域词汇 | `apis/pivot.md` |
-| `EngineAssembly` / `EngineReadView` / `TableEngine` | 引擎装配协议（0.4.0 起）：中立本体（渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期，四类平级引擎公共装配路径）、可选导出读取面（导出类插件读引擎有效数据/样式/几何/合并区）与表格引擎协议面（SheetGrid 等适配层按协议消费） | `apis/list-table.md` |
+| `EngineAssembly` / `EngineReadView` / `CellChangeEvent` | 引擎装配协议契约包 `@infinitable/protocol`（纯类型零运行时，协议归位起独立成包）：中立本体（渲染宿主 + 数据面 + 主题 + painter/插件槽位 + 生命周期，四类平级引擎公共装配路径）与可选导出读取面（导出类插件读引擎有效数据/样式/几何/合并区） | `apis/engine-protocol.md` |
+| `TableEngine` | 表格引擎协议面（中立本体的 table 领域增量：视口/滚动/冻结合并/选区/编辑，SheetGrid 等适配层消费） | `apis/list-table.md` |
 | `createChartPlugin` / `ChartPluginOptions` / `ChartPluginHandle` | 图表插件工厂与句柄 | `apis/chart-watermark-plugin.md` |
 | `ChartCellDeclaration` / `ChartDatasetDeclaration` / `ChartDatasetSpec` / `ChartSpec` / `ChartSpecType` / `ChartType` | 单元格图表声明与规范化类型 | `apis/chart-watermark-plugin.md` |
 | `createWatermarkPlugin` / `WatermarkHandle` / `WatermarkTextConfig` | 水印插件工厂、句柄与配置 | `apis/chart-watermark-plugin.md` |

@@ -98,7 +98,7 @@ export interface RenderHost {
 | `requestFrame(task)`            | `FrameTask`          | `void`        | 请求下一渲染帧执行任务；同一任务引用在同一帧内只执行一次                           |
 | `measure(text, font)`           | 文本、CSS `font` 串  | `Size`        | 文本测量（CSS 像素）；高度为 `actualBoundingBoxAscent + actualBoundingBoxDescent`  |
 | `resize(width, height, dpr?)`   | 新视口尺寸、可选 dpr | `void`        | 原地重设已建层尺寸（含 CSS 尺寸）并整层失效；显式 dpr 会同步宿主内部 dpr           |
-| `destroy()`                     | —                    | `void`        | 幂等；取消挂起帧、解绑事件、移除容器中的 canvas                                  |
+| `destroy()`                     | —                    | `void`        | 幂等；取消挂起帧、解绑事件、移除容器中的 canvas                                    |
 
 ## 层、句柄与失效
 
@@ -122,21 +122,21 @@ export type Invalidation =
   | { type: 'full' }
 ```
 
-| 类型               | 说明                                                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `LayerKind`        | 四层标识，自底向上 `ground → body → media → sky`                                                                                         |
-| `LayerOpts`        | 建层参数：`kind` 层标识 + 可选 `consumption` 失效消费策略（缺省 `'regions'`）                                                            |
+| 类型               | 说明                                                                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `LayerKind`        | 四层标识，自底向上 `ground → body → media → sky`                                                                                          |
+| `LayerOpts`        | 建层参数：`kind` 层标识 + 可选 `consumption` 失效消费策略（缺省 `'regions'`）                                                             |
 | `LayerConsumption` | 消费策略三档：`'band-full-only'` 只响应 `band` / `full`（背景类内容）；`'regions'` 逐脏区增量补画；`'always-full'` 收到任何失效都整层重画 |
-| `FrameTask`        | `() => void`，在下一渲染帧执行一次                                                                                                       |
+| `FrameTask`        | `() => void`，在下一渲染帧执行一次                                                                                                        |
 | `Invalidation`     | 三档失效：`region` 矩形脏区（可带 `prevRegion` 覆盖移动前后双包围盒）；`band` 行带/列带级脏区，滚动窗口滑动的典型产物；`full` 整层重绘    |
 
 `consumption` 决定该层失效队列在帧末收敛为什么重绘计划：
 
-| 取值              | 响应档位                | 重绘计划                                             | 典型层                         |
-| ----------------- | ----------------------- | ---------------------------------------------------- | ------------------------------ |
-| `'band-full-only'` | 仅 `band` / `full`      | `region` 档被忽略（背景类内容不因局部脏区重绘）      | `ground`（underlay 预留层）    |
-| `'regions'`       | 全部档位                | `band` / `region` 逐脏区裁剪增量补画                 | `body` / `media`（缺省策略）   |
-| `'always-full'`   | 全部档位                | 收到任何失效都整层重画（重绘便宜的内容层）           | `sky`（选区、滚动条、浮层）    |
+| 取值               | 响应档位           | 重绘计划                                        | 典型层                       |
+| ------------------ | ------------------ | ----------------------------------------------- | ---------------------------- |
+| `'band-full-only'` | 仅 `band` / `full` | `region` 档被忽略（背景类内容不因局部脏区重绘） | `ground`（underlay 预留层）  |
+| `'regions'`        | 全部档位           | `band` / `region` 逐脏区裁剪增量补画            | `body` / `media`（缺省策略） |
+| `'always-full'`    | 全部档位           | 收到任何失效都整层重画（重绘便宜的内容层）      | `sky`（选区、滚动条、浮层）  |
 
 消费策略是建层方注入的：`createLayer({ kind, consumption })` 时给定，帧末按该策略 drain 失效队列。`ListTable` 建层时按上表右列注入；宿主自建层缺省拿到 `'regions'`。
 
@@ -150,13 +150,13 @@ export interface LayerHandle {
 }
 ```
 
-| 成员            | 签名                            | 说明                                                                                                          |
-| --------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `kind`          | `readonly LayerKind`            | 层标识                                                                                                        |
-| `root`          | `readonly SceneNode`            | 该层场景树根，尺寸与层一致；内容挂在这里                                                                      |
-| `canvasElement` | `readonly RenderCanvas`         | 该层画布；上屏模式下即容器中的 canvas 元素                                                                    |
-| `setSize`       | `(width, height, dpr?) => void` | 调整层尺寸并整层失效；dpr 缺省沿用当前值                                                                      |
-| `invalidate`    | `(inv: Invalidation) => void`   | 对本层声明三档失效                                                            |
+| 成员            | 签名                            | 说明                                       |
+| --------------- | ------------------------------- | ------------------------------------------ |
+| `kind`          | `readonly LayerKind`            | 层标识                                     |
+| `root`          | `readonly SceneNode`            | 该层场景树根，尺寸与层一致；内容挂在这里   |
+| `canvasElement` | `readonly RenderCanvas`         | 该层画布；上屏模式下即容器中的 canvas 元素 |
+| `setSize`       | `(width, height, dpr?) => void` | 调整层尺寸并整层失效；dpr 缺省沿用当前值   |
+| `invalidate`    | `(inv: Invalidation) => void`   | 对本层声明三档失效                         |
 
 ::: details 失效队列的收敛规则
 - `region` 失效：`region` 与 `prevRegion` 先取并集，再四边外扩 10px 并像素对齐。

@@ -32,7 +32,7 @@ infinitable/
 │   ├── grid/            # 共享网格内核：ScrollManager、虚拟窗口/二分命中、布局与主题投影、选区、浮动对象
 │   ├── table/           # 表格引擎：ListTable、交互、编辑、主题、媒体、插件注册路径
 │   ├── formulas/        # 公式引擎：地址、tokenizer、Pratt parser、求值、内置函数、依赖图
-│   ├── plugins/         # 官方插件：TablePlugin 契约 + chart / print / watermark
+│   ├── plugins/         # 官方插件：EnginePlugin 契约 + chart / print / watermark
 │   ├── pivot/           # 透视表引擎：PivotGrid 装配协议接入的领域引擎
 │   ├── sheet/           # 电子表格核心：Sheet/Workbook、命令、IO、SheetGrid 适配
 │   └── infinitable/     # 唯一 npm 发布包：re-export 五层 + ./sheet、./pivot 子路径
