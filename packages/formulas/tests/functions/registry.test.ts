@@ -87,10 +87,7 @@ describe('内置函数注册表', () => {
 
 describe('实例函数集（overrides）', () => {
   const overrides = new Map<string, FormulaFunction>([
-    [
-      'ADDER',
-      { minArgs: 2, maxArgs: 2, impl: (args) => Number(args[0]) + Number(args[1]) + 100 },
-    ],
+    ['ADDER', { minArgs: 2, maxArgs: 2, impl: (args) => Number(args[0]) + Number(args[1]) + 100 }],
     ['ABS', { impl: () => 'overridden' }],
     ['MYRAND', { volatile: true, impl: () => 1 }],
   ])

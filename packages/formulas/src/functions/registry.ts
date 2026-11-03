@@ -101,7 +101,10 @@ export function getFormulaFunction(
 }
 
 /** 易失性查询（宿主缓存策略用；实例集优先）：未注册函数返回 false */
-export function isVolatileFormulaFunction(name: string, overrides?: FormulaFunctionOverrides): boolean {
+export function isVolatileFormulaFunction(
+  name: string,
+  overrides?: FormulaFunctionOverrides,
+): boolean {
   return getFormulaFunction(name, overrides)?.volatile === true
 }
 
