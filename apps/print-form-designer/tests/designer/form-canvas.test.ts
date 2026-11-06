@@ -57,6 +57,17 @@ const RANGE = (r1: number, c1: number, r2: number, c2: number) => ({
 /** 引擎读取面：协议面 + 合并区读取（getMergeRanges 未收敛进 TableEngine 协议面，按实现窄化） */
 type EngineView = ReturnType<SheetGrid['getTable']> & {
   getMergeRanges(): readonly { startRow: number }[]
+  /** 场景格节点（文本溢出走廊断言用：textMinX/textMaxX 为格内局部坐标） */
+  cellNodes: Map<number, CellNodeView>
+}
+
+/** 场景格节点的断言用窄化（只取走廊相关字段） */
+interface CellNodeView {
+  col: number
+  row: number
+  width: number
+  textMinX: number
+  textMaxX: number
 }
 
 /**
@@ -120,6 +131,29 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
       expect(doc.history.undo()).toBe(true)
       expect(mergeStartRow()).toBe(2)
       expect(doc.history.redo()).toBe(true)
+    } finally {
+      canvas.release()
+    }
+  })
+
+  test('窄列长占位符不跨格溢出：两侧走廊都收敛在本格（无文本堆叠）', () => {
+    const doc = FormDoc.create(8)
+    doc.sheet.ensureTableSize(3, 8)
+    // 相邻两格都超宽且第 3 格留空：引擎缺省 Excel 式溢出会让右对齐格向左、左对齐格
+    // 向右同时穿过空格，两段文本叠在同一片区域（设计画布的「文本堆叠」）
+    doc.setCellBinding({ row: 0, col: 1 }, { datasetId: 'ds1', path: '[0].items[].qty' })
+    doc.setCellBinding({ row: 0, col: 3 }, { datasetId: 'ds1', path: '[0].items[].amount' })
+    doc.setColWidth(1, 40)
+    doc.setColWidth(3, 40)
+    const { canvas, engine } = mountCanvas(doc)
+    try {
+      const nodes = engine().cellNodes
+      const node = (col: number) => [...nodes.values()].find((n) => n.col === col && n.row === 0)!
+      for (const col of [1, 3]) {
+        // 走廊收敛在本格：绘制区不与任何邻格相交
+        expect(node(col).textMinX).toBe(0)
+        expect(node(col).textMaxX).toBe(node(col).width)
+      }
     } finally {
       canvas.release()
     }
