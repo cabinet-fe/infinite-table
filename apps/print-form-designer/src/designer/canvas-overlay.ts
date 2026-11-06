@@ -1,8 +1,8 @@
-// 画布 sky 层组合 overlay：区域轨道（区名/色条/边界）+ 纸张参考线，两段画在同一 painter 里。
+// 画布 sky 层组合 overlay：区域矩形描边 + 区域名 pill + 展开方向提示 + 纸张参考线。
 //
-// 为什么要有它：用户看不懂「区域」的核心原因是界面上没有任何东西把侧栏列表和画布行对应起来。
-// 这里按区域类型给每种区域一个固定颜色，在行号列右缘画同色竖条、首行可见时画区名 pill、
-// 区域交界处画浅虚线——侧栏圆点用同一份颜色表，两处颜色一致才能建立「这块就是明细区」的直觉。
+// 为什么要有它：用户看不懂「区域」的核心原因是界面上没有任何东西把侧栏列表和画布对应起来。
+// 这里按展开方式给区域固定配色，画出矩形描边、左上角 pill，并用色条/虚线指出「这里会重复」。
+// 侧栏圆点用同一份颜色表（REGION_EXPAND_COLORS），两处一致才能建立对应直觉。
 //
 // 几何全部每帧现算（getCellRelativeRect 返回视口坐标，天然跟随滚动/尺寸变化，不缓存）。
 // 参考线绘制仍复用 paper-guides 的纯函数与既有视觉，不改其口径。
@@ -10,7 +10,7 @@
 import type { SheetGrid } from '@infinitable/sheet'
 
 import { createPaperGuidesPainter, type PaperGuidesConfig } from './paper-guides'
-import { BAND_KIND_LABELS, type BandKind, type FormBand } from './template'
+import { regionsAt, type FormRegion, type RegionExpand } from './template'
 
 /** 视口尺寸（与 overlay painter 协议同形） */
 interface Viewport {
@@ -18,29 +18,34 @@ interface Viewport {
   height: number
 }
 
-/** 区域类型 → 强调色（侧栏圆点与画布竖条/pill 共用同一份，保证两处同色） */
-export const BAND_KIND_COLORS: Record<BandKind, string> = {
-  pageHeader: '#2f62f0',
-  info: '#12b76a',
-  detail: '#f79009',
-  summary: '#7a5af8',
-  signature: '#667085',
+/** 展开方式 → 强调色（侧栏圆点与画布描边/pill 共用同一份，保证两处同色） */
+export const REGION_EXPAND_COLORS: Record<RegionExpand, string> = {
+  none: '#98a2b3',
+  down: '#f79009',
+  right: '#2f62f0',
 }
 
-/** 区域交界虚线色 */
-const REGION_BOUNDARY_COLOR = '#cbd2dc'
-/** 边界虚线：段长 / 间隔（px；RenderContext 无 setLineDash，手动分段） */
-const BOUNDARY_DASH = 4
-const BOUNDARY_GAP = 4
-/** 区域竖条宽度（常规 / 当前选中区域加宽档） */
-const TRACK_WIDTH = 4
-const TRACK_WIDTH_ACTIVE = 6
-/** 当前选中区域的整行淡色条纹透明度（用 globalAlpha 控制，避免算 rgba） */
-const ACTIVE_STRIPE_ALPHA = 0.08
+/** 展开方式 → pill 后缀文案 */
+const EXPAND_PILL_SUFFIX: Record<RegionExpand, string> = {
+  none: '',
+  down: ' · 向下展开',
+  right: ' · 向右展开',
+}
+
+/** 虚线：段长 / 间隔（px；RenderContext 无 setLineDash，手动分段） */
+const DASH_PX = 4
+const DASH_GAP_PX = 4
+/** 展开区提示色条宽度 */
+const EXPAND_BAR_WIDTH = 3
 /** pill 尺寸与内距 */
 const PILL_HEIGHT = 16
 const PILL_FONT = '10px -apple-system, BlinkMacSystemFont, sans-serif'
 const PILL_PAD_X = 7
+/** 选中区域描边加粗档 */
+const OUTLINE_WIDTH = 1
+const OUTLINE_WIDTH_ACTIVE = 2
+/** 选中区域淡色填充透明度 */
+const ACTIVE_FILL_ALPHA = 0.06
 
 /** painter 绘制上下文最小子集（RenderContext 结构兼容；只取用到的成员） */
 export interface RegionPaintContext {
@@ -74,9 +79,9 @@ export interface RegionPaintContext {
 export interface CanvasOverlayDeps {
   getGrid: () => SheetGrid | undefined
   getPaperGuides: () => PaperGuidesConfig | null
-  getBands: () => readonly FormBand[]
-  /** 当前选中区域的起始行（命中即高亮该区域；undefined = 无） */
-  getActiveBandStartRow: () => number | undefined
+  getRegions: () => readonly FormRegion[]
+  /** 当前选中格（用于判定「现在说的是哪个区域」，命中即加粗描边） */
+  getActiveCell: () => { row: number; col: number } | undefined
 }
 
 /** 圆角矩形路径（RenderContext 无 roundRect，用 arc 拼四角） */
@@ -102,115 +107,135 @@ function roundRectPath(
   ctx.closePath()
 }
 
-/** 水平虚线：沿 y 从 x1 到 x2 手动分段 */
-function dashedHLine(ctx: RegionPaintContext, x1: number, y: number, x2: number): void {
-  ctx.beginPath()
-  for (let x = x1; x < x2; x += BOUNDARY_DASH + BOUNDARY_GAP) {
-    ctx.moveTo(x, y)
-    ctx.lineTo(Math.min(x + BOUNDARY_DASH, x2), y)
-  }
-}
-
-interface RowRect {
-  y: number
-  height: number
-}
-
-/** 区域内所有可见行的矩形（视口外行返回 null，直接跳过）+ 第 0 列左缘 x */
-function visibleRowRects(
+/** 矩形区域的包围盒（四角格的相对矩形取并集；任一角不可见则返回 null） */
+function regionBounds(
   table: ReturnType<SheetGrid['getTable']>,
-  band: FormBand,
-): { rows: RowRect[]; columnLeft: number } {
-  const rows: RowRect[] = []
-  let columnLeft = Number.NaN
-  for (let row = band.startRow; row <= band.endRow; row++) {
-    const rect = table.getCellRelativeRect(0, row)
-    if (!rect) continue
-    rows.push({ y: rect.y, height: rect.height })
-    if (Number.isNaN(columnLeft)) columnLeft = rect.x
+  region: FormRegion,
+): { x: number; y: number; width: number; height: number } | null {
+  const topLeft = table.getCellRelativeRect(region.startCol, region.startRow)
+  const bottomRight = table.getCellRelativeRect(region.endCol, region.endRow)
+  if (!topLeft || !bottomRight) return null
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: bottomRight.x + bottomRight.width - topLeft.x,
+    height: bottomRight.y + bottomRight.height - topLeft.y,
   }
-  return { rows, columnLeft }
 }
 
-/** 区域轨道：竖条 + 首行 pill + 选中区整行条纹 */
-function drawRegionTracks(
+/**
+ * 展开方向提示：
+ * - `down`：左缘画 3px 色条 + 底边虚线（「这里会往下重复」）
+ * - `right`：顶缘画 3px 色条 + 右缘虚线（「这里会向右平铺」）
+ */
+function drawExpandHints(
   ctx: RegionPaintContext,
-  table: ReturnType<SheetGrid['getTable']>,
-  bands: readonly FormBand[],
-  activeStartRow: number | undefined,
+  bounds: { x: number; y: number; width: number; height: number },
+  expand: RegionExpand,
+  color: string,
 ): void {
-  const bodyLeft = table.getCellRelativeRect(0, 0)?.x ?? Number.NaN
-  const bodyWidth = table.getCellRelativeRect(0, 0)?.width ?? 0
-
-  for (const band of bands) {
-    const { rows, columnLeft } = visibleRowRects(table, band)
-    if (rows.length === 0 || Number.isNaN(columnLeft)) continue
-    const color = BAND_KIND_COLORS[band.kind]
-    const active = band.startRow === activeStartRow
-    const trackWidth = active ? TRACK_WIDTH_ACTIVE : TRACK_WIDTH
-    const top = rows[0]!.y
-    const bottom = rows[rows.length - 1]!.y + rows[rows.length - 1]!.height
-
-    // 选中区域：整行淡色条纹（很轻，只用来指示「现在说的是这块」）
-    if (active && bodyWidth > 0) {
-      ctx.save()
-      ctx.globalAlpha = ACTIVE_STRIPE_ALPHA
-      ctx.fillStyle = color
-      ctx.fillRect(columnLeft, top, bodyWidth - (columnLeft - bodyLeft), bottom - top)
-      ctx.restore()
-    }
-
-    // 行号列右缘的色条（宽度随选中态变化）
-    ctx.fillStyle = color
-    ctx.fillRect(columnLeft - trackWidth, top, trackWidth, bottom - top)
-
-    // 区名 pill：只在该区域首行可见时画一次（区域滚走后不再出现，避免误读「这里就是开头」）。
-    // 位置紧贴色条右侧、与首行顶部对齐——像报表设计器里的区域标签页，压住的内容最少。
-    const firstVisible = rows[0]!
-    const label = BAND_KIND_LABELS[band.kind]
-    ctx.save()
-    ctx.font = PILL_FONT
-    const pillWidth = Math.max(44, ctx.measureText(label).width + PILL_PAD_X * 2)
-    const pillX = columnLeft + 3
-    const pillY = firstVisible.y + 2
-    ctx.globalAlpha = 0.92
-    ctx.fillStyle = color
-    roundRectPath(ctx, pillX, pillY, pillWidth, PILL_HEIGHT, PILL_HEIGHT / 2)
-    ctx.fill()
-    ctx.globalAlpha = 1
-    ctx.fillStyle = '#ffffff'
-    ctx.fillText(label, pillX + PILL_PAD_X, pillY + PILL_HEIGHT / 2 + 3.5)
-    ctx.restore()
-  }
-}
-
-/** 区域交界虚线（横贯 body 宽度；第一条区域顶部不画，避免与列头重叠） */
-function drawRegionBoundaries(
-  ctx: RegionPaintContext,
-  table: ReturnType<SheetGrid['getTable']>,
-  bands: readonly FormBand[],
-  viewport: Viewport,
-): void {
-  const firstBodyCell = table.getCellRelativeRect(0, 0)
-  if (!firstBodyCell) return
-  const x1 = firstBodyCell.x
-  const x2 = viewport.width
+  if (expand === 'none') return
   ctx.save()
-  ctx.strokeStyle = REGION_BOUNDARY_COLOR
-  ctx.lineWidth = 1
-  for (let i = 1; i < bands.length; i++) {
-    const band = bands[i]!
-    const rect = table.getCellRelativeRect(0, band.startRow)
-    if (!rect) continue
-    // 落在半像素上让 1px 线清晰
-    dashedHLine(ctx, x1, Math.round(rect.y) - 0.5, x2)
+  ctx.fillStyle = color
+  if (expand === 'down') {
+    ctx.fillRect(bounds.x, bounds.y, EXPAND_BAR_WIDTH, bounds.height)
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (let x = bounds.x; x < bounds.x + bounds.width; x += DASH_PX + DASH_GAP_PX) {
+      ctx.moveTo(x, Math.round(bounds.y + bounds.height) - 0.5)
+      ctx.lineTo(
+        Math.min(x + DASH_PX, bounds.x + bounds.width),
+        Math.round(bounds.y + bounds.height) - 0.5,
+      )
+    }
+  } else {
+    ctx.fillRect(bounds.x, bounds.y, bounds.width, EXPAND_BAR_WIDTH)
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (let y = bounds.y; y < bounds.y + bounds.height; y += DASH_PX + DASH_GAP_PX) {
+      ctx.moveTo(Math.round(bounds.x + bounds.width) - 0.5, y)
+      ctx.lineTo(
+        Math.round(bounds.x + bounds.width) - 0.5,
+        Math.min(y + DASH_PX, bounds.y + bounds.height),
+      )
+    }
   }
   ctx.stroke()
   ctx.restore()
 }
 
+/** 区域名 pill：画在矩形左上角内侧（最多遮 16px 高，不压正文） */
+function drawRegionPill(
+  ctx: RegionPaintContext,
+  bounds: { x: number; y: number },
+  label: string,
+  color: string,
+): void {
+  ctx.save()
+  ctx.font = PILL_FONT
+  const pillWidth = Math.max(44, ctx.measureText(label).width + PILL_PAD_X * 2)
+  const pillX = bounds.x + 3
+  const pillY = bounds.y + 2
+  ctx.globalAlpha = 0.92
+  ctx.fillStyle = color
+  roundRectPath(ctx, pillX, pillY, pillWidth, PILL_HEIGHT, PILL_HEIGHT / 2)
+  ctx.fill()
+  ctx.globalAlpha = 1
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(label, pillX + PILL_PAD_X, pillY + PILL_HEIGHT / 2 + 3.5)
+  ctx.restore()
+}
+
+/** 全部区域：描边 + pill + 展开提示 */
+function drawRegions(
+  ctx: RegionPaintContext,
+  table: ReturnType<SheetGrid['getTable']>,
+  regions: readonly FormRegion[],
+  activeCell: { row: number; col: number } | undefined,
+): void {
+  const activeIndex = activeCell
+    ? regions.indexOf(regionsAt(regions, activeCell.row, activeCell.col)!)
+    : -1
+
+  regions.forEach((region, index) => {
+    const bounds = regionBounds(table, region)
+    if (!bounds) return
+    const color = REGION_EXPAND_COLORS[region.expand]
+    const active = index === activeIndex
+
+    // 选中区域：很轻的底色，指示「现在说的是这块」
+    if (active) {
+      ctx.save()
+      ctx.globalAlpha = ACTIVE_FILL_ALPHA
+      ctx.fillStyle = color
+      ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height)
+      ctx.restore()
+    }
+
+    // 矩形描边（选中加粗）
+    ctx.save()
+    ctx.strokeStyle = color
+    ctx.lineWidth = active ? OUTLINE_WIDTH_ACTIVE : OUTLINE_WIDTH
+    ctx.globalAlpha = active ? 0.95 : 0.55
+    ctx.beginPath()
+    ctx.rect(
+      Math.round(bounds.x) + 0.5,
+      Math.round(bounds.y) + 0.5,
+      Math.round(bounds.width) - 1,
+      Math.round(bounds.height) - 1,
+    )
+    ctx.stroke()
+    ctx.restore()
+
+    drawExpandHints(ctx, bounds, region.expand, color)
+    drawRegionPill(ctx, bounds, `区域 ${index + 1}${EXPAND_PILL_SUFFIX[region.expand]}`, color)
+  })
+}
+
 /**
- * 组合 painter：先画区域轨道（贴近内容，被参考线压住也不影响读数），再画参考线。
+ * 组合 painter：先画区域（贴近内容，被参考线压住也不影响读数），再画参考线。
  * 参考线沿用既有 painter（内部复用 computePageGuides / drawPageGuides），口径不变。
  */
 export function createCanvasOverlayPainter(
@@ -221,19 +246,16 @@ export function createCanvasOverlayPainter(
     const grid = deps.getGrid()
     if (!grid) return
     const table = grid.getTable()
-    const bands = deps.getBands()
-    if (bands.length > 0) {
-      drawRegionBoundaries(ctx, table, bands, viewport)
-      drawRegionTracks(ctx, table, bands, deps.getActiveBandStartRow())
-    }
+    const regions = deps.getRegions()
+    if (regions.length > 0) drawRegions(ctx, table, regions, deps.getActiveCell())
     guidesPainter(ctx as never, viewport)
   }
 }
 
 /**
  * overlay 接线（form-canvas 调用）：attach 随每次网格创建/重建把 painter 写进新引擎的
- * overlay 槽位；refresh 以同一 painter 原位重写触发 sky 整层失效——行高/列宽/选区内
- * 容就地变化后区域轨道随重绘对齐（协议 setOverlayPainter 非空写入恒提交失效）。
+ * overlay 槽位；refresh 以同一 painter 原位重写触发 sky 整层失效——行高/列宽/选区
+ * 变化后区域描边随重绘对齐（协议 setOverlayPainter 非空写入恒提交失效）。
  */
 export interface CanvasOverlay {
   attach(grid: SheetGrid): void

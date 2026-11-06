@@ -14,8 +14,8 @@ import {
 import { FormDoc } from '../designer/form-doc'
 import {
   TEMPLATE_SCHEMA_VERSION,
-  type FormBand,
   type FormCellBinding,
+  type FormRegion,
   type FormTemplate,
 } from '../designer/template'
 
@@ -118,17 +118,17 @@ function mergeBinding(
   doc.sheet.mergeCells(region)
 }
 
-/** 空画布起建：骨架区域 → FormDoc → 布局回调 → 序列化模板 JSON */
+/** 空画布起建：区域 → FormDoc → 布局回调 → 序列化模板 JSON */
 function buildTemplate(
   name: string,
-  bands: FormBand[],
+  regions: FormRegion[],
   cols: number,
   layout: (doc: FormDoc) => void,
 ): FormTemplate {
   const doc = FormDoc.fromTemplate({
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
     name,
-    bands,
+    regions,
     cols,
     sheet: new Sheet('seed').snapshot(),
   })
@@ -161,10 +161,12 @@ function buildSalesListTemplate(): FormTemplate {
   return buildTemplate(
     '销售明细清单（列表样）',
     [
-      { kind: 'pageHeader', startRow: 0, endRow: 1 },
-      { kind: 'detail', startRow: 2, endRow: 2 },
-      { kind: 'summary', startRow: 3, endRow: 3 },
-      { kind: 'signature', startRow: 4, endRow: 4 },
+      // 标题 + 列头（每页重复）
+      { startRow: 0, endRow: 1, startCol: 0, endCol: 8, expand: 'none', repeat: true },
+      // 明细行（按数据条数向下展开）
+      { startRow: 2, endRow: 2, startCol: 0, endCol: 8, expand: 'down' },
+      // 合计 + 签字（静态）
+      { startRow: 3, endRow: 4, startCol: 0, endCol: 8, expand: 'none' },
     ],
     9,
     (doc) => {
@@ -234,13 +236,20 @@ function buildCnReceiptTemplate(): FormTemplate {
   return buildTemplate(
     '销售出库单（中式单据）',
     [
-      { kind: 'pageHeader', startRow: 0, endRow: 1 },
-      { kind: 'info', startRow: 2, endRow: 3 },
-      // 列头独立成表头区域：明细区整段按元素复制，列头混入会逐行重复
-      { kind: 'pageHeader', startRow: 4, endRow: 4 },
-      { kind: 'detail', startRow: 5, endRow: 5 },
-      { kind: 'summary', startRow: 6, endRow: 6 },
-      { kind: 'signature', startRow: 7, endRow: 8 },
+      // 只有「标题 + 单号/日期」这块每页重复：它是纯页眉，与数据无关。
+      // 不能把客户/地址与明细列头一起并进来——那会把重复行数从 2 抬到 5，
+      // 打印内核要求 fixRows > headerRepeatRows，下限跟着抬高；而且列头一旦进了
+      // 重复块就会在第一页提前出现，破坏「页 1 只有客户/地址、不含品名」的分页口径。
+      { startRow: 0, endRow: 1, startCol: 0, endCol: 7, expand: 'none', repeat: true },
+      // 客户/地址 + 明细列头：属数据流（跟首单信息一起只出现一次），不重复。
+      // 列头仍必须留在展开区之外——展开区按元素复制，列头混进去会逐行重复。
+      { startRow: 2, endRow: 4, startCol: 0, endCol: 7, expand: 'none' },
+      // 明细行（按首单 items 条数向下展开）
+      { startRow: 5, endRow: 5, startCol: 0, endCol: 7, expand: 'down' },
+      // 合计（静态）
+      { startRow: 6, endRow: 6, startCol: 0, endCol: 7, expand: 'none' },
+      // 签字（静态）
+      { startRow: 7, endRow: 8, startCol: 0, endCol: 7, expand: 'none' },
     ],
     8,
     (doc) => {

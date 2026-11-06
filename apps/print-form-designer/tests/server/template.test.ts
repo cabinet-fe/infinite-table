@@ -37,7 +37,7 @@ function sampleTemplate(name: string): FormTemplate {
   doc.setColWidth(1, 120)
   doc.setCellBinding(ADDR(4, 1), { datasetId: 'ds1', path: 'items[].name' })
   doc.setCellBinding(ADDR(6, 2), { datasetId: 'ds1', path: 'items[].amount', aggregate: 'sum' })
-  doc.setBandKind(3, 'detail')
+  doc.setRegionExpand(0, 'down')
   return doc.toTemplate(name)
 }
 
@@ -72,7 +72,7 @@ describe('模板 REST CRUD', () => {
     expect(((await got.json()) as { template: FormTemplate }).template).toEqual(template)
 
     const edited = FormDoc.fromTemplate(template)
-    edited.addBand('summary')
+    edited.addRegion()
     const updated = edited.toTemplate('出库单V2')
     const put = await app.request(`/api/templates/${record.id}`, {
       method: 'PUT',
@@ -104,7 +104,7 @@ describe('模板 REST CRUD', () => {
     // 直插两行可分辨时间的记录，避免同毫秒创建导致顺序不定
     const db = openDatabase(':memory:')
     const doc =
-      '{"schemaVersion":1,"bands":[{"kind":"info","startRow":0,"endRow":0}],"cols":4,"sheet":{"rows":1,"cols":4,"cells":[]}}'
+      '{"schemaVersion":2,"regions":[{"startRow":0,"endRow":0,"startCol":0,"endCol":3,"expand":"none"}],"cols":4,"sheet":{"rows":1,"cols":4,"cells":[]}}'
     db.exec(
       `INSERT INTO template (id, name, bands, created_at) VALUES
         ('old', '旧模板', '${doc}', '2020-01-01T00:00:00.000Z'),
@@ -116,13 +116,13 @@ describe('模板 REST CRUD', () => {
     expect(rows.map((row) => row.id)).toEqual(['new', 'old'])
   })
 
-  test('请求体形状校验：缺字段/空波段/非正整数 cols 均 400', async () => {
+  test('请求体形状校验：缺字段/空区域/非正整数 cols 均 400', async () => {
     const base = sampleTemplate('合法')
     for (const bad of [
       {},
       { ...base, name: ' ' },
       { ...base, schemaVersion: '1' },
-      { ...base, bands: [] },
+      { ...base, regions: [] },
       { ...base, cols: 0 },
       { ...base, cols: 2.5 },
       { ...base, sheet: null },
@@ -165,7 +165,7 @@ describe('保存 → 加载 round-trip（经 REST 边界）', () => {
     expect(restored.sheet.getCellInfo(ADDR(0, 3)).kind).toBe('merged-covered')
     expect(restored.sheet.getRowHeight(0)).toBe(40)
     expect(restored.sheet.getColWidth(1)).toBe(120)
-    expect(restored.bands[3]!.kind).toBe('detail')
+    expect(restored.regions[0]!.expand).toBe('down')
     // 绑定 sidecar 整体随行；绑定格存储值保持空（配置态口径）
     expect(restored.getCellBinding(ADDR(4, 1))).toEqual({
       datasetId: 'ds1',
@@ -187,9 +187,9 @@ describe('打印配置键集守护（弹框配置不落模板）', () => {
     const created = await postApp(sampleTemplate('键集守护'))
     const record = (await created.json()) as { template: FormTemplate }
     expect(Object.keys(record.template).sort()).toEqual([
-      'bands',
       'cols',
       'name',
+      'regions',
       'schemaVersion',
       'sheet',
     ])

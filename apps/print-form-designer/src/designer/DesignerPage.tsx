@@ -4,9 +4,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { PrintOrientation, PrintPaperPreset } from '@infinitable/plugins'
-import { formatRange, type CellAddress } from '@infinitable/sheet'
+import { formatRange } from '@infinitable/sheet'
 
 import { BindingEditor } from './BindingEditor'
+import { BoundList } from './BoundList'
 import { FormDoc, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
 import { FormulaBar, type FormulaBarHandle } from './FormulaBar'
@@ -16,7 +17,7 @@ import { PrintDialog } from './PrintDialog'
 import { RegionPanel } from './RegionPanel'
 import { StyleToolbar } from './StyleToolbar'
 import { TemplatePanel } from './TemplatePanel'
-import { BAND_KIND_LABELS, bandAtRow, type BandKind, type FormBand } from './template'
+import { REGION_EXPAND_OPTIONS, regionsAt, type FormRegion } from './template'
 import { useSelectionStyle } from './use-selection-style'
 
 /** 纸张预设（设计参考线用；真实分页以打印预览为准） */
@@ -34,11 +35,12 @@ export function DesignerPage() {
   const canvasRef = useRef<FormCanvas | null>(null)
   const formulaBarRef = useRef<FormulaBarHandle>(null)
 
-  const [bands, setBands] = useState<FormBand[]>(() => doc.bands.map((band) => ({ ...band })))
+  const [regions, setRegions] = useState<FormRegion[]>(() =>
+    doc.regions.map((region) => ({ ...region })),
+  )
   const [hist, setHist] = useState<DocHistoryState>({ canUndo: false, canRedo: false })
-  const [pickMode, setPickMode] = useState(false)
-  const [editingAddr, setEditingAddr] = useState<CellAddress | undefined>(undefined)
-  const [addKind, setAddKind] = useState<BandKind>('detail')
+  // 绑定清单的重算信号：任何会改动 meta 的动作（绑定写入、撤销、换模板）都 +1
+  const [bindRevision, setBindRevision] = useState(0)
   // 纸张参考线配置（显示层，不落模板）；缺省 A4 纵向开启——画布即见纸张边界
   const [guides, setGuides] = useState<PaperGuidesConfig | null>(DEFAULT_PAPER_GUIDES)
   // 模板名提升到本页（模板面板与打印弹框共用：打印文档标题取模板名）
@@ -50,7 +52,11 @@ export function DesignerPage() {
 
   // 选区/样式状态：工具条控件回显 + 区域高亮 + 选区 chip 同源
   const selection = useSelectionStyle(doc)
-  const activeBand = selection.range ? bandAtRow(doc.bands, selection.range.start.row) : undefined
+  // 选区首格落在哪个区域（侧栏高亮 + chip 文案 + 画布描边同源）
+  const activeRegion = selection.range
+    ? regionsAt(doc.regions, selection.range.start.row, selection.range.start.col)
+    : undefined
+  const activeRegionIndex = activeRegion ? doc.regions.indexOf(activeRegion) : undefined
   const bound = selection.activeCell
     ? doc.getCellBinding(selection.activeCell) !== undefined
     : false
@@ -61,23 +67,26 @@ export function DesignerPage() {
     const canvas = mountFormCanvas({
       container: el,
       doc,
-      // 拾取模式点选格 → 绑定编辑面板目标格（选区被拦截不落模型）
-      onCellPick: (addr) => setEditingAddr(addr),
       // 画布重建（含模板加载换 doc）按当前参考线配置挂载；运行时切换走下方同步 effect
       paperGuides: guides ?? undefined,
     })
     canvasRef.current = canvas
-    const offBands = doc.on('bands-change', () => setBands(doc.bands.map((band) => ({ ...band }))))
+    const offRegions = doc.on('regions-change', () =>
+      setRegions(doc.regions.map((region) => ({ ...region }))),
+    )
     // sheet 命令（画布键入/工具栏）与快照条目统一刷新撤销按钮态
-    const offDocHistory = doc.on('history-change', () => setHist(doc.history.getState()))
+    const offDocHistory = doc.on('history-change', () => {
+      setHist(doc.history.getState())
+      // 撤销/重做会回滚绑定 sidecar，清单同步重算
+      setBindRevision((n) => n + 1)
+    })
     const offSheetHistory = doc.sheet.on('history-change', () => setHist(doc.history.getState()))
-    // 模板加载替换 doc 后同步面板状态（新画布拾取默认关闭，绑定编辑归零）
-    setBands(doc.bands.map((band) => ({ ...band })))
-    setPickMode(false)
-    setEditingAddr(undefined)
+    // 模板加载替换 doc 后同步面板状态（绑定清单随新文档重算）
+    setRegions(doc.regions.map((region) => ({ ...region })))
+    setBindRevision((n) => n + 1)
     setHist(doc.history.getState())
     return () => {
-      offBands()
+      offRegions()
       offDocHistory()
       offSheetHistory()
       canvasRef.current = null
@@ -89,12 +98,6 @@ export function DesignerPage() {
   useEffect(() => {
     canvasRef.current?.setPaperGuides(guides)
   }, [guides])
-
-  const togglePickMode = (next: boolean): void => {
-    setPickMode(next)
-    if (!next) setEditingAddr(undefined)
-    canvasRef.current?.setPickMode(next)
-  }
 
   // ⌘P / Ctrl+P 唤起打印预览（拦截浏览器默认打印）
   useEffect(() => {
@@ -135,44 +138,27 @@ export function DesignerPage() {
                 <span className="chevron">›</span>
               </summary>
               <div className="card-body">
-                <RegionPanel
-                  doc={doc}
-                  bands={bands}
-                  activeStartRow={activeBand?.startRow}
-                  addKind={addKind}
-                  onAddKindChange={setAddKind}
-                />
+                <RegionPanel doc={doc} regions={regions} activeIndex={activeRegionIndex} />
               </div>
             </details>
           </section>
 
-          <section className={pickMode ? 'card binding-card picking' : 'card binding-card'}>
+          <section className="card binding-card">
             <details open>
               <summary>
                 字段绑定
                 <span className="chevron">›</span>
               </summary>
               <div className="card-body">
-                <div className="pick-row">
-                  <label
-                    className="switch"
-                    title="开启后，点击画布单元格不会移动选区，而是选中它做绑定"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={pickMode}
-                      onChange={(event) => togglePickMode(event.target.checked)}
-                    />
-                    <span className="switch-track" />
-                    拾取模式
-                  </label>
-                  <span className="hint">点选画布格后编辑绑定</span>
-                </div>
                 <BindingEditor
                   doc={doc}
-                  addr={editingAddr}
-                  onEdited={() => canvasRef.current?.refresh()}
+                  addr={selection.activeCell ?? undefined}
+                  onEdited={() => {
+                    canvasRef.current?.refresh()
+                    setBindRevision((n) => n + 1)
+                  }}
                 />
+                <BoundList doc={doc} revision={bindRevision} />
               </div>
             </details>
           </section>
@@ -190,9 +176,7 @@ export function DesignerPage() {
             {selection.range ? (
               <span className="selection-chip" title="当前选区（A1 记法）与所在区域">
                 <span className="addr">{selectionText}</span>
-                {activeBand ? (
-                  <span className="region-tag">{BAND_KIND_LABELS[activeBand.kind]}</span>
-                ) : null}
+                <span className="region-tag">{regionLabel(activeRegion, activeRegionIndex)}</span>
               </span>
             ) : null}
 
@@ -251,7 +235,7 @@ export function DesignerPage() {
             onChanged={() => canvasRef.current?.refresh()}
           />
 
-          <div className={pickMode ? 'canvas-frame pick-active' : 'canvas-frame'}>
+          <div className="canvas-frame">
             <div ref={mountRef} className="canvas-mount" />
           </div>
         </div>
@@ -273,4 +257,14 @@ export function DesignerPage() {
       ) : null}
     </>
   )
+}
+
+/** 选区 chip 的区域文案：`区域 N · 向下展开` / `区域 N` / `静态内容` */
+function regionLabel(region: FormRegion | undefined, index: number | undefined): string {
+  if (!region || index === undefined) return '静态内容'
+  const expand =
+    region.expand === 'none'
+      ? ''
+      : REGION_EXPAND_OPTIONS.find((option) => option.value === region.expand)?.label
+  return expand ? `区域 ${index + 1} · ${expand}` : `区域 ${index + 1}`
 }

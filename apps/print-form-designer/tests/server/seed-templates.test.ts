@@ -53,20 +53,22 @@ describe('seed 幂等落内置模板', () => {
       expect(res.status).toBe(200)
       const record = (await res.json()) as TemplateRecord
       expect(record.template.name).toBe(record.name)
-      expect(record.template.schemaVersion).toBe(1)
+      expect(record.template.schemaVersion).toBe(2)
     }
   })
 })
 
 describe('列表样：加载还原并打印出多列明细成品', () => {
-  test('画布还原：波段/合并/绑定 sidecar 与行列几何齐备', async () => {
+  test('画布还原：区域/合并/绑定 sidecar 与行列几何齐备', async () => {
     const { loadTemplate } = await bootSeededApp()
     const doc = FormDoc.fromTemplate((await loadTemplate(SEED_TEMPLATE_LIST_ID)).template)
-    expect(doc.bands.map((band) => band.kind)).toEqual([
-      'pageHeader',
-      'detail',
-      'summary',
-      'signature',
+    // v2：标题+列头（每页重复）/ 明细（向下展开）/ 合计+签字（静态）
+    expect(
+      doc.regions.map((region) => [region.startRow, region.endRow, region.expand, region.repeat]),
+    ).toEqual([
+      [0, 1, 'none', true],
+      [2, 2, 'down', undefined],
+      [3, 4, 'none', undefined],
     ])
     expect(doc.rows).toBe(5)
     expect(doc.cols).toBe(9)
@@ -141,17 +143,20 @@ describe('列表样：加载还原并打印出多列明细成品', () => {
   })
 })
 
-describe('中式单据：五类波段齐备并打印出单据成品', () => {
-  test('画布还原：表头/信息/明细/合计/签字齐备，列头独立波段不随明细重复', async () => {
+describe('中式单据：五块区域齐备并打印出单据成品', () => {
+  test('画布还原：标题/客户地址/明细/合计/签字齐备，只有标题块每页重复', async () => {
     const { loadTemplate } = await bootSeededApp()
     const doc = FormDoc.fromTemplate((await loadTemplate(SEED_TEMPLATE_CN_DOC_ID)).template)
-    expect(doc.bands.map((band) => band.kind)).toEqual([
-      'pageHeader',
-      'info',
-      'pageHeader',
-      'detail',
-      'summary',
-      'signature',
+    // v2：标题+单号（每页重复 2 行）/ 客户地址+列头（数据流，不重复）/
+    // 明细（向下展开）/ 合计 / 签字
+    expect(
+      doc.regions.map((region) => [region.startRow, region.endRow, region.expand, region.repeat]),
+    ).toEqual([
+      [0, 1, 'none', true],
+      [2, 4, 'none', undefined],
+      [5, 5, 'down', undefined],
+      [6, 6, 'none', undefined],
+      [7, 8, 'none', undefined],
     ])
     expect(doc.rows).toBe(9)
     expect(doc.cols).toBe(8)

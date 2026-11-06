@@ -1,35 +1,35 @@
-// 数据态渲染管线（P6）：绑定 + 重塑后数据 → 数据态表单快照。
+// 数据态渲染管线：绑定 + 重塑后数据 → 数据态表单快照（预览与打印共用的唯一入口）。
 //
-// 配置态画布永不填充数据（P3 口径）；本管线是预览与打印共用的唯一数据态入口，
-// P8 打印弹框从这里取快照渲染。输出即 SheetSnapshot 形态：格取值已解析、明细
-// 区域按绑定数组循环展开（数组每个元素复制一份区域行区，值按元素下探），可直接
-// 喂给以 sheet 快照为基准的打印适配。
+// 配置态画布永不填充数据；本管线按区域的 `expand` 属性做**行列双轴**复制：
+// - `expand: 'down'` 的区域按数据条数向下复制（行轴），区域下方内容整体下移；
+// - `expand: 'right'` 的区域按数据条数向右复制（列轴），区域右侧内容整体右移；
+// - 其余内容（含不属于任何区域的行列）原样保留。
+// 输出即 SheetSnapshot 形态，可直接喂给以 sheet 快照为基准的打印适配。
+
 import type { CellMetaSnapshotItem, SheetSnapshot } from '@infinitable/sheet'
 
 import { detailLoopArray, resolveBindingValue } from './binding'
 import type { FormDoc } from './form-doc'
 import {
   FORM_BINDING_META_NAMESPACE,
-  bandAtRow,
-  type FormBand,
+  regionsAt,
   type FormCellBinding,
+  type FormRegion,
 } from './template'
 
 /** 数据集 id → 重塑后取数形态（reshapeDatasetData 的产物集合） */
 export type DatasetShapes = Map<string, unknown>
 
 /**
- * 数据集形态键（P6 评审口径，P8 落地）：形态属于「数据集 × 重塑表达式」对——
- * 同一数据集被多个绑定以不同表达式引用时，各绑定按自己的表达式取形态（表达式
- * 是绑定的一部分，不归属数据集）。无表达式的绑定共用裸 datasetId 键（原始行
- * 数组直接作形态），与 P6 既有调用方口径兼容。
+ * 数据集形态键：形态属于「数据集 × 重塑表达式」对——同一数据集被多个绑定以不同
+ * 表达式引用时，各绑定按自己的表达式取形态。无表达式的绑定共用裸 datasetId 键。
  */
 export function datasetShapeKey(datasetId: string, expression?: string): string {
   const trimmed = expression?.trim()
   return trimmed ? `${datasetId}\u0000${trimmed}` : datasetId
 }
 
-/** 快照里的绑定 sidecar 表：row|col → 绑定（明细行数探测与格取值共用） */
+/** 快照里的绑定 sidecar 表：row|col → 绑定（展开份数探测与格取值共用） */
 function bindingIndex(
   items: readonly CellMetaSnapshotItem[] | undefined,
 ): Map<string, { row: number; col: number; binding: FormCellBinding }> {
@@ -46,19 +46,22 @@ function bindingIndex(
   return index
 }
 
-/** 区域展开份数：明细区取区域内绑定循环数组的最大长度；解析到空数组 = 0 份（塌缩），
- *  区域内没有任何有效循环数组（未绑定/数组缺失）时保持 1 份（按模板形态出） */
-function bandCopies(
-  band: FormBand,
+/**
+ * 区域展开份数：取区域内绑定循环数组的最大长度；解析到空数组 = 0 份（塌缩），
+ * 区域内没有任何有效循环数组（未绑定/数组缺失）时保持 1 份（按模板形态出一份）。
+ */
+function regionCopies(
+  region: FormRegion,
   items: readonly CellMetaSnapshotItem[] | undefined,
   shapes: DatasetShapes,
 ): number {
-  if (band.kind !== 'detail') return 1
+  if (region.expand === 'none') return 1
   let count = 0
   let found = false
   for (const item of items ?? []) {
     if (item.namespace !== FORM_BINDING_META_NAMESPACE) continue
-    if (item.row < band.startRow || item.row > band.endRow) continue
+    if (item.row < region.startRow || item.row > region.endRow) continue
+    if (item.col < region.startCol || item.col > region.endCol) continue
     const binding = item.payload as FormCellBinding
     const array = detailLoopArray(
       shapes.get(datasetShapeKey(binding.datasetId, binding.expression)),
@@ -71,29 +74,79 @@ function bandCopies(
   return found ? count : 1
 }
 
+/** 单轴展开计划：区域在轴上占 [from, to]，份数 copies */
+interface AxisPlan {
+  from: number
+  to: number
+  copies: number
+}
+
+/**
+ * 单轴映射：模板下标 → 展开后下标列表。
+ * 区域内每份占满该区域的长度（块序即份序），区域之后的元素整体平移。
+ */
+function buildAxisMap(length: number, plans: readonly AxisPlan[]): number[][] {
+  // 按起点排序后一遍扫描：区域前的原样输出，区域内按份展开，区域后加偏移
+  const sorted = [...plans].sort((a, b) => a.from - b.from)
+  const map: number[][] = Array.from({ length }, () => [])
+  let next = 0
+  let cursor = 0
+  for (const plan of sorted) {
+    const span = plan.to - plan.from + 1
+    // 区域前的元素：一对一
+    for (; cursor < plan.from; cursor++) map[cursor]!.push(next++)
+    // 区域内的元素：每份都要一份（份外层、区域内下标内层）
+    for (let copy = 0; copy < plan.copies; copy++) {
+      for (let index = plan.from; index <= plan.to; index++) {
+        map[index]!.push(next++)
+      }
+    }
+    cursor = plan.to + 1
+  }
+  // 区域之后（或整表无区域）的尾巴：一对一
+  for (; cursor < length; cursor++) map[cursor]!.push(next++)
+  return map
+}
+
+/** 轴尺寸表重映射（行高/列宽、行/列默认样式）：[下标, 值] → 展开后的多份 */
+function remapAxis(
+  entries: [number, number][] | undefined,
+  map: readonly number[][],
+): [number, number][] | undefined {
+  return entries?.flatMap(([index, value]) =>
+    (map[index] ?? []).map((next) => [next, value] as [number, number]),
+  )
+}
+
 /**
  * 渲染数据态表单快照：
- * - 非明细格：绑定按路径直取（`[]` 循环路径需聚合，否则无值），未绑定格回落模板存储值；
- * - 明细区：按绑定数组长度逐元素复制行区，`[]` 路径按元素下标取值，样式/行高随行复制；
- * - 合并区整体落在同一展开份数的行上则随份复制，跨明细边界的合并在数据态丢弃；
+ * - 未绑定格：回落模板存储值（随区域复制）；
+ * - 展开区内绑定格：按该份的下标做 `each` 取值（向下区看行份、向右区看列份）；
+ * - 非展开区绑定格：按路径直取（`[].x` 需聚合，否则无值）；
+ * - 合并区若跨了展开区边界（首尾份数不一致）则丢弃；
  * - 绑定 sidecar 不进数据态快照（已解析为值）。
  */
 export function renderDataState(doc: FormDoc, shapes: DatasetShapes): SheetSnapshot {
   const snapshot = doc.sheet.snapshot()
   const bindings = bindingIndex(snapshot.meta)
 
-  // 模板行 → 展开后行号列表（明细行多份；元素外层、区域行区内层，块序即元素序）
-  const targets: number[][] = Array.from({ length: snapshot.rows }, () => [])
-  let nextRow = 0
-  for (const band of doc.bands) {
-    const copies = bandCopies(band, snapshot.meta, shapes)
-    for (let copy = 0; copy < copies; copy++) {
-      for (let row = band.startRow; row <= band.endRow; row++) targets[row]!.push(nextRow++)
+  // 行/列展开计划：expand 各最多一个（模型层已拦住），仍按数组收集以防将来放开
+  const rowPlans: AxisPlan[] = []
+  const colPlans: AxisPlan[] = []
+  for (const region of doc.regions) {
+    const copies = regionCopies(region, snapshot.meta, shapes)
+    if (region.expand === 'down') {
+      rowPlans.push({ from: region.startRow, to: region.endRow, copies })
+    } else if (region.expand === 'right') {
+      colPlans.push({ from: region.startCol, to: region.endCol, copies })
     }
   }
+  const rowMap = buildAxisMap(snapshot.rows, rowPlans)
+  const colMap = buildAxisMap(snapshot.cols, colPlans)
+  const outRows = rowMap.reduce((sum, target) => sum + target.length, 0)
+  const outCols = colMap.reduce((sum, target) => sum + target.length, 0)
 
-  // 绑定格可能没有存储项（只写 sidecar，未落值/样式）：与快照 cells 按格求并集，
-  // 缺项以零数据格补出，保证每个绑定格都进入数据态取值
+  // 绑定格可能没有存储项（只写 sidecar）：与快照 cells 按格求并集，保证都进入取值
   const cellsByKey = new Map(snapshot.cells.map((cell) => [`${cell.row}|${cell.col}`, cell]))
   for (const [key, entry] of bindings) {
     if (!cellsByKey.has(key)) cellsByKey.set(key, { row: entry.row, col: entry.col })
@@ -101,49 +154,63 @@ export function renderDataState(doc: FormDoc, shapes: DatasetShapes): SheetSnaps
 
   const cells = [...cellsByKey.values()].flatMap((cell) => {
     const binding = bindings.get(`${cell.row}|${cell.col}`)?.binding
-    const inDetail = bandAtRow(doc.bands, cell.row)?.kind === 'detail'
-    const copies = targets[cell.row] ?? []
-    return copies
-      .map((row, copyIndex) => {
-        if (!binding) return { ...cell, row }
+    const region = regionsAt(doc.regions, cell.row, cell.col)
+    const expanding = region && region.expand !== 'none' ? region : undefined
+    const rows = rowMap[cell.row] ?? []
+    const cols = colMap[cell.col] ?? []
+    const out: SheetSnapshot['cells'] = []
+    // 叉乘重建：每份行 × 每份列各出一格
+    for (const [rowIndex, row] of rows.entries()) {
+      for (const [colIndex, col] of cols.entries()) {
+        if (!binding) {
+          out.push({ ...cell, row, col })
+          continue
+        }
+        // 展开区：向下区按行份取 each、向右区按列份取 each（同一数据格在同列份内一致）
+        const each = expanding ? (expanding.expand === 'down' ? rowIndex : colIndex) : undefined
         const value = resolveBindingValue(
           shapes.get(datasetShapeKey(binding.datasetId, binding.expression)),
           binding,
-          inDetail ? { each: copyIndex } : {},
+          each === undefined ? {} : { each },
         )
-        // 绑定格以解析值替换存储值（公式缓存/类型标记一并丢弃，样式保留）；
-        // 无存储项且解析不出值 = 空数据格，不进快照（restore 亦会丢弃）
+        // 绑定格以解析值替换存储值（公式缓存/类型标记丢弃，样式保留）
         const { v: _v, t: _t, f: _f, ...carry } = cell
-        if (value === undefined && !('s' in carry)) return undefined
-        return { ...carry, row, ...(value !== undefined ? { v: value } : {}) }
-      })
-      .filter((item): item is SheetSnapshot['cells'][number] => item !== undefined)
+        if (value === undefined && !('s' in carry)) continue
+        out.push({ ...carry, row, col, ...(value !== undefined ? { v: value } : {}) })
+      }
+    }
+    return out
   })
 
-  const remapAxis = (entries: [number, number][] | undefined): [number, number][] | undefined =>
-    entries?.flatMap(([row, value]) =>
-      (targets[row] ?? []).map((r) => [r, value] as [number, number]),
-    )
-
   const merges = snapshot.merges.flatMap((range) => {
-    const starts = targets[range.start.row] ?? []
-    const ends = targets[range.end.row] ?? []
-    if (starts.length !== ends.length) return []
-    return starts.map((row, i) => ({
-      start: { row, col: range.start.col },
-      end: { row: ends[i]!, col: range.end.col },
-    }))
+    const starts = rowMap[range.start.row] ?? []
+    const ends = rowMap[range.end.row] ?? []
+    const colStarts = colMap[range.start.col] ?? []
+    const colEnds = colMap[range.end.col] ?? []
+    // 跨展开区边界（首尾份数不一致）→ 丢弃
+    if (starts.length !== ends.length || colStarts.length !== colEnds.length) return []
+    return starts
+      .map((row, i) =>
+        colStarts.map((col, j) => ({
+          start: { row, col },
+          end: { row: ends[i]!, col: colEnds[j]! },
+        })),
+      )
+      .flat()
   })
 
   return {
     ...snapshot,
-    rows: nextRow,
+    rows: outRows,
+    cols: outCols,
     cells,
     merges,
     meta: undefined,
     selection: undefined,
-    rowHeights: remapAxis(snapshot.rowHeights),
-    rowStyles: remapAxis(snapshot.rowStyles),
-    // images 不做行号重映射（明细展开上方行号不变、下方会偏移；模板图片属边缘形态）
+    rowHeights: remapAxis(snapshot.rowHeights, rowMap),
+    colWidths: remapAxis(snapshot.colWidths, colMap),
+    rowStyles: remapAxis(snapshot.rowStyles, rowMap),
+    colStyles: remapAxis(snapshot.colStyles, colMap),
+    // images 不做下标重映射（模板图片属边缘形态）
   }
 }

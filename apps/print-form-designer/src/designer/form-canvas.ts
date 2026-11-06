@@ -6,10 +6,10 @@ import type { FormDoc } from './form-doc'
 import type { PaperGuidesConfig } from './paper-guides'
 import {
   FORM_BINDING_META_NAMESPACE,
-  bandAtRow,
   formatBindingPlaceholder,
-  type FormBand,
+  regionsAt,
   type FormCellBinding,
+  type FormRegion,
 } from './template'
 
 /**
@@ -17,16 +17,19 @@ import {
  *
  * - 配置态口径：绑定格只显示占位符（resolveDisplayValue 读 sidecar，数据行
  *   永不进画布；数据态渲染在预览/打印管线，P5/P6 接线）；
- * - 明细区底色标记（resolveCellStyle 叠加淡色填充，不写模型、不进快照）；
- * - 选区拦截：拾取模式下经 interceptSelection 接管画布选区（选区不落模型），
- *   点选以 onCellPick 回交——绑定编辑（P6）的唤起入口；常规模式选区正常流动，
+ * - 底色标记（resolveCellStyle 叠加淡色填充，不写模型、不进快照）：展开区淡蓝优先，
+ *   其余已绑定格给一层极淡品牌蓝，让「哪些格绑了数据」一眼可见；
+ * - 选区即绑定目标：画布常规选区正常流动，宿主从 sheet 选区读活动格，无需任何开关；
  *   选区变化回带所在区域（区域/格选中语义）；
  * - 纸张边界/分页参考线（P4）：overlay painter 经协议 setOverlayPainter 挂 sky 层，
  *   网格重建时随 createGrid 重挂；仅显示层——配置由宿主持有，不写模型、不进快照。
  */
 
-/** 明细区底色（无显式填充的格叠加；仅画布显示层） */
-const DETAIL_BAND_TINT = '#eef4ff'
+/** 展开区底色（无显式填充的格叠加；仅画布显示层） */
+const EXPAND_REGION_TINT = '#eef4ff'
+
+/** 非展开区已绑定格的极淡品牌蓝底色（仅显示层，用户显式填充优先） */
+const BOUND_CELL_TINT = '#f5f8ff'
 
 /** 视图几何态：行高/列宽自定义键集 + 合并区签名（静默 restore 后的失配检测基准） */
 interface ViewGeometry {
@@ -55,10 +58,8 @@ function keySetShrunk(prev: ReadonlySet<number>, next: ReadonlySet<number>): boo
 export interface FormCanvasOptions {
   container: HTMLElement
   doc: FormDoc
-  /** 常规模式选区变化（含所在区域；区域面板据此高亮） */
-  onSelectionChange?(info: { addr: CellAddress; band: FormBand | undefined }): void
-  /** 拾取模式点选格（选区被拦截不落模型；P6 绑定编辑入口） */
-  onCellPick?(addr: CellAddress): void
+  /** 选区变化（含所在区域；区域面板与绑定面板据此高亮/跟随） */
+  onSelectionChange?(info: { addr: CellAddress; region: FormRegion | undefined }): void
   /** 纸张边界/分页参考线初始配置（overlay 显示层；缺省关闭，运行时经 setPaperGuides 切换） */
   paperGuides?: PaperGuidesConfig
   width?: number
@@ -66,8 +67,6 @@ export interface FormCanvasOptions {
 }
 
 export interface FormCanvas {
-  /** 拾取模式开关（true = 画布点选走拦截回调，不改变选区） */
-  setPickMode(on: boolean): void
   /**
    * 整表重绘（几何同步 + repaint）：cell-meta 单格写入不发引擎事件，
    * 绑定编辑写入/清除占位符后由宿主调用
@@ -82,7 +81,6 @@ export interface FormCanvas {
 
 export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   const { container, doc } = options
-  let pickMode = false
   let released = false
   let grid: SheetGrid | undefined
   let wrapper: HTMLDivElement | undefined
@@ -97,12 +95,9 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   const overlay: CanvasOverlay = createCanvasOverlay({
     getGrid: () => grid,
     getPaperGuides: () => guidesConfig,
-    getBands: () => doc.bands,
-    // 当前选中区域：活动格所在区域的起始行（画布/侧栏联动的同一口径）
-    getActiveBandStartRow: () => {
-      const active = doc.sheet.getSelection().activeCell
-      return active ? bandAtRow(doc.bands, active.row)?.startRow : undefined
-    },
+    getRegions: () => doc.regions,
+    // 当前选中格（overlay 据此判定「现在说的是哪个区域」并加粗描边）
+    getActiveCell: () => doc.sheet.getSelection().activeCell ?? undefined,
   })
 
   const createGrid = (): SheetGrid => {
@@ -125,15 +120,17 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
         const binding = doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE)
         return binding ? formatBindingPlaceholder(binding) : base
       },
-      // 明细区淡色标记：仅叠加在无显式填充的格上（用户填充优先）
+      // 底色标记：仅叠加在无显式填充的格上（用户填充优先）
+      // 优先级保持现状：展开区淡蓝 > 已绑定格淡蓝
       resolveCellStyle: (addr, base): CellStyle | undefined => {
-        const band = bandAtRow(doc.bands, addr.row)
-        if (band?.kind !== 'detail' || base?.fill) return undefined
-        return { ...base, fill: { color: DETAIL_BAND_TINT } }
+        if (base?.fill) return undefined
+        const region = regionsAt(doc.regions, addr.row, addr.col)
+        if (region && region.expand !== 'none') {
+          return { ...base, fill: { color: EXPAND_REGION_TINT } }
+        }
+        const binding = doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE)
+        return binding ? { ...base, fill: { color: BOUND_CELL_TINT } } : undefined
       },
-      // 选区拦截：拾取模式接管（选区不落模型，点选回交宿主）
-      interceptSelection: () => pickMode,
-      onSelectionIntercept: (range) => options.onCellPick?.(range.start),
     })
     mountedRows = doc.rows
     mountedGeometry = captureGeometry(doc)
@@ -173,15 +170,15 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   }
 
   // 区域结构或撤销链变化（快照级编辑的静默 restore 不发 sheet 事件，统一走这里）
-  disposers.push(doc.on('bands-change', syncView))
+  disposers.push(doc.on('regions-change', syncView))
   disposers.push(doc.on('history-change', syncView))
-  // 常规模式选区流动：回带活动格所在区域（区域/格选中语义）
+  // 选区流动：回带活动格所在区域（区域/格选中语义）
   disposers.push(
     doc.sheet.on('selection-change', (state) => {
-      if (released || pickMode || !state.activeCell) return
+      if (released || !state.activeCell) return
       options.onSelectionChange?.({
         addr: state.activeCell,
-        band: bandAtRow(doc.bands, state.activeCell.row),
+        region: regionsAt(doc.regions, state.activeCell.row, state.activeCell.col),
       })
     }),
   )
@@ -193,9 +190,6 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   }
 
   return {
-    setPickMode(on: boolean): void {
-      pickMode = on
-    },
     refresh(): void {
       syncView()
     },

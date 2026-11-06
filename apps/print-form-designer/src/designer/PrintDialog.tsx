@@ -61,10 +61,19 @@ export function toPrintConfig(settings: DialogPrintSettings): PrintConfig {
   }
 }
 
-/** 缺省重复表头行数：首个区域为页眉时取其行数（页眉区域每页重复的区域语义） */
-function leadingPageHeaderRows(doc: FormDoc): number {
-  const first = doc.bands[0]
-  return first?.kind === 'pageHeader' ? first.endRow - first.startRow + 1 : 0
+/**
+ * 缺省重复表头行数：累加**前导区域**（从第 0 行起连续、`expand === 'none'` 且 `repeat === true`）
+ * 的行数。打印内核只支持重复源表前 N 行，非前导区域的 repeat 渲染时忽略。
+ */
+function leadingRepeatRows(doc: FormDoc): number {
+  let rows = 0
+  let expect = 0
+  for (const region of doc.regions) {
+    if (region.expand !== 'none' || region.repeat !== true || region.startRow !== expect) break
+    rows += region.endRow - region.startRow + 1
+    expect = region.endRow + 1
+  }
+  return rows
 }
 
 interface Props {
@@ -77,7 +86,7 @@ interface Props {
 export function PrintDialog({ doc, title, onClose }: Props) {
   const [settings, setSettings] = useState<DialogPrintSettings>(() => ({
     ...DEFAULT_PRINT_SETTINGS,
-    headerRepeatRows: leadingPageHeaderRows(doc),
+    headerRepeatRows: leadingRepeatRows(doc),
   }))
   const [session, setSession] = useState<PrintSession | null>(null)
   const [error, setError] = useState('')

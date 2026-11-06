@@ -3,5 +3,6 @@
 @import './styles/app-shell.css';
 @import './styles/toolbar.css';
 @import './styles/designer.css';
+@import './styles/binding.css';
 @import './styles/data.css';
 @import './styles/dialog.css';

@@ -43,12 +43,12 @@ export function useSelectionStyle(doc: FormDoc): SelectionStyleState {
     // doc 的 history-change——两条都订阅，工具条才能同时跟上撤销链与几何变化
     const offSheetHistory = doc.sheet.on('history-change', sync)
     const offDocHistory = doc.on('history-change', sync)
-    const offBands = doc.on('bands-change', sync)
+    const offRegions = doc.on('regions-change', sync)
     return () => {
       offSelection()
       offSheetHistory()
       offDocHistory()
-      offBands()
+      offRegions()
     }
   }, [doc])
 

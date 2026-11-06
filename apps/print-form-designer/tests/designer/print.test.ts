@@ -30,16 +30,16 @@ Object.assign(globalThis, {
 
 const ADDR = (row: number, col: number) => ({ row, col })
 
-/** 单行明细波段模板（页眉 1 行 / 信息 1 行 / 明细 1 行 / 签字 1 行，4 列） */
+/** 单行向下展开区模板：静态首行 / 静态次行 / 展开行 / 静态尾行（4 列） */
 function detailDoc(): FormDoc {
   const template: FormTemplate = {
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
     name: 't',
-    bands: [
-      { kind: 'pageHeader', startRow: 0, endRow: 0 },
-      { kind: 'info', startRow: 1, endRow: 1 },
-      { kind: 'detail', startRow: 2, endRow: 2 },
-      { kind: 'signature', startRow: 3, endRow: 3 },
+    regions: [
+      { startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'none' },
+      { startRow: 1, endRow: 1, startCol: 0, endCol: 3, expand: 'none' },
+      { startRow: 2, endRow: 2, startCol: 0, endCol: 3, expand: 'down' },
+      { startRow: 3, endRow: 3, startCol: 0, endCol: 3, expand: 'none' },
     ],
     cols: 4,
     sheet: new Sheet('form').snapshot(),
@@ -52,12 +52,12 @@ function itemRows(count: number): SourceRow[] {
   return Array.from({ length: count }, (_, i) => ({ name: `货品${i + 1}`, no: i + 1 }))
 }
 
-/** 纯明细波段模板（1 行明细，4 列）：分组换页断言用最小形态（col 0 组键 / col 1 明细） */
+/** 纯展开区模板（1 行明细，4 列）：分组换页断言用最小形态（col 0 组键 / col 1 明细） */
 function groupedDoc(): FormDoc {
   const template: FormTemplate = {
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
     name: 't',
-    bands: [{ kind: 'detail', startRow: 0, endRow: 0 }],
+    regions: [{ startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'down' }],
     cols: 4,
     sheet: new Sheet('form').snapshot(),
   }
@@ -141,7 +141,7 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
   })
 })
 
-describe('明细波段跨页自动分页', () => {
+describe('展开区跨页自动分页', () => {
   test('长明细展开后按行高分页：页数、行分布与行覆盖正确', () => {
     const doc = detailDoc()
     doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })

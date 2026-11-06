@@ -208,6 +208,7 @@ function mountWithGuides(): {
   config: PaperGuidesConfig
 } {
   const doc = FormDoc.create()
+  doc.resizeRegionRows(0, 10) // 默认只有 3 行；撑到 10 行以触发 A4 换页
   for (let row = 0; row < doc.rows; row++) doc.setRowHeight(row, 120)
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -278,9 +279,9 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
 
       const template = doc.toTemplate('演练')
       expect(Object.keys(template).sort()).toEqual([
-        'bands',
         'cols',
         'name',
+        'regions',
         'schemaVersion',
         'sheet',
       ])

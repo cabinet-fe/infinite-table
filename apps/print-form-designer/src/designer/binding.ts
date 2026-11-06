@@ -3,7 +3,7 @@
 // 路径语法（P3 schema 定型，只是点分寻址记法，不自造 DSL）：
 // - 对象段点分：`customer.name`（键名兼容 SQL 列名，除 `.` `[` `]` 外任意字符）；
 // - 数组下标：`items[0].name`；
-// - 空下标 `[]` = 循环标记：明细区内逐行取值（`items[].price`），
+// - 空下标 `[]` = 循环标记：展开区内逐份取值（`items[].price`），
 //   非明细语境配合聚合遍历（`items[].price` + sum）；
 // - 根为数组时首段可直接写下标：`[0].name` / `[]`（原始行数组直取）。
 // 嵌套数组任意深度由「键步 / 下标步」交替序列自然承载（`a[0][1]`、`orders[].lines[].qty`）。
@@ -93,7 +93,7 @@ function toCellValue(value: unknown): CellValue | undefined {
     : undefined
 }
 
-/** 绑定求值语境：明细区内 each = 当前行对应的数组元素下标 */
+/** 绑定求值语境：展开区内 each = 当前份（行份或列份）对应的数组元素下标 */
 export interface BindingResolveContext {
   each?: number
 }
@@ -102,7 +102,7 @@ export interface BindingResolveContext {
  * 绑定 → 格值：数据形态内沿路径取值。
  * - 循环标记 `[]`：明细语境（ctx.each）取当前元素继续下探；非明细语境走聚合
  *   （aggregate 缺省 = 无值，避免隐式取首元素）；
- * - 聚合在明细语境忽略（P3 口径：明细区格忽略聚合）。
+ * - 聚合在展开语境忽略（展开区格按份取值，聚合无意义）。
  */
 export function resolveBindingValue(
   data: unknown,
@@ -127,7 +127,7 @@ export function resolveBindingValue(
 
 /**
  * 绑定的明细循环数组：第一个 `[]` 步之前的路径解析结果为数组时返回之；
- * 供明细区确定展开行数（行数 = 数组长度）。
+ * 供展开区确定份数（份数 = 数组长度）。
  */
 export function detailLoopArray(data: unknown, binding: FormCellBinding): unknown[] | undefined {
   const steps = parseBindingPath(binding.path)

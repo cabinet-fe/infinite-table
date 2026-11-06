@@ -94,12 +94,6 @@
     box-shadow 0.15s ease;
 }
 
-/* 拾取模式：画布边框给出 accent 提示 */
-.canvas-frame.pick-active {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 .canvas-mount {
   width: 100%;
   height: 100%;
@@ -114,33 +108,39 @@
 .region-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
 .region-item {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 5px 6px 6px 10px;
-  border-radius: var(--radius-sm);
+  gap: 6px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 
 .region-item:hover {
+  border-color: var(--border);
   background: var(--bg-hover);
 }
 
 .region-item.active {
+  border-color: var(--accent-border);
   background: var(--accent-soft);
 }
 
 /* 选中区域左侧 accent 竖条 */
 .region-item.active::before {
   position: absolute;
-  top: 6px;
-  bottom: 6px;
+  top: 8px;
+  bottom: 8px;
   left: 0;
   width: 2px;
   border-radius: 2px;
@@ -148,7 +148,7 @@
   content: '';
 }
 
-/* 主行：色点 + 类型 + 行号范围 + 行数步进 + 图标按钮 */
+/* 主行：色点 + 区域 N + 范围 + 删除 */
 .region-line {
   display: flex;
   gap: 6px;
@@ -156,7 +156,7 @@
   min-width: 0;
 }
 
-/* 区域类型色点（与画布左侧竖条同色，靠颜色建立对应关系） */
+/* 展开方式色点（与画布描边同色） */
 .region-dot {
   flex: none;
   width: 7px;
@@ -164,50 +164,20 @@
   border-radius: 50%;
 }
 
-/* 类型选择器做成 chip：无重边框、小号 */
-.region-kind {
+.region-title {
   flex: none;
-  width: 70px;
-  height: 24px;
-  padding: 0 18px 0 7px;
-  border-color: transparent;
-  background-color: var(--bg-subtle);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-size: 12px;
-}
-
-.region-item.active .region-kind {
-  background-color: transparent;
+  font-weight: 600;
 }
 
 .region-range {
   flex: 1;
   min-width: 0;
-  font-size: 11.5px;
+  overflow: hidden;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* 行数步进器：− N 行 + */
-.region-stepper {
-  display: flex;
-  flex: none;
-  gap: 1px;
-  align-items: center;
-}
-
-.region-stepper .icon-button {
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-}
-
-.region-rows {
-  min-width: 26px;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -215,7 +185,7 @@
   display: flex;
   flex: none;
   gap: 1px;
-  opacity: 0.35;
+  opacity: 0.4;
   transition: opacity 0.12s ease;
 }
 
@@ -230,15 +200,104 @@
   border-radius: 4px;
 }
 
-/* 说明句：区域「打印时会怎样」，直接可见（不藏在 title 里） */
-.region-hint {
+/* 卡体：展开方式 + 提示 + 每页重复 + 范围折叠 */
+.region-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   padding-left: 13px;
-  overflow: hidden;
+  cursor: default;
+}
+
+.region-expand {
+  width: 100%;
+  height: 26px;
+  font-size: 12px;
+}
+
+.region-hint {
   color: var(--text-tertiary);
   font-size: 11px;
   line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.region-note {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.region-repeat {
+  font-size: 12px;
+}
+
+/* 范围折叠 */
+.region-fields > summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.region-fields > summary::-webkit-details-marker {
+  display: none;
+}
+
+.region-fields > summary:hover {
+  color: var(--text-secondary);
+}
+
+.region-fields > summary .chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.region-fields[open] > summary .chevron {
+  transform: rotate(90deg);
+}
+
+.region-fields-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.region-step {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.region-step .icon-button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.region-rows {
+  min-width: 40px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.region-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.region-grid input {
+  height: 26px;
+  font-size: 12px;
 }
 
 .region-add {
@@ -247,135 +306,8 @@
   align-items: center;
 }
 
-.region-add > select {
-  flex: 1;
-  min-width: 0;
-}
-
-/* ─── 字段绑定 ──────────────────────────────────────────────────────────── */
-.pick-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.pick-row > .hint {
-  margin-left: auto;
-  text-align: right;
-}
-
-/* 绑定卡整体进入拾取态时的左侧强调 */
-.card.binding-card.picking {
-  border-color: var(--accent-border);
-}
-
-.binding-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.binding-target {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.binding-target .addr {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* 路径树容器 */
-.binding-tree-wrap {
-  max-height: 200px;
-  padding: 4px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-}
-
-.binding-tree {
-  font-size: 12px;
-}
-
-.binding-tree ul {
-  padding-left: 12px;
-}
-
-.binding-tree summary {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-  list-style: none;
-  cursor: pointer;
-}
-
-.binding-tree summary::-webkit-details-marker {
-  display: none;
-}
-
-.binding-tree summary::before {
-  flex: none;
-  width: 10px;
-  color: var(--text-tertiary);
-  font-size: 10px;
-  content: '▸';
-}
-
-.binding-tree details[open] > summary::before {
-  content: '▾';
-}
-
-.binding-tree .tree-pick {
-  flex: 1;
-  justify-content: flex-start;
-  min-width: 0;
-  height: 22px;
-  padding: 0 6px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  text-align: left;
-  text-overflow: ellipsis;
-}
-
-.binding-tree .tree-pick:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.binding-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
-  gap: 10px;
-}
-
-.binding-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.binding-current {
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  overflow-wrap: anywhere;
+.region-add .meta {
+  font-size: 11px;
 }
 
 /* ─── 公式栏 ────────────────────────────────────────────────────────────── */

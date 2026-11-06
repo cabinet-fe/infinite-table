@@ -7,16 +7,18 @@ import {
 } from '@infinitable/sheet'
 
 import {
-  DEFAULT_BAND_ROWS,
   FORM_BINDING_META_NAMESPACE,
   TEMPLATE_SCHEMA_VERSION,
+  migrateTemplateV1,
+  normalizeRegions,
+  templateCols,
   templateRows,
-  type BandKind,
-  type FormBand,
   type FormCellBinding,
+  type FormRegion,
   type FormTemplate,
+  type RegionExpand,
 } from './template'
-import { deleteSnapshotRows, insertSnapshotRows, swapSnapshotRowBlocks } from './snapshot-rows'
+import { deleteSnapshotRows, insertSnapshotRows } from './snapshot-rows'
 
 /**
  * 设计文档 = Sheet 模型 + 区域注册表 + 统一 undo 门面。
@@ -24,7 +26,7 @@ import { deleteSnapshotRows, insertSnapshotRows, swapSnapshotRowBlocks } from '.
  * 撤销链路口径（app 内测试覆盖）：
  * - 格值/样式/合并/绑定 sidecar 一律走 Sheet 命令系统（样式池落地，天然可撤销），
  *   画布键入、工具栏命令同链；
- * - 区域结构（增删/排序/标记明细）与行高列宽不在 Sheet undo 覆盖内（行列结构命令
+ * - 区域结构（增删/改范围/展开方式）与行高列宽不在 Sheet undo 覆盖内（行列结构命令
  *   无法携带区域注册表、行高列宽明确不进 undo），经「快照纯变换 + 静默 restore」
  *   落地，由 DocHistory 以快照条目补齐撤销；
  * - DocHistory 惰性观测 sheet.undoSize：新编辑（无论来源）清空重做栈，撤销先走
@@ -33,7 +35,7 @@ import { deleteSnapshotRows, insertSnapshotRows, swapSnapshotRowBlocks } from '.
 
 /** 文档快照（DocHistory 条目载荷；深拷贝隔离，restore 不回写） */
 interface DocCapture {
-  bands: FormBand[]
+  regions: FormRegion[]
   cols: number
   sheet: SheetSnapshot
 }
@@ -44,23 +46,23 @@ export interface DocHistoryState {
 }
 
 export type FormDocEvents = {
-  /** 区域结构/类型变化（区域面板重渲染；画布行数变化需重建网格） */
-  'bands-change': undefined
+  /** 区域结构变化（区域面板重渲染；画布行数变化需重建网格） */
+  'regions-change': undefined
   /** 撤销链变化（工具栏按钮置灰；画布按行数变化决定重建或就地重绘） */
   'history-change': DocHistoryState
 }
 
 /** 区域操作参数：目标区域下标越界时抛错（面板禁用已保证，防御性兜底） */
-function bandAt(bands: readonly FormBand[], index: number): FormBand {
-  const band = bands[index]
-  if (!band) throw new Error(`区域下标越界: ${index}`)
-  return band
+function regionAt(regions: readonly FormRegion[], index: number): FormRegion {
+  const region = regions[index]
+  if (!region) throw new Error(`区域下标越界: ${index}`)
+  return region
 }
 
 /** 深拷贝文档快照（structuredClone 对 JSON 形态快照足够） */
 function captureDoc(doc: FormDoc): DocCapture {
   return {
-    bands: structuredClone(doc.bands),
+    regions: structuredClone(doc.regions),
     cols: doc.cols,
     sheet: doc.sheet.snapshot(),
   }
@@ -163,51 +165,63 @@ export class DocHistory {
 export class FormDoc extends TypedEventEmitter<FormDocEvents> {
   readonly sheet: Sheet
   readonly history: DocHistory
-  bands: FormBand[]
+  regions: FormRegion[]
   cols: number
 
-  private constructor(sheet: Sheet, bands: FormBand[], cols: number) {
+  private constructor(sheet: Sheet, regions: FormRegion[], cols: number) {
     super()
     this.sheet = sheet
-    this.bands = bands
+    this.regions = regions
     this.cols = cols
     this.history = new DocHistory(this, (state) => this.emit('history-change', state))
   }
 
-  /** 画布总行数（区域行区合计） */
+  /** 画布总行数（区域最大 endRow + 1） */
   get rows(): number {
-    return templateRows(this.bands)
+    return templateRows(this.regions)
   }
 
-  /** 新建空文档（默认五类区域骨架；内容为空，内置起点模板在后续阶段注入） */
+  /** 画布总列数（声明列数与区域最大 endCol + 1 的较大者） */
+  get effectiveCols(): number {
+    return templateCols(this.regions, this.cols)
+  }
+
+  /** 新建空白文档：默认只给一个全宽 3 行区域（不再有五类骨架） */
   static create(cols = 8): FormDoc {
-    const bands: FormBand[] = []
-    let row = 0
-    for (const kind of ['pageHeader', 'info', 'detail', 'summary', 'signature'] as const) {
-      const count = DEFAULT_BAND_ROWS[kind]
-      bands.push({ kind, startRow: row, endRow: row + count - 1 })
-      row += count
-    }
-    const doc = new FormDoc(new Sheet('form'), bands, cols)
-    doc.sheet.ensureTableSize(row, cols)
+    const regions: FormRegion[] = [
+      { startRow: 0, endRow: 2, startCol: 0, endCol: cols - 1, expand: 'none' },
+    ]
+    const doc = new FormDoc(new Sheet('form'), regions, cols)
+    doc.sheet.ensureTableSize(3, cols)
     return doc
   }
 
-  /** 从模板 JSON 还原文档（P5 持久化加载共用入口） */
-  static fromTemplate(template: FormTemplate): FormDoc {
-    const bands = normalizeBands(template.bands)
-    const doc = new FormDoc(new Sheet('form'), bands, template.cols)
+  /** 从模板 JSON 还原文档（schemaVersion 1 自动迁移到 v2） */
+  static fromTemplate(
+    input: FormTemplate | (Record<string, unknown> & { schemaVersion?: number }),
+  ): FormDoc {
+    const template: FormTemplate =
+      input.schemaVersion === 1 ? migrateTemplateV1(input as never) : (input as FormTemplate)
+    const declaredCols = template.cols
+    // 越界上界：行数由区域自身决定（空白快照 rows=0 时区域即表格大小），
+    // 列数必须落在模板声明（或快照声明）的宽度内——超宽说明模板数据本身有问题
+    const limitRows = Math.max(template.sheet.rows, templateRows(template.regions))
+    const limitCols = Math.max(template.sheet.cols, declaredCols)
+    const regions = normalizeRegions(template.regions, limitRows, limitCols)
+    const rows = templateRows(regions)
+    const cols = templateCols(regions, declaredCols)
+    const doc = new FormDoc(new Sheet('form'), regions, declaredCols)
     doc.sheet.restore(template.sheet)
-    doc.sheet.ensureTableSize(doc.rows, template.cols)
+    doc.sheet.ensureTableSize(rows, cols)
     return doc
   }
 
-  /** 序列化为模板 JSON（区域 + 画布快照；P5 保存共用入口） */
+  /** 序列化为模板 JSON（区域 + 画布快照） */
   toTemplate(name: string): FormTemplate {
     return {
       schemaVersion: TEMPLATE_SCHEMA_VERSION,
       name,
-      bands: structuredClone(this.bands),
+      regions: structuredClone(this.regions),
       cols: this.cols,
       sheet: this.sheet.snapshot(),
     }
@@ -222,94 +236,95 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
 
   /**
    * 快照回放（撤销/重做路径）：静默 restore（不清 sheet 历史，样式命令的撤销
-   * 能力保留）+ 重建区域注册表；区域有变时补发 bands-change 驱动面板与画布同步。
+   * 能力保留）+ 重建区域注册表；区域有变时补发 regions-change 驱动面板与画布同步。
    * @internal 仅供本模块 DocHistory 回放调用，业务代码不要直接调
    */
   restoreCapture(capture: DocCapture): void {
     this.sheet.restore(capture.sheet)
-    const changed = JSON.stringify(this.bands) !== JSON.stringify(capture.bands)
-    this.bands = structuredClone(capture.bands)
+    const changed = JSON.stringify(this.regions) !== JSON.stringify(capture.regions)
+    this.regions = structuredClone(capture.regions)
     this.cols = capture.cols
-    if (changed) this.emit('bands-change', undefined)
+    if (changed) this.emit('regions-change', undefined)
   }
 
   // ─── 区域结构操作 ──────────────────────────────────────────────────────────
 
-  /** 在指定区域下方插入新区域（index 缺省追加到末尾；返回新区域） */
-  addBand(kind: BandKind, index?: number, rows = DEFAULT_BAND_ROWS[kind]): FormBand {
-    const at = index === undefined ? this.bands.length - 1 : index
-    const anchor = bandAt(this.bands, at)
-    const insertAt = anchor.endRow + 1
+  /**
+   * 在现有区域最下方添加一个全宽区域（默认 3 行）。
+   * 需要时扩行（insertSnapshotRows）并同步行数——区域之外的行就是普通静态内容。
+   */
+  addRegion(rows = 3): FormRegion {
+    const startRow = templateRows(this.regions)
+    const region: FormRegion = {
+      startRow,
+      endRow: startRow + rows - 1,
+      startCol: 0,
+      endCol: this.cols - 1,
+      expand: 'none',
+    }
     this.applySnapshotEdit(() => {
-      const snapshot = insertSnapshotRows(this.sheet.snapshot(), insertAt, rows)
-      this.sheet.restore(snapshot)
-      this.bands = insertBandRange(this.bands, insertAt, rows, kind)
+      this.sheet.restore(insertSnapshotRows(this.sheet.snapshot(), startRow, rows))
+      this.regions = [...this.regions, region]
     })
-    const band = bandAtRowStrict(this.bands, insertAt)
-    this.emit('bands-change', undefined)
-    return band
+    this.emit('regions-change', undefined)
+    return region
   }
 
-  /** 删除指定区域（其行区整体移除，下方区域上移）；最后一个区域不可删 */
-  removeBand(index: number): void {
-    const band = bandAt(this.bands, index)
-    if (this.bands.length <= 1) throw new Error('模板至少保留一个区域')
+  /** 删除区域标记（只删注册表项，画布内容保留——用户手画的东西不能误删） */
+  removeRegion(index: number): void {
+    regionAt(this.regions, index)
     this.applySnapshotEdit(() => {
-      const snapshot = deleteSnapshotRows(
-        this.sheet.snapshot(),
-        band.startRow,
-        band.endRow - band.startRow + 1,
-      )
-      this.sheet.restore(snapshot)
-      this.bands = removeBandRange(this.bands, index)
+      this.regions = this.regions.filter((_, i) => i !== index)
     })
-    this.emit('bands-change', undefined)
+    this.emit('regions-change', undefined)
   }
 
-  /** 区域上移/下移一位（相邻交换，内容随行块整体平移） */
-  moveBand(index: number, dir: -1 | 1): void {
-    const target = index + dir
-    if (target < 0 || target >= this.bands.length) return
-    const first = dir === -1 ? target : index
-    const second = dir === -1 ? index : target
-    const firstBand = bandAt(this.bands, first)
-    const secondBand = bandAt(this.bands, second)
+  /** 设置展开方式（`down` / `right` 各最多一个，超限抛错） */
+  setRegionExpand(index: number, expand: RegionExpand): void {
+    regionAt(this.regions, index)
+    if (expand !== 'none') {
+      const existing = this.regions.findIndex((r, i) => i !== index && r.expand === expand)
+      if (existing >= 0) {
+        const label = expand === 'down' ? '向下展开' : '向右展开'
+        throw new Error(`已经有区域 ${existing + 1} 在「${label}」了：同一模板只能有一个`)
+      }
+    }
     this.applySnapshotEdit(() => {
-      const snapshot = swapSnapshotRowBlocks(
-        this.sheet.snapshot(),
-        { start: firstBand.startRow, count: firstBand.endRow - firstBand.startRow + 1 },
-        { start: secondBand.startRow, count: secondBand.endRow - secondBand.startRow + 1 },
-      )
-      this.sheet.restore(snapshot)
-      this.bands = swapBands(this.bands, first, second)
+      this.regions = this.regions.map((r, i) => (i === index ? { ...r, expand } : r))
     })
-    this.emit('bands-change', undefined)
+    this.emit('regions-change', undefined)
   }
 
-  /** 更改区域类型（标记/取消明细等；纯注册表变更，同样可撤销） */
-  setBandKind(index: number, kind: BandKind): void {
+  /** 改区域范围/重复标记（越界、重叠抛错；不移动画布内容、不允许借此撑大表格） */
+  setRegionFields(index: number, patch: Partial<Omit<FormRegion, 'expand'>>): void {
+    const next = this.regions.map((region, i) => (i === index ? { ...region, ...patch } : region))
+    // 上界 = 当前表格尺寸（改范围只重新框选，不扩表）
+    const normalized = normalizeRegions(next, this.rows, this.effectiveCols)
     this.applySnapshotEdit(() => {
-      this.bands = this.bands.map((band, i) => (i === index ? { ...band, kind } : band))
+      this.regions = normalized
     })
-    this.emit('bands-change', undefined)
+    this.emit('regions-change', undefined)
   }
 
-  /** 调整区域行数：变高补底部空行、变矮删底行（内容留原处）；可撤销 */
-  resizeBand(index: number, rows: number): void {
-    const band = bandAt(this.bands, index)
-    const delta = rows - (band.endRow - band.startRow + 1)
+  /** 调整区域行数：变高在区域底部插空行、变矮删底行（内容留原处）；可撤销 */
+  resizeRegionRows(index: number, rows: number): void {
+    const region = regionAt(this.regions, index)
+    const delta = rows - (region.endRow - region.startRow + 1)
     if (rows < 1 || delta === 0) return
-    const at = delta > 0 ? band.endRow + 1 : band.endRow + delta + 1
-    const op = delta > 0 ? insertSnapshotRows : deleteSnapshotRows
+    const at = delta > 0 ? region.endRow + 1 : region.endRow + delta + 1
+    // 行区调整后不得与其它区域重叠（下方区域起点可能被吃进来）
+    const next = this.regions.map((r, i) => ({
+      ...r,
+      startRow: r.startRow + (i > index ? delta : 0),
+      endRow: r.endRow + (i >= index ? delta : 0),
+    }))
+    const normalized = normalizeRegions(next, Math.max(this.rows + delta, 1), this.effectiveCols)
     this.applySnapshotEdit(() => {
+      const op = delta > 0 ? insertSnapshotRows : deleteSnapshotRows
       this.sheet.restore(op(this.sheet.snapshot(), at, Math.abs(delta)))
-      // 行区恒首尾相接：本区域起 endRow 平移，其后区域 startRow 也平移
-      this.bands.forEach((b, i) => {
-        b.endRow += i >= index ? delta : 0
-        if (i > index) b.startRow += delta
-      })
+      this.regions = normalized
     })
-    this.emit('bands-change', undefined)
+    this.emit('regions-change', undefined)
   }
 
   // ─── 行高列宽（快照级编辑补齐撤销） ────────────────────────────────────────
@@ -324,7 +339,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     this.applySnapshotEdit(() => this.sheet.setColWidth(col, width))
   }
 
-  // ─── 绑定 sidecar（P6 绑定编辑写入；模型口径） ──────────────────────────────
+  // ─── 绑定 sidecar（模型口径） ──────────────────────────────────────────────
 
   /** 读取格绑定（合并格解析锚点）；未绑定返回 undefined */
   getCellBinding(addr: CellAddress): FormCellBinding | undefined {
@@ -336,87 +351,6 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     if (binding) this.sheet.setCellMeta(addr, FORM_BINDING_META_NAMESPACE, binding)
     else this.sheet.clearCellMeta(addr, FORM_BINDING_META_NAMESPACE)
   }
-}
-
-// ─── 区域注册表纯变换 ────────────────────────────────────────────────────────
-
-function bandRowCount(band: FormBand): number {
-  return band.endRow - band.startRow + 1
-}
-
-/** 在 insertAt 行处插入新区域行区，既有区域行区平移（调用方保证 insertAt 为区域边界或末尾） */
-function insertBandRange(
-  bands: FormBand[],
-  insertAt: number,
-  rows: number,
-  kind: BandKind,
-): FormBand[] {
-  const next: FormBand[] = []
-  let inserted = false
-  for (const band of bands) {
-    if (band.startRow >= insertAt) {
-      if (!inserted) {
-        next.push({ kind, startRow: insertAt, endRow: insertAt + rows - 1 })
-        inserted = true
-      }
-      next.push({ ...band, startRow: band.startRow + rows, endRow: band.endRow + rows })
-    } else {
-      next.push({ ...band })
-    }
-  }
-  if (!inserted) next.push({ kind, startRow: insertAt, endRow: insertAt + rows - 1 })
-  return next
-}
-
-/** 移除下标区域，下方区域上移 */
-function removeBandRange(bands: FormBand[], index: number): FormBand[] {
-  const removed = bandAt(bands, index)
-  const rows = bandRowCount(removed)
-  return bands
-    .filter((_, i) => i !== index)
-    .map((band) =>
-      band.startRow > removed.startRow
-        ? { ...band, startRow: band.startRow - rows, endRow: band.endRow - rows }
-        : { ...band },
-    )
-}
-
-/** 交换相邻区域（数组顺序对调，行区按行块交换后重算） */
-function swapBands(bands: FormBand[], first: number, second: number): FormBand[] {
-  const a = bandAt(bands, first)
-  const b = bandAt(bands, second)
-  const aRows = bandRowCount(a)
-  const bRows = bandRowCount(b)
-  const base = a.startRow
-  const next = bands.map((band) => ({ ...band }))
-  // first 位换成原 second 区域（内容已随行块上移到 base 起）
-  next[first] = { ...b, startRow: base, endRow: base + bRows - 1 }
-  // second 位换成原 first 区域（内容已随行块下移到其后）
-  next[second] = { ...a, startRow: base + bRows, endRow: base + bRows + aRows - 1 }
-  return next
-}
-
-/** 行号所在区域（存在性断言版；区域行区连续覆盖时恒命中） */
-function bandAtRowStrict(bands: FormBand[], row: number): FormBand {
-  const band = bands.find((item) => row >= item.startRow && row <= item.endRow)
-  if (!band) throw new Error(`行 ${row} 不属于任何区域`)
-  return band
-}
-
-/** 规范化模板区域（校验行区连续覆盖；供 fromTemplate 入口把关） */
-function normalizeBands(bands: FormBand[]): FormBand[] {
-  if (bands.length === 0) throw new Error('模板至少需要一个区域')
-  const normalized = bands.map((band) => ({ ...band }))
-  let expect = 0
-  for (const band of normalized) {
-    if (band.startRow !== expect) {
-      throw new Error(`区域行区不连续：期望起始 ${expect}，实际 ${band.startRow}`)
-    }
-    if (band.endRow < band.startRow)
-      throw new Error(`区域行区非法：${band.startRow} > ${band.endRow}`)
-    expect = band.endRow + 1
-  }
-  return normalized
 }
 
 /** 选区规范化（工具栏操作取 min/max 包围盒；模型 CellRange 语义无关方向） */

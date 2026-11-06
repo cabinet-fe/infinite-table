@@ -105,33 +105,32 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
     }
   })
 
-  test('B2：波段移动/撤销/重做后合并区随行块还原', () => {
+  test('B2：区域上方插行/撤销/重做后合并区随行块还原', () => {
     const doc = FormDoc.create()
-    doc.sheet.mergeCells(RANGE(0, 0, 0, 3)) // 页眉波段首行合并 4 格
+    doc.sheet.mergeCells(RANGE(2, 0, 2, 3)) // 默认区域末行合并 4 格
     const { canvas, engine } = mountCanvas(doc)
     try {
       const mergeStartRow = () => engine().getMergeRanges()[0]?.startRow
-      expect(mergeStartRow()).toBe(0)
+      expect(mergeStartRow()).toBe(2)
 
-      // info（行 2-3）与 pageHeader（行 0-1）交换，合并区随行块移至行 2
-      doc.moveBand(1, -1)
+      // 默认区域 0..2 变高到 5 行：区域上方行的合并区不下移
+      doc.resizeRegionRows(0, 5)
       expect(mergeStartRow()).toBe(2)
 
       expect(doc.history.undo()).toBe(true)
-      expect(mergeStartRow()).toBe(0)
-      expect(doc.history.redo()).toBe(true)
       expect(mergeStartRow()).toBe(2)
+      expect(doc.history.redo()).toBe(true)
     } finally {
       canvas.release()
     }
   })
 
-  test('非重建路径保留：类型切换与行高正向编辑就地同步（实例不更替）', () => {
+  test('非重建路径保留：展开方式切换与行高正向编辑就地同步（实例不更替）', () => {
     const doc = FormDoc.create()
     const { canvas, engine } = mountCanvas(doc)
     try {
       const grid = canvas.getGrid()
-      doc.setBandKind(1, 'detail')
+      doc.setRegionExpand(0, 'down')
       expect(canvas.getGrid()).toBe(grid)
       doc.setRowHeight(0, 48)
       expect(canvas.getGrid()).toBe(grid)

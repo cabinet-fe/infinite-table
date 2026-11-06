@@ -1,11 +1,11 @@
-// 模板 REST：区域式 JSON 增删改查（P5 落实，替换 P1 占位路由）。
-// 库表 name 列独立存名，bands 列存模板文档（name 之外的 FormTemplate 字段原样序列化），
+// 模板 REST：区域式 JSON 增删改查。
+// 库表 name 列独立存名，bands 列存模板文档（历史列名，内容为 v2 的 regions 形态），
 // 读取时回填 name——服务端对文档字段透传不重塑，保存→加载 round-trip 等价由前后端共用
-// FormDoc 序列化入口保证；区域行区连续性等深层校验在加载侧 FormDoc.fromTemplate 把关，
-// 此处只做浅层形状校验。
+// FormDoc 序列化入口保证；区域重叠/越界等深层校验在加载侧 FormDoc.fromTemplate 把关，
+// 此处只做浅层形状校验，并对 v1（bands 形态）调用 migrateTemplateV1 迁移到 v2。
 import type { Hono } from 'hono'
 import type { Database } from 'bun:sqlite'
-import type { FormTemplate } from '../designer/template'
+import { migrateTemplateV1, type FormTemplate } from '../designer/template'
 import type { TemplateRow } from './rows'
 
 /** 模板行 → API 记录视图（template 为解析后回填 name 的完整模板 JSON） */
@@ -15,11 +15,18 @@ function toRecord(row: TemplateRow): {
   created_at: string
   template: FormTemplate
 } {
+  // 库列名仍叫 bands（历史列名），内容是 v2 的 regions 形态
+  const parsed = JSON.parse(row.bands) as Record<string, unknown> & { schemaVersion?: number }
+  // 旧库里的 v1 文档（bands 五类区域）读出来即迁移到 v2，前端统一只认 regions
+  const template: FormTemplate =
+    parsed.schemaVersion === 1
+      ? migrateTemplateV1({ ...parsed, name: row.name })
+      : ({ ...parsed, name: row.name } as unknown as FormTemplate)
   return {
     id: row.id,
     name: row.name,
     created_at: row.created_at,
-    template: { ...(JSON.parse(row.bands) as Omit<FormTemplate, 'name'>), name: row.name },
+    template,
   }
 }
 
@@ -29,13 +36,13 @@ function findTemplateRow(db: Database, id: string): TemplateRow | undefined {
 
 function isTemplateBody(body: unknown): body is FormTemplate {
   if (typeof body !== 'object' || body === null) return false
-  const { name, schemaVersion, bands, cols, sheet } = body as Record<string, unknown>
+  const { name, schemaVersion, regions, cols, sheet } = body as Record<string, unknown>
   return (
     typeof name === 'string' &&
     name.trim() !== '' &&
     typeof schemaVersion === 'number' &&
-    Array.isArray(bands) &&
-    bands.length > 0 &&
+    Array.isArray(regions) &&
+    regions.length > 0 &&
     typeof cols === 'number' &&
     Number.isInteger(cols) &&
     cols > 0 &&
@@ -45,7 +52,7 @@ function isTemplateBody(body: unknown): body is FormTemplate {
 }
 
 const BAD_BODY_MESSAGE =
-  '请求体不合法：需含非空 name、数字 schemaVersion、非空数组 bands、正整数 cols、对象 sheet'
+  '请求体不合法：需含非空 name、数字 schemaVersion、非空数组 regions、正整数 cols、对象 sheet'
 
 export function mountTemplateRoutes(app: Hono, db: Database): void {
   // 清单只回摘要（模板文档经详情路由读取）
