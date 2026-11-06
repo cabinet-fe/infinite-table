@@ -33,6 +33,8 @@ export interface DomEventLike {
   metaKey?: boolean
   /** 指针按键（0 主键 / 1 中键 / 2 次键）；触摸与缺省为 0（主键） */
   button?: number
+  /** 指针按键位集（事件发生时的按键组合；0 = 全部松开）；合成事件可缺省 */
+  buttons?: number
   /** 阻止默认行为（如 contextmenu 的浏览器原生菜单）；合成事件可缺省 */
   preventDefault?(): void
   /** 触摸事件的触点列表（取第一个触点归一化坐标） */

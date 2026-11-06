@@ -1323,7 +1323,7 @@ function scrollbarHit(table: ListTable, x: number, y: number): ScrollbarHit | nu
 
 /** 真实 DOM 指针事件的 buttons 位集（PointerEvent 携带；合成事件缺省为 undefined） */
 function pointerButtons(event: SceneEvent): number | undefined {
-  return (event.originalEvent as { buttons?: number }).buttons
+  return event.originalEvent.buttons
 }
 
 function beginScrollbarDrag(table: ListTable, hit: ScrollbarHit, event: SceneEvent): void {

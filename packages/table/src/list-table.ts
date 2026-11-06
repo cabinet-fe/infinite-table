@@ -44,7 +44,6 @@ import {
   type Region,
   type RenderContext,
   type RenderHost,
-  type Size,
 } from '@infinitable/render'
 
 import { TextAdvanceTable, type CellNode } from './cell-node'
