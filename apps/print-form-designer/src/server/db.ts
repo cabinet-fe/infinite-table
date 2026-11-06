@@ -15,6 +15,7 @@ export function openDatabase(path: string): Database {
     mkdirSync(dirname(path), { recursive: true })
   }
   const db = new Database(path)
+  discardLegacyTemplateTable(db, path)
   createTables(db)
   return db
 }
@@ -46,4 +47,27 @@ CREATE TABLE IF NOT EXISTS template (
 
 function createTables(db: Database): void {
   db.exec(SCHEMA)
+}
+
+/**
+ * 旧库清理：模板表曾以 `bands` 列存文档（模板 schemaVersion ≤ 2 时代）。
+ *
+ * 列名换代连带文档结构换代（v3 起区域自带数据源、画布不再声明 cols），两版之间没有
+ * 可用迁移——加载链只认当前版本，读到旧文档就抛错。这里把旧表整表丢弃、由建表语句
+ * 重建，旧模板一并丢弃并在 stderr 报出条数（不静默吞掉用户数据）；数据源与数据集
+ * 两张表结构和口径都没变，原样保留。
+ */
+function discardLegacyTemplateTable(db: Database, path: string): void {
+  const columns = db.query("PRAGMA table_info('template')").all() as { name: string }[]
+  // 新库（表还不存在）与已换代库（列已叫 template）都不动
+  if (columns.length === 0 || columns.some((column) => column.name === 'template')) return
+  const { dropped } = db.query('SELECT count(*) AS dropped FROM template').get() as {
+    dropped: number
+  }
+  db.exec('DROP TABLE template')
+  if (dropped > 0) {
+    console.warn(
+      `[print-form-designer] ${path}：旧版模板表（bands 列）无法迁移到 v3，已丢弃 ${dropped} 个模板`,
+    )
+  }
 }

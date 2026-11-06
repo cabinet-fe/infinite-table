@@ -27,15 +27,15 @@ flowchart LR
 
 ### 技术栈
 
-| 层                       | 选型                                                    | 说明                                      |
-| ------------------------ | ------------------------------------------------------- | ----------------------------------------- |
-| 语言 / runtime           | TypeScript 7（tsgo 原生编译器）、ESM only、浏览器 + bun | `strict: true`                            |
-| 构建 / 包管理            | bun 1.4.2 workspaces + vite-plus 1.3.0                  | 内含 rolldown-vite、oxlint、oxfmt、vitest |
-| 渲染                     | 自研 `@infinitable/render`（canvas 2d、多区域失效）     | 不依赖 vrender 系列                       |
-| 工具库                   | `@cat-kit/core`                                         | 公式引擎精确计算依赖 `$n`                 |
-| 测试                     | vitest                                                  | 浏览器行为用冒烟自检                      |
-| 应用 UI（playground）    | React + shadcn/ui + Tailwind CSS                        | 不进入任何 `packages/`                    |
-| 应用后端（apps/print-form-designer） | Bun + bun:sqlite + Hono                     | 打印表单设计器全栈应用的后端             |
+| 层                                   | 选型                                                    | 说明                                      |
+| ------------------------------------ | ------------------------------------------------------- | ----------------------------------------- |
+| 语言 / runtime                       | TypeScript 7（tsgo 原生编译器）、ESM only、浏览器 + bun | `strict: true`                            |
+| 构建 / 包管理                        | bun 1.4.2 workspaces + vite-plus 1.3.0                  | 内含 rolldown-vite、oxlint、oxfmt、vitest |
+| 渲染                                 | 自研 `@infinitable/render`（canvas 2d、多区域失效）     | 不依赖 vrender 系列                       |
+| 工具库                               | `@cat-kit/core`                                         | 公式引擎精确计算依赖 `$n`                 |
+| 测试                                 | vitest                                                  | 浏览器行为用冒烟自检                      |
+| 应用 UI（playground）                | React + shadcn/ui + Tailwind CSS                        | 不进入任何 `packages/`                    |
+| 应用后端（apps/print-form-designer） | Bun + bun:sqlite + Hono                                 | 打印表单设计器全栈应用的后端              |
 
 ### 为什么是重写而非改造
 
