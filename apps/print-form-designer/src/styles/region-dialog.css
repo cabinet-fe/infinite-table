@@ -1,0 +1,195 @@
+/* 区域设置弹框：视觉同族于打印弹框（同一套遮罩/圆角/阴影），选择器用 .region- 前缀互不干扰。
+   从 dialog.css 拆出——dialog.css 已接近单文件行数上限，区域表单又是独立一块。 */
+
+/* ─── 区域设置弹框（.region- 前缀：视觉同族于打印弹框，选择器互不干扰） ────── */
+.region-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 105;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(16, 24, 40, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.region-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 100%);
+  max-height: min(760px, 100%);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+/* 标题栏：色点跟展开方式一致，和侧栏列表、画布描边对得上 */
+.region-dialog-bar {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  height: 52px;
+  padding: 0 12px 0 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.region-dialog-bar h2 {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.region-dialog-bar .meta {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.region-dialog-bar .bar-close {
+  flex: none;
+  margin-left: auto;
+}
+
+.region-dialog-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* 主体：分组表单，滚动区自持 */
+.region-dialog-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.region-dialog-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.region-dialog-group + .region-dialog-group {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.region-dialog-group > h3 {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* 行数 ±：一行内的标签 + 步进器 */
+.region-dialog-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 起止行列：两列网格（1 基输入，内部转 0 基） */
+.region-dialog .region-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.region-dialog .region-grid input {
+  height: 28px;
+  font-size: 12.5px;
+}
+
+/* 行数步进器（作用域收在弹框内） */
+.region-dialog .region-step {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.region-dialog .region-step .icon-button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.region-dialog .region-rows {
+  min-width: 44px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* 展开方式说明 / 不适用说明 */
+.region-dialog .region-hint {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.region-dialog .region-note {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.region-dialog .region-repeat {
+  font-size: 12.5px;
+}
+
+/* 数据源预览行：始终占一行，避免取数/报错时表单跳动 */
+.region-dialog-preview {
+  min-height: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.region-dialog-foot {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  align-items: center;
+  height: 56px;
+  padding: 0 16px 0 20px;
+  border-top: 1px solid var(--border);
+}
+
+.region-dialog-foot .meta {
+  margin-right: auto;
+  font-size: 11.5px;
+}
+
+/* 危险次要按钮：删除区域 */
+.region-dialog-foot button.danger {
+  color: var(--danger);
+}
+
+.region-dialog-foot button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .region-dialog-overlay {
+    padding: 12px;
+  }
+}

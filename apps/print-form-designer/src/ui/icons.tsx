@@ -154,30 +154,6 @@ export function IconEraser(props: IconProps) {
   )
 }
 
-export function IconMinus(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M5 12h14" />
-    </Svg>
-  )
-}
-
-export function IconChevronUp(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="m6 15 6-6 6 6" />
-    </Svg>
-  )
-}
-
-export function IconChevronDown(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="m6 9 6 6 6-6" />
-    </Svg>
-  )
-}
-
 export function IconTrash(props: IconProps) {
   return (
     <Svg {...props}>
@@ -238,15 +214,6 @@ export function IconTable(props: IconProps) {
     <Svg {...props}>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M3 10h18M3 15h18M9 4v16" />
-    </Svg>
-  )
-}
-
-export function IconDatabase(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M7 8h4M7 12h10M7 16h7" />
     </Svg>
   )
 }

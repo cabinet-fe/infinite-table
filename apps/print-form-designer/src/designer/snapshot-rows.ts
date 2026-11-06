@@ -64,20 +64,3 @@ export function deleteSnapshotRows(
     Math.max(0, snapshot.rows - count),
   )
 }
-
-/** 交换相邻两个行块（first 在上、second 紧随其后；行数可不同） */
-export function swapSnapshotRowBlocks(
-  snapshot: SheetSnapshot,
-  first: { start: number; count: number },
-  second: { start: number; count: number },
-): SheetSnapshot {
-  return mapSnapshotRows(
-    snapshot,
-    (row) => {
-      if (row >= first.start && row < first.start + first.count) return row + second.count
-      if (row >= second.start && row < second.start + second.count) return row - first.count
-      return row
-    },
-    snapshot.rows,
-  )
-}

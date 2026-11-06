@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { api, type DatasourceRow } from './api'
 import { IconDataSource, IconTrash } from '../ui/icons'
+import { describeError } from '../errors'
 
 interface Props {
   datasources: DatasourceRow[] | null
@@ -21,7 +22,7 @@ export function DatasourcePanel({ datasources, onChanged }: Props) {
       setStatus({ text: successText, error: false })
       onChanged()
     } catch (cause: unknown) {
-      setStatus({ text: cause instanceof Error ? cause.message : String(cause), error: true })
+      setStatus({ text: describeError(cause), error: true })
     } finally {
       setBusy(false)
     }

@@ -1,36 +1,26 @@
-// 设计页：模板面板（保存/另存/列表打开）+ 区域面板（增删/排序/类型/行数）+ 字段绑定 +
-// 格样式工具条 + 公式栏 + SheetGrid 画布 + 函数库弹框 + 打印弹框。
+// 设计页：模板面板 + 配置面板（单元格/区域双 tab）+ 格样式工具条 + 公式栏 + 画布 + 函数库/打印弹框。
 // 本组件只做表现层编排：模板序列化、绑定写入、打印管线均由既有领域模块承担。
+// 双 tab 的自动落地规则：点有绑定的格 → 落到「单元格」；点区域列表项 → 钉在「区域」。
 import { useEffect, useRef, useState } from 'react'
 
-import type { PrintOrientation, PrintPaperPreset } from '@infinitable/plugins'
 import { formatRange } from '@infinitable/sheet'
 
-import { BindingEditor } from './BindingEditor'
-import { BoundList } from './BoundList'
+import { ConfigPanel, type ConfigTab } from './ConfigPanel'
 import { FormDoc, type DocHistoryState } from './form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
 import { FormulaBar, type FormulaBarHandle } from './FormulaBar'
 import { FunctionLibraryDialog } from './FunctionLibraryDialog'
+import { PaperGuidesControl } from './PaperGuidesControl'
 import { DEFAULT_PAPER_GUIDES, type PaperGuidesConfig } from './paper-guides'
 import { PrintDialog } from './PrintDialog'
-import { RegionPanel } from './RegionPanel'
 import { StyleToolbar } from './StyleToolbar'
 import { TemplatePanel } from './TemplatePanel'
-import { REGION_EXPAND_OPTIONS, regionsAt, type FormRegion } from './template'
+import { regionLabel, regionsAt, type FormRegion } from './template'
 import { useSelectionStyle } from './use-selection-style'
-
-/** 纸张预设（设计参考线用；真实分页以打印预览为准） */
-const PAPER_PRESETS: { value: PrintPaperPreset; label: string }[] = [
-  { value: 'A3', label: 'A3' },
-  { value: 'A4', label: 'A4' },
-  { value: 'A5', label: 'A5' },
-  { value: 'Letter', label: 'Letter' },
-]
 
 export function DesignerPage() {
   // doc 作为可替换状态：模板加载（TemplatePanel onLoaded）换新文档，画布随 effect 重建
-  const [doc, setDoc] = useState<FormDoc>(() => FormDoc.create())
+  const [doc, setDoc] = useState<FormDoc>(() => FormDoc.create(8))
   const mountRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<FormCanvas | null>(null)
   const formulaBarRef = useRef<FormulaBarHandle>(null)
@@ -49,6 +39,16 @@ export function DesignerPage() {
   const [printOpen, setPrintOpen] = useState(false)
   // 函数库弹框开关
   const [fnLibraryOpen, setFnLibraryOpen] = useState(false)
+  // 配置面板当前 tab（cell = 绑定编辑，region = 区域列表）
+  const [activeTab, setActiveTab] = useState<ConfigTab>('cell')
+  /**
+   * 区域列表点选带来的选区落点（`row:col`）。
+   * 点区域项本身会改选区，而区域首格可能正好有绑定——这一次不要把 tab 拽回「单元格」。
+   * 记落点而不是布尔标志：没有对应的选区变化时标志自然失效，不会误吞后续的切换。
+   */
+  const suppressedCellRef = useRef<string | null>(null)
+  /** 上次参与自动切 tab 判定的活动格：只有真的换了格才重新判定（样式变化不抢 tab） */
+  const autoTabAddrRef = useRef<string | null>(null)
 
   // 选区/样式状态：工具条控件回显 + 区域高亮 + 选区 chip 同源
   const selection = useSelectionStyle(doc)
@@ -60,6 +60,30 @@ export function DesignerPage() {
   const bound = selection.activeCell
     ? doc.getCellBinding(selection.activeCell) !== undefined
     : false
+
+  // 点到有绑定的格 → 自动落到「单元格」tab（用户想知道「这格绑了什么」时不用手动切）
+  useEffect(() => {
+    const addr = selection.activeCell
+    if (!addr) {
+      autoTabAddrRef.current = null
+      return
+    }
+    const key = `${addr.row}:${addr.col}`
+    // 区域列表点选引起的那一次选区变化：不清 tab，标记用完即清（下不为例）。
+    // 同时记下这个格，避免随后同一格的事件（撤销/样式刷新）又把 tab 抢到「单元格」。
+    if (suppressedCellRef.current !== null) {
+      const matched = suppressedCellRef.current === key
+      suppressedCellRef.current = null
+      if (matched) {
+        autoTabAddrRef.current = key
+        return
+      }
+    }
+    // 只对「换成另一个格」做判定：撤销/样式变化会重发选区事件，别把用户手动切的 tab 抢回去
+    if (autoTabAddrRef.current === key) return
+    autoTabAddrRef.current = key
+    if (doc.getCellBinding(addr)) setActiveTab('cell')
+  }, [doc, selection])
 
   useEffect(() => {
     const el = mountRef.current
@@ -111,6 +135,18 @@ export function DesignerPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  /** 点区域列表项：钉在「区域」tab，并屏蔽这一次选区变化触发的自动切 tab */
+  const selectRegionFromList = (index: number): void => {
+    const region = doc.regions[index]
+    if (region) suppressedCellRef.current = `${region.startRow}:${region.startCol}`
+    setActiveTab('region')
+  }
+
+  const onBindingEdited = (): void => {
+    canvasRef.current?.refresh()
+    setBindRevision((n) => n + 1)
+  }
+
   const selectionText = selection.range ? formatRange(selection.range) : '未选中'
 
   return (
@@ -131,36 +167,20 @@ export function DesignerPage() {
             onLoaded={setDoc}
           />
 
-          <section className="card region-panel">
-            <details open>
-              <summary>
-                区域
-                <span className="chevron">›</span>
-              </summary>
-              <div className="card-body">
-                <RegionPanel doc={doc} regions={regions} activeIndex={activeRegionIndex} />
-              </div>
-            </details>
-          </section>
-
-          <section className="card binding-card">
-            <details open>
-              <summary>
-                字段绑定
-                <span className="chevron">›</span>
-              </summary>
-              <div className="card-body">
-                <BindingEditor
-                  doc={doc}
-                  addr={selection.activeCell ?? undefined}
-                  onEdited={() => {
-                    canvasRef.current?.refresh()
-                    setBindRevision((n) => n + 1)
-                  }}
-                />
-                <BoundList doc={doc} revision={bindRevision} />
-              </div>
-            </details>
+          <section className="card">
+            <div className="card-body">
+              <ConfigPanel
+                doc={doc}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                regions={regions}
+                addr={selection.activeCell ?? undefined}
+                onBindingEdited={onBindingEdited}
+                bindRevision={bindRevision}
+                activeRegionIndex={activeRegionIndex}
+                onSelectRegion={selectRegionFromList}
+              />
+            </div>
           </section>
         </aside>
 
@@ -176,54 +196,17 @@ export function DesignerPage() {
             {selection.range ? (
               <span className="selection-chip" title="当前选区（A1 记法）与所在区域">
                 <span className="addr">{selectionText}</span>
-                <span className="region-tag">{regionLabel(activeRegion, activeRegionIndex)}</span>
+                <span className="region-tag">
+                  {activeRegion && activeRegionIndex !== undefined
+                    ? regionLabel(activeRegion, activeRegionIndex)
+                    : '静态内容'}
+                </span>
               </span>
             ) : null}
 
             <span className="hint canvas-hint">参考线仅作设计参照，实际分页以打印预览为准</span>
 
-            <div className="canvas-tools">
-              <label className="switch" title="显示纸张边界与分页参考线（不写入模板）">
-                <input
-                  type="checkbox"
-                  checked={guides !== null}
-                  onChange={() => setGuides(guides ? null : DEFAULT_PAPER_GUIDES)}
-                />
-                <span className="switch-track" />
-                参考线
-              </label>
-              {guides ? (
-                <>
-                  <select
-                    className="w-paper"
-                    value={guides.paperSize}
-                    aria-label="纸张"
-                    title="纸张尺寸（仅影响参考线）"
-                    onChange={(event) =>
-                      setGuides({ ...guides, paperSize: event.target.value as PrintPaperPreset })
-                    }
-                  >
-                    {PAPER_PRESETS.map((preset) => (
-                      <option key={preset.value} value={preset.value}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="w-orientation"
-                    value={guides.orientation}
-                    aria-label="方向"
-                    title="纸张方向（仅影响参考线）"
-                    onChange={(event) =>
-                      setGuides({ ...guides, orientation: event.target.value as PrintOrientation })
-                    }
-                  >
-                    <option value="portrait">纵向</option>
-                    <option value="landscape">横向</option>
-                  </select>
-                </>
-              ) : null}
-            </div>
+            <PaperGuidesControl guides={guides} onChange={setGuides} />
           </div>
 
           <FormulaBar
@@ -257,14 +240,4 @@ export function DesignerPage() {
       ) : null}
     </>
   )
-}
-
-/** 选区 chip 的区域文案：`区域 N · 向下展开` / `区域 N` / `静态内容` */
-function regionLabel(region: FormRegion | undefined, index: number | undefined): string {
-  if (!region || index === undefined) return '静态内容'
-  const expand =
-    region.expand === 'none'
-      ? ''
-      : REGION_EXPAND_OPTIONS.find((option) => option.value === region.expand)?.label
-  return expand ? `区域 ${index + 1} · ${expand}` : `区域 ${index + 1}`
 }

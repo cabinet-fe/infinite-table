@@ -10,7 +10,7 @@ import {
 export type BorderOption = 'none' | 'thin' | 'medium' | 'thick' | 'dashed'
 
 /** 数字格式预设 */
-export type NumFmtOption = 'none' | 'date' | 'thousands' | 'fixed2' | 'cnUpper'
+type NumFmtOption = 'none' | 'date' | 'thousands' | 'fixed2' | 'cnUpper'
 
 const BORDER_SIDES: readonly BorderSide[] = ['top', 'right', 'bottom', 'left']
 
@@ -20,14 +20,6 @@ export const BORDER_OPTIONS: { value: BorderOption; label: string }[] = [
   { value: 'medium', label: '中线' },
   { value: 'thick', label: '粗线' },
   { value: 'dashed', label: '虚线' },
-]
-
-export const NUM_FMT_OPTIONS: { value: NumFmtOption; label: string }[] = [
-  { value: 'none', label: '常规' },
-  { value: 'date', label: '日期' },
-  { value: 'thousands', label: '千分位' },
-  { value: 'fixed2', label: '两位小数' },
-  { value: 'cnUpper', label: '金额大写' },
 ]
 
 /**

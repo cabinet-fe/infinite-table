@@ -6,6 +6,7 @@
 // `rows`（数据集原始行数组），严格模式求值（this 为 undefined、未声明赋值直接抛错）。
 // 这是同源用户自写表达式的受限求值，不是硬安全沙箱，不引入更重的隔离机制。
 // 纯函数口径：每次求值对入参做深拷贝，表达式对 rows 的原地改动不影响调用方数据与重复求值。
+import { describeError } from '../errors'
 
 /** 数据集原始行：SQL 结果的一行（列名 → 值） */
 export type SourceRow = Record<string, unknown>
@@ -36,10 +37,6 @@ function compileExpression(expression: string): (rows: SourceRow[]) => unknown {
   return new Function('rows', `"use strict";\nreturn (\n${expression}\n);`) as (
     rows: SourceRow[],
   ) => unknown
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**

@@ -52,13 +52,23 @@ export function paperAreaPx(config: PaperGuidesConfig): { width: number; height:
 }
 
 /** 分页参考线几何（画布内容坐标系，px） */
-export interface PaperGuideGeometry {
+interface PaperGuideGeometry {
   /** 纸张内容区（第一页锚定画布内容原点：可见的纸张边界） */
   paper: { width: number; height: number }
   /** 纵向换页参考线的 y 偏移（相邻页行带边界，不含末页边界；空 = 单页） */
   rowBreaks: number[]
   /** 横向换列参考线的 x 偏移（超宽内容切列带边界；空 = 单列带） */
   colBreaks: number[]
+}
+
+/**
+ * 参与分页的行列域（半开区间 [0, n)）。无限画布引擎的 read.rowCount/colCount 是
+ * 扩容后的尺寸（含上百行空行），直接当打印域会画出一整屏换页线——调用方传内容
+ * 包围盒即可把参考线限制在真实内容范围内。
+ */
+interface PageGuideDomain {
+  rowCount: number
+  colCount: number
 }
 
 /** 行带边界 y 偏移：[0, end) 行高累加 */
@@ -78,15 +88,19 @@ function colOffset(source: PrintSource, endCol: number): number {
 /**
  * 估算分页参考线几何：paginate（缺省 fitpage/origin，与参考线口径一致）产出的页
  * 行带/列带边界换算为内容坐标偏移。横向分页按「行带 × 列带」叉乘落页，边界去重。
+ * domain 是必需入参：无限画布引擎的行列数含扩容噪声，只在内容包围盒内分页。
  */
 export function computePageGuides(
   source: PrintSource,
   config: PaperGuidesConfig,
+  domain: PageGuideDomain,
 ): PaperGuideGeometry {
   const pages = createPrintPlugin({ source }).paginate({
     paperSize: config.paperSize,
     orientation: config.orientation,
     margin: config.marginPx,
+    rowRange: { start: 0, end: domain.rowCount },
+    colRange: { start: 0, end: domain.colCount },
   })
   const rowEnds = [...new Set(pages.map((page) => page.rowRange.end))]
   const colEnds = [...new Set(pages.map((page) => page.colRange.end))]
@@ -97,7 +111,7 @@ export function computePageGuides(
   }
 }
 
-/** 绘制上下文窄接口（RenderContext 的绘制子集；painter 参数按结构兼容协议槽位） */
+/** 绘制上下文窄接口（RenderContext 的绘制子集；painter 参数按结构化子类型接协议槽位） */
 export interface GuideContext {
   strokeStyle: string | CanvasGradient | CanvasPattern
   lineWidth: number
@@ -113,20 +127,38 @@ export interface GuideContext {
 /** 纸张边界（实线灰）与分页参考线（虚线蓝）的颜色 */
 const PAPER_BOUNDARY_COLOR = '#94a3b8'
 const PAGE_BREAK_COLOR = '#3b82f6'
-/** 虚线段长/间隔（px；RenderContext 无 setLineDash，手动分段实现） */
-const DASH_PX = 6
-const DASH_GAP_PX = 4
 
-/** 手动虚线段：沿 (x1,y1)→(x2,y2) 按 段推进（水平/垂直线亦通用） */
-function dashedLine(ctx: GuideContext, x1: number, y1: number, x2: number, y2: number): void {
+/** 虚线图案（段长 + 间隔，px）：RenderContext 无 setLineDash，按图案手动分段 */
+export interface DashPattern {
+  dash: number
+  gap: number
+}
+
+/** 分页参考线的虚线图案 */
+const GUIDE_DASH: DashPattern = { dash: 6, gap: 4 }
+
+/**
+ * 手动虚线段：从 (x1,y1) 到 (x2,y2) 按图案推进（水平/垂直线通用）。
+ * 调用方负责 beginPath / strokeStyle / stroke；本函数只铺路径。
+ * overlay 的分页参考线与区域展开提示共用本实现，只有图案不同。
+ */
+export function dashedLine(
+  ctx: GuideContext,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  pattern: DashPattern,
+): void {
   const dx = x2 - x1
   const dy = y2 - y1
   const length = Math.hypot(dx, dy)
   if (length === 0) return
   const ux = dx / length
   const uy = dy / length
-  for (let d = 0; d < length; d += DASH_PX + DASH_GAP_PX) {
-    const end = Math.min(d + DASH_PX, length)
+  const step = pattern.dash + pattern.gap
+  for (let d = 0; d < length; d += step) {
+    const end = Math.min(d + pattern.dash, length)
     ctx.moveTo(x1 + ux * d, y1 + uy * d)
     ctx.lineTo(x1 + ux * end, y1 + uy * end)
   }
@@ -151,19 +183,22 @@ export function drawPageGuides(
   ctx.strokeStyle = PAGE_BREAK_COLOR
   ctx.beginPath()
   for (const y of geometry.rowBreaks) {
-    dashedLine(ctx, 0, origin.y + y, viewport.width, origin.y + y)
+    dashedLine(ctx, 0, origin.y + y, viewport.width, origin.y + y, GUIDE_DASH)
   }
   for (const x of geometry.colBreaks) {
-    dashedLine(ctx, origin.x + x, 0, origin.x + x, viewport.height)
+    dashedLine(ctx, origin.x + x, 0, origin.x + x, viewport.height, GUIDE_DASH)
   }
   ctx.stroke()
   ctx.restore()
 }
 
 /**
- * 参考线 painter（协议 OverlayPainter 结构兼容形态）：开启且画布在挂载态时，
+ * 参考线 painter（OverlayPainter 协议的结构化子类型实现）：开启且画布在挂载态时，
  * 从当前引擎读取面估算分页并绘制；画布内容原点取 (0,0) 格的视口矩形（含行号列/
  * 列头偏移），无可见原点（空画布）跳过绘制。
+ *
+ * `getContentBounds` 是必需依赖：无限画布的行列数含大量扩容噪声，分页域一律取内容
+ * 包围盒，避免画出一整屏换页线。
  *
  * 注意：本 painter 只负责参考线。sky 层槽位由 canvas-overlay 的组合 painter 统一持有
  * （区域轨道 + 参考线），本函数作为其内部子画笔被调用。
@@ -171,6 +206,7 @@ export function drawPageGuides(
 export function createPaperGuidesPainter(
   getGrid: () => SheetGrid | undefined,
   getConfig: () => PaperGuidesConfig | null,
+  getContentBounds: () => { rows: number; cols: number },
 ): (ctx: GuideContext, viewport: { width: number; height: number }) => void {
   return (ctx, viewport) => {
     const config = getConfig()
@@ -180,6 +216,17 @@ export function createPaperGuidesPainter(
     if (!table.read) return
     const origin = table.getCellRelativeRect(0, 0)
     if (!origin) return
-    drawPageGuides(ctx, viewport, computePageGuides(createEnginePrintSource(table), config), origin)
+    const bounds = getContentBounds()
+    // 空内容（包围盒为 0）不画参考线：没有内容就没有换页
+    if (bounds.rows === 0 || bounds.cols === 0) return
+    drawPageGuides(
+      ctx,
+      viewport,
+      computePageGuides(createEnginePrintSource(table), config, {
+        rowCount: bounds.rows,
+        colCount: bounds.cols,
+      }),
+      origin,
+    )
   }
 }

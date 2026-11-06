@@ -8,7 +8,7 @@ import type { FormCellBinding } from './template'
 export type BindingAggregateMode = NonNullable<FormCellBinding['aggregate']> | 'first'
 
 /** 一次点击要写入的绑定载荷（不含数据集 id 与表达式） */
-export interface BindingPreset {
+interface BindingPreset {
   path: string
   aggregate: FormCellBinding['aggregate']
 }
@@ -26,17 +26,18 @@ export const AGGREGATE_MODES: { value: BindingAggregateMode; label: string; hint
 /**
  * 生成绑定预设。
  *
- * - 会被重复复制的区域（`expand !== 'none'`）：永远 `[].<col>` 且无聚合——这块本身
- *   就按数据份数复制，聚合在这里没有意义，即便调用方传了聚合也忽略（测试锁定）。
+ * - 展开区（`expand !== 'none'`，由区域自己声明数据源与列表路径）：绑定只写**条目内
+ *   相对字段名**（裸列名，如 `item_name`），数据集/表达式继承区域、聚合无意义——
+ *   这块本身就按数据份数复制，即便调用方传了聚合也忽略（测试锁定）。
  * - 静态区：`first` → `[0].<col>` 无聚合（取首条的单个值）；
  *   其余 → `[].<col>` + 对应聚合（对整列取值再聚合）。
  */
 export function buildBindingPreset(
-  inRepeatable: boolean,
+  inExpandRegion: boolean,
   column: string,
   mode: BindingAggregateMode,
 ): BindingPreset {
-  if (inRepeatable) return { path: `[].${column}`, aggregate: undefined }
+  if (inExpandRegion) return { path: column, aggregate: undefined }
   if (mode === 'first') return { path: `[0].${column}`, aggregate: undefined }
   return { path: `[].${column}`, aggregate: mode }
 }
@@ -46,21 +47,24 @@ export function buildBindingPreset(
  * 展开区的绑定恒视为 `first` 语义（按份取值），供 UI 隐藏整组按钮前保持稳定。
  */
 export function detectAggregateMode(
-  inRepeatable: boolean,
+  inExpandRegion: boolean,
   binding: FormCellBinding | undefined,
 ): BindingAggregateMode {
-  if (inRepeatable) return 'first'
+  if (inExpandRegion) return 'first'
   if (!binding) return 'first'
   if (binding.aggregate) return binding.aggregate
   return 'first'
 }
 
 /**
- * 从绑定路径反推字段名（末段 `[].` / `[0].` 之后的列名）。
- * 不是简单直绑（如嵌套 `[0].items[].price`）时返回 undefined——此时 UI 不点亮任何 chip。
+ * 从绑定路径反推字段名（末段列名）。
+ *
+ * 展开区内是裸列名（`item_name`），非展开区是 `[].col` / `[0].col`——两种都要认。
+ * 不是简单直绑（如嵌套 `[0].items[].price`、`customer.name`）时返回 undefined，
+ * 此时 UI 不点亮任何 chip。
  */
 export function boundColumnOf(binding: FormCellBinding | undefined): string | undefined {
   if (!binding) return undefined
-  const match = /^\[(?:|\d+)\]\.([A-Za-z0-9_\u4e00-\u9fa5]+)$/.exec(binding.path)
+  const match = /^(?:\[(?:|\d+)\]\.)?([A-Za-z0-9_\u4e00-\u9fa5]+)$/.exec(binding.path)
   return match ? match[1] : undefined
 }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api, type TemplateSummary } from '../data/api'
 import { FormDoc } from './form-doc'
+import { describeError } from '../errors'
 
 interface Props {
   doc: FormDoc
@@ -26,9 +27,7 @@ export function TemplatePanel({ doc, name, onNameChange, onLoaded }: Props) {
     api
       .listTemplates()
       .then(setTemplates)
-      .catch((cause: unknown) =>
-        setStatus({ text: cause instanceof Error ? cause.message : String(cause), error: true }),
-      )
+      .catch((cause: unknown) => setStatus({ text: describeError(cause), error: true }))
   }, [])
 
   useEffect(reload, [reload])
@@ -40,7 +39,7 @@ export function TemplatePanel({ doc, name, onNameChange, onLoaded }: Props) {
       setStatus({ text: successText, error: false })
       reload()
     } catch (cause: unknown) {
-      setStatus({ text: cause instanceof Error ? cause.message : String(cause), error: true })
+      setStatus({ text: describeError(cause), error: true })
     } finally {
       setBusy(false)
     }

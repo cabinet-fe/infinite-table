@@ -131,10 +131,6 @@
   width: 64px;
 }
 
-.ribbon-field.w-format > select {
-  width: 92px;
-}
-
 /* 色块按钮：28x28 内含原生 color picker，外框做描边圆角 */
 .color-swatch {
   position: relative;

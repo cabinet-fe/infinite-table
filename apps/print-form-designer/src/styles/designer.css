@@ -104,59 +104,86 @@
   height: 100%;
 }
 
-/* ─── 区域列表 ──────────────────────────────────────────────────────────── */
-.region-list {
+/* ─── 配置面板双 tab（单元格 / 区域） ──────────────────────────────────── */
+/* 分段控件观感与顶栏视图切换（.segmented）一致：浅底容器 + 选中项白底浮起 */
+.config-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.region-item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 8px 8px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease;
-}
-
-.region-item:hover {
-  border-color: var(--border);
-  background: var(--bg-hover);
-}
-
-.region-item.active {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-}
-
-/* 选中区域左侧 accent 竖条 */
-.region-item.active::before {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  content: '';
-}
-
-/* 主行：色点 + 区域 N + 范围 + 删除 */
-.region-line {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 
-/* 展开方式色点（与画布描边同色） */
+.config-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+}
+
+.config-tabs button {
+  flex: 1;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.config-tabs button:hover:not(:disabled) {
+  background: rgba(16, 24, 40, 0.04);
+  color: var(--text-primary);
+}
+
+.config-tabs button[aria-selected='true'] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+
+/* 两个面板都常驻挂载，切换只显隐（保留绑定面板的字段缓存与草稿） */
+.config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.config-body[hidden] {
+  display: none;
+}
+
+/* ─── 区域列表（紧凑：色点 + 名称 + 范围 + 展开标签 + 两个图标按钮） ────── */
+.region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.region-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  height: 34px;
+  padding: 0 6px 0 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.region-row:hover {
+  background: var(--bg-hover);
+}
+
+.region-row.active {
+  background: var(--accent-soft);
+}
+
+/* 展开方式色点（与画布描边、弹框标题同色） */
 .region-dot {
   flex: none;
   width: 7px;
@@ -164,33 +191,62 @@
   border-radius: 50%;
 }
 
+/* 主列：名称在上、范围在下（范围文字给够空间又不抢视线） */
+.region-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .region-title {
-  flex: none;
+  overflow: hidden;
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .region-range {
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 展开标签：小圆角底色，扫列表时一眼看到哪些区域会复制 */
+.region-row-tag {
+  flex: none;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.region-row.active .region-row-tag {
+  background: rgba(47, 98, 240, 0.1);
+  color: var(--accent);
 }
 
 .region-actions {
   display: flex;
   flex: none;
   gap: 1px;
-  opacity: 0.4;
+  opacity: 0.35;
   transition: opacity 0.12s ease;
 }
 
-.region-item:hover .region-actions,
-.region-item.active .region-actions {
+.region-row:hover .region-actions,
+.region-row.active .region-actions {
   opacity: 1;
 }
 
@@ -200,114 +256,19 @@
   border-radius: 4px;
 }
 
-/* 卡体：展开方式 + 提示 + 每页重复 + 范围折叠 */
-.region-body {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding-left: 13px;
-  cursor: default;
-}
-
-.region-expand {
-  width: 100%;
-  height: 26px;
-  font-size: 12px;
-}
-
-.region-hint {
-  color: var(--text-tertiary);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.region-note {
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-style: italic;
-  line-height: 1.4;
-}
-
-.region-repeat {
-  font-size: 12px;
-}
-
-/* 范围折叠 */
-.region-fields > summary {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  color: var(--text-tertiary);
-  font-size: 11.5px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-
-.region-fields > summary::-webkit-details-marker {
-  display: none;
-}
-
-.region-fields > summary:hover {
-  color: var(--text-secondary);
-}
-
-.region-fields > summary .chevron {
-  margin-left: auto;
-  transition: transform 0.15s ease;
-}
-
-.region-fields[open] > summary .chevron {
-  transform: rotate(90deg);
-}
-
-.region-fields-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
-}
-
-.region-step {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.region-step .icon-button {
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.region-rows {
-  min-width: 40px;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
-.region-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.region-grid input {
-  height: 26px;
-  font-size: 12px;
-}
-
+/* 底部两个入口：主操作（由选区设为区域）+ 次操作（添加区域） */
 .region-add {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
-.region-add .meta {
-  font-size: 11px;
+.region-add > button {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: 12px;
 }
 
 /* ─── 公式栏 ────────────────────────────────────────────────────────────── */

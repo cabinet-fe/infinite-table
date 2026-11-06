@@ -21,6 +21,6 @@ export interface TemplateRow {
   id: string
   name: string
   /** 模板文档 JSON 文本（FormTemplate 去掉 name 后原样序列化） */
-  bands: string
+  template: string
   created_at: string
 }

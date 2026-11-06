@@ -25,7 +25,7 @@ import {
 import type { SourceRow } from '../transform/reshape'
 import { reshapeDatasetData } from './binding'
 import type { FormDoc } from './form-doc'
-import { FORM_BINDING_META_NAMESPACE, type FormCellBinding } from './template'
+import { FORM_BINDING_META_NAMESPACE, type FormCellBinding, type RegionSource } from './template'
 import { datasetShapeKey, renderDataState, type DatasetShapes } from './data-state'
 
 /** 收集文档内全部格绑定（快照 sidecar 扫描；顺序即快照行序，重复格只取一次） */
@@ -44,23 +44,65 @@ export function collectPrintBindings(doc: FormDoc): FormCellBinding[] {
 }
 
 /**
- * 绑定集合 → 数据集形态表：按（datasetId, expression）对去重逐对重塑。
- * 同一数据集多表达式并存时各绑定各用各的形态（datasetShapeKey 口径）；表达式
- * 非法抛 TransformError（P7），由调用方呈现。无绑定的数据集不出现在结果里。
+ * 收集文档内全部区域数据源（只取真正在展开的区域——份数由它的 source 驱动）。
+ * 展开份数由区域 source 驱动，与区域内绑定无关——打印取数必须把它们也算进去，
+ * 否则区域驱动的数据集根本不会被请求。
  */
-export function buildPrintShapes(
+export function collectRegionSources(doc: FormDoc): RegionSource[] {
+  const sources: RegionSource[] = []
+  for (const region of doc.regions) {
+    if (region.expand !== 'none' && region.source) sources.push(structuredClone(region.source))
+  }
+  return sources
+}
+
+/** 一份「取哪个数据集的哪种形态」的需求描述：区域 source 与单元格绑定共用的窄口径 */
+interface ShapeDemand {
+  datasetId: string
+  expression?: string
+}
+
+/**
+ * 形态需求并集：区域 source ∪ 单元格绑定 → 按（datasetId, expression）去重。
+ * 相对绑定（展开区内，形状只有 `{ path }`）没有 datasetId，在这里跳过——它们的形态
+ * 由区域 source 那条需求提供。
+ */
+function shapeDemands(
   bindings: readonly FormCellBinding[],
-  rowsByDataset: ReadonlyMap<string, SourceRow[]>,
-): DatasetShapes {
-  const shapes: DatasetShapes = new Map()
+  regionSources: readonly RegionSource[],
+): ShapeDemand[] {
+  const demands: ShapeDemand[] = []
   const seen = new Set<string>()
-  for (const binding of bindings) {
-    const key = datasetShapeKey(binding.datasetId, binding.expression)
+  for (const demand of [...regionSources, ...bindings]) {
+    const datasetId = demand.datasetId
+    if (!datasetId) continue
+    const key = datasetShapeKey(datasetId, demand.expression)
     if (seen.has(key)) continue
     seen.add(key)
-    const rows = rowsByDataset.get(binding.datasetId)
+    demands.push({ datasetId, expression: demand.expression })
+  }
+  return demands
+}
+
+/**
+ * 形态需求 → 数据集形态表：按（datasetId, expression）对去重逐对重塑。
+ * 同一数据集多表达式并存时各消费者各用各的形态（datasetShapeKey 口径）；表达式
+ * 非法抛 TransformError（P7），由调用方呈现。既无区域 source 也无绑定引用的数据集
+ * 不出现在结果里。
+ */
+function buildPrintShapes(
+  bindings: readonly FormCellBinding[],
+  rowsByDataset: ReadonlyMap<string, SourceRow[]>,
+  regionSources: readonly RegionSource[],
+): DatasetShapes {
+  const shapes: DatasetShapes = new Map()
+  for (const demand of shapeDemands(bindings, regionSources)) {
+    const rows = rowsByDataset.get(demand.datasetId)
     if (!rows) continue
-    shapes.set(key, reshapeDatasetData(binding.expression, rows))
+    shapes.set(
+      datasetShapeKey(demand.datasetId, demand.expression),
+      reshapeDatasetData(demand.expression, rows),
+    )
   }
   return shapes
 }
@@ -72,7 +114,7 @@ export function buildPrintShapes(
  * 含列/行/格三层叠加与合并锚点解析）、displayValue（numFmt 显示链，公式格取
  * 计算缓存）。
  */
-export function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string): PrintSource {
+function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string): PrintSource {
   const sheet = new Sheet('print-data')
   sheet.restore(snapshot)
   const addr = (col: number, row: number) => ({ row, col })
@@ -94,7 +136,7 @@ export function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string)
         endRow: range.end.row,
         endCol: range.end.col,
       })),
-    cellValue: (col, row) => sheet.getCellData(addr(col, row))?.v ?? undefined,
+    cellValue: (col, row) => sheet.getCellData(addr(col, row))?.v,
     cellStyle: (col, row) =>
       sheetStyleToEngineStyle(sheet.getEffectiveStyle(addr(col, row))) ?? undefined,
     displayValue: (col, row) => {
@@ -127,7 +169,7 @@ export interface PrintSession {
  * 两个方法（buildDocumentHtml / print），同 source 同 config 同产物——一致性由
  * 结构保证，app 内测试另作断言锁死。hooks 仅测试注入桩用（PrintPluginOptions 口径）。
  */
-export function createPrintSession(
+function createPrintSession(
   source: PrintSource,
   hooks?: PrintPluginOptions['hooks'],
 ): PrintSession {
@@ -149,7 +191,11 @@ export function preparePrintSession(
   name: string,
   hooks?: PrintPluginOptions['hooks'],
 ): PrintSession {
-  const shapes = buildPrintShapes(collectPrintBindings(doc), rowsByDataset)
+  const shapes = buildPrintShapes(
+    collectPrintBindings(doc),
+    rowsByDataset,
+    collectRegionSources(doc),
+  )
   const source = createSnapshotPrintSource(renderDataState(doc, shapes), name)
   return createPrintSession(source, hooks)
 }

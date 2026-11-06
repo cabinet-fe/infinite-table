@@ -9,17 +9,17 @@ import {
 } from '../../src/designer/binding-presets'
 
 describe('绑定预设：点字段即生成路径与聚合', () => {
-  test('明细区 + 字段 → 按行取值、无聚合', () => {
+  test('展开区 + 字段 → 条目内相对字段名、无聚合', () => {
     expect(buildBindingPreset(true, 'item_name', 'first')).toEqual({
-      path: '[].item_name',
+      path: 'item_name',
       aggregate: undefined,
     })
   })
 
-  test('明细区传了聚合 → 聚合被忽略', () => {
+  test('展开区传了聚合 → 聚合被忽略', () => {
     for (const mode of ['sum', 'avg', 'count', 'max', 'min'] as const) {
       expect(buildBindingPreset(true, 'qty', mode)).toEqual({
-        path: '[].qty',
+        path: 'qty',
         aggregate: undefined,
       })
     }
@@ -75,8 +75,11 @@ describe('绑定预设：从既有绑定反推 UI 状态', () => {
     )
   })
 
-  test('boundColumnOf：直绑路径能反推字段名，嵌套路径不点亮 chip', () => {
+  test('boundColumnOf：裸列名与 []./[0]. 直绑都能反推，嵌套路径不点亮 chip', () => {
     expect(boundColumnOf(undefined)).toBeUndefined()
+    // 展开区里的相对字段名
+    expect(boundColumnOf({ datasetId: 'd', path: 'item_name' })).toBe('item_name')
+    expect(boundColumnOf({ path: 'item_name' } as never)).toBe('item_name')
     expect(boundColumnOf({ datasetId: 'd', path: '[].order_no' })).toBe('order_no')
     expect(boundColumnOf({ datasetId: 'd', path: '[0].qty' })).toBe('qty')
     expect(boundColumnOf({ datasetId: 'd', path: '[0].items[].price' })).toBeUndefined()

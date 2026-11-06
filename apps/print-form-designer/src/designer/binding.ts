@@ -13,7 +13,7 @@ import { reshapeRows, type SourceRow } from '../transform/reshape'
 import type { FormCellBinding } from './template'
 
 /** 路径步：对象键步或数组下标步（'each' = 空下标循环标记） */
-export type BindingPathStep = { key: string } | { index: number | 'each' }
+type BindingPathStep = { key: string } | { index: number | 'each' }
 
 /** 非空对象判定（数组另判） */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,7 +50,7 @@ export function parseBindingPath(path: string): BindingPathStep[] {
   return steps
 }
 
-/** 步序列还原为规范路径字符串（树形选择器生成路径用） */
+/** 步序列还原为规范路径字符串（parseBindingPath 的逆函数；绑定树与 round-trip 测试共用） */
 export function formatBindingPath(steps: readonly BindingPathStep[]): string {
   let path = ''
   for (const step of steps) {
@@ -94,7 +94,7 @@ function toCellValue(value: unknown): CellValue | undefined {
 }
 
 /** 绑定求值语境：展开区内 each = 当前份（行份或列份）对应的数组元素下标 */
-export interface BindingResolveContext {
+interface BindingResolveContext {
   each?: number
 }
 
@@ -107,7 +107,7 @@ export interface BindingResolveContext {
 export function resolveBindingValue(
   data: unknown,
   binding: FormCellBinding,
-  context: BindingResolveContext = {},
+  context: BindingResolveContext,
 ): CellValue | undefined {
   const steps = parseBindingPath(binding.path)
   const eachAt = steps.findIndex((step) => 'index' in step && step.index === 'each')
@@ -126,15 +126,33 @@ export function resolveBindingValue(
 }
 
 /**
- * 绑定的明细循环数组：第一个 `[]` 步之前的路径解析结果为数组时返回之；
- * 供展开区确定份数（份数 = 数组长度）。
+ * 区域 source 的循环数组：形态内 `path` 的解析结果即展开份数的来源。
+ * - `path === ''` 表示「形态根就是列表」，要求形态本身是数组；
+ * - 其余按常规路径寻址（`items` / `[0].items` / `order.lines`），取到的必须是数组；
+ * - 形态缺失、路径取不到、取到非数组一律返回 undefined（调用方按「取不到」处理），
+ *   路径语法非法由 parseBindingPath 直接抛错（不做静默兜底）。
  */
-export function detailLoopArray(data: unknown, binding: FormCellBinding): unknown[] | undefined {
-  const steps = parseBindingPath(binding.path)
-  const eachAt = steps.findIndex((step) => 'index' in step && step.index === 'each')
-  if (eachAt === -1) return undefined
-  const array = walkSteps(data, steps.slice(0, eachAt), -1)
-  return Array.isArray(array) ? array : undefined
+export function loopArrayAt(shape: unknown, path: string): unknown[] | undefined {
+  const trimmed = path.trim()
+  if (trimmed === '') return Array.isArray(shape) ? shape : undefined
+  const value = walkSteps(shape, parseBindingPath(trimmed), -1)
+  return Array.isArray(value) ? value : undefined
+}
+
+/**
+ * 展开区内绑定的取值：条目 + 条目内相对字段路径 → 格值。
+ * - `relativePath === ''` 表示条目本身就是该格的值（仅原始类型进格）；
+ * - 相对路径不允许出现 `[]` 循环标记——展开区已按条目分份，条目内再循环没有落点，
+ *   出现即抛错（模板写错时快速失败，不做「取第一份」之类的隐式猜测）。
+ */
+export function resolveItemValue(item: unknown, relativePath: string): CellValue | undefined {
+  const trimmed = relativePath.trim()
+  if (trimmed === '') return toCellValue(item)
+  const steps = parseBindingPath(trimmed)
+  if (steps.some((step) => 'index' in step && step.index === 'each')) {
+    throw new Error(`展开区内绑定的路径不能含 [] 循环标记：${trimmed}`)
+  }
+  return toCellValue(walkSteps(item, steps, -1))
 }
 
 /**

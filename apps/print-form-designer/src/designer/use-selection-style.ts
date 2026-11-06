@@ -6,7 +6,7 @@ import type { CellAddress, CellRange, CellStyle } from '@infinitable/sheet'
 
 import type { FormDoc } from './form-doc'
 
-export interface SelectionStyleState {
+interface SelectionStyleState {
   /** 当前选区首个区域（无选区为 null） */
   range: CellRange | null
   activeCell: CellAddress | null

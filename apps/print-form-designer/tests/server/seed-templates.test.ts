@@ -8,6 +8,7 @@ import { toSourceRows, type QueryResult, type TemplateRecord } from '../../src/d
 import { FormDoc } from '../../src/designer/form-doc'
 import { DEFAULT_PRINT_SETTINGS, toPrintConfig } from '../../src/designer/PrintDialog'
 import { preparePrintSession } from '../../src/designer/print-source'
+import { TEMPLATE_SCHEMA_VERSION, type RegionSource } from '../../src/designer/template'
 import { openDatabase } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import { seedDemoLibrary } from '../../src/server/seed'
@@ -53,7 +54,14 @@ describe('seed 幂等落内置模板', () => {
       expect(res.status).toBe(200)
       const record = (await res.json()) as TemplateRecord
       expect(record.template.name).toBe(record.name)
-      expect(record.template.schemaVersion).toBe(2)
+      expect(record.template.schemaVersion).toBe(TEMPLATE_SCHEMA_VERSION)
+      // 模板四键：画布尺寸由内容包围盒推导，不含声明 cols
+      expect(Object.keys(record.template).sort()).toEqual([
+        'name',
+        'regions',
+        'schemaVersion',
+        'sheet',
+      ])
     }
   })
 })
@@ -62,22 +70,34 @@ describe('列表样：加载还原并打印出多列明细成品', () => {
   test('画布还原：区域/合并/绑定 sidecar 与行列几何齐备', async () => {
     const { loadTemplate } = await bootSeededApp()
     const doc = FormDoc.fromTemplate((await loadTemplate(SEED_TEMPLATE_LIST_ID)).template)
-    // v2：标题+列头（每页重复）/ 明细（向下展开）/ 合计+签字（静态）
+    // 标题+列头（每页重复）/ 明细（区域自带根即数组的数据源，向下展开）/ 合计+签字（静态）
     expect(
-      doc.regions.map((region) => [region.startRow, region.endRow, region.expand, region.repeat]),
+      doc.regions.map((region) => [
+        region.startRow,
+        region.endRow,
+        region.expand,
+        region.repeat,
+        region.name,
+      ]),
     ).toEqual([
-      [0, 1, 'none', true],
-      [2, 2, 'down', undefined],
-      [3, 4, 'none', undefined],
+      [0, 1, 'none', true, '标题与列头'],
+      [2, 2, 'down', undefined, '明细行'],
+      [3, 4, 'none', undefined, '合计与签字'],
     ])
+    // 明细区驱动源：销售明细原始行数组直接作形态（形态根即数组）
+    expect(doc.regions[1]!.source).toEqual({
+      datasetId: 'seed-dataset-sales-lines',
+      path: '',
+    } satisfies RegionSource)
     expect(doc.rows).toBe(5)
     expect(doc.cols).toBe(9)
     expect(doc.sheet.merges.getMerges()).toHaveLength(4)
-    expect(doc.getCellBinding({ row: 2, col: 8 })).toMatchObject({
+    // 明细格绑定是条目内相对字段（不带 datasetId，继承区域 source）
+    expect(doc.getCellBinding({ row: 2, col: 0 })).toEqual({ path: 'order_no' })
+    expect(doc.getCellBinding({ row: 2, col: 8 })).toEqual({ path: 'amount' })
+    // 合计落在展开区之外：绝对循环路径 + 纵向聚合
+    expect(doc.getCellBinding({ row: 3, col: 8 })).toEqual({
       datasetId: 'seed-dataset-sales-lines',
-      path: '[].amount',
-    })
-    expect(doc.getCellBinding({ row: 3, col: 8 })).toMatchObject({
       path: '[].amount',
       aggregate: 'sum',
     })
@@ -147,30 +167,44 @@ describe('中式单据：五块区域齐备并打印出单据成品', () => {
   test('画布还原：标题/客户地址/明细/合计/签字齐备，只有标题块每页重复', async () => {
     const { loadTemplate } = await bootSeededApp()
     const doc = FormDoc.fromTemplate((await loadTemplate(SEED_TEMPLATE_CN_DOC_ID)).template)
-    // v2：标题+单号（每页重复 2 行）/ 客户地址+列头（数据流，不重复）/
-    // 明细（向下展开）/ 合计 / 签字
+    // 标题+单号（每页重复 2 行）/ 客户地址+列头（数据流，不重复）/
+    // 明细（区域自带归组表达式 + [0].items 循环源，向下展开）/ 合计 / 签字
     expect(
-      doc.regions.map((region) => [region.startRow, region.endRow, region.expand, region.repeat]),
+      doc.regions.map((region) => [
+        region.startRow,
+        region.endRow,
+        region.expand,
+        region.repeat,
+        region.name,
+      ]),
     ).toEqual([
-      [0, 1, 'none', true],
-      [2, 4, 'none', undefined],
-      [5, 5, 'down', undefined],
-      [6, 6, 'none', undefined],
-      [7, 8, 'none', undefined],
+      [0, 1, 'none', true, '单据头'],
+      [2, 4, 'none', undefined, '客户信息与列头'],
+      [5, 5, 'down', undefined, '明细'],
+      [6, 6, 'none', undefined, '合计'],
+      [7, 8, 'none', undefined, '签字'],
     ])
+    // 明细区驱动源：订单明细经归组表达式重塑为 [{ order_no, items }]，循环源取首单 items
+    const lines = doc.regions[2]!.source
+    expect(lines).toMatchObject({
+      datasetId: 'seed-dataset-order-items',
+      path: '[0].items',
+    })
+    // 归组表达式非空，且与合计绑定共用同一形态（明细循环与聚合必须同源）
+    expect(lines?.expression).toContain('reduce')
+    expect(doc.getCellBinding({ row: 6, col: 7 })?.expression).toBe(lines?.expression)
     expect(doc.rows).toBe(9)
     expect(doc.cols).toBe(8)
-    // 订单头绑定带重塑表达式，明细绑定走嵌套二级数组路径
-    expect(doc.getCellBinding({ row: 2, col: 1 })).toMatchObject({
+    // 订单头绑定带重塑表达式；明细绑定是条目内相对字段（不带 datasetId）
+    expect(doc.getCellBinding({ row: 2, col: 1 })).toEqual({
       datasetId: 'seed-dataset-order-header',
       expression: 'rows[0]',
       path: 'customer',
     })
-    expect(doc.getCellBinding({ row: 5, col: 7 })).toMatchObject({
-      datasetId: 'seed-dataset-order-items',
-      path: '[0].items[].amount',
-    })
+    expect(doc.getCellBinding({ row: 5, col: 7 })).toEqual({ path: 'amount' })
+    // 合计落在展开区之外：绝对循环路径 + 聚合
     expect(doc.getCellBinding({ row: 6, col: 7 })).toMatchObject({
+      datasetId: 'seed-dataset-order-items',
       path: '[0].items[].amount',
       aggregate: 'sum',
     })

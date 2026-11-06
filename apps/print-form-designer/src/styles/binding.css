@@ -352,3 +352,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 展开区语境标签：目标格条上的「明细」（说明绑定只取当前那份的同名字段） */
+.binding-scope {
+  flex: none;
+  height: 17px;
+  padding: 0 5px;
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  line-height: 15px;
+  white-space: nowrap;
+}

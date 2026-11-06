@@ -152,7 +152,33 @@ const PAGE_SCRIPT = `
     return null
   }
   const templatePanel = () => document.querySelector('.template-panel')
-  const regionPanel = () => document.querySelector('.region-panel')
+  // 配置面板（单卡双 tab：单元格 / 区域）；区域列表只在「区域」tab 的 body 内
+  const configPanel = () => document.querySelector('.config-panel')
+  /** 「区域」tab 面板体（两个 tab 常驻挂载，非活动时带 hidden 属性） */
+  const regionBody = () => {
+    const panel = configPanel()
+    if (!panel) return null
+    return Array.from(panel.querySelectorAll('.config-body[role="tabpanel"]')).find(
+      (body) => body.querySelector('.region-list') !== null,
+    ) || null
+  }
+  /** 侧栏区域列表项数（紧凑列表：每个区域一行 .region-row） */
+  const regionRowCount = () => {
+    const body = regionBody()
+    return body ? body.querySelectorAll('.region-row').length : -1
+  }
+  /** 点「区域」tab 并返回已展开的区域面板体（等 tab 真正生效，不只看 DOM 存在） */
+  async function openRegionTab() {
+    const panel = configPanel()
+    if (!panel) throw new Error('未找到配置面板')
+    const tab = Array.from(panel.querySelectorAll('.config-tabs button')).find((b) => b.textContent.trim() === '区域')
+    if (!tab) throw new Error('未找到「区域」tab')
+    tab.click()
+    return await waitFor(() => {
+      const body = regionBody()
+      return body && !body.hidden && tab.getAttribute('aria-selected') === 'true' ? body : null
+    }, '「区域」tab 展开')
+  }
   // 格样式工具栏（模板面板同有 toolbar class，排除之）
   const styleToolbar = () =>
     Array.from(document.querySelectorAll('section.toolbar')).find((s) => !s.classList.contains('template-panel'))
@@ -223,16 +249,22 @@ const PAGE_SCRIPT = `
     setInput(input, fixRows)
   }
 
+  /**
+   * 区域结构微调 + 撤销：侧栏「区域」tab 内点「添加区域」→ 列表项 +1 →
+   * 工具栏撤销 → 列表项回到原数量（验证区域结构进统一撤销链）。
+   */
   async function tweakAndUndo() {
-    const base = regionPanel().querySelectorAll('.region-item').length
-    clickButton(regionPanel(), '添加区域')
-    await waitFor(() => regionPanel().querySelectorAll('.region-item').length === base + 1, '添加区域生效')
+    const body = await openRegionTab()
+    // 列表可能渲染出 0 行（空模板），waitFor 按真值判定，所以用「+1 后的计数」等待
+    const base = (await waitFor(() => (regionRowCount() < 0 ? null : regionRowCount() + 1), '区域列表渲染')) - 1
+    clickButton(body, '添加区域')
+    await waitFor(() => regionRowCount() === base + 1, '添加区域生效')
     const undo = await waitFor(
       () => buttons(styleToolbar(), '撤销').find((b) => !b.disabled) || null,
       '撤销按钮可用',
     )
     undo.click()
-    await waitFor(() => regionPanel().querySelectorAll('.region-item').length === base, '撤销回到原区域结构')
+    await waitFor(() => regionRowCount() === base, '撤销回到原区域结构')
     return base
   }
 

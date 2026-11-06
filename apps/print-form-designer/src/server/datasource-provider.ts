@@ -1,6 +1,6 @@
 // 非 SQLite 数据源概念接口（MySQL/PostgreSQL 等未来接入点）：本阶段只留类型与注册点，不做任何实现。
 // 新数据源实现 DataSourceProvider 并经 registerDataSourceProvider 注册后，即可按 kind 被发现。
-export type DataSourceKind = string
+type DataSourceKind = string
 
 /** 数据源配置的开放结构：各源自定义字段（sqlite 为文件路径） */
 export type DataSourceConfig = Record<string, unknown>

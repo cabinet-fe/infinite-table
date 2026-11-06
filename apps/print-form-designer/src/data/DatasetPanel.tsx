@@ -9,6 +9,7 @@ import {
   type QueryResult,
 } from './api'
 import { IconDataset, IconEdit, IconPlus, IconTable, IconTrash } from '../ui/icons'
+import { describeError } from '../errors'
 
 interface Props {
   datasources: DatasourceRow[] | null
@@ -42,7 +43,7 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
       setStatus({ text: await action(), error: false })
       onChanged()
     } catch (cause: unknown) {
-      setStatus({ text: cause instanceof Error ? cause.message : String(cause), error: true })
+      setStatus({ text: describeError(cause), error: true })
     } finally {
       setBusy(false)
     }

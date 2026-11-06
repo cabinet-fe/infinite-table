@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, type DatasetRow, type DatasourceRow } from './api'
 import { DatasourcePanel } from './DatasourcePanel'
 import { DatasetPanel } from './DatasetPanel'
+import { describeError } from '../errors'
 
 export function DataManager() {
   const [datasources, setDatasources] = useState<DatasourceRow[] | null>(null)
@@ -16,7 +17,7 @@ export function DataManager() {
         setDatasets(nextDatasets)
         setError('')
       })
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .catch((cause: unknown) => setError(describeError(cause)))
   }, [])
 
   useEffect(reload, [reload])

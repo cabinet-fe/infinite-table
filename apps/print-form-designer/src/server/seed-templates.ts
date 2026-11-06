@@ -1,8 +1,12 @@
 // 内置起点模板（P9）：列表样与中式单据两份种子模板的定义与构建，随 seed 幂等落库。
 // 构建走 FormDoc 公共入口（fromTemplate + toTemplate 与设计器加载/保存同一条序列化
-// 链路），落库 JSON 加载即完整还原画布；绑定全部指向 seed 数据集——列表样直吃销售
-// 明细原始行（根数组 `[].列名` 平铺循环），中式单据订单头取 `rows[0]`、订单明细经
-// 转换器表达式归组为嵌套二级数组（`[0].items[].列名` 循环取值 + 聚合合计）。
+// 链路），落库 JSON 加载即完整还原画布。
+//
+// 明细区的展开份数由**区域自带的 source** 提供（数据集 × 重塑表达式 × 循环
+// 列表路径），明细格绑定只写条目内的相对字段（`order_no` / `item_name`，不带
+// datasetId/expression）；合计与单据头落在展开区之外，仍用绝对路径 + 聚合。
+// 因此列表样直吃销售明细原始行（区域 source 根即数组 → path 为 ''），中式单据订单头
+// 取 `rows[0]`、订单明细经转换器表达式归组为嵌套二级数组（区域 source 为 `[0].items`）。
 import {
   BORDER_STYLE_WIDTH,
   Sheet,
@@ -83,6 +87,13 @@ function putText(doc: FormDoc, at: CellAddress, text: string, ...patches: CellSt
   doc.sheet.setCellValue(at, text)
 }
 
+/**
+ * 展开区内明细格的绑定：只写条目内相对字段。
+ * 数据集与重塑表达式由所在区域的 `source` 继承，聚合无意义——形状恒为 `{ path }`，
+ * 与设计器 BindingEditor 的 relativeBinding 同一写法。
+ */
+const itemField = (path: string): FormCellBinding => ({ path })
+
 /** 绑定格：cell-meta sidecar + 样式（配置态画布显示 {{path}} 占位符） */
 function putBinding(
   doc: FormDoc,
@@ -118,18 +129,19 @@ function mergeBinding(
   doc.sheet.mergeCells(region)
 }
 
-/** 空画布起建：区域 → FormDoc → 布局回调 → 序列化模板 JSON */
+/**
+ * 空画布起建：区域 → FormDoc → 布局回调 → 序列化模板 JSON。
+ * 画布尺寸不再由模板声明：`sheet` 快照的 rows/cols 由 FormDoc 序列化时按内容包围盒收紧。
+ */
 function buildTemplate(
   name: string,
   regions: FormRegion[],
-  cols: number,
   layout: (doc: FormDoc) => void,
 ): FormTemplate {
   const doc = FormDoc.fromTemplate({
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
     name,
     regions,
-    cols,
     sheet: new Sheet('seed').snapshot(),
   })
   layout(doc)
@@ -162,13 +174,28 @@ function buildSalesListTemplate(): FormTemplate {
     '销售明细清单（列表样）',
     [
       // 标题 + 列头（每页重复）
-      { startRow: 0, endRow: 1, startCol: 0, endCol: 8, expand: 'none', repeat: true },
-      // 明细行（按数据条数向下展开）
-      { startRow: 2, endRow: 2, startCol: 0, endCol: 8, expand: 'down' },
+      {
+        startRow: 0,
+        endRow: 1,
+        startCol: 0,
+        endCol: 8,
+        expand: 'none',
+        repeat: true,
+        name: '标题与列头',
+      },
+      // 明细行（按区域 source 的数组条数向下展开）：销售明细原始行数组即循环源
+      {
+        startRow: 2,
+        endRow: 2,
+        startCol: 0,
+        endCol: 8,
+        expand: 'down',
+        name: '明细行',
+        source: { datasetId: SALES_LINES_DATASET, path: '' },
+      },
       // 合计 + 签字（静态）
-      { startRow: 3, endRow: 4, startCol: 0, endCol: 8, expand: 'none' },
+      { startRow: 3, endRow: 4, startCol: 0, endCol: 8, expand: 'none', name: '合计与签字' },
     ],
-    9,
     (doc) => {
       // 页眉：居中标题 + 列头行
       mergeText(doc, span(0, 0, 8), '销售明细清单', centered, bold, {
@@ -178,17 +205,11 @@ function buildSalesListTemplate(): FormTemplate {
       headers.forEach((text, col) =>
         putText(doc, cell(1, col), text, centered, bold, headerFill, bordered),
       )
-      // 明细：销售明细原始行平铺循环（无需重塑表达式）
+      // 明细：区域 source 已是原始行数组，格内只取条目相对字段
       LIST_COLUMNS.forEach(([key, patches], col) =>
-        putBinding(
-          doc,
-          cell(2, col),
-          { datasetId: SALES_LINES_DATASET, path: `[].${key}` },
-          bordered,
-          ...patches,
-        ),
+        putBinding(doc, cell(2, col), itemField(key), bordered, ...patches),
       )
-      // 合计：数量/金额纵向聚合，单价列留空补框
+      // 合计：落在展开区之外，走绝对路径 + 纵向聚合；单价列留空补框
       mergeText(doc, span(3, 0, 5), '合计', centered, bold, bordered)
       putBinding(
         doc,
@@ -219,19 +240,21 @@ function buildSalesListTemplate(): FormTemplate {
 // ─── 中式单据：销售出库单 ─────────────────────────────────────────────────────
 
 function buildCnReceiptTemplate(): FormTemplate {
+  /** 单据头/签字：绝对路径直取首单字段（区域 source 之外，走重塑表达式） */
   const headerBinding = (path: string): FormCellBinding => ({
     datasetId: ORDER_HEADER_DATASET,
     expression: FIRST_ORDER_EXPRESSION,
     path,
   })
-  const itemBinding = (
+  /** 合计：绝对路径 + 聚合（落在展开区之外，与明细区的相对字段互不影响） */
+  const totalBinding = (
     path: string,
-    aggregate?: FormCellBinding['aggregate'],
+    aggregate: FormCellBinding['aggregate'],
   ): FormCellBinding => ({
     datasetId: ORDER_ITEMS_DATASET,
     expression: GROUP_ORDER_ITEMS_EXPRESSION,
     path,
-    ...(aggregate ? { aggregate } : {}),
+    aggregate,
   })
   return buildTemplate(
     '销售出库单（中式单据）',
@@ -240,18 +263,44 @@ function buildCnReceiptTemplate(): FormTemplate {
       // 不能把客户/地址与明细列头一起并进来——那会把重复行数从 2 抬到 5，
       // 打印内核要求 fixRows > headerRepeatRows，下限跟着抬高；而且列头一旦进了
       // 重复块就会在第一页提前出现，破坏「页 1 只有客户/地址、不含品名」的分页口径。
-      { startRow: 0, endRow: 1, startCol: 0, endCol: 7, expand: 'none', repeat: true },
+      {
+        startRow: 0,
+        endRow: 1,
+        startCol: 0,
+        endCol: 7,
+        expand: 'none',
+        repeat: true,
+        name: '单据头',
+      },
       // 客户/地址 + 明细列头：属数据流（跟首单信息一起只出现一次），不重复。
       // 列头仍必须留在展开区之外——展开区按元素复制，列头混进去会逐行重复。
-      { startRow: 2, endRow: 4, startCol: 0, endCol: 7, expand: 'none' },
-      // 明细行（按首单 items 条数向下展开）
-      { startRow: 5, endRow: 5, startCol: 0, endCol: 7, expand: 'down' },
+      {
+        startRow: 2,
+        endRow: 4,
+        startCol: 0,
+        endCol: 7,
+        expand: 'none',
+        name: '客户信息与列头',
+      },
+      // 明细行（按区域 source 的 [0].items 条数向下展开）
+      {
+        startRow: 5,
+        endRow: 5,
+        startCol: 0,
+        endCol: 7,
+        expand: 'down',
+        name: '明细',
+        source: {
+          datasetId: ORDER_ITEMS_DATASET,
+          expression: GROUP_ORDER_ITEMS_EXPRESSION,
+          path: '[0].items',
+        },
+      },
       // 合计（静态）
-      { startRow: 6, endRow: 6, startCol: 0, endCol: 7, expand: 'none' },
+      { startRow: 6, endRow: 6, startCol: 0, endCol: 7, expand: 'none', name: '合计' },
       // 签字（静态）
-      { startRow: 7, endRow: 8, startCol: 0, endCol: 7, expand: 'none' },
+      { startRow: 7, endRow: 8, startCol: 0, endCol: 7, expand: 'none', name: '签字' },
     ],
-    8,
     (doc) => {
       // 表头：单据标题 + 首单订单编号/日期
       mergeText(doc, span(0, 0, 7), '销售出库单', centered, bold, {
@@ -266,7 +315,7 @@ function buildCnReceiptTemplate(): FormTemplate {
       mergeBinding(doc, span(2, 1, 7), headerBinding('customer'), leftAligned)
       putText(doc, cell(3, 0), '地址：', rightAligned)
       mergeBinding(doc, span(3, 1, 7), headerBinding('address'), leftAligned)
-      // 明细：列头行 + 首单 items 循环（嵌套二级数组取数）
+      // 明细：列头行 + 首单 items 循环（区域 source 出条目，格内只取相对字段）
       putText(doc, cell(4, 0), '序号', centered, bold, headerFill, bordered)
       mergeText(doc, span(4, 1, 2), '品名', centered, bold, headerFill, bordered)
       const detailHeaders: readonly [number, string][] = [
@@ -279,36 +328,29 @@ function buildCnReceiptTemplate(): FormTemplate {
       for (const [col, text] of detailHeaders) {
         putText(doc, cell(4, col), text, centered, bold, headerFill, bordered)
       }
-      putBinding(doc, cell(5, 0), itemBinding('[0].items[].line_no'), centered, bordered)
-      mergeBinding(doc, span(5, 1, 2), itemBinding('[0].items[].item_name'), leftAligned, bordered)
-      putBinding(doc, cell(5, 3), itemBinding('[0].items[].spec'), leftAligned, bordered)
-      putBinding(doc, cell(5, 4), itemBinding('[0].items[].unit'), centered, bordered)
-      putBinding(doc, cell(5, 5), itemBinding('[0].items[].qty'), centered, bordered)
-      putBinding(
-        doc,
-        cell(5, 6),
-        itemBinding('[0].items[].unit_price'),
-        rightAligned,
-        fixed2,
-        bordered,
-      )
-      putBinding(doc, cell(5, 7), itemBinding('[0].items[].amount'), rightAligned, fixed2, bordered)
+      putBinding(doc, cell(5, 0), itemField('line_no'), centered, bordered)
+      mergeBinding(doc, span(5, 1, 2), itemField('item_name'), leftAligned, bordered)
+      putBinding(doc, cell(5, 3), itemField('spec'), leftAligned, bordered)
+      putBinding(doc, cell(5, 4), itemField('unit'), centered, bordered)
+      putBinding(doc, cell(5, 5), itemField('qty'), centered, bordered)
+      putBinding(doc, cell(5, 6), itemField('unit_price'), rightAligned, fixed2, bordered)
+      putBinding(doc, cell(5, 7), itemField('amount'), rightAligned, fixed2, bordered)
       // 合计：大写金额横跨品名/规格/单位列，数量/金额对齐明细列，单价列留空补框
       mergeText(doc, span(6, 0, 1), '合计', centered, bold, bordered)
       mergeBinding(
         doc,
         span(6, 2, 4),
-        itemBinding('[0].items[].amount', 'sum'),
+        totalBinding('[0].items[].amount', 'sum'),
         leftAligned,
         cnUpper,
         bordered,
       )
-      putBinding(doc, cell(6, 5), itemBinding('[0].items[].qty', 'sum'), centered, bordered)
+      putBinding(doc, cell(6, 5), totalBinding('[0].items[].qty', 'sum'), centered, bordered)
       paint(doc, cell(6, 6), [bordered])
       putBinding(
         doc,
         cell(6, 7),
-        itemBinding('[0].items[].amount', 'sum'),
+        totalBinding('[0].items[].amount', 'sum'),
         rightAligned,
         bold,
         fixed2,
@@ -331,7 +373,7 @@ function buildCnReceiptTemplate(): FormTemplate {
 // ─── 种子模板集合 ─────────────────────────────────────────────────────────────
 
 /** 内置起点模板：id 固定（幂等落库键），template 为完整 FormTemplate JSON */
-export interface SeedTemplate {
+interface SeedTemplate {
   id: string
   template: FormTemplate
 }

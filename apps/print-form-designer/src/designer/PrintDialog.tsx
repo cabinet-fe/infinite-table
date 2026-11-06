@@ -13,8 +13,14 @@ import type {
 
 import { api, toSourceRows } from '../data/api'
 import type { FormDoc } from './form-doc'
-import { collectPrintBindings, preparePrintSession, type PrintSession } from './print-source'
+import {
+  collectPrintBindings,
+  collectRegionSources,
+  preparePrintSession,
+  type PrintSession,
+} from './print-source'
 import { IconClose, IconPrint } from '../ui/icons'
+import { describeError } from '../errors'
 
 /** 弹框打印配置（运行态，不落模板）：与 PrintConfig 的差异只在 UI 便捷形态 */
 export interface DialogPrintSettings {
@@ -92,11 +98,18 @@ export function PrintDialog({ doc, title, onClose }: Props) {
   const [error, setError] = useState('')
   const [printing, setPrinting] = useState(false)
 
-  // 打开时取数一次：绑定引用的数据集各自执行，构建稳定打印会话；弹框内配置变化
-  // 只重算预览，不重新取数
+  // 打开时取数一次：绑定与区域数据源引用的数据集各自执行，构建稳定打印会话；
+  // 弹框内配置变化只重算预览，不重新取数
   useEffect(() => {
     let cancelled = false
-    const datasetIds = [...new Set(collectPrintBindings(doc).map((binding) => binding.datasetId))]
+    const datasetIds = [
+      ...new Set(
+        [...collectPrintBindings(doc), ...collectRegionSources(doc)]
+          // 相对绑定（展开区内）没有 datasetId：形态由区域 source 那条需求提供
+          .map((source) => source.datasetId)
+          .filter((id) => id !== undefined),
+      ),
+    ]
     Promise.all(
       datasetIds.map(async (id) => [id, toSourceRows(await api.executeDataset(id))] as const),
     )
@@ -106,7 +119,7 @@ export function PrintDialog({ doc, title, onClose }: Props) {
         setError('')
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!cancelled) setError(describeError(cause))
       })
     return () => {
       cancelled = true
@@ -138,7 +151,7 @@ export function PrintDialog({ doc, title, onClose }: Props) {
         config: null,
         html: '',
         pages: 0,
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: describeError(cause),
       }
     }
   }, [session, settings])
@@ -148,7 +161,7 @@ export function PrintDialog({ doc, title, onClose }: Props) {
     setPrinting(true)
     session
       .print(preview.config)
-      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .catch((cause: unknown) => setError(describeError(cause)))
       .finally(() => setPrinting(false))
   }
 

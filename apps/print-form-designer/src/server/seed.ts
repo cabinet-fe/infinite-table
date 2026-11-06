@@ -87,14 +87,17 @@ const SEED_DATASETS: Omit<DatasetRow, 'datasource_id' | 'created_at'>[] = [
   },
 ]
 
-export interface SeedOptions {
-  /** 演练 SQLite 文件路径；默认落应用数据目录 demo.sqlite */
-  demoPath?: string
+/** 演练 SQLite 文件的默认位置（与应用元数据库同目录） */
+export const DEFAULT_DEMO_PATH = join(dirname(DEFAULT_DB_PATH), 'demo.sqlite')
+
+interface SeedOptions {
+  /** 演练 SQLite 文件路径 */
+  demoPath: string
 }
 
 // 幂等口径：表 CREATE IF NOT EXISTS、数据与注册行全部 INSERT OR IGNORE，二次启动不重复建、不重复插。
-export function seedDemoLibrary(db: Database, options: SeedOptions = {}): DatasourceRow {
-  const demoPath = options.demoPath ?? join(dirname(DEFAULT_DB_PATH), 'demo.sqlite')
+export function seedDemoLibrary(db: Database, options: SeedOptions): DatasourceRow {
+  const demoPath = options.demoPath
   mkdirSync(dirname(demoPath), { recursive: true })
 
   const demo = new Database(demoPath)
@@ -135,10 +138,10 @@ export function seedDemoLibrary(db: Database, options: SeedOptions = {}): Dataso
     insertDataset.run(dataset.id, datasource.id, dataset.name, dataset.sql, SEED_CREATED_AT)
   }
 
-  // 内置起点模板：bands 列口径与模板 REST 一致（FormTemplate 去 name 原样序列化）；
+  // 内置起点模板：template 列口径与模板 REST 一致（FormTemplate 去 name 原样序列化）；
   // 用户改存（UPDATE）不改 id，再启不覆盖；删除后重启按 id 重新补种
   const insertTemplate = db.query(
-    'INSERT OR IGNORE INTO template (id, name, bands, created_at) VALUES (?, ?, ?, ?)',
+    'INSERT OR IGNORE INTO template (id, name, template, created_at) VALUES (?, ?, ?, ?)',
   )
   for (const { id, template } of SEED_TEMPLATES) {
     const { name, ...payload } = template

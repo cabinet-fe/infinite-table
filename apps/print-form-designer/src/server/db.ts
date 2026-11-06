@@ -10,7 +10,7 @@ export function resolveDbPath(): string {
   return process.env.PRINT_FORM_DB ?? DEFAULT_DB_PATH
 }
 
-export function openDatabase(path: string = resolveDbPath()): Database {
+export function openDatabase(path: string): Database {
   if (path !== ':memory:') {
     mkdirSync(dirname(path), { recursive: true })
   }
@@ -19,7 +19,7 @@ export function openDatabase(path: string = resolveDbPath()): Database {
   return db
 }
 
-// 三张表对齐三组 REST 资源（数据源/数据集/模板）；模板 bands 列存模板文档 JSON 文本
+// 三张表对齐三组 REST 资源（数据源/数据集/模板）；模板 template 列存模板文档 JSON 文本
 // （FormTemplate 去掉 name 后原样序列化，name 走独立列供清单查询）。
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS datasource (
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS dataset (
 CREATE TABLE IF NOT EXISTS template (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  bands TEXT NOT NULL,
+  template TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 `

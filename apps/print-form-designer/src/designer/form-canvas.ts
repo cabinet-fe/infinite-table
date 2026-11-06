@@ -13,7 +13,11 @@ import {
 } from './template'
 
 /**
- * 设计画布挂载层：SheetGrid 为所见即所得画布（固定行列、关闭滚动扩容）。
+ * 设计画布挂载层：SheetGrid 为所见即所得画布（WPS 式无限单元格，随滚动扩容）。
+ *
+ * 尺寸口径：不传 rows/cols，画布随滚动增长；序列化时由 FormDoc 收紧到内容包围盒。
+ * 因此引擎的 sheet.rows 会随滚动膨胀，**不能**拿它当「是否需要重建网格」的依据——
+ * 重建只看几何键集缩小与合并区变化（见 syncView）。
  *
  * - 配置态口径：绑定格只显示占位符（resolveDisplayValue 读 sidecar，数据行
  *   永不进画布；数据态渲染在预览/打印管线，P5/P6 接线）；
@@ -55,7 +59,7 @@ function keySetShrunk(prev: ReadonlySet<number>, next: ReadonlySet<number>): boo
   return false
 }
 
-export interface FormCanvasOptions {
+interface FormCanvasOptions {
   container: HTMLElement
   doc: FormDoc
   /** 选区变化（含所在区域；区域面板与绑定面板据此高亮/跟随） */
@@ -84,13 +88,13 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   let released = false
   let grid: SheetGrid | undefined
   let wrapper: HTMLDivElement | undefined
-  /** 当前挂载的引擎行数（与 doc.rows 比对决定重建） */
-  let mountedRows = 0
   /** 上次同步到引擎的几何态（键集缩小或合并区变化须重建网格） */
   let mountedGeometry = captureGeometry(doc)
   const disposers: (() => void)[] = []
   /** 纸张参考线配置（显示层状态，由宿主经 setPaperGuides 写入） */
   let guidesConfig: PaperGuidesConfig | null = options.paperGuides ?? null
+  /** 指针命中的区域下标（悬停态：overlay 只在有值时画区域名 pill） */
+  let hoveredRegionIndex: number | undefined
   /** sky 层组合 overlay（区域轨道 + 参考线；每次网格创建/重建随 createGrid 重挂新引擎） */
   const overlay: CanvasOverlay = createCanvasOverlay({
     getGrid: () => grid,
@@ -98,7 +102,33 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     getRegions: () => doc.regions,
     // 当前选中格（overlay 据此判定「现在说的是哪个区域」并加粗描边）
     getActiveCell: () => doc.sheet.getSelection().activeCell ?? undefined,
+    // 无限画布下引擎行列含大量扩容空行：参考线只在内容包围盒内估算换页
+    getContentBounds: () => doc.bounds,
+    // 悬停区域（默认不显示区域名，指针落在区域内才出 pill）
+    getHoveredRegionIndex: () => hoveredRegionIndex,
   })
+
+  /**
+   * 指针跟踪：只在「命中区域下标变化」时失效 sky 层——区域内逐格移动不重绘，
+   * 移出区域即清除悬停。监听随 host 节点一起销毁（remount 会整体移除 host），
+   * 因此不需要额外的 disposer。
+   */
+  const bindHover = (host: HTMLDivElement, instance: SheetGrid): void => {
+    host.addEventListener('pointermove', (event) => {
+      const rect = host.getBoundingClientRect()
+      const addr = instance.hitTestSheetAddr(event.clientX - rect.left, event.clientY - rect.top)
+      const region = addr ? regionsAt(doc.regions, addr.row, addr.col) : undefined
+      const next = region ? doc.regions.indexOf(region) : undefined
+      if (next === hoveredRegionIndex) return
+      hoveredRegionIndex = next
+      overlay.refresh()
+    })
+    host.addEventListener('pointerleave', () => {
+      if (hoveredRegionIndex === undefined) return
+      hoveredRegionIndex = undefined
+      overlay.refresh()
+    })
+  }
 
   const createGrid = (): SheetGrid => {
     const host = document.createElement('div')
@@ -107,14 +137,13 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     const instance = new SheetGrid({
       container: host,
       sheet: doc.sheet,
-      rows: doc.rows,
-      cols: doc.cols,
+      // 不传 rows/cols：WPS 式无限单元格，初始按视口给足，滚动触界再扩容
       width: options.width,
       height: options.height,
       // 设计器观感：表头/网格线/选区配色（仅颜色，不改行列尺寸与字号）
       theme: FORM_CANVAS_THEME,
-      // 设计画布固定行列：模板行数即画布行数，滚动不扩容
-      growOnScroll: false,
+      // 无限画布：序列化时 FormDoc.toTemplate 会收紧到内容包围盒
+      growOnScroll: true,
       // 配置态占位符：绑定格显示 {{path}}，其余回落存储值；数据行不进画布
       resolveDisplayValue: (addr, base) => {
         const binding = doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE)
@@ -132,9 +161,10 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
         return binding ? { ...base, fill: { color: BOUND_CELL_TINT } } : undefined
       },
     })
-    mountedRows = doc.rows
     mountedGeometry = captureGeometry(doc)
     wrapper = host
+    hoveredRegionIndex = undefined
+    bindHover(host, instance)
     overlay.attach(instance)
     return instance
   }
@@ -142,16 +172,14 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   grid = createGrid()
 
   /**
-   * 模型变更后的视图同步：行数变化、行高/列宽键清除或合并区变化（快照级静默
-   * restore 清空模型键、区域平移改写合并——引擎侧行高覆盖无清除 API、合并 Map
-   * 仅事件驱动同步，非重建路径无法表达）时重建网格；其余同步尺寸并整表重绘。
+   * 模型变更后的视图同步：只按行高/列宽键集缩小、合并区变化重建网格（快照级静默
+   * restore 清空模型键、区域平移改写合并——引擎侧行高覆盖无清除 API、合并 Map 仅
+   * 事件驱动同步，非重建路径无法表达）；其余同步尺寸并整表重绘。
+   *
+   * 不比对行列数：无限画布下 sheet.rows 随滚动增长，把它当重建依据会一滚就重建。
    */
   function syncView(): void {
     if (released) return
-    if (doc.rows !== mountedRows) {
-      remount()
-      return
-    }
     const geometry = captureGeometry(doc)
     if (
       keySetShrunk(mountedGeometry.rowKeys, geometry.rowKeys) ||

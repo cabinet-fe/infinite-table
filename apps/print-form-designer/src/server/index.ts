@@ -5,7 +5,7 @@ import type { Database } from 'bun:sqlite'
 import { openDatabase, resolveDbPath } from './db'
 import { mountResourceRoutes } from './routes'
 import { registerSqliteDataSource } from './sqlite-datasource'
-import { seedDemoLibrary } from './seed'
+import { DEFAULT_DEMO_PATH, seedDemoLibrary } from './seed'
 
 export function createApp(db: Database): Hono {
   registerSqliteDataSource()
@@ -18,7 +18,7 @@ if (import.meta.main) {
   const port = Number(process.env.PORT ?? 8787)
   const dbPath = resolveDbPath()
   const db = openDatabase(dbPath)
-  seedDemoLibrary(db)
+  seedDemoLibrary(db, { demoPath: DEFAULT_DEMO_PATH })
   Bun.serve({ port, fetch: createApp(db).fetch })
   console.log(
     `print-form-designer 后端已启动 http://localhost:${port}（数据库：${dbPath}，已内置 seed 演练库）`,

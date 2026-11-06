@@ -1,10 +1,8 @@
 // P4 纸张边界与分页参考线：几何/绘制纯函数、挂载画布的 painter 端到端、以及两条
 // spec 验收口径——参考线与纸张显示参数不落模板（保存 JSON 键集断言）、overlay 不
 // 参与数据态渲染（打印产物逐字相等 + 画布模型快照不变）。
-// bun test 不支持环境注释，happy-dom DOM 面挂法与 form-canvas.test.ts 同款。
+// DOM 面与 canvas 2d 桩由 testing/dom 统一挂载。
 import { describe, expect, test } from 'bun:test'
-import { Window } from 'happy-dom'
-
 import { createEnginePrintSource, createPrintPlugin, type PrintSource } from '@infinitable/plugins'
 
 import { FormDoc } from '../../src/designer/form-doc'
@@ -18,46 +16,9 @@ import {
   type GuideContext,
   type PaperGuidesConfig,
 } from '../../src/designer/paper-guides'
+import { setupDom } from './testing/dom'
 
-const win = new Window()
-Object.assign(globalThis, {
-  window: win,
-  document: win.document,
-  HTMLElement: win.HTMLElement,
-  HTMLCanvasElement: win.HTMLCanvasElement,
-  HTMLInputElement: win.HTMLInputElement,
-  HTMLTextAreaElement: win.HTMLTextAreaElement,
-  Node: win.Node,
-  Event: win.Event,
-  MouseEvent: win.MouseEvent,
-  KeyboardEvent: win.KeyboardEvent,
-  WheelEvent: win.WheelEvent,
-  CustomEvent: win.CustomEvent,
-  getComputedStyle: win.getComputedStyle.bind(win),
-  requestAnimationFrame: win.requestAnimationFrame.bind(win),
-  cancelAnimationFrame: win.cancelAnimationFrame.bind(win),
-  devicePixelRatio: 1,
-})
-
-/** getContext('2d') 最小 mock（painter 不经真实 canvas，仅备引擎构造路径） */
-function setupCanvasContextMock(): void {
-  const store: Record<string | symbol, unknown> = {}
-  const context = new Proxy(store, {
-    get(target, prop) {
-      if (prop in target) return target[prop]
-      if (prop === 'measureText') return (text: unknown) => ({ width: String(text).length * 8 })
-      return () => {}
-    },
-    set(target, prop, value) {
-      target[prop] = value
-      return true
-    },
-  })
-  const proto = win.HTMLCanvasElement.prototype
-  proto.getContext = ((contextId: string) =>
-    contextId === '2d' ? context : null) as typeof proto.getContext
-}
-setupCanvasContextMock()
+setupDom()
 
 // ─── 纯函数：纸张内容区与分页估算 ─────────────────────────────────────────────
 
@@ -104,14 +65,20 @@ describe('paperAreaPx：纸张内容区尺寸（mm→px、扣边距、方向交�
 describe('computePageGuides：分页估算复用 print paginate', () => {
   test('超高超宽内容切行带/列带，边界偏移 = 行高/列宽累加', () => {
     // A4 纵向内容区高 1026.52px：60px 行放 17 行（1020）后换页；宽 697.70px：120px 列放 5 列（600）后换列带
-    const geometry = computePageGuides(uniformSource(20, 8, 60, 120), DEFAULT_PAPER_GUIDES)
+    const geometry = computePageGuides(uniformSource(20, 8, 60, 120), DEFAULT_PAPER_GUIDES, {
+      rowCount: 20,
+      colCount: 8,
+    })
     expect(geometry.rowBreaks).toEqual([1020])
     expect(geometry.colBreaks).toEqual([600])
     expect(geometry.paper).toEqual(paperAreaPx(DEFAULT_PAPER_GUIDES))
   })
 
   test('单页内容无参考线（行带/列带各一）', () => {
-    const geometry = computePageGuides(uniformSource(3, 2, 40, 80), DEFAULT_PAPER_GUIDES)
+    const geometry = computePageGuides(uniformSource(3, 2, 40, 80), DEFAULT_PAPER_GUIDES, {
+      rowCount: 3,
+      colCount: 2,
+    })
     expect(geometry.rowBreaks).toEqual([])
     expect(geometry.colBreaks).toEqual([])
   })
@@ -122,14 +89,49 @@ describe('computePageGuides：分页估算复用 print paginate', () => {
     const fits = computePageGuides(
       uniformSource(3, 1, (area.height - 1) / 3, 80),
       DEFAULT_PAPER_GUIDES,
+      { rowCount: 3, colCount: 1 },
     )
     expect(fits.rowBreaks).toEqual([])
     // 总高 = 内容区高 + 1 → 换页（avail < 总高）
     const overflows = computePageGuides(
       uniformSource(3, 1, (area.height + 1) / 3, 80),
       DEFAULT_PAPER_GUIDES,
+      { rowCount: 3, colCount: 1 },
     )
     expect(overflows.rowBreaks.length).toBe(1)
+  })
+
+  test('domain 限定分页域：无限画布的扩容空行不进换页估算', () => {
+    // 引擎口径 300 行 × 100 列（无限画布扩容结果）；真实内容只有 5 行 3 列
+    const padded = uniformSource(300, 100, 60, 120)
+    const unbounded = computePageGuides(padded, DEFAULT_PAPER_GUIDES, {
+      rowCount: 300,
+      colCount: 100,
+    })
+    // 不限定域：300 行 × 60px 会切出多页、100 列 × 120px 切出多条列带
+    expect(unbounded.rowBreaks.length).toBeGreaterThan(5)
+    expect(unbounded.colBreaks.length).toBeGreaterThan(10)
+
+    const bounded = computePageGuides(padded, DEFAULT_PAPER_GUIDES, { rowCount: 5, colCount: 3 })
+    // 5 行 × 60 = 300 ≤ 1026.52、3 列 × 120 = 360 ≤ 697.70 → 单页，无参考线
+    expect(bounded.rowBreaks).toEqual([])
+    expect(bounded.colBreaks).toEqual([])
+    expect(bounded.paper).toEqual(paperAreaPx(DEFAULT_PAPER_GUIDES))
+  })
+
+  test('domain 只裁分页域，不改变边界偏移口径（行高/列宽累加）', () => {
+    // 同一 60px 行源、20 行 × 8 列域：偏移口径与不受域限制时一致（1020 / 600）
+    const source = uniformSource(20, 8, 60, 120)
+    const bounded = computePageGuides(source, DEFAULT_PAPER_GUIDES, { rowCount: 20, colCount: 8 })
+    expect(bounded.rowBreaks).toEqual([1020])
+    expect(bounded.colBreaks).toEqual([600])
+    // 域小于换页阈值 → 无参考线；域 = 0 → 空页列表（无参考线）
+    expect(
+      computePageGuides(source, DEFAULT_PAPER_GUIDES, { rowCount: 10, colCount: 4 }).rowBreaks,
+    ).toEqual([])
+    const empty = computePageGuides(source, DEFAULT_PAPER_GUIDES, { rowCount: 0, colCount: 0 })
+    expect(empty.rowBreaks).toEqual([])
+    expect(empty.colBreaks).toEqual([])
   })
 })
 
@@ -207,7 +209,7 @@ function mountWithGuides(): {
   canvas: ReturnType<typeof mountFormCanvas>
   config: PaperGuidesConfig
 } {
-  const doc = FormDoc.create()
+  const doc = FormDoc.create(8)
   doc.resizeRegionRows(0, 10) // 默认只有 3 行；撑到 10 行以触发 A4 换页
   for (let row = 0; row < doc.rows; row++) doc.setRowHeight(row, 120)
   const container = document.createElement('div')
@@ -224,12 +226,13 @@ function mountWithGuides(): {
 
 describe('画布 overlay painter（协议槽位显示层）', () => {
   test('经引擎读取面估算：换页线落在 8×120=960px（第 9 行放不下），原点含行号列/列头偏移', () => {
-    const { canvas, config } = mountWithGuides()
+    const { doc, canvas, config } = mountWithGuides()
     try {
       const { ctx, ops } = recordContext()
       createPaperGuidesPainter(
         () => canvas.getGrid(),
         () => config,
+        () => doc.bounds,
       )(ctx, { width: 900, height: 420 })
       const area = paperAreaPx(config)
       const rect = ops.find((item) => item.op === 'rect')
@@ -248,14 +251,48 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
     }
   })
 
+  test('注入内容包围盒后只在包围盒内估算：内容不足一页则无换页线', () => {
+    const { canvas, config } = mountWithGuides()
+    try {
+      const { ctx, ops } = recordContext()
+      createPaperGuidesPainter(
+        () => canvas.getGrid(),
+        () => config,
+        // 真实内容只有 3 行（画布撑了 10 行）→ 远不足一页
+        () => ({ rows: 3, cols: 4 }),
+      )(ctx, { width: 900, height: 420 })
+      // 纸张边界照画，但没有换页虚线
+      expect(ops.filter((item) => item.op === 'rect')).toHaveLength(1)
+      expect(ops.filter((item) => item.op === 'moveTo')).toEqual([])
+    } finally {
+      canvas.release()
+    }
+  })
+
+  test('内容包围盒为空 → 完全不绘制（没有内容就没有换页）', () => {
+    const { canvas, config } = mountWithGuides()
+    try {
+      const { ctx, ops } = recordContext()
+      createPaperGuidesPainter(
+        () => canvas.getGrid(),
+        () => config,
+        () => ({ rows: 0, cols: 0 }),
+      )(ctx, { width: 900, height: 420 })
+      expect(ops).toEqual([])
+    } finally {
+      canvas.release()
+    }
+  })
+
   test('关闭参考线后 painter 不绘制任何内容', () => {
-    const { canvas } = mountWithGuides()
+    const { doc, canvas } = mountWithGuides()
     try {
       canvas.setPaperGuides(null)
       const { ctx, ops } = recordContext()
       createPaperGuidesPainter(
         () => canvas.getGrid(),
         () => null,
+        () => doc.bounds,
       )(ctx, { width: 900, height: 420 })
       expect(ops).toEqual([])
     } finally {
@@ -265,26 +302,22 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
 })
 
 describe('参考线不落模板 / 不参与数据态渲染', () => {
-  test('挂载并绘制参考线后：保存 JSON 键集恰为模板五键，深层无参考线/纸张/分页键', () => {
+  test('挂载并绘制参考线后：保存 JSON 键集恰为模板四键，深层无参考线/纸张/分页键', () => {
     const { doc, canvas, config } = mountWithGuides()
     try {
       const { ctx } = recordContext()
       createPaperGuidesPainter(
         () => canvas.getGrid(),
         () => config,
+        () => doc.bounds,
       )(ctx, { width: 900, height: 420 })
       canvas.setPaperGuides({ ...config, paperSize: 'A3', orientation: 'landscape' })
       canvas.setPaperGuides(null)
       canvas.setPaperGuides(config)
 
       const template = doc.toTemplate('演练')
-      expect(Object.keys(template).sort()).toEqual([
-        'cols',
-        'name',
-        'regions',
-        'schemaVersion',
-        'sheet',
-      ])
+      // 画布尺寸由内容包围盒推导，模板不含声明 cols
+      expect(Object.keys(template).sort()).toEqual(['name', 'regions', 'schemaVersion', 'sheet'])
       // 深层键扫描：任何层级都不出现参考线/纸张/分页类键名
       const forbidden =
         /^(paper|paperSize|paperGuides|orientation|margin|paging|scale|guides?|rowBreaks|colBreaks|pageBreaks?)$/i
@@ -317,6 +350,7 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
       createPaperGuidesPainter(
         () => canvas.getGrid(),
         () => config,
+        () => doc.bounds,
       )(ctx, { width: 900, height: 420 })
       canvas.setPaperGuides(null)
       const htmlOff = createPrintPlugin({ source }).buildDocumentHtml()

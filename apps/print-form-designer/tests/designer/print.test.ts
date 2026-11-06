@@ -1,10 +1,7 @@
 // P8 打印输出测试：PrintSource 适配（数据态快照 → print 插件供数）、同一数据集
 // 多表达式形态口径、明细波段跨页自动分页、弹框配置不落模板、预览与打印同输入
-// 同输出（一致性）。打印输出路径（iframe 装载）需要 DOM：手工挂 happy-dom 全局
-// （与 form-canvas.test.ts 同口径），纯模型用例不受影响。
+// 同输出（一致性）。打印输出路径（iframe 装载）需要 DOM，由 testing/dom 统一挂载。
 import { describe, expect, test } from 'bun:test'
-import { Window } from 'happy-dom'
-
 import { BORDER_STYLE_WIDTH, Sheet } from '@infinitable/sheet'
 
 import type { SourceRow } from '../../src/transform/reshape'
@@ -14,21 +11,23 @@ import {
   toPrintConfig,
   type DialogPrintSettings,
 } from '../../src/designer/PrintDialog'
-import { collectPrintBindings, preparePrintSession } from '../../src/designer/print-source'
-import { TEMPLATE_SCHEMA_VERSION, type FormTemplate } from '../../src/designer/template'
+import {
+  collectPrintBindings,
+  collectRegionSources,
+  preparePrintSession,
+} from '../../src/designer/print-source'
+import {
+  TEMPLATE_SCHEMA_VERSION,
+  type FormTemplate,
+  type RegionSource,
+} from '../../src/designer/template'
+import { domWindow, setupDom } from './testing/dom'
+import { ADDR, relativeBinding } from './testing/fixtures'
 
-const win = new Window()
-Object.assign(globalThis, {
-  window: win,
-  document: win.document,
-  HTMLElement: win.HTMLElement,
-  HTMLIFrameElement: win.HTMLIFrameElement,
-  Node: win.Node,
-  Event: win.Event,
-  CustomEvent: win.CustomEvent,
-})
+setupDom()
 
-const ADDR = (row: number, col: number) => ({ row, col })
+/** 明细数据集区域源：原始行数组即循环源（列表样口径） */
+const DETAIL_SOURCE: RegionSource = { datasetId: 'ds1', path: '' }
 
 /** 单行向下展开区模板：静态首行 / 静态次行 / 展开行 / 静态尾行（4 列） */
 function detailDoc(): FormDoc {
@@ -38,16 +37,15 @@ function detailDoc(): FormDoc {
     regions: [
       { startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'none' },
       { startRow: 1, endRow: 1, startCol: 0, endCol: 3, expand: 'none' },
-      { startRow: 2, endRow: 2, startCol: 0, endCol: 3, expand: 'down' },
+      { startRow: 2, endRow: 2, startCol: 0, endCol: 3, expand: 'down', source: DETAIL_SOURCE },
       { startRow: 3, endRow: 3, startCol: 0, endCol: 3, expand: 'none' },
     ],
-    cols: 4,
     sheet: new Sheet('form').snapshot(),
   }
   return FormDoc.fromTemplate(template)
 }
 
-/** N 条明细的原始行（列名 name/no），供绑定循环展开 */
+/** N 条明细的原始行（列名 name/no），供区域 source 循环展开 */
 function itemRows(count: number): SourceRow[] {
   return Array.from({ length: count }, (_, i) => ({ name: `货品${i + 1}`, no: i + 1 }))
 }
@@ -57,13 +55,14 @@ function groupedDoc(): FormDoc {
   const template: FormTemplate = {
     schemaVersion: TEMPLATE_SCHEMA_VERSION,
     name: 't',
-    regions: [{ startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'down' }],
-    cols: 4,
+    regions: [
+      { startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'down', source: DETAIL_SOURCE },
+    ],
     sheet: new Sheet('form').snapshot(),
   }
   const doc = FormDoc.fromTemplate(template)
-  doc.setCellBinding(ADDR(0, 0), { datasetId: 'ds1', path: '[].group' })
-  doc.setCellBinding(ADDR(0, 1), { datasetId: 'ds1', path: '[].name' })
+  doc.setCellBinding(ADDR(0, 0), relativeBinding('group'))
+  doc.setCellBinding(ADDR(0, 1), relativeBinding('name'))
   return doc
 }
 
@@ -72,7 +71,7 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     const doc = detailDoc()
     doc.setRowHeight(0, 40)
     doc.setColWidth(0, 120)
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const session = preparePrintSession(doc, new Map([['ds1', itemRows(2)]]), 't')
     // 3 行模板外行 + 2 条明细 = 5 行；4 列（分页列区间覆盖全列）
     expect(session.plugin.paginate({})[0]?.colRange).toEqual({ start: 0, end: 4 })
@@ -121,7 +120,7 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
   test('merges：模型合并区映射为打印内核扁平区间', () => {
     const doc = detailDoc()
     doc.sheet.mergeCells({ start: ADDR(0, 0), end: ADDR(0, 1) })
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const session = preparePrintSession(doc, new Map([['ds1', itemRows(1)]]), 't')
     const html = session.previewHtml({})
     expect(html).toContain('<td colspan="2"')
@@ -139,12 +138,24 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     expect(html).toContain('甲公司')
     expect(html).toContain('>x<')
   })
+
+  test('区域 source 与单元格绑定并集取数：只有区域引用数据集时也会被取数', () => {
+    const doc = detailDoc()
+    // 明细格只有相对字段（不带 datasetId），唯一的数据集引用来自区域 source
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
+    expect(collectPrintBindings(doc).map((binding) => binding.path)).toEqual(['name'])
+    expect(collectRegionSources(doc)).toEqual([DETAIL_SOURCE])
+    // 若区域 source 不进形态集合，这里会一行明细都取不到
+    const html = preparePrintSession(doc, new Map([['ds1', itemRows(2)]]), 't').previewHtml({})
+    expect(html).toContain('货品1')
+    expect(html).toContain('货品2')
+  })
 })
 
 describe('展开区跨页自动分页', () => {
   test('长明细展开后按行高分页：页数、行分布与行覆盖正确', () => {
     const doc = detailDoc()
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const count = 60
     const session = preparePrintSession(doc, new Map([['ds1', itemRows(count)]]), 't')
     // A4 纵向缺省边距：可用页高 = 297mm×96/25.4 − 96 ≈ 1026.5px；行高缺省 28px → 每页 36 行
@@ -172,7 +183,7 @@ describe('展开区跨页自动分页', () => {
   test('重复表头：每页先输出表头行区间，数据域从表头带之后开始', () => {
     const doc = detailDoc()
     doc.sheet.setCellValue(ADDR(0, 0), '页眉标题')
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const count = 60
     const session = preparePrintSession(doc, new Map([['ds1', itemRows(count)]]), 't')
     const config = toPrintConfig({ ...DEFAULT_PRINT_SETTINGS, headerRepeatRows: 1 })
@@ -209,7 +220,10 @@ describe('展开区跨页自动分页', () => {
       [2, 5],
     ])
     // 页面构建产物：每页只含本组明细（分组列值与明细值都不越页）
-    const parsed = new win.DOMParser().parseFromString(session.previewHtml(config), 'text/html')
+    const parsed = new domWindow.DOMParser().parseFromString(
+      session.previewHtml(config),
+      'text/html',
+    )
     const pageEls = parsed.querySelectorAll('.print-page')
     expect(pageEls.length).toBe(2)
     expect(pageEls[0]!.textContent).toContain('单A')
@@ -226,7 +240,7 @@ describe('弹框配置不落模板', () => {
     const doc = detailDoc()
     doc.setRowHeight(0, 40)
     doc.sheet.setCellValue(ADDR(0, 0), '标题')
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const before = JSON.stringify(doc.toTemplate('t'))
     // 走完整弹框链路：全量配置取数 → 预览 → 分页 → 打印文档构建
     const settings: DialogPrintSettings = {
@@ -267,7 +281,7 @@ describe('弹框配置不落模板', () => {
 describe('预览与打印一致（同输入同输出）', () => {
   test('两个独立会话（预览实例 / 打印实例）构建的文档 HTML 完全一致', () => {
     const doc = detailDoc()
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const rowsByDataset = new Map([['ds1', itemRows(10)]])
     const config = toPrintConfig({ ...DEFAULT_PRINT_SETTINGS, headerRepeatRows: 1 })
     const previewSession = preparePrintSession(doc, rowsByDataset, 't')
@@ -277,7 +291,7 @@ describe('预览与打印一致（同输入同输出）', () => {
 
   test('打印输出 iframe 装载的文档与预览 HTML 逐字节一致', async () => {
     const doc = detailDoc()
-    doc.setCellBinding(ADDR(2, 0), { datasetId: 'ds1', path: '[].name' })
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const config = toPrintConfig({ ...DEFAULT_PRINT_SETTINGS, headerRepeatRows: 0 })
     const frames: HTMLIFrameElement[] = []
     const printSession = preparePrintSession(doc, new Map([['ds1', itemRows(5)]]), 't', {
