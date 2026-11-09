@@ -1,7 +1,7 @@
-// P6 绑定域测试：路径解析/还原、取值（嵌套二级数组、明细循环语境、聚合）、
-// 区域循环数组定位（loopArrayAt）、展开区条目取值（resolveItemValue，含相对路径
-// 禁 [] 口径）、数据集形态入口缺省口径、绑定树（嵌套二级数组节点）、
-// 绑定元数据（数据集 + 路径 + 表达式 + 聚合）随模板 JSON round-trip 不丢。
+// 绑定域测试（v4）：路径解析/还原、数据块循环数组定位（loopArrayAt）、数据块内条目
+// 取值（resolveItemValue，含相对路径禁 [] 口径）、数据集形态入口缺省口径、
+// 绑定树（嵌套二级数组节点）、绑定/函数 sidecar 随模板 JSON round-trip 不丢。
+// 绝对绑定与单元格聚合已删除（由 cell-function.test.ts 覆盖函数体系）。
 import { describe, expect, test } from 'bun:test'
 
 import {
@@ -10,11 +10,9 @@ import {
   loopArrayAt,
   parseBindingPath,
   reshapeDatasetData,
-  resolveBindingValue,
   resolveItemValue,
 } from '../../src/designer/binding'
 import { FormDoc } from '../../src/designer/form-doc'
-import type { FormCellBinding } from '../../src/designer/template'
 import { ADDR } from './testing/fixtures'
 
 describe('路径解析与还原', () => {
@@ -40,59 +38,7 @@ describe('路径解析与还原', () => {
   })
 })
 
-describe('绑定取值', () => {
-  const shape = {
-    customer: { name: '甲公司' },
-    items: [
-      { name: '货架', price: 120, lines: [{ qty: 2 }, { qty: 5 }] },
-      { name: '推车', price: 80, lines: [{ qty: 1 }] },
-    ],
-  }
-  const bind = (path: string, aggregate?: FormCellBinding['aggregate']): FormCellBinding => ({
-    datasetId: 'ds1',
-    path,
-    aggregate,
-  })
-
-  test('对象直取与嵌套二级数组下标取数', () => {
-    expect(resolveBindingValue(shape, bind('customer.name'), {})).toBe('甲公司')
-    expect(resolveBindingValue(shape, bind('items[1].name'), {})).toBe('推车')
-    expect(resolveBindingValue(shape, bind('items[0].lines[1].qty'), {})).toBe(5)
-    expect(resolveBindingValue(shape, bind('items[3].name'), {})).toBeUndefined()
-    expect(resolveBindingValue(shape, bind('customer.missing'), {})).toBeUndefined()
-  })
-
-  test('明细语境：[] 按行下标逐行取值（含嵌套二级数组循环目标层）', () => {
-    expect(resolveBindingValue(shape, bind('items[].name'), { each: 0 })).toBe('货架')
-    expect(resolveBindingValue(shape, bind('items[].price'), { each: 1 })).toBe(80)
-    expect(resolveBindingValue(shape, bind('items[].name'), { each: 2 })).toBeUndefined()
-    expect(resolveBindingValue(shape, bind('items[0].lines[].qty'), { each: 1 })).toBe(5)
-  })
-
-  test('非明细语境：[] 需聚合，缺省无值', () => {
-    expect(resolveBindingValue(shape, bind('items[].price'), {})).toBeUndefined()
-    expect(resolveBindingValue(shape, bind('items[].price', 'sum'), {})).toBe(200)
-    expect(resolveBindingValue(shape, bind('items[].price', 'avg'), {})).toBe(100)
-    expect(resolveBindingValue(shape, bind('items[].name', 'count'), {})).toBe(2)
-    expect(resolveBindingValue(shape, bind('items[].price', 'max'), {})).toBe(120)
-    expect(resolveBindingValue(shape, bind('items[].price', 'min'), {})).toBe(80)
-  })
-
-  test('聚合跳过空值，数值聚合只吃 number', () => {
-    const mixed = { xs: [{ v: 1 }, { v: 'x' }, { v: 3 }, {}, { v: null }] }
-    expect(resolveBindingValue(mixed, bind('xs[].v', 'sum'), {})).toBe(4)
-    expect(resolveBindingValue(mixed, bind('xs[].v', 'count'), {})).toBe(3)
-    expect(resolveBindingValue(mixed, bind('xs[].v', 'avg'), {})).toBe(2)
-    expect(resolveBindingValue({ xs: [] }, bind('xs[].v', 'max'), {})).toBeUndefined()
-  })
-
-  test('对象/数组结果不进格', () => {
-    expect(resolveBindingValue(shape, bind('customer'), {})).toBeUndefined()
-    expect(resolveBindingValue(shape, bind('items'), {})).toBeUndefined()
-  })
-})
-
-describe('区域循环数组（loopArrayAt）', () => {
+describe('数据块循环数组（loopArrayAt）', () => {
   const shape = {
     items: [{ name: '甲' }, { name: '乙' }],
     order: { lines: [{ qty: 1 }] },
@@ -130,7 +76,7 @@ describe('区域循环数组（loopArrayAt）', () => {
   })
 })
 
-describe('展开区条目取值（resolveItemValue）', () => {
+describe('数据块内条目取值（resolveItemValue）', () => {
   const item = { name: '货架', price: 120, customer: { name: '甲公司' }, lines: [{ qty: 2 }] }
 
   test("relativePath 为 '' 时条目本身进格（仅原始类型）", () => {
@@ -204,21 +150,29 @@ describe('绑定树（路径选择器数据源）', () => {
   })
 })
 
-describe('绑定元数据落模板 JSON', () => {
-  test('数据集 + 表达式 + 路径 + 聚合随 sidecar round-trip 不丢', () => {
+describe('sidecar 落模板 JSON', () => {
+  test('绑定（条目内相对路径）与函数 round-trip 不丢', () => {
     const doc = FormDoc.create(8)
-    doc.setCellBinding(ADDR(4, 1), {
-      datasetId: 'ds1',
-      expression: 'rows.map(r => ({ name: r.name, lines: [r] }))',
-      path: 'items[].price',
-      aggregate: 'sum',
-    })
+    doc.setCellBinding(ADDR(0, 1), { path: 'customer.name' })
+    // 旧表达式形状写入即嗅探为结构化 fn，round-trip 后保持结构化形状
+    doc.setCellFunction(ADDR(1, 1), { expression: "SUM('数据块 1', 'qty')" })
     const restored = FormDoc.fromTemplate(doc.toTemplate('t'))
-    expect(restored.getCellBinding(ADDR(4, 1))).toEqual({
-      datasetId: 'ds1',
-      expression: 'rows.map(r => ({ name: r.name, lines: [r] }))',
-      path: 'items[].price',
-      aggregate: 'sum',
+    expect(restored.getCellBinding(ADDR(0, 1))).toEqual({ path: 'customer.name' })
+    expect(restored.getCellFunction(ADDR(1, 1))).toEqual({
+      kind: 'fn',
+      fn: 'SUM',
+      region: '数据块 1',
+      field: 'qty',
     })
+  })
+
+  test('绑定与函数互斥：写绑定清函数、写函数清绑定', () => {
+    const doc = FormDoc.create(8)
+    doc.setCellFunction(ADDR(0, 0), { expression: '1' })
+    doc.setCellBinding(ADDR(0, 0), { path: 'name' })
+    expect(doc.getCellFunction(ADDR(0, 0))).toBeUndefined()
+    doc.setCellFunction(ADDR(0, 0), { expression: '2' })
+    expect(doc.getCellBinding(ADDR(0, 0))).toBeUndefined()
+    expect(doc.getCellFunction(ADDR(0, 0))).toMatchObject({ kind: 'expr', expression: '2' })
   })
 })

@@ -1,0 +1,374 @@
+/* v4 新样式：聚合面板 + 单元格函数编辑器 + 数据块聚焦闪烁 + 画布动作 toast。
+   独立成文件：dialog.css/designer.css 都接近单文件行数上限。 */
+
+/* ─── 通用：等宽字体工具类 ──────────────────────────────────────────────── */
+.mono,
+.mono input,
+textarea.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ─── 聚合面板（.agg- 前缀） ────────────────────────────────────────────── */
+.agg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agg-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.agg-row:hover {
+  background: var(--bg-hover);
+}
+
+.agg-row.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.agg-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agg-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agg-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.agg-param-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.agg-param-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.agg-param-var {
+  width: 110px;
+}
+
+.agg-param-add {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+/* 试运行结果树：节点 = 引用按钮 + 值预览 + 可下钻子级 */
+.agg-run-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.agg-node {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  padding-left: 0;
+}
+
+.agg-node-children {
+  flex-basis: 100%;
+  padding-left: 14px;
+}
+
+.agg-node-children > summary {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.agg-node-ref {
+  padding: 1px 6px;
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  color: var(--accent-hover);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: copy;
+}
+
+.agg-node-ref:hover {
+  background: var(--accent-soft);
+}
+
+.agg-node-value {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+/* ─── 单元格函数编辑器（选函数 → 画布点选参数格 → 点中即写入） ──────────── */
+.cell-function-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+/* 标题行：label 在左、帮助浮层开关（?）在右 */
+.cell-function-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 点选进行中：目标格 + 指引 + 失败原因（与画布提示条同一份状态）+ 取消 */
+.cell-function-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cell-function-pick-cancel {
+  align-self: flex-start;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* 已配置函数：参数格语义摘要 + 合成表达式 + 重选/清除 */
+.cell-function-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.cell-function-summary-text {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cell-function-summary-expr {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-function-repick {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.cell-function-clear {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.cell-function-clear:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+/* 自定义 JS 区：目标格地址 + 表达式 + 引用 chips + 应用按钮 + 错误槽 */
+.cell-function-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cell-function-target {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cell-function-tools {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.cell-function-tools .field-chips {
+  flex: 1;
+}
+
+.cell-function-apply {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+/* 就地错误槽：常驻固定高度，编译失败填红字（草稿不清）、成功清空，不挤压布局 */
+.cell-function-error {
+  min-height: 16px;
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 16px;
+}
+
+.mono-chip {
+  padding: 2px 8px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+}
+
+/* 帮助浮层：chips 行尾「?」开关 + 绝对定位小卡片（Esc/点外关闭，不引入弹窗框架） */
+.fn-help {
+  position: relative;
+  display: inline-flex;
+}
+
+.fn-help-toggle {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.fn-help-toggle:hover,
+.fn-help-toggle[aria-expanded='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 定位（top/left/width/maxHeight）由组件按 ? 钮矩形内联给出并钳在视口内 */
+.fn-help-popover {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.fn-help-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fn-help-item + .fn-help-item {
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.fn-help-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.fn-help-head .mono {
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.fn-help-item-label {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.fn-help-desc {
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.fn-help-example {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* ─── 数据块列表聚焦闪烁（画布手柄点击/右键创建联动） ─────────────────────── */
+@keyframes region-row-flash {
+  0%,
+  100% {
+    background: transparent;
+  }
+  30% {
+    background: var(--accent-soft);
+  }
+}
+
+.region-row.flash {
+  animation: region-row-flash 0.9s ease-in-out 2;
+}
+
+/* ─── 画布动作 toast（拖拽提交/右键动作的就地错误） ─────────────────────── */
+.action-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 80;
+  max-width: 420px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  box-shadow: var(--shadow-md);
+}
+
+.action-toast.error {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}

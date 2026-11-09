@@ -1,6 +1,6 @@
-// P5 模板持久化：REST CRUD 行为、保存→加载→再保存 round-trip 等价（含区域数据源/
-// 区域名/格样式/合并/行高列宽/绑定 sidecar）、模板 JSON 键集守护（四键、不含打印
-// 弹框配置），以及请求体形状校验（版本不符直接 400，不做字段清洗与迁移）。
+// P5 模板持久化：REST CRUD 行为、保存→加载→再保存 round-trip 等价（含数据块数据源/
+// 数据块名/格样式/合并/行高列宽/绑定 sidecar 与 v6 聚合类型）、模板 JSON 键集守护
+// （四键、不含打印弹框配置），以及请求体形状校验（版本不符直接 400，不做字段清洗与迁移）。
 import { describe, expect, test } from 'bun:test'
 
 import { FormDoc } from '../../src/designer/form-doc'
@@ -21,9 +21,9 @@ async function postApp(template: unknown): Promise<Response> {
 }
 
 /**
- * 带完整内容形态的样例模板（值/样式/合并/行高列宽/区域数据源与名称/绑定 sidecar）：
- * 区域 0 是静态标题块，区域 1 由选区框出且自带数据源向下展开（区内绑条目内相对字段），
- * 合计绑定落在展开区之外走绝对路径 + 聚合——覆盖两档绑定语义。
+ * 带完整内容形态的样例模板（值/样式/合并/行高列宽/数据块数据源与名称/绑定与函数
+ * sidecar/聚合）：数据块 0 是静态标题块，数据块 1 由选区框出且自带数据源向下展开
+ * （区内绑条目内相对字段），合计在展开区之外写单元格函数——v4 的两类取数形态。
  */
 function sampleTemplate(name: string): FormTemplate {
   const doc = FormDoc.create(8)
@@ -36,14 +36,14 @@ function sampleTemplate(name: string): FormTemplate {
   doc.setRowHeight(0, 40)
   doc.setColWidth(1, 120)
   doc.renameRegion(0, '标题')
-  // 明细区：选区 → 区域，区域自带数据源（根即数组）再设展开方式
+  // 明细区：选区 → 数据块，数据块自带数据源（根即数组）再设展开方式
   doc.createRegionFromRange(RANGE(3, 0, 3, 7), { name: '明细行' })
-  doc.setRegionSource(1, { datasetId: 'ds1', path: '' })
+  doc.setRegionSource(1, { kind: 'dataset', datasetId: 'ds1', path: '' })
   doc.setRegionExpand(1, 'down')
   doc.setCellBinding(ADDR(3, 1), { path: 'name' })
   doc.setCellBinding(ADDR(3, 2), { path: 'amount' })
-  // 合计：展开区之外，绝对路径 + 聚合
-  doc.setCellBinding(ADDR(4, 2), { datasetId: 'ds1', path: '[].amount', aggregate: 'sum' })
+  // 合计：展开区之外，单元格函数（同列省字段）
+  doc.setCellFunction(ADDR(4, 2), { expression: "SUM('明细行')" })
   return doc.toTemplate(name)
 }
 
@@ -112,6 +112,7 @@ describe('模板 REST CRUD', () => {
     const document = JSON.stringify({
       schemaVersion: TEMPLATE_SCHEMA_VERSION,
       regions: [{ startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'none' }],
+      aggregations: [],
       sheet: FormDoc.create(4).sheet.snapshot(),
     })
     db.exec(
@@ -125,17 +126,22 @@ describe('模板 REST CRUD', () => {
     expect(rows.map((row) => row.id)).toEqual(['new', 'old'])
   })
 
-  test('请求体形状校验：缺字段/空名/版本号不符/非对象 sheet 均 400', async () => {
+  test('请求体形状校验：缺字段/空名/版本号不符/非对象 sheet/缺聚合键均 400', async () => {
     const base = sampleTemplate('合法')
     for (const bad of [
       {},
       null,
       { ...base, name: ' ' },
       { ...base, name: 42 },
-      { ...base, schemaVersion: '3' },
-      { ...base, schemaVersion: 2 },
+      { ...base, schemaVersion: '4' },
+      { ...base, schemaVersion: 3 },
+      // v4/v5 只在库启动时迁移，写入侧仍只认当前版（v6）
+      { ...base, schemaVersion: 4 },
+      { ...base, schemaVersion: 5 },
       { ...base, schemaVersion: undefined },
       { ...base, regions: null },
+      { ...base, aggregations: undefined },
+      { ...base, aggregations: null },
       { ...base, sheet: null },
       { ...base, sheet: 'sheet' },
     ]) {
@@ -145,13 +151,30 @@ describe('模板 REST CRUD', () => {
     }
   })
 
-  test('regions 允许为空数组（模板可以只有静态内容）', async () => {
+  test('v6 请求体：带类型（array/value）的聚合经 REST 写入 → 读取原样保留', async () => {
+    const doc = FormDoc.create(8)
+    doc.setAggregations([
+      { name: '台账', type: 'array', params: [], expression: 'return []' },
+      { name: '总览', type: 'value', params: [], expression: 'return { n: 1 }' },
+    ])
+    const template = doc.toTemplate('带聚合')
+    const created = await postApp(template)
+    expect(created.status).toBe(201)
+    const record = (await created.json()) as { template: FormTemplate }
+    expect(record.template.schemaVersion).toBe(TEMPLATE_SCHEMA_VERSION)
+    expect(record.template.aggregations).toEqual(template.aggregations)
+    expect(record.template.aggregations.map((agg) => agg.type)).toEqual(['array', 'value'])
+  })
+
+  test('regions / aggregations 允许为空数组（模板可以只有静态内容）', async () => {
     const res = await postApp({ ...sampleTemplate('静态稿'), regions: [] })
     expect(res.status).toBe(201)
     const record = (await res.json()) as { template: FormTemplate }
     expect(record.template.regions).toEqual([])
+    expect(record.template.aggregations).toEqual([])
     expect(record.template.schemaVersion).toBe(TEMPLATE_SCHEMA_VERSION)
     expect(Object.keys(record.template).sort()).toEqual([
+      'aggregations',
       'name',
       'regions',
       'schemaVersion',
@@ -171,7 +194,7 @@ describe('模板 REST CRUD', () => {
 })
 
 describe('保存 → 加载 round-trip（经 REST 边界）', () => {
-  test('再保存 JSON 与原模板等价，画布内容与区域语义完整还原', async () => {
+  test('再保存 JSON 与原模板等价，画布内容与数据块语义完整还原', async () => {
     const app = createApp(openDatabase(':memory:'))
     const first = sampleTemplate('round-trip')
     const created = await app.request('/api/templates', {
@@ -191,18 +214,19 @@ describe('保存 → 加载 round-trip（经 REST 边界）', () => {
     expect(restored.sheet.getCellInfo(ADDR(0, 3)).kind).toBe('merged-covered')
     expect(restored.sheet.getRowHeight(0)).toBe(40)
     expect(restored.sheet.getColWidth(1)).toBe(120)
-    // 区域：名称随行，展开区的驱动源（数据集 × 列表路径）独立于格绑定
+    // 数据块：名称随行，展开区的驱动源（数据集 × 列表路径）独立于格绑定
     expect(restored.regions.map((region) => region.name)).toEqual(['标题', '明细行'])
     expect(restored.regions[1]!.expand).toBe('down')
-    expect(restored.regions[1]!.source).toEqual({ datasetId: 'ds1', path: '' })
+    expect(restored.regions[1]!.source).toEqual({ kind: 'dataset', datasetId: 'ds1', path: '' })
     // 展开区内绑定：只有相对字段
     expect(restored.getCellBinding(ADDR(3, 1))).toEqual({ path: 'name' })
     expect(restored.getCellBinding(ADDR(3, 2))).toEqual({ path: 'amount' })
-    // 展开区外的聚合绑定：绝对路径 + 聚合原样保留
-    expect(restored.getCellBinding(ADDR(4, 2))).toEqual({
-      datasetId: 'ds1',
-      path: '[].amount',
-      aggregate: 'sum',
+    // 展开区外的合计：单元格函数保留（sampleTemplate 写的是旧表达式载荷，
+    // setCellFunction 写入即嗅探转换为结构化 fn 形状——文档内不存在旧形状）
+    expect(restored.getCellFunction(ADDR(4, 2))).toEqual({
+      kind: 'fn',
+      fn: 'SUM',
+      region: '明细行',
     })
     expect(restored.sheet.getDisplayValue(ADDR(3, 1))).toBeUndefined()
     // 无绑定格 round-trip 后仍为空
@@ -215,6 +239,7 @@ describe('打印配置键集守护（弹框配置不落模板）', () => {
     const created = await postApp(sampleTemplate('键集守护'))
     const record = (await created.json()) as { template: FormTemplate }
     expect(Object.keys(record.template).sort()).toEqual([
+      'aggregations',
       'name',
       'regions',
       'schemaVersion',

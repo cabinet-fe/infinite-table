@@ -76,7 +76,61 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* ─── 主体：侧栏 + 工作区 ───────────────────────────────────────────────── */
+/* ─── 模板条（顶栏正下方的紧凑模板操作行） ──────────────────────────────── */
+.template-bar {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  height: 44px;
+  padding: 0 16px;
+  /* 极窄窗口先让输入收缩，仍放不下时横向滚动（滚动条隐藏，与 ribbon 同做法） */
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  scrollbar-width: none;
+}
+
+.template-bar::-webkit-scrollbar {
+  height: 0;
+}
+
+.template-bar-label {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* 模板名输入与已有模板下拉：宽度弹性收缩，按钮保持原宽不换行 */
+.template-bar .template-name {
+  flex: 0 1 200px;
+  min-width: 110px;
+}
+
+.template-bar .template-pick {
+  flex: 0 1 180px;
+  min-width: 120px;
+}
+
+/* 行内状态文字（保存/加载反馈）：右对齐、省略，不撑高模板条 */
+.template-bar .template-status {
+  flex: 1 1 auto;
+  min-width: 40px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-bar .template-status.error {
+  color: var(--danger);
+}
+
+/* ─── 主体：工作区 + 右侧配置面板 ───────────────────────────────────────── */
 .app-body {
   display: flex;
   flex: 1;
@@ -95,6 +149,7 @@
   display: none;
 }
 
+/* 右侧配置面板：DOM 上排在画布之后，靠 flex 行序自然落到右侧 */
 .sidebar {
   display: flex;
   flex: none;
@@ -103,7 +158,7 @@
   width: 320px;
   padding: 12px;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   background: var(--bg-surface);
 }
 
@@ -181,7 +236,7 @@
   margin-top: -2px;
 }
 
-/* 侧栏里嵌套的无边框子块（区域列表 / 绑定编辑共用） */
+/* 侧栏里嵌套的无边框子块（数据块列表 / 绑定编辑共用） */
 .card-block {
   display: flex;
   flex-direction: column;

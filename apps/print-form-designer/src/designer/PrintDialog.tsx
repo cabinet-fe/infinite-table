@@ -13,12 +13,7 @@ import type {
 
 import { api, toSourceRows } from '../data/api'
 import type { FormDoc } from './form-doc'
-import {
-  collectPrintBindings,
-  collectRegionSources,
-  preparePrintSession,
-  type PrintSession,
-} from './print-source'
+import { collectDatasetIds, preparePrintSession, type PrintSession } from './print-source'
 import { IconClose, IconPrint } from '../ui/icons'
 import { describeError } from '../errors'
 
@@ -67,21 +62,6 @@ export function toPrintConfig(settings: DialogPrintSettings): PrintConfig {
   }
 }
 
-/**
- * 缺省重复表头行数：累加**前导区域**（从第 0 行起连续、`expand === 'none'` 且 `repeat === true`）
- * 的行数。打印内核只支持重复源表前 N 行，非前导区域的 repeat 渲染时忽略。
- */
-function leadingRepeatRows(doc: FormDoc): number {
-  let rows = 0
-  let expect = 0
-  for (const region of doc.regions) {
-    if (region.expand !== 'none' || region.repeat !== true || region.startRow !== expect) break
-    rows += region.endRow - region.startRow + 1
-    expect = region.endRow + 1
-  }
-  return rows
-}
-
 interface Props {
   doc: FormDoc
   /** 打印文档名（页面标题缺省源；模板名由设计页传入） */
@@ -92,24 +72,18 @@ interface Props {
 export function PrintDialog({ doc, title, onClose }: Props) {
   const [settings, setSettings] = useState<DialogPrintSettings>(() => ({
     ...DEFAULT_PRINT_SETTINGS,
-    headerRepeatRows: leadingRepeatRows(doc),
+    // 重复表头不再由数据块（已移除的 repeat）推导，只作为弹框内的手动配置（缺省 0）
+    headerRepeatRows: 0,
   }))
   const [session, setSession] = useState<PrintSession | null>(null)
   const [error, setError] = useState('')
   const [printing, setPrinting] = useState(false)
 
-  // 打开时取数一次：绑定与区域数据源引用的数据集各自执行，构建稳定打印会话；
+  // 打开时取数一次：数据块数据源与聚合入参引用的数据集各自执行，构建稳定打印会话；
   // 弹框内配置变化只重算预览，不重新取数
   useEffect(() => {
     let cancelled = false
-    const datasetIds = [
-      ...new Set(
-        [...collectPrintBindings(doc), ...collectRegionSources(doc)]
-          // 相对绑定（展开区内）没有 datasetId：形态由区域 source 那条需求提供
-          .map((source) => source.datasetId)
-          .filter((id) => id !== undefined),
-      ),
-    ]
+    const datasetIds = collectDatasetIds(doc)
     Promise.all(
       datasetIds.map(async (id) => [id, toSourceRows(await api.executeDataset(id))] as const),
     )

@@ -112,7 +112,7 @@ export function StyleToolbar({ doc, canUndo, canRedo, onPrint }: Props) {
             </select>
           </span>
 
-          <span className="color-swatch" title="填充颜色（作用于选中区域）">
+          <span className="color-swatch" title="填充颜色（作用于选区）">
             <span
               className="swatch-preview"
               style={style?.fill?.color ? { backgroundColor: style.fill.color } : undefined}
@@ -230,7 +230,7 @@ export function StyleToolbar({ doc, canUndo, canRedo, onPrint }: Props) {
             type="button"
             className="text-button"
             disabled={disabled}
-            title="合并选中区域（保留左上角值）"
+            title="合并选区（保留左上角值）"
             onClick={() => range && doc.sheet.mergeCells(range)}
           >
             <IconMerge className="button-icon" />
@@ -240,7 +240,7 @@ export function StyleToolbar({ doc, canUndo, canRedo, onPrint }: Props) {
             type="button"
             className="text-button"
             disabled={disabled}
-            title="取消选中区域内的合并"
+            title="取消选区内的合并"
             onClick={() => range && doc.sheet.unmergeCells(range)}
           >
             <IconSplit className="button-icon" />

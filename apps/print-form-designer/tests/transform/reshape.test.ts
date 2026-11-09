@@ -134,19 +134,20 @@ describe('数据重塑转换器', () => {
     ])
   })
 
-  test('重复调用同输入同输出：表达式原地改动不影响调用方与后续求值', () => {
+  test('重复调用同输入同输出（入参按只读约定共享，表达式不改写 rows）', () => {
     const rows = ORDER_ROWS.map((row) => ({ ...row }))
     const definition: TransformDefinition = {
-      expression: `(() => {
-        rows.sort((a, b) => b.amount - a.amount)
-        return rows.map((row) => row.item_name)
-      })()`,
+      expression: `rows
+        .slice()
+        .sort((a, b) => b.amount - a.amount)
+        .map((row) => row.item_name)`,
     }
     const first = reshape(definition, rows)
     const second = reshape(definition, rows)
     expect(first).toEqual(['碳粉盒', 'A4 打印纸', '面单纸'])
     expect(second).toEqual(first)
-    expect(rows.map((row) => row.item_name)).toEqual(ORDER_ROWS.map((row) => row.item_name))
+    // 只读约定：求值环境直接共享调用方数据，不做防御性克隆
+    expect(rows).toEqual(ORDER_ROWS.map((row) => ({ ...row })))
   })
 
   test('错误相位：空/语法错误为编译期，求值抛错为求值期', () => {

@@ -1,23 +1,40 @@
-// 数据态渲染管线：绑定 + 重塑后数据 → 数据态表单快照（预览与打印共用的唯一入口）。
+// 数据态渲染管线：绑定/函数 + 重塑后数据 + 聚合结果 → 数据态表单快照
+// （预览与打印共用的唯一入口）。
 //
-// 配置态画布永不填充数据；本管线按区域的 `expand` 属性做**行列双轴**复制：
-// - `expand: 'down'` 的区域按数据条数向下复制（行轴），区域下方内容整体下移；
-// - `expand: 'right'` 的区域按数据条数向右复制（列轴），区域右侧内容整体右移；
-// - 其余内容（含不属于任何区域的行列）原样保留。
+// 配置态画布永不填充数据；本管线按数据块的 `expand` 属性做**行列双轴**复制：
+// - `expand: 'down'` 的数据块按数据条数向下复制（行轴），数据块下方内容整体下移；
+//   配了 `groupBy` 时逐组渲染「组头行 ×1 + 明细行 × 组内条数 + 小计行 ×1」，
+//   全部组结束后垫一份合计行（`summary` 角色行；未分组的数据块同样支持合计行）；
+// - `expand: 'right'` 的数据块按数据条数向右复制（列轴），数据块右侧内容整体右移；
+// - 其余内容（含不属于任何数据块的行列）原样保留。
 //
-// 份数由**区域自己声明的数据源**（`region.source`）决定，与区域内绑定的路径无关：
-// 区域内的绑定只描述「一份里取什么字段」（条目内相对路径）。输出即 SheetSnapshot
-// 形态，可直接喂给以 sheet 快照为基准的打印适配。
+// 份数由数据块的数据源（数据集形态或聚合结果里的循环数组）决定；未绑数据源的展开区
+// 属合法中间态，渲染暂按 1 份（绑定解析为空）：
+// - 展开区内绑定 = 条目内相对路径，按份取值；组头/小计行的绑定取组内第 1 条，
+//   合计行取全体第 1 条；
+// - 聚合引用绑定（kind:'agg'）= 从聚合结果 `agg[名]` 按路径下钻取值，任意格可设、
+//   与所在数据块无关（块外单据头格直取非数组聚合）；
+// - 不展开 + 带源的数据块 = 静态取循环数组第 1 条；
+// - 单元格函数（cell-function.ts）在绑定解析后逐格求值，可引用 `agg`/`item`/数据块函数；
+// - 合并区若跨了展开边界（首尾份数不一致）则丢弃；
+// - 绑定/函数 sidecar 不进数据态快照（已解析为值）。
 
 import type { CellMetaSnapshotItem, CellValue, SheetSnapshot } from '@infinitable/sheet'
 
-import { loopArrayAt, resolveBindingValue, resolveItemValue } from './binding'
+import { evaluateCellFunction } from './cell-function'
+import { loopArrayAt, resolveItemValue } from './binding'
 import { clampSnapshotToBounds, contentBounds } from './content-bounds'
 import type { FormDoc } from './form-doc'
 import {
   FORM_BINDING_META_NAMESPACE,
+  FORM_FUNCTION_META_NAMESPACE,
+  cellFunctionExpression,
+  isAggBinding,
+  regionRefOf,
+  regionRowRoleOf,
   regionsAt,
   type FormCellBinding,
+  type FormCellFunction,
   type FormRegion,
 } from './template'
 
@@ -25,94 +42,225 @@ import {
 export type DatasetShapes = Map<string, unknown>
 
 /**
- * 数据集形态键：形态属于「数据集 × 重塑表达式」对——同一数据集被多个绑定以不同
- * 表达式引用时，各绑定按自己的表达式取形态。无表达式的绑定共用裸 datasetId 键。
+ * 数据集形态键：形态属于「数据集 × 重塑表达式」对——同一数据集被多个数据块以不同
+ * 表达式引用时，各数据块按自己的表达式取形态。无表达式的引用共用裸 datasetId 键。
  */
 export function datasetShapeKey(datasetId: string, expression?: string): string {
   const trimmed = expression?.trim()
   return trimmed ? `${datasetId}\u0000${trimmed}` : datasetId
 }
 
-/** 快照里的绑定 sidecar 表：row|col → 绑定（格取值用） */
-function bindingIndex(
+/** 渲染输入：数据集形态表 + 聚合结果（数据块 agg 来源与单元格函数共用） */
+export interface RenderDataInput {
+  shapes: DatasetShapes
+  agg: Record<string, unknown>
+}
+
+/** 快照里的 sidecar 表：row|col → 载荷（绑定与函数各建一份） */
+function sidecarIndex<T>(
   items: readonly CellMetaSnapshotItem[] | undefined,
-): Map<string, { row: number; col: number; binding: FormCellBinding }> {
-  const index = new Map<string, { row: number; col: number; binding: FormCellBinding }>()
+  namespace: string,
+): Map<string, { row: number; col: number; payload: T }> {
+  const index = new Map<string, { row: number; col: number; payload: T }>()
   for (const item of items ?? []) {
-    if (item.namespace === FORM_BINDING_META_NAMESPACE) {
+    if (item.namespace === namespace) {
       index.set(`${item.row}|${item.col}`, {
         row: item.row,
         col: item.col,
-        binding: item.payload as FormCellBinding,
+        payload: item.payload as T,
       })
     }
   }
   return index
 }
 
-/** 区域数据源在当前形态集合里的循环数组（无 source / 形态缺失 / 取不到数组 → undefined） */
-function regionLoopArray(region: FormRegion, shapes: DatasetShapes): unknown[] | undefined {
+/** 数据块数据源的循环数组（无 source / 形态缺失 / 聚合缺失 / 取不到数组 → undefined） */
+function regionLoopArray(region: FormRegion, input: RenderDataInput): unknown[] | undefined {
   const source = region.source
   if (!source) return undefined
-  return loopArrayAt(shapes.get(datasetShapeKey(source.datasetId, source.expression)), source.path)
+  const shape =
+    source.kind === 'dataset'
+      ? input.shapes.get(datasetShapeKey(source.datasetId, source.expression))
+      : input.agg[source.aggName]
+  return loopArrayAt(shape, source.path)
 }
 
-/**
- * 区域展开份数：读 `region.source`（数据集 × 重塑表达式 × 列表路径）在该形态里
- * 取到的数组长度。
- * - 取到数组 → 其长度（空数组即 0 份：区域塌缩，整块不占版面）；
- * - `expand !== 'none'` 却没有 source 属模型损坏（normalizeRegions 已禁止），直接抛错；
- * - 取不到数组（数据集没取数 / 路径不是数组）→ 1 份，按模板形态出一份。
- */
-function regionCopies(region: FormRegion, shapes: DatasetShapes): number {
-  if (region.expand === 'none') return 1
-  if (!region.source) {
-    throw new Error('展开区域缺少数据源：模板已损坏')
+/** 分组：条目按 groupBy 路径值归组（保持出现顺序；键为值的 JSON 序列化） */
+interface RegionGroup {
+  values: unknown[]
+  items: unknown[]
+}
+
+function buildRegionGroups(items: readonly unknown[], groupBy: readonly string[]): RegionGroup[] {
+  const groups: RegionGroup[] = []
+  const byKey = new Map<string, RegionGroup>()
+  for (const item of items) {
+    const values = groupBy.map((path) => resolveItemValue(item, path))
+    const key = JSON.stringify(values)
+    let group = byKey.get(key)
+    if (!group) {
+      group = { values, items: [] }
+      byKey.set(key, group)
+      groups.push(group)
+    }
+    group.items.push(item)
   }
-  return regionLoopArray(region, shapes)?.length ?? 1
+  return groups
 }
 
-/** 区域 → 本次渲染解析出的循环数组（同一区域只解析一次路径） */
-function regionArrayOf(
-  region: FormRegion,
-  shapes: DatasetShapes,
-  cache: Map<FormRegion, unknown[] | undefined>,
-): unknown[] | undefined {
-  if (!cache.has(region)) cache.set(region, regionLoopArray(region, shapes))
-  return cache.get(region)
+/** 展开行槽位的取数语境（函数与小计按槽位取；undefined = 静态行） */
+interface RowContext {
+  regionIndex: number
+  /** 该槽位的取数条目：明细行 = 当前条目；组头/小计 = 组内第 1 条；合计 = 全体第 1 条 */
+  item: unknown
+  /** SUBTOTAL 聚合范围：小计行 = 本组条目；合计行 = 数据块全体 */
+  subtotalItems?: unknown[]
+  /** 当前组第 1 条与组键值（GROUP 用；未分组的数据块缺省） */
+  groupFirst?: unknown
+  groupField?: string
 }
 
-/** 单轴展开计划：区域在轴上占 [from, to]（模板坐标），份数 copies */
-interface AxisPlan {
-  from: number
-  to: number
-  copies: number
+interface RowSlot {
+  templateRow: number
+  context?: RowContext
 }
 
 /**
- * 单轴映射：模板下标 → 展开后下标列表。
- * 区域内每份占满该区域的长度（块序即份序），区域之后的元素整体平移。
+ * down 数据块的行槽位序列：
+ * - 未分组：明细行逐条复制 + 合计行（若有）垫底一份；
+ * - 分组：逐组「组头 ×1 + 明细 × 组内条数 + 小计 ×1」（按模板行序渲染），
+ *   全部组之后合计行垫底一份；空数组时明细/组头/小计全部塌缩，仅合计行保留。
  */
-function buildAxisMap(length: number, plans: readonly AxisPlan[]): number[][] {
-  // 按起点排序后一遍扫描：区域前的原样输出，区域内按份展开，区域后加偏移
-  const sorted = [...plans].sort((a, b) => a.from - b.from)
-  const map: number[][] = Array.from({ length }, () => [])
-  let next = 0
-  let cursor = 0
-  for (const plan of sorted) {
-    // 区域前的元素：一对一
-    for (; cursor < plan.from; cursor++) map[cursor]!.push(next++)
-    // 区域内的元素：每份都要一份（份外层、区域内下标内层）
-    for (let copy = 0; copy < plan.copies; copy++) {
-      for (let index = plan.from; index <= plan.to; index++) {
-        map[index]!.push(next++)
+function rowSlotsForRegion(
+  region: FormRegion,
+  regionIndex: number,
+  items: readonly unknown[],
+): RowSlot[] {
+  const groupBy = region.groupBy?.length ? region.groupBy : undefined
+  const slots: RowSlot[] = []
+  const summaryRows: number[] = []
+  if (!groupBy) {
+    // 未分组：整块 ×N 份（份外层、数据块内行内层——与历版块序一致）；合计行最后垫底
+    for (const item of items) {
+      for (let row = region.startRow; row <= region.endRow; row++) {
+        if (regionRowRoleOf(region, row) === 'summary') continue
+        slots.push({ templateRow: row, context: { regionIndex, item } })
       }
     }
-    cursor = plan.to + 1
+    for (let row = region.startRow; row <= region.endRow; row++) {
+      if (regionRowRoleOf(region, row) === 'summary') summaryRows.push(row)
+    }
+  } else {
+    for (let row = region.startRow; row <= region.endRow; row++) {
+      const role = regionRowRoleOf(region, row)
+      if (role === 'summary') summaryRows.push(row)
+    }
+    // 分组：逐组「组头 ×1 + 明细 × 组内条数 + 小计 ×1」按模板行序重放
+    for (const group of buildRegionGroups(items, groupBy)) {
+      const head = group.items[0]
+      for (let row = region.startRow; row <= region.endRow; row++) {
+        const role = regionRowRoleOf(region, row)
+        if (role === 'summary') continue
+        const groupInfo = { regionIndex, groupFirst: head, groupField: groupBy[0] }
+        if (role === 'groupHeader') {
+          slots.push({ templateRow: row, context: { ...groupInfo, item: head } })
+        } else if (role === 'groupFooter') {
+          slots.push({
+            templateRow: row,
+            context: { ...groupInfo, item: head, subtotalItems: group.items },
+          })
+        } else {
+          for (const item of group.items) {
+            slots.push({ templateRow: row, context: { ...groupInfo, item } })
+          }
+        }
+      }
+    }
   }
-  // 区域之后（或整表无区域）的尾巴：一对一
-  for (; cursor < length; cursor++) map[cursor]!.push(next++)
-  return map
+  // 合计行垫底（明细/分组循环之后）：SUBTOTAL 范围 = 数据块全体
+  for (const row of summaryRows) {
+    slots.push({
+      templateRow: row,
+      context: { regionIndex, item: items[0], subtotalItems: [...items] },
+    })
+  }
+  return slots
+}
+
+/** 展开列槽位（right 数据块专用；无分组语义） */
+interface ColContext {
+  regionIndex: number
+  item: unknown
+}
+
+interface ColSlot {
+  templateCol: number
+  context?: ColContext
+}
+
+/** right 数据块的列槽位：整块 ×N 份（份外层、数据块内列内层） */
+function colSlotsForRegion(
+  region: FormRegion,
+  regionIndex: number,
+  items: readonly unknown[],
+): ColSlot[] {
+  const slots: ColSlot[] = []
+  for (const item of items) {
+    for (let col = region.startCol; col <= region.endCol; col++) {
+      slots.push({ templateCol: col, context: { regionIndex, item } })
+    }
+  }
+  return slots
+}
+
+/** 模板行轴 → 槽位序列（down 数据块整块在原位展开，其余行一对一） */
+function buildRowSlots(
+  doc: FormDoc,
+  rows: number,
+  regionItems: ReadonlyMap<number, unknown[]>,
+): RowSlot[] {
+  const slots: RowSlot[] = []
+  let row = 0
+  while (row < rows) {
+    const hit = doc.regions.findIndex(
+      (region) => region.expand === 'down' && region.startRow === row,
+    )
+    if (hit >= 0) {
+      const region = doc.regions[hit]!
+      const items = regionItems.get(hit) ?? []
+      slots.push(...rowSlotsForRegion(region, hit, items))
+      row = region.endRow + 1
+      continue
+    }
+    slots.push({ templateRow: row })
+    row++
+  }
+  return slots
+}
+
+/** 模板列轴 → 槽位序列（right 数据块整块在原位展开，其余列一对一） */
+function buildColSlots(
+  doc: FormDoc,
+  cols: number,
+  regionItems: ReadonlyMap<number, unknown[]>,
+): ColSlot[] {
+  const slots: ColSlot[] = []
+  let col = 0
+  while (col < cols) {
+    const hit = doc.regions.findIndex(
+      (region) => region.expand === 'right' && region.startCol === col,
+    )
+    if (hit >= 0) {
+      const region = doc.regions[hit]!
+      const items = regionItems.get(hit) ?? []
+      slots.push(...colSlotsForRegion(region, hit, items))
+      col = region.endCol + 1
+      continue
+    }
+    slots.push({ templateCol: col })
+    col++
+  }
+  return slots
 }
 
 /** 轴尺寸表重映射（行高/列宽、行/列默认样式）：[下标, 值] → 展开后的多份 */
@@ -126,92 +274,133 @@ function remapAxis(
 }
 
 /**
- * 非展开区的绝对绑定取值。
- *
- * 绑定可能没有 `datasetId`：那是相对绑定（`{ path }`），本应落在展开区内；把区域的
- * 展开方式改回「不展开」后它会残留在这里。此时没有数据集可查，本格不出值——
- * 不是兜底，而是「这份绑定在当前区域语义下没有数据源」的事实。
- */
-function resolveAbsoluteValue(
-  binding: FormCellBinding,
-  shapes: DatasetShapes,
-): CellValue | undefined {
-  if (!binding.datasetId) return undefined
-  return resolveBindingValue(
-    shapes.get(datasetShapeKey(binding.datasetId, binding.expression)),
-    binding,
-    {},
-  )
-}
-
-/**
  * 渲染数据态表单快照：
- * - 模板长度取**内容包围盒**（无限画布引擎的行列含大量扩容噪声）：包围盒之外不参与
- *   映射，天然丢弃落在外面的 cell/merge；
- * - 未绑定格：回落模板存储值（随区域复制）；
- * - 展开区内绑定格：`item = 区域循环数组[该份下标]`，按条目内相对路径取值；
- * - 非展开区绑定格：按绝对路径直取（`[].x` 需聚合，否则无值）；
- * - 合并区若跨了展开区边界（首尾份数不一致）则丢弃；
- * - 绑定 sidecar 不进数据态快照（已解析为值）。
+ * - 模板长度取**内容包围盒**（无限画布引擎的行列含大量扩容噪声）：包围盒之外
+ *   不参与映射，天然丢弃落在外面的 cell/merge；
+ * - 未绑定格：回落模板存储值（随数据块复制）；
+ * - 数据块内绑定格：按槽位条目 + 相对路径取值（见 rowSlotsForRegion 的语境口径）；
+ * - 函数格：绑定解析后按槽位语境求值（agg / item / 数据块函数）；
+ * - 合并区若跨了展开边界（首尾份数不一致）则丢弃；
+ * - 绑定/函数 sidecar 不进数据态快照（已解析为值）。
  */
-export function renderDataState(doc: FormDoc, shapes: DatasetShapes): SheetSnapshot {
+export function renderDataState(doc: FormDoc, input: RenderDataInput): SheetSnapshot {
   const snapshot = doc.sheet.snapshot()
-  const bindings = bindingIndex(snapshot.meta)
+  const bindings = sidecarIndex<FormCellBinding>(snapshot.meta, FORM_BINDING_META_NAMESPACE)
+  const functions = sidecarIndex<FormCellFunction>(snapshot.meta, FORM_FUNCTION_META_NAMESPACE)
   const bounds = contentBounds(snapshot, doc.regions)
-  // 区域循环数组缓存：展开份数与格取值共用，同一区域只解析一次路径
-  const arrayCache = new Map<FormRegion, unknown[] | undefined>()
 
-  // 行/列展开计划：expand 各最多一个（模型层已拦住），仍按数组收集以防将来放开
-  const rowPlans: AxisPlan[] = []
-  const colPlans: AxisPlan[] = []
-  for (const region of doc.regions) {
-    const copies = regionCopies(region, shapes)
-    if (region.expand === 'down') {
-      rowPlans.push({ from: region.startRow, to: region.endRow, copies })
-    } else if (region.expand === 'right') {
-      colPlans.push({ from: region.startCol, to: region.endCol, copies })
+  // 数据块循环数组（展开份数、绑定/函数取数、数据块函数引用共用一份）
+  const regionItems = new Map<number, unknown[]>()
+  doc.regions.forEach((region, index) => {
+    const items = regionLoopArray(region, input)
+    if (items === undefined && region.expand !== 'none') {
+      // 未绑数据源或取不到数组 → 暂按 1 份（绑定解析为空），与历版口径一致
+      regionItems.set(index, [undefined])
+      return
     }
-  }
-  const rowMap = buildAxisMap(bounds.rows, rowPlans)
-  const colMap = buildAxisMap(bounds.cols, colPlans)
-  const outRows = rowMap.reduce((sum, target) => sum + target.length, 0)
-  const outCols = colMap.reduce((sum, target) => sum + target.length, 0)
+    regionItems.set(index, items ?? [])
+  })
 
-  // 打印域 = 展开后尺寸与内容包围盒的较大者：既装得下展开出的行，区域塌缩（0 份）时
+  // 数据块名索引：单元格函数的 `SUM('数据块名')` / `agg` 数据源按引用名解析
+  const regionByRef = new Map<string, { region: FormRegion; items: unknown[] }>()
+  doc.regions.forEach((region, index) => {
+    regionByRef.set(regionRefOf(region, index), {
+      region,
+      items: regionItems.get(index) ?? [],
+    })
+  })
+
+  const rowSlots = buildRowSlots(doc, bounds.rows, regionItems)
+  const colSlots = buildColSlots(doc, bounds.cols, regionItems)
+  const rowMap: number[][] = Array.from({ length: bounds.rows }, () => [])
+  rowSlots.forEach((slot, index) => rowMap[slot.templateRow]!.push(index))
+  const colMap: number[][] = Array.from({ length: bounds.cols }, () => [])
+  colSlots.forEach((slot, index) => colMap[slot.templateCol]!.push(index))
+  const rowContexts = rowSlots.map((slot) => slot.context)
+  const colContexts = colSlots.map((slot) => slot.context)
+
+  // 打印域 = 展开后尺寸与内容包围盒的较大者：既装得下展开出的行，数据块塌缩（0 份）时
   // 也不把模板原有版面裁短；包围盒之外的空行空列（无限画布扩容噪声）不进打印
-  const box = { rows: Math.max(outRows, bounds.rows), cols: Math.max(outCols, bounds.cols) }
+  const box = {
+    rows: Math.max(rowSlots.length, bounds.rows),
+    cols: Math.max(colSlots.length, bounds.cols),
+  }
 
-  // 绑定格可能没有存储项（只写 sidecar）：与快照 cells 按格求并集，保证都进入取值
+  // 绑定/函数格可能没有存储项（只写 sidecar）：与快照 cells 求并集，保证都进入取值
   const cellsByKey = new Map(snapshot.cells.map((cell) => [`${cell.row}|${cell.col}`, cell]))
   for (const [key, entry] of bindings) {
     if (!cellsByKey.has(key)) cellsByKey.set(key, { row: entry.row, col: entry.col })
   }
+  for (const [key, entry] of functions) {
+    if (!cellsByKey.has(key)) cellsByKey.set(key, { row: entry.row, col: entry.col })
+  }
+
+  /** 格子在数据块里的取数条目（按展开槽位语境；数据块外/无源的数据块 → undefined） */
+  const itemOf = (
+    region: FormRegion | undefined,
+    expandedRow: number,
+    expandedCol: number,
+  ): unknown => {
+    if (!region?.source) return undefined
+    if (region.expand === 'down') return rowContexts[expandedRow]?.item
+    if (region.expand === 'right') return colContexts[expandedCol]?.item
+    return (regionItems.get(doc.regions.indexOf(region)) ?? [])[0]
+  }
 
   const cells = [...cellsByKey.values()].flatMap((cell) => {
-    const binding = bindings.get(`${cell.row}|${cell.col}`)?.binding
+    const binding = bindings.get(`${cell.row}|${cell.col}`)?.payload
+    const fn = functions.get(`${cell.row}|${cell.col}`)?.payload
     const region = regionsAt(doc.regions, cell.row, cell.col)
-    const expanding = region && region.expand !== 'none' ? region : undefined
-    const rows = rowMap[cell.row] ?? []
-    const cols = colMap[cell.col] ?? []
     const out: SheetSnapshot['cells'] = []
     // 叉乘重建：每份行 × 每份列各出一格
-    for (const [rowIndex, row] of rows.entries()) {
-      for (const [colIndex, col] of cols.entries()) {
-        if (!binding) {
+    for (const row of rowMap[cell.row] ?? []) {
+      for (const col of colMap[cell.col] ?? []) {
+        if (!binding && !fn) {
+          // 未绑定格：回落模板存储值（随数据块复制，公式缓存原样保留）
           out.push({ ...cell, row, col })
           continue
         }
-        // 展开区：绑定 path 是条目内相对字段，每份下探该份的数组元素；向下区看行份、
-        // 向右区看列份。非展开区：按绝对路径 + 聚合取值。
-        const value = expanding
-          ? resolveItemValue(
-              regionArrayOf(expanding, shapes, arrayCache)?.[
-                expanding.expand === 'down' ? rowIndex : colIndex
-              ],
-              binding.path,
-            )
-          : resolveAbsoluteValue(binding, shapes)
-        // 绑定格以解析值替换存储值（公式缓存/类型标记丢弃，样式保留）
+        let value: CellValue | undefined
+        if (binding) {
+          // 聚合引用绑定：从已算好的聚合结果取 `agg[aggName]` 再按 path 下钻（与数据块
+          // 无关，块外单据头格直取）；相对绑定：按槽位条目取条目内字段。取不到/undefined
+          // 一律空（与既有绑定 miss 同口径）；聚合结果由调用方先于本管线算好（agg env）。
+          value = isAggBinding(binding)
+            ? resolveItemValue(input.agg[binding.aggName], binding.path)
+            : resolveItemValue(itemOf(region, row, col), binding.path)
+        } else if (fn) {
+          const rowContext = region?.expand === 'down' ? rowContexts[row] : undefined
+          const colContext = region?.expand === 'right' ? colContexts[col] : undefined
+          const staticItem =
+            region && region.expand === 'none'
+              ? (regionItems.get(doc.regions.indexOf(region)) ?? [])[0]
+              : undefined
+          // 结构化 fn 先合成等价表达式，与自定义 expr 走同一条求值管线
+          value = evaluateCellFunction(cellFunctionExpression(fn), {
+            agg: input.agg,
+            item: rowContext?.item ?? colContext?.item ?? staticItem,
+            subtotalItems: rowContext?.subtotalItems,
+            groupFirst: rowContext?.groupFirst,
+            groupField: rowContext?.groupField,
+            itemsOf: (ref) => {
+              const target = regionByRef.get(ref)
+              if (!target) throw new Error(`没有名为「${ref}」的数据块`)
+              return target.items
+            },
+            columnFieldOf: (ref) => {
+              const target = regionByRef.get(ref)
+              if (!target) throw new Error(`没有名为「${ref}」的数据块`)
+              for (let r = target.region.startRow; r <= target.region.endRow; r++) {
+                const hit = bindings.get(`${r}|${cell.col}`)?.payload
+                if (hit) return hit.path
+              }
+              throw new Error(
+                `数据块「${ref}」在函数格所在列没有字段绑定：请写明字段，如 SUM('${ref}', '数量')`,
+              )
+            },
+          })
+        }
+        // 绑定/函数格以解析值替换存储值（公式缓存/类型标记丢弃，样式保留）
         const { v: _v, t: _t, f: _f, ...carry } = cell
         if (value === undefined && !('s' in carry)) continue
         out.push({ ...carry, row, col, ...(value !== undefined ? { v: value } : {}) })

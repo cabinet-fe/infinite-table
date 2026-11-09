@@ -71,15 +71,15 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
     }
   })
 
-  test('B2：区域上方插行/撤销/重做后合并区随行块还原', () => {
+  test('B2：数据块上方插行/撤销/重做后合并区随行块还原', () => {
     const doc = FormDoc.create(8)
-    doc.sheet.mergeCells(RANGE(2, 0, 2, 3)) // 默认区域末行合并 4 格
+    doc.sheet.mergeCells(RANGE(2, 0, 2, 3)) // 默认数据块末行合并 4 格
     const { canvas, engine } = mountCanvas(doc)
     try {
       const mergeStartRow = () => engine().getMergeRanges()[0]?.startRow
       expect(mergeStartRow()).toBe(2)
 
-      // 默认区域 0..2 变高到 5 行：区域上方行的合并区不下移
+      // 默认数据块 0..2 变高到 5 行：数据块上方行的合并区不下移
       doc.resizeRegionRows(0, 5)
       expect(mergeStartRow()).toBe(2)
 
@@ -95,9 +95,9 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
     const doc = FormDoc.create(8)
     doc.sheet.ensureTableSize(3, 8)
     // 相邻两格都超宽且第 3 格留空：引擎缺省 Excel 式溢出会让右对齐格向左、左对齐格
-    // 向右同时穿过空格，两段文本叠在同一片区域（设计画布的「文本堆叠」）
-    doc.setCellBinding({ row: 0, col: 1 }, { datasetId: 'ds1', path: '[0].items[].qty' })
-    doc.setCellBinding({ row: 0, col: 3 }, { datasetId: 'ds1', path: '[0].items[].amount' })
+    // 向右同时穿过空格，两段文本叠在同一片空间（设计画布的「文本堆叠」）
+    doc.setCellBinding({ row: 0, col: 1 }, { path: '[0].items[].qty' })
+    doc.setCellBinding({ row: 0, col: 3 }, { path: '[0].items[].amount' })
     doc.setColWidth(1, 40)
     doc.setColWidth(3, 40)
     const { canvas, engine } = mountCanvas(doc)
@@ -119,8 +119,8 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
     const { canvas, engine } = mountCanvas(doc)
     try {
       const grid = canvas.getGrid()
-      // 展开方式必须有数据源才能设（份数由区域 source 决定）
-      doc.setRegionSource(0, { datasetId: 'ds1', path: '' })
+      // 展开方式必须有数据源才能设（份数由数据块 source 决定）
+      doc.setRegionSource(0, { kind: 'dataset', datasetId: 'ds1', path: '' })
       doc.setRegionExpand(0, 'down')
       expect(canvas.getGrid()).toBe(grid)
       doc.setRowHeight(0, 48)
@@ -134,7 +134,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
     }
   })
 
-  test('无限画布：引擎行列扩容与区域增删都不重建网格（行数不再是重建依据）', () => {
+  test('无限画布：引擎行列扩容与数据块增删都不重建网格（行数不再是重建依据）', () => {
     const doc = FormDoc.create(8)
     const { canvas, engine } = mountCanvas(doc)
     try {

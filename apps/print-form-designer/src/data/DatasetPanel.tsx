@@ -1,4 +1,5 @@
-// 数据集面板：创建/编辑表单（SQL 文本）与「执行预览」原始行表格。
+// 数据集面板：创建/编辑表单（SQL 文本）、「执行预览」原始行表格与「取字段」命名表
+// （跑一次查询出列名 → 逐字段起显示名 → PUT 持久化；绑定与取数始终用原始字段名）。
 // 预览口径：先保存当前表单（新建走创建、编辑走更新），再执行该数据集取原始行——预览永远对应已保存的 SQL。
 import { useState } from 'react'
 import {
@@ -24,10 +25,27 @@ function formFromRow(row: DatasetRow): DatasetInput {
   return { name, datasource_id, sql }
 }
 
+/** 字段命名表状态：alias 为输入框当前值（空串 = 用原名）；sample = 取字段时的首行样例 */
+interface FieldNaming {
+  datasetId: string
+  rows: { name: string; alias: string }[]
+  sample: Record<string, unknown> | null
+}
+
+/** 已存命名 → 命名表行（编辑数据集时直接展示，不必先取字段） */
+function namingFromRow(row: DatasetRow): FieldNaming {
+  return {
+    datasetId: row.id,
+    rows: row.fields.map((field) => ({ name: field.name, alias: field.alias ?? '' })),
+    sample: null,
+  }
+}
+
 export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<DatasetInput>(BLANK_FORM)
   const [preview, setPreview] = useState<QueryResult | null>(null)
+  const [fieldNaming, setFieldNaming] = useState<FieldNaming | null>(null)
   const [status, setStatus] = useState<{ text: string; error: boolean }>({ text: '', error: false })
   const [busy, setBusy] = useState(false)
 
@@ -35,6 +53,7 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
     setEditingId(null)
     setForm({ ...BLANK_FORM, datasource_id: datasources?.[0]?.id ?? '' })
     setPreview(null)
+    setFieldNaming(null)
   }
 
   async function run(action: () => Promise<string>): Promise<void> {
@@ -54,6 +73,42 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
     return saved.then((row) => {
       setEditingId(row.id)
       return row.id
+    })
+  }
+
+  /** 取字段：对该数据集已保存的 SQL 跑一次查询出列名；已填别名按 name 保留（编辑中优先，其次已存） */
+  function openFieldNaming(row: DatasetRow): void {
+    void run(async () => {
+      const result = await api.fetchDatasetFields(row.id)
+      const editing = fieldNaming?.datasetId === row.id ? fieldNaming.rows : undefined
+      const saved = new Map(row.fields.map((field) => [field.name, field.alias ?? '']))
+      setFieldNaming({
+        datasetId: row.id,
+        rows: result.fields.map((name) => ({
+          name,
+          alias: editing?.find((item) => item.name === name)?.alias ?? saved.get(name) ?? '',
+        })),
+        sample: result.sample[0] ?? null,
+      })
+      return `已取出 ${result.fields.length} 个字段`
+    })
+  }
+
+  /** 保存字段命名：名称/SQL 原样回写（不带会被后端保留），fields 空白别名归一为用原名 */
+  function saveFieldNaming(): void {
+    if (fieldNaming === null) return
+    const row = datasets?.find((item) => item.id === fieldNaming.datasetId)
+    if (row === undefined) return
+    void run(async () => {
+      await api.updateDataset(row.id, {
+        name: row.name,
+        datasource_id: row.datasource_id,
+        sql: row.sql,
+        fields: fieldNaming.rows.map(({ name, alias }) =>
+          alias.trim() === '' ? { name } : { name, alias: alias.trim() },
+        ),
+      })
+      return '字段命名已保存'
     })
   }
 
@@ -142,6 +197,27 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
 
       {preview !== null ? <PreviewTable result={preview} /> : null}
 
+      {fieldNaming !== null ? (
+        <FieldNamingTable
+          title={
+            datasets?.find((item) => item.id === fieldNaming.datasetId)?.name ??
+            fieldNaming.datasetId
+          }
+          rows={fieldNaming.rows}
+          sample={fieldNaming.sample}
+          busy={busy}
+          onAlias={(name, alias) =>
+            setFieldNaming({
+              ...fieldNaming,
+              rows: fieldNaming.rows.map((item) =>
+                item.name === name ? { ...item, alias } : item,
+              ),
+            })
+          }
+          onSave={saveFieldNaming}
+        />
+      ) : null}
+
       <ul className="data-list">
         {datasets?.length === 0 ? <li className="empty">还没有数据集</li> : null}
         {datasets?.map((row) => (
@@ -158,11 +234,22 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
                 type="button"
                 className="icon-button"
                 disabled={busy}
+                title="对该数据集跑一次查询取字段，逐个起显示名"
+                onClick={() => openFieldNaming(row)}
+              >
+                <IconTable />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                disabled={busy}
                 title="编辑该数据集"
                 onClick={() => {
                   setEditingId(row.id)
                   setForm(formFromRow(row))
                   setPreview(null)
+                  // 已有命名直接展示（无样例列）；没命名过则收起命名表等取字段
+                  setFieldNaming(row.fields.length > 0 ? namingFromRow(row) : null)
                 }}
               >
                 <IconEdit />
@@ -177,6 +264,7 @@ export function DatasetPanel({ datasources, datasets, onChanged }: Props) {
                   void run(async () => {
                     await api.deleteDataset(row.id)
                     if (editingId === row.id) resetForm()
+                    if (fieldNaming?.datasetId === row.id) setFieldNaming(null)
                     return '数据集已删除'
                   })
                 }}
@@ -222,4 +310,63 @@ function PreviewTable({ result }: { result: QueryResult }) {
       </div>
     </div>
   )
+}
+
+/** 字段命名表：原始字段名只读（mono）+ 显示名输入框（留空 = 用原名）+ 首行样例值辅助辨认 */
+function FieldNamingTable({
+  title,
+  rows,
+  sample,
+  busy,
+  onAlias,
+  onSave,
+}: {
+  title: string
+  rows: { name: string; alias: string }[]
+  sample: Record<string, unknown> | null
+  busy: boolean
+  onAlias: (name: string, alias: string) => void
+  onSave: () => void
+}) {
+  return (
+    <div className="preview field-naming">
+      <div className="preview-head">
+        <span className="section-label">字段命名 · {title}</span>
+        <span className="meta">显示名只影响展示，绑定与取数仍用原始字段名</span>
+        <button type="button" className="primary" disabled={busy} onClick={onSave}>
+          保存字段命名
+        </button>
+      </div>
+      <div className="preview-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>原始字段名</th>
+              <th>显示名</th>
+              <th>样例值</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.name}>
+                <td className="mono">{row.name}</td>
+                <td>
+                  <input
+                    value={row.alias}
+                    placeholder={row.name}
+                    onChange={(e) => onAlias(row.name, e.target.value)}
+                  />
+                </td>
+                <td>{sampleText(sample?.[row.name])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function sampleText(value: unknown): string {
+  return value === null || value === undefined ? '' : String(value)
 }

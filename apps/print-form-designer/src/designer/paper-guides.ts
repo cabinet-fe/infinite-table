@@ -140,7 +140,7 @@ const GUIDE_DASH: DashPattern = { dash: 6, gap: 4 }
 /**
  * 手动虚线段：从 (x1,y1) 到 (x2,y2) 按图案推进（水平/垂直线通用）。
  * 调用方负责 beginPath / strokeStyle / stroke；本函数只铺路径。
- * overlay 的分页参考线与区域展开提示共用本实现，只有图案不同。
+ * overlay 的分页参考线与数据块展开提示共用本实现，只有图案不同。
  */
 export function dashedLine(
   ctx: GuideContext,
@@ -166,7 +166,7 @@ export function dashedLine(
 
 /**
  * 绘制参考线：纸张内容区矩形（第一页锚定画布内容原点 origin）+ 换页/换列虚线
- * （横贯/纵贯视口，超出纸宽的画布区域也可见换页位置）。
+ * （横贯/纵贯视口，超出纸宽的画布部分也可见换页位置）。
  */
 export function drawPageGuides(
   ctx: GuideContext,
@@ -193,15 +193,53 @@ export function drawPageGuides(
 }
 
 /**
+ * 反推内容原点所需的引擎读取子集（结构化子类型：TableEngine 天然满足，测试可字面桩）。
+ * 矩形口径与引擎 cellRectInViewport 一致：虚拟窗口外的格返回 null。
+ */
+export interface GuideOriginTable {
+  /** 数据格视口矩形（CSS 像素，含行号列/列头偏移）；窗口外返回 null */
+  getCellRelativeRect(col: number, row: number): { x: number; y: number } | null
+  /** 当前可视数据格范围（[start, end)，恒可见的冻结行列并入可视范围） */
+  getBodyVisibleCellRange(): {
+    rows: { start: number; end: number }
+    cols: { start: number; end: number }
+  }
+  /** 行高读取（含逐行覆盖） */
+  getRowHeight(row: number): number
+  /** 列宽读取 */
+  getColWidth(col: number): number
+}
+
+/**
+ * 画布内容原点（A1 左上角的视口坐标）：A1 在可视窗口内直接取其矩形；滚出窗口后
+ * 取可视窗口首格反推——首格矩形减去 [0, row) 行高 / [0, col) 列宽累计（与引擎
+ * 前缀和几何互补）。结果可为负：滚出视口的部分由画布裁剪，参考线在任意滚动位置
+ * 都恒显示。可视窗口为空（空画布/零视口）返回 null。
+ */
+export function resolveContentOrigin(table: GuideOriginTable): { x: number; y: number } | null {
+  const direct = table.getCellRelativeRect(0, 0)
+  if (direct) return { x: direct.x, y: direct.y }
+  const { rows, cols } = table.getBodyVisibleCellRange()
+  if (rows.start >= rows.end || cols.start >= cols.end) return null
+  const anchor = table.getCellRelativeRect(cols.start, rows.start)
+  if (!anchor) return null
+  let y = anchor.y
+  for (let row = 0; row < rows.start; row++) y -= table.getRowHeight(row)
+  let x = anchor.x
+  for (let col = 0; col < cols.start; col++) x -= table.getColWidth(col)
+  return { x, y }
+}
+
+/**
  * 参考线 painter（OverlayPainter 协议的结构化子类型实现）：开启且画布在挂载态时，
- * 从当前引擎读取面估算分页并绘制；画布内容原点取 (0,0) 格的视口矩形（含行号列/
- * 列头偏移），无可见原点（空画布）跳过绘制。
+ * 从当前引擎读取面估算分页并绘制；画布内容原点经 resolveContentOrigin 求取（A1
+ * 滚出虚拟窗口也能反推定位），可视窗口为空（空画布）跳过绘制。
  *
  * `getContentBounds` 是必需依赖：无限画布的行列数含大量扩容噪声，分页域一律取内容
  * 包围盒，避免画出一整屏换页线。
  *
  * 注意：本 painter 只负责参考线。sky 层槽位由 canvas-overlay 的组合 painter 统一持有
- * （区域轨道 + 参考线），本函数作为其内部子画笔被调用。
+ * （数据块轨道 + 参考线），本函数作为其内部子画笔被调用。
  */
 export function createPaperGuidesPainter(
   getGrid: () => SheetGrid | undefined,
@@ -214,7 +252,7 @@ export function createPaperGuidesPainter(
     if (!config || !grid) return
     const table = grid.getTable()
     if (!table.read) return
-    const origin = table.getCellRelativeRect(0, 0)
+    const origin = resolveContentOrigin(table)
     if (!origin) return
     const bounds = getContentBounds()
     // 空内容（包围盒为 0）不画参考线：没有内容就没有换页

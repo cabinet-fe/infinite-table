@@ -9,11 +9,19 @@ export interface DatasourceRow {
   created_at: string
 }
 
+/** 数据集字段命名条目：name = SQL 原始列名，alias 留空即用原名（仅展示用，不改绑定存储值） */
+export interface DatasetField {
+  name: string
+  alias?: string
+}
+
 export interface DatasetRow {
   id: string
   datasource_id: string
   name: string
   sql: string
+  /** 字段命名 JSON 文本（DatasetField[] 序列化；'[]' = 未命名） */
+  fields: string
   created_at: string
 }
 

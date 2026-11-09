@@ -1,4 +1,4 @@
-/* 设计器：画布区（标题栏 / 选区 chip / 画布卡片 / 公式栏）、区域列表、绑定编辑 */
+/* 设计器：画布区（标题栏 / 选区 chip / 画布卡片 / 公式栏）、数据块列表、绑定编辑、模板绑定卡 */
 
 /* ─── 画布标题栏 ────────────────────────────────────────────────────────── */
 .canvas-header {
@@ -23,7 +23,7 @@
   letter-spacing: 0.01em;
 }
 
-/* 当前选区 chip：A1 记法 + 所在区域中文名 */
+/* 当前选区 chip：A1 记法 + 所在数据块中文名 */
 .selection-chip {
   display: inline-flex;
   gap: 6px;
@@ -82,6 +82,7 @@
 
 /* ─── 画布卡片 ──────────────────────────────────────────────────────────── */
 .canvas-frame {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -104,7 +105,56 @@
   height: 100%;
 }
 
-/* ─── 配置面板双 tab（单元格 / 区域） ──────────────────────────────────── */
+/* ─── 函数点选提示条（点选参数格期间常显：画布内侧顶部居中） ────────────── */
+.pick-hint {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: calc(100% - 24px);
+  padding: 4px 5px 4px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  box-shadow: var(--shadow-md);
+}
+
+/* 点选失败：只换文案与配色，位置不动、不挤布局 */
+.pick-hint.error {
+  border-color: var(--danger);
+}
+
+.pick-hint.error .pick-hint-text {
+  color: var(--danger);
+}
+
+.pick-hint-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick-hint-cancel {
+  flex: none;
+  height: 22px;
+  padding: 0 9px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.pick-hint-cancel:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ─── 配置面板双 tab（单元格 / 数据块） ──────────────────────────────────── */
 /* 分段控件观感与顶栏视图切换（.segmented）一致：浅底容器 + 选中项白底浮起 */
 .config-panel {
   display: flex;
@@ -156,7 +206,14 @@
   display: none;
 }
 
-/* ─── 区域列表（紧凑：色点 + 名称 + 范围 + 展开标签 + 两个图标按钮） ────── */
+/* ─── 「绑定」tab（BoundList 独占 config-body：模板级绑定总账） ──────────── */
+/* bound-list 原是 cell tab 内的分隔区块（binding.css 带顶部分隔线），独占 tab 后去掉 */
+.config-body .bound-list {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ─── 数据块列表（紧凑：色点 + 名称 + 范围 + 列表方式标签 + 两个图标按钮） ── */
 .region-list {
   display: flex;
   flex-direction: column;
@@ -183,7 +240,7 @@
   background: var(--accent-soft);
 }
 
-/* 展开方式色点（与画布描边、弹框标题同色） */
+/* 列表方式色点（与画布描边、弹框标题同色） */
 .region-dot {
   flex: none;
   width: 7px;
@@ -219,7 +276,7 @@
   white-space: nowrap;
 }
 
-/* 展开标签：小圆角底色，扫列表时一眼看到哪些区域会复制 */
+/* 列表方式标签：小圆角底色，扫列表时一眼看到哪些数据块会复制 */
 .region-row-tag {
   flex: none;
   height: 17px;
@@ -256,7 +313,7 @@
   border-radius: 4px;
 }
 
-/* 底部两个入口：主操作（由选区设为区域）+ 次操作（添加区域） */
+/* 底部两个入口：主操作（由选区设为数据块）+ 次操作（添加数据块） */
 .region-add {
   display: flex;
   flex-wrap: wrap;

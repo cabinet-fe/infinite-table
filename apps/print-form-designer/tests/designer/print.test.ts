@@ -1,6 +1,7 @@
-// P8 打印输出测试：PrintSource 适配（数据态快照 → print 插件供数）、同一数据集
-// 多表达式形态口径、明细波段跨页自动分页、弹框配置不落模板、预览与打印同输入
-// 同输出（一致性）。打印输出路径（iframe 装载）需要 DOM，由 testing/dom 统一挂载。
+// 打印输出测试（v4）：PrintSource 适配（数据态快照 → print 插件供数）、同一数据集
+// 多表达式形态口径、数据块/聚合取数并集、聚合作数据源与函数求值进打印产物、明细跨页
+// 自动分页、弹框配置不落模板、预览与打印同输入同输出（一致性）。打印输出路径
+// （iframe 装载）需要 DOM，由 testing/dom 统一挂载。
 import { describe, expect, test } from 'bun:test'
 import { BORDER_STYLE_WIDTH, Sheet } from '@infinitable/sheet'
 
@@ -11,11 +12,7 @@ import {
   toPrintConfig,
   type DialogPrintSettings,
 } from '../../src/designer/PrintDialog'
-import {
-  collectPrintBindings,
-  collectRegionSources,
-  preparePrintSession,
-} from '../../src/designer/print-source'
+import { collectDatasetIds, collectRegionSources, preparePrintSession } from '../../src/designer/print-source'
 import {
   TEMPLATE_SCHEMA_VERSION,
   type FormTemplate,
@@ -26,8 +23,8 @@ import { ADDR, relativeBinding } from './testing/fixtures'
 
 setupDom()
 
-/** 明细数据集区域源：原始行数组即循环源（列表样口径） */
-const DETAIL_SOURCE: RegionSource = { datasetId: 'ds1', path: '' }
+/** 明细数据集的数据块源：原始行数组即循环源（列表样口径） */
+const DETAIL_SOURCE: RegionSource = { kind: 'dataset', datasetId: 'ds1', path: '' }
 
 /** 单行向下展开区模板：静态首行 / 静态次行 / 展开行 / 静态尾行（4 列） */
 function detailDoc(): FormDoc {
@@ -40,12 +37,13 @@ function detailDoc(): FormDoc {
       { startRow: 2, endRow: 2, startCol: 0, endCol: 3, expand: 'down', source: DETAIL_SOURCE },
       { startRow: 3, endRow: 3, startCol: 0, endCol: 3, expand: 'none' },
     ],
+    aggregations: [],
     sheet: new Sheet('form').snapshot(),
   }
   return FormDoc.fromTemplate(template)
 }
 
-/** N 条明细的原始行（列名 name/no），供区域 source 循环展开 */
+/** N 条明细的原始行（列名 name/no），供数据块 source 循环展开 */
 function itemRows(count: number): SourceRow[] {
   return Array.from({ length: count }, (_, i) => ({ name: `货品${i + 1}`, no: i + 1 }))
 }
@@ -58,6 +56,7 @@ function groupedDoc(): FormDoc {
     regions: [
       { startRow: 0, endRow: 0, startCol: 0, endCol: 3, expand: 'down', source: DETAIL_SOURCE },
     ],
+    aggregations: [],
     sheet: new Sheet('form').snapshot(),
   }
   const doc = FormDoc.fromTemplate(template)
@@ -83,17 +82,21 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     expect(preview).toContain('width:80px')
   })
 
-  test('cellValue/displayValue：绑定值进格，numFmt 走显示链，公式格取缓存', () => {
+  test('cellValue/displayValue：数据块绑定值进格，numFmt 走显示链（含函数格）', () => {
     const doc = detailDoc()
+    // 静态带源的数据块：绑定 + 函数都可取数（第 0 行）
+    doc.setRegionSource(0, DETAIL_SOURCE)
     doc.sheet.setCellStyle(
-      { start: ADDR(1, 1), end: ADDR(1, 1) },
+      { start: ADDR(0, 1), end: ADDR(0, 1) },
       {
         numFmt: { type: 'fixed', digits: 2 },
       },
     )
-    doc.setCellBinding(ADDR(1, 1), { datasetId: 'ds1', path: '[0].rate' })
-    const session = preparePrintSession(doc, new Map([['ds1', [{ rate: 3.14159 }]]]), 't')
+    doc.setCellBinding(ADDR(0, 0), relativeBinding('name'))
+    doc.setCellBinding(ADDR(0, 1), relativeBinding('rate'))
+    const session = preparePrintSession(doc, new Map([['ds1', [{ name: '甲', rate: 3.14159 }]]]), 't')
     const html = session.previewHtml({})
+    expect(html).toContain('甲')
     // 显示值经 numFmt 固定两位小数（打印 HTML 内为转义文本）
     expect(html).toContain('3.14')
     expect(html).not.toContain('3.14159')
@@ -126,29 +129,59 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     expect(html).toContain('<td colspan="2"')
   })
 
-  test('同一数据集多表达式：各绑定按自己的表达式形态取值', () => {
+  test('同一数据集多表达式：各数据块按自己的 source 表达式取形态', () => {
     const doc = detailDoc()
     const rows = [{ title: '甲公司', name: 'x' }]
-    doc.setCellBinding(ADDR(0, 0), { datasetId: 'ds1', expression: 'rows[0]', path: 'title' })
-    doc.setCellBinding(ADDR(1, 0), { datasetId: 'ds1', path: '[0].name' })
-    const bindings = collectPrintBindings(doc)
-    expect(bindings).toHaveLength(2)
+    // 展开行用原始行数组形态；第 0 行静态带源的数据块用截取表达式（循环数组第 1 条）
+    doc.setRegionSource(0, {
+      kind: 'dataset',
+      datasetId: 'ds1',
+      expression: 'rows.slice(0, 1)',
+      path: '',
+    })
+    doc.setCellBinding(ADDR(0, 0), relativeBinding('title'))
+    doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     const html = preparePrintSession(doc, new Map([['ds1', rows]]), 't').previewHtml({})
-    // 表达式形态（rows[0] → 对象）与原始行形态（rows → 数组）同数据集并存，各取各值
+    // 表达式形态（截取首行）与原始行形态同数据集并存，各取各值
     expect(html).toContain('甲公司')
     expect(html).toContain('>x<')
   })
 
-  test('区域 source 与单元格绑定并集取数：只有区域引用数据集时也会被取数', () => {
+  test('取数并集：数据块数据源 + 聚合入参都进 collectDatasetIds', () => {
     const doc = detailDoc()
-    // 明细格只有相对字段（不带 datasetId），唯一的数据集引用来自区域 source
+    // 明细格只有相对字段（不带 datasetId），唯一的数据集引用来自数据块 source
     doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
-    expect(collectPrintBindings(doc).map((binding) => binding.path)).toEqual(['name'])
+    doc.setAggregations([
+      { name: 'n', type: 'value', params: [{ datasetId: 'ds2', varName: 'r' }], expression: 'return r.length' },
+    ])
+    expect(collectDatasetIds(doc)).toEqual(['ds1', 'ds2'])
     expect(collectRegionSources(doc)).toEqual([DETAIL_SOURCE])
-    // 若区域 source 不进形态集合，这里会一行明细都取不到
-    const html = preparePrintSession(doc, new Map([['ds1', itemRows(2)]]), 't').previewHtml({})
+    // 若数据块 source 不进形态集合，这里会一行明细都取不到
+    const html = preparePrintSession(doc, new Map([['ds1', itemRows(2)], ['ds2', itemRows(3)]]), 't').previewHtml({})
     expect(html).toContain('货品1')
     expect(html).toContain('货品2')
+  })
+
+  test('聚合进打印管线：agg 作数据块数据源 + 函数引用 agg', () => {
+    const doc = detailDoc()
+    doc.setAggregations([
+      {
+        // 返回单个订单对象（value 型）：数据块源从其 items 键挖循环数组，函数直接引用其字段
+        name: 'first',
+        type: 'value',
+        params: [{ datasetId: 'ds2', varName: 'r' }],
+        expression: 'return r[0]',
+      },
+    ])
+    // 第 0 行静态数据块改吃聚合结果（循环数组第 1 条）
+    doc.setRegionSource(0, { kind: 'agg', aggName: 'first', path: 'items' })
+    doc.setCellBinding(ADDR(0, 0), relativeBinding('qty'))
+    // 数据块外函数引用聚合结果
+    doc.setCellFunction(ADDR(3, 0), { expression: "agg.first['label']" })
+    const rows = new Map([['ds1', itemRows(1)], ['ds2', [{ label: '首单', items: [{ qty: 7 }] }]]])
+    const html = preparePrintSession(doc, rows, 't').previewHtml({})
+    expect(html).toContain('>7<')
+    expect(html).toContain('首单')
   })
 })
 

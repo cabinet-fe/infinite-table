@@ -13,5 +13,5 @@ export const RANGE = (r1: number, c1: number, r2: number, c2: number): CellRange
   end: { row: r2, col: c2 },
 })
 
-/** 展开区内的相对绑定：形状只有 `{ path }`（datasetId/expression 继承区域 source） */
+/** 展开区内的相对绑定：形状只有 `{ path }`（datasetId/expression 继承数据块 source） */
 export const relativeBinding = (path: string): FormCellBinding => ({ path })

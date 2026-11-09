@@ -13,7 +13,9 @@ import {
   createPaperGuidesPainter,
   drawPageGuides,
   paperAreaPx,
+  resolveContentOrigin,
   type GuideContext,
+  type GuideOriginTable,
   type PaperGuidesConfig,
 } from '../../src/designer/paper-guides'
 import { setupDom } from './testing/dom'
@@ -201,6 +203,111 @@ describe('drawPageGuides：纸张边界矩形 + 分页虚线', () => {
   })
 })
 
+// ─── 内容原点反推：A1 滚出虚拟窗口后参考线不消失 ─────────────────────────────
+
+/**
+ * 窗口化字面表桩：均匀行列，窗口内格返回视口矩形（内容偏移 − 滚动 + 行列头偏移，
+ * 与引擎 cellRectInViewport 同口径）、窗口外返回 null。
+ */
+function windowedTable(setup: {
+  rowHeight: number
+  colWidth: number
+  rows: { start: number; end: number }
+  cols: { start: number; end: number }
+  headerHeight: number
+  rowHeaderWidth: number
+  scrollTop: number
+  scrollLeft: number
+}): GuideOriginTable {
+  return {
+    getCellRelativeRect: (col, row) => {
+      const inWindow =
+        row >= setup.rows.start &&
+        row < setup.rows.end &&
+        col >= setup.cols.start &&
+        col < setup.cols.end
+      if (!inWindow) return null
+      return {
+        x: col * setup.colWidth - setup.scrollLeft + setup.rowHeaderWidth,
+        y: row * setup.rowHeight - setup.scrollTop + setup.headerHeight,
+      }
+    },
+    getBodyVisibleCellRange: () => ({ rows: setup.rows, cols: setup.cols }),
+    getRowHeight: () => setup.rowHeight,
+    getColWidth: () => setup.colWidth,
+  }
+}
+
+describe('resolveContentOrigin：A1 在视口内/上方滚出/左侧滚出', () => {
+  const GEOMETRY = { rowHeight: 120, colWidth: 80, headerHeight: 28, rowHeaderWidth: 46 }
+
+  test('A1 在视口内：直接取 (0,0) 格矩形（含行列头偏移）', () => {
+    const origin = resolveContentOrigin(
+      windowedTable({
+        ...GEOMETRY,
+        rows: { start: 0, end: 4 },
+        cols: { start: 0, end: 6 },
+        scrollTop: 0,
+        scrollLeft: 0,
+      }),
+    )
+    expect(origin).toEqual({ x: 46, y: 28 })
+  })
+
+  test('A1 向上滚出窗口：origin.y = 窗口首行矩形 y − 已滚出行高累计（负值，参考线仍可画）', () => {
+    // 窗口首行 row 4（4×120=480 已滚出）；首行 y = 4×120 − 480 + 28 = 28，反推 28 − 480
+    const origin = resolveContentOrigin(
+      windowedTable({
+        ...GEOMETRY,
+        rows: { start: 4, end: 8 },
+        cols: { start: 0, end: 6 },
+        scrollTop: 480,
+        scrollLeft: 0,
+      }),
+    )
+    expect(origin).toEqual({ x: 46, y: 28 - 480 })
+    expect(origin!.y).toBeLessThan(0)
+  })
+
+  test('A1 向左滚出窗口：origin.x = 窗口首列矩形 x − 已滚出列宽累计（负值）', () => {
+    // 窗口首列 col 3（3×80=240 已滚出）；首列 x = 3×80 − 240 + 46 = 46，反推 46 − 240
+    const origin = resolveContentOrigin(
+      windowedTable({
+        ...GEOMETRY,
+        rows: { start: 0, end: 4 },
+        cols: { start: 3, end: 7 },
+        scrollTop: 0,
+        scrollLeft: 240,
+      }),
+    )
+    expect(origin).toEqual({ x: 46 - 240, y: 28 })
+    expect(origin!.x).toBeLessThan(0)
+  })
+
+  test('两轴同时滚出仍可反推；可视窗口为空（空画布）返回 null', () => {
+    const both = resolveContentOrigin(
+      windowedTable({
+        ...GEOMETRY,
+        rows: { start: 2, end: 6 },
+        cols: { start: 3, end: 7 },
+        scrollTop: 240,
+        scrollLeft: 240,
+      }),
+    )
+    expect(both).toEqual({ x: 46 - 240, y: 28 - 240 })
+    const empty = resolveContentOrigin(
+      windowedTable({
+        ...GEOMETRY,
+        rows: { start: 0, end: 0 },
+        cols: { start: 0, end: 0 },
+        scrollTop: 0,
+        scrollLeft: 0,
+      }),
+    )
+    expect(empty).toBeNull()
+  })
+})
+
 // ─── 端到端：挂载画布 + 真引擎读取面 + 模板/数据态隔离 ───────────────────────
 
 /** 挂载带参考线的画布（10 行 × 120px 高：10 行 × 120 = 1200 > A4 内容区高 1026.52 → 换页） */
@@ -301,8 +408,80 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
   })
 })
 
+describe('滚动后参考线恒显示（A1 滚出虚拟窗口不整组消失）', () => {
+  test('向下滚动 A1 出窗：纸张边界/换页线照画，原点随滚动上移为负、换页线恒画', () => {
+    const { doc, canvas, config } = mountWithGuides()
+    try {
+      const table = canvas.getGrid()!.getTable()
+      const { ctx: beforeCtx, ops: beforeOps } = recordContext()
+      createPaperGuidesPainter(
+        () => canvas.getGrid(),
+        () => config,
+        () => doc.bounds,
+      )(beforeCtx, { width: 900, height: 420 })
+      const before = beforeOps.find((item) => item.op === 'rect')!
+      expect(before).toBeDefined()
+
+      // 滚动同步生效（ScrollManager 广播 → 窗口重建同帧完成，无需真实浏览器）。
+      // 滚过 overscan 缓冲（SheetGrid 上方预留 10 行）A1 才真正出窗：1300 > 10×120
+      table.scrollBy(0, 1300)
+      // 前置锁定 bug 触发条件：A1 确已滚出虚拟窗口（getCellRelativeRect 返回 null）
+      expect(table.getCellRelativeRect(0, 0)).toBeNull()
+
+      const { ctx, ops } = recordContext()
+      createPaperGuidesPainter(
+        () => canvas.getGrid(),
+        () => config,
+        () => doc.bounds,
+      )(ctx, { width: 900, height: 420 })
+      const rect = ops.find((item) => item.op === 'rect')
+      // 修复前：painter 在 origin 处早退，rect/虚线整组消失
+      expect(rect).toBeDefined()
+      expect(rect!.args[1]).toBeCloseTo(before.args[1]! - table.getScrollTop(), 6)
+      expect(rect!.args[1]).toBeLessThan(0)
+      // 换页虚线仍画：y = origin.y + 960（10 行 × 120 的第一页边界；出视口部分由画布裁剪）
+      const breakY = rect!.args[1]! + 960
+      expect(
+        ops.some((item) => item.op === 'moveTo' && Math.abs(item.args[1]! - breakY) < 0.001),
+      ).toBe(true)
+    } finally {
+      canvas.release()
+    }
+  })
+
+  test('向右滚动 A1 出窗（无限画布扩容列供滚动余量）：原点左移为负，参考线照画', () => {
+    const { doc, canvas, config } = mountWithGuides()
+    try {
+      const table = canvas.getGrid()!.getTable()
+      const { ctx: beforeCtx, ops: beforeOps } = recordContext()
+      createPaperGuidesPainter(
+        () => canvas.getGrid(),
+        () => config,
+        () => doc.bounds,
+      )(beforeCtx, { width: 900, height: 420 })
+      const before = beforeOps.find((item) => item.op === 'rect')!
+
+      table.scrollBy(400, 0)
+      expect(table.getCellRelativeRect(0, 0)).toBeNull()
+
+      const { ctx, ops } = recordContext()
+      createPaperGuidesPainter(
+        () => canvas.getGrid(),
+        () => config,
+        () => doc.bounds,
+      )(ctx, { width: 900, height: 420 })
+      const rect = ops.find((item) => item.op === 'rect')
+      expect(rect).toBeDefined()
+      expect(rect!.args[0]).toBeCloseTo(before.args[0]! - table.getScrollLeft(), 6)
+      expect(rect!.args[0]).toBeLessThan(0)
+    } finally {
+      canvas.release()
+    }
+  })
+})
+
 describe('参考线不落模板 / 不参与数据态渲染', () => {
-  test('挂载并绘制参考线后：保存 JSON 键集恰为模板四键，深层无参考线/纸张/分页键', () => {
+  test('挂载并绘制参考线后：保存 JSON 键集恰为模板五键，深层无参考线/纸张/分页键', () => {
     const { doc, canvas, config } = mountWithGuides()
     try {
       const { ctx } = recordContext()
@@ -317,7 +496,13 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
 
       const template = doc.toTemplate('演练')
       // 画布尺寸由内容包围盒推导，模板不含声明 cols
-      expect(Object.keys(template).sort()).toEqual(['name', 'regions', 'schemaVersion', 'sheet'])
+      expect(Object.keys(template).sort()).toEqual([
+        'aggregations',
+        'name',
+        'regions',
+        'schemaVersion',
+        'sheet',
+      ])
       // 深层键扫描：任何层级都不出现参考线/纸张/分页类键名
       const forbidden =
         /^(paper|paperSize|paperGuides|orientation|margin|paging|scale|guides?|rowBreaks|colBreaks|pageBreaks?)$/i

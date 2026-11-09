@@ -1,7 +1,7 @@
-// 模板 REST：区域式 JSON 增删改查。
+// 模板 REST：数据块式 JSON 增删改查。
 // 库表 name 列独立存名，template 列存模板文档（regions 形态），读取时回填 name——
 // 服务端对文档字段透传不重塑，保存→加载 round-trip 等价由前后端共用 FormDoc 序列化
-// 入口保证；区域重叠/越界等深层校验在加载侧 FormDoc.fromTemplate 把关，此处只做形状校验。
+// 入口保证；数据块重叠/越界等深层校验在加载侧 FormDoc.fromTemplate 把关，此处只做形状校验。
 //
 // 版本口径：只认当前 schema 版本。schemaVersion 不符的请求体直接 400，不做任何字段清洗或迁移；
 // 库里读到不符的文档同样按坏数据处理（抛错暴露，不静默修）。
@@ -30,15 +30,16 @@ function findTemplateRow(db: Database, id: string): TemplateRow | undefined {
   return db.query('SELECT * FROM template WHERE id = ?').get(id) as TemplateRow | undefined
 }
 
-/** 形状校验：name 非空、schemaVersion 恰为 3、regions 为数组、sheet 为非 null 对象 */
+/** 形状校验：name 非空、schemaVersion 恰为当前版本、regions/aggregations 为数组、sheet 为非 null 对象 */
 function isTemplateBody(body: unknown): body is FormTemplate {
   if (typeof body !== 'object' || body === null) return false
-  const { name, schemaVersion, regions, sheet } = body as Record<string, unknown>
+  const { name, schemaVersion, regions, aggregations, sheet } = body as Record<string, unknown>
   return (
     typeof name === 'string' &&
     name.trim() !== '' &&
     schemaVersion === TEMPLATE_SCHEMA_VERSION &&
     Array.isArray(regions) &&
+    Array.isArray(aggregations) &&
     typeof sheet === 'object' &&
     sheet !== null
   )
@@ -50,7 +51,7 @@ function toPayload(body: FormTemplate): Omit<FormTemplate, 'name'> {
   return payload
 }
 
-const BAD_BODY_MESSAGE = `请求体不合法：需含非空 name、schemaVersion ${TEMPLATE_SCHEMA_VERSION}、数组 regions、对象 sheet`
+const BAD_BODY_MESSAGE = `请求体不合法：需含非空 name、schemaVersion ${TEMPLATE_SCHEMA_VERSION}、数组 regions 与 aggregations、对象 sheet`
 
 export function mountTemplateRoutes(app: Hono, db: Database): void {
   // 清单只回摘要（模板文档经详情路由读取）

@@ -1,4 +1,5 @@
-// 数据集 REST：创建/保存/编辑（关联校验、只读 SQL 护栏）与执行（原始行直出：列名 + 行数组）。
+// 数据集 REST：创建/保存/编辑（关联校验、只读 SQL 护栏）、执行（原始行直出：列名 + 行数组）
+// 与字段命名（取字段接口 + fields 持久化透传）。
 import { describe, expect, test } from 'bun:test'
 import { openDatabase } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
@@ -150,5 +151,140 @@ describe('数据集 REST', () => {
 
     const again = await app.request(`/api/datasets/${datasetId}`, { method: 'DELETE' })
     expect(again.status).toBe(404)
+  })
+
+  test('取字段：返回原始列名与前几行样例（对象形态，最多 5 行）', async () => {
+    const dir = createTempDir()
+    const app = createApp(openDatabase(':memory:'))
+    const path = createDemoSqliteFile(dir)
+    const { datasetId } = await createDatasourceAndDataset(app, path)
+
+    const res = await app.request(`/api/datasets/${datasetId}/fields`, { method: 'POST' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      fields: ['name', 'qty'],
+      sample: [
+        { name: '棉布', qty: 12 },
+        { name: '涤纶', qty: 30 },
+      ],
+    })
+
+    // 样例截断：递归 CTE 造 8 行，只回前 5 行
+    const { datasetId: cappedId } = await createDatasourceAndDataset(
+      app,
+      path,
+      'WITH RECURSIVE cnt(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM cnt WHERE x < 8) SELECT x FROM cnt',
+    )
+    const capped = await app.request(`/api/datasets/${cappedId}/fields`, { method: 'POST' })
+    const payload = (await capped.json()) as { fields: string[]; sample: unknown[] }
+    expect(payload.fields).toEqual(['x'])
+    expect(payload.sample).toHaveLength(5)
+  })
+
+  test('取字段：数据集不存在 404；SQL 失败 422', async () => {
+    const dir = createTempDir()
+    const app = createApp(openDatabase(':memory:'))
+    const { datasetId } = await createDatasourceAndDataset(
+      app,
+      createDemoSqliteFile(dir),
+      'SELECT * FROM no_such_table',
+    )
+
+    const missing = await app.request('/api/datasets/nope/fields', { method: 'POST' })
+    expect(missing.status).toBe(404)
+
+    const failed = await app.request(`/api/datasets/${datasetId}/fields`, { method: 'POST' })
+    expect(failed.status).toBe(422)
+    const body = (await failed.json()) as { message: string }
+    expect(body.message).toContain('no such table')
+  })
+
+  test('字段命名：PUT 持久化并全链路透传；PUT 不带 fields 保留已存；结构不合法 400', async () => {
+    const dir = createTempDir()
+    const app = createApp(openDatabase(':memory:'))
+    const { datasourceId, datasetId } = await createDatasourceAndDataset(
+      app,
+      createDemoSqliteFile(dir),
+    )
+    const base = { name: '商品明细', datasource_id: datasourceId, sql: 'SELECT name, qty FROM item ORDER BY qty' }
+
+    const saved = await app.request(`/api/datasets/${datasetId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...base,
+        // 空白别名归一为「用原名」；带别名的原样保留
+        fields: [
+          { name: 'name', alias: ' 品名 ' },
+          { name: 'qty', alias: '' },
+        ],
+      }),
+    })
+    expect(saved.status).toBe(200)
+    expect(await saved.json()).toMatchObject({
+      fields: [
+        { name: 'name', alias: '品名' },
+        { name: 'qty' },
+      ],
+    })
+
+    // 清单与详情都解析成数组透出
+    const listed = (await (await app.request('/api/datasets')).json()) as {
+      fields: { name: string; alias?: string }[]
+    }[]
+    expect(listed[0]!.fields).toEqual([
+      { name: 'name', alias: '品名' },
+      { name: 'qty' },
+    ])
+    const detail = (await (await app.request(`/api/datasets/${datasetId}`)).json()) as {
+      fields: { name: string; alias?: string }[]
+    }
+    expect(detail.fields).toEqual(listed[0]!.fields)
+
+    // 编辑表单只改名称/SQL（不带 fields）不误清命名
+    const kept = await app.request(`/api/datasets/${datasetId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...base, name: '改名单' }),
+    })
+    expect(((await kept.json()) as { fields: unknown[] }).fields).toHaveLength(2)
+
+    // 结构不合法（name 为空串 / 非数组）返回 400
+    for (const fields of [[{ name: ' ' }], { name: 'x' }]) {
+      const bad = await app.request(`/api/datasets/${datasetId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...base, fields }),
+      })
+      expect(bad.status).toBe(400)
+    }
+  })
+
+  test('创建即可带字段命名：POST 透传 fields 并在响应回显', async () => {
+    const dir = createTempDir()
+    const app = createApp(openDatabase(':memory:'))
+    const path = createDemoSqliteFile(dir)
+    const datasource = (await (
+      await app.request('/api/datasources', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '样例库', type: 'sqlite', path }),
+      })
+    ).json()) as { id: string }
+
+    const created = await app.request('/api/datasets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: '商品明细',
+        datasource_id: datasource.id,
+        sql: 'SELECT name FROM item',
+        fields: [{ name: 'name', alias: '品名' }],
+      }),
+    })
+    expect(created.status).toBe(201)
+    expect(((await created.json()) as { fields: unknown }).fields).toEqual([
+      { name: 'name', alias: '品名' },
+    ])
   })
 })

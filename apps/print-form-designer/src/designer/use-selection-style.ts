@@ -7,7 +7,7 @@ import type { CellAddress, CellRange, CellStyle } from '@infinitable/sheet'
 import type { FormDoc } from './form-doc'
 
 interface SelectionStyleState {
-  /** 当前选区首个区域（无选区为 null） */
+  /** 当前选区首个范围（无选区为 null） */
   range: CellRange | null
   activeCell: CellAddress | null
   /** 活动格自身样式（原始存储语义；没写过的字段为 undefined） */
@@ -39,7 +39,7 @@ export function useSelectionStyle(doc: FormDoc): SelectionStyleState {
     const sync = (): void => setState(readState(doc))
     sync()
     const offSelection = doc.sheet.on('selection-change', sync)
-    // 样式命令（setCellStyle）只发 sheet 的 history-change；快照级编辑（行高列宽/区域）发
+    // 样式命令（setCellStyle）只发 sheet 的 history-change；快照级编辑（行高列宽/数据块）发
     // doc 的 history-change——两条都订阅，工具条才能同时跟上撤销链与几何变化
     const offSheetHistory = doc.sheet.on('history-change', sync)
     const offDocHistory = doc.on('history-change', sync)

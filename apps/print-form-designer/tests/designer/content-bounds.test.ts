@@ -1,5 +1,5 @@
 // 内容包围盒纯函数测试：覆盖 cells / meta / merges / images / 行高列宽 / 行列默认样式 /
-// 区域七类来源的最大行列，空内容回落 1×1；以及按包围盒裁剪快照（越界合并与图片整条丢弃）。
+// 数据块七类来源的最大行列，空内容回落 1×1；以及按包围盒裁剪快照（越界合并与图片整条丢弃）。
 import { describe, expect, test } from 'bun:test'
 
 import type { SheetSnapshot } from '@infinitable/sheet'

@@ -10,19 +10,39 @@ export interface DatasourceRow {
   created_at: string
 }
 
+/** 数据集字段命名条目：name = SQL 原始列名，alias 留空即用原名（仅展示用，绑定仍存原名） */
+export interface DatasetField {
+  name: string
+  alias?: string
+}
+
 export interface DatasetRow {
   id: string
   datasource_id: string
   name: string
   sql: string
+  fields: DatasetField[]
   created_at: string
 }
 
-/** 数据集创建/保存请求体 */
+/** 数据集创建/保存请求体（fields 可选：PUT 不带 = 保留已存命名） */
 export interface DatasetInput {
   name: string
   datasource_id: string
   sql: string
+  fields?: DatasetField[]
+}
+
+/** 取字段结果：SQL 原始列名 + 前几行样例（列名 → 值） */
+export interface DatasetFieldSample {
+  fields: string[]
+  sample: Record<string, unknown>[]
+}
+
+/** 字段显示名：别名优先，无别名/纯空白别名用原名（展示位共用；存储与绑定一律用原名） */
+export function datasetFieldLabel(fields: DatasetField[] | undefined, name: string): string {
+  const alias = fields?.find((field) => field.name === name)?.alias
+  return alias !== undefined && alias.trim() !== '' ? alias : name
 }
 
 /** SQL 执行结果：原始列名 + 原始行（服务端不做任何重塑） */
@@ -79,6 +99,8 @@ export const api = {
   deleteDataset: (id: string) => request<void>(`/api/datasets/${id}`, { method: 'DELETE' }),
   executeDataset: (id: string) =>
     request<QueryResult>(`/api/datasets/${id}/execute`, { method: 'POST' }),
+  fetchDatasetFields: (id: string) =>
+    request<DatasetFieldSample>(`/api/datasets/${id}/fields`, { method: 'POST' }),
 
   listTemplates: () => request<TemplateSummary[]>('/api/templates'),
   createTemplate: (template: FormTemplate) =>

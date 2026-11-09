@@ -1,14 +1,32 @@
-import { SheetGrid, type CellAddress, type CellStyle } from '@infinitable/sheet'
+import {
+  SheetGrid,
+  type CellAddress,
+  type CellStyle,
+  type SheetGridContextMenuInfo,
+} from '@infinitable/sheet'
 
 import { FORM_CANVAS_THEME } from './canvas-theme'
 import { createCanvasOverlay, type CanvasOverlay } from './canvas-overlay'
 import type { FormDoc } from './form-doc'
 import type { PaperGuidesConfig } from './paper-guides'
 import {
+  cursorForEdge,
+  hitRegionEdge,
+  hitRegionHandle,
+  regionBoundsOf,
+  resizeRegionRect,
+  type RegionGridRect,
+  type RegionHitTarget,
+  type RegionResizeEdge,
+} from './region-interaction'
+import {
   FORM_BINDING_META_NAMESPACE,
+  FORM_FUNCTION_META_NAMESPACE,
   formatBindingPlaceholder,
+  formatFunctionPlaceholder,
   regionsAt,
   type FormCellBinding,
+  type FormCellFunction,
   type FormRegion,
 } from './template'
 
@@ -19,20 +37,24 @@ import {
  * 因此引擎的 sheet.rows 会随滚动膨胀，**不能**拿它当「是否需要重建网格」的依据——
  * 重建只看几何键集缩小与合并区变化（见 syncView）。
  *
- * - 配置态口径：绑定格只显示占位符（resolveDisplayValue 读 sidecar，数据行
- *   永不进画布；数据态渲染在预览/打印管线，P5/P6 接线）；
+ * - 配置态口径：绑定格显示 `{{path}}`、函数格显示 `{{表达式}}` 占位符
+ *   （resolveDisplayValue 读 sidecar，数据行永不进画布；数据态渲染在预览/打印管线）；
  * - 底色标记（resolveCellStyle 叠加淡色填充，不写模型、不进快照）：展开区淡蓝优先，
- *   其余已绑定格给一层极淡品牌蓝，让「哪些格绑了数据」一眼可见；
+ *   其余已绑定/已设函数格给一层极淡品牌蓝，让「哪些格绑了数据」一眼可见；
  * - 选区即绑定目标：画布常规选区正常流动，宿主从 sheet 选区读活动格，无需任何开关；
- *   选区变化回带所在区域（区域/格选中语义）；
- * - 纸张边界/分页参考线（P4）：overlay painter 经协议 setOverlayPainter 挂 sky 层，
+ *   选区变化回带所在数据块（数据块/格选中语义）；
+ * - 数据块交互（region-interaction 的几何）：右下角手柄点击 → onRegionHandleClick
+ *   （跳「数据块」tab）；边缘/角落拖拽 → 虚线预览，松开经 onRegionResizeCommit 提交
+ *   （守卫与错误呈现归 DesignerPage）。两者都在捕获阶段拦截，不触发引擎选区；
+ * - 右键菜单经 SheetGrid 的 onContextMenu 转发（kind 含 body/行头/列头）；
+ * - 纸张边界/分页参考线：overlay painter 经协议 setOverlayPainter 挂 sky 层，
  *   网格重建时随 createGrid 重挂；仅显示层——配置由宿主持有，不写模型、不进快照。
  */
 
 /** 展开区底色（无显式填充的格叠加；仅画布显示层） */
 const EXPAND_REGION_TINT = '#eef4ff'
 
-/** 非展开区已绑定格的极淡品牌蓝底色（仅显示层，用户显式填充优先） */
+/** 非展开区已绑定/已设函数格的极淡品牌蓝底色（仅画布显示层，用户显式填充优先） */
 const BOUND_CELL_TINT = '#f5f8ff'
 
 /** 视图几何态：行高/列宽自定义键集 + 合并区签名（静默 restore 后的失配检测基准） */
@@ -59,11 +81,24 @@ function keySetShrunk(prev: ReadonlySet<number>, next: ReadonlySet<number>): boo
   return false
 }
 
+/** 拖拽会话状态（pointerdown 建立到 pointerup/pointercancel 结束） */
+interface DragSession {
+  index: number
+  edge: RegionResizeEdge
+  preview: RegionGridRect
+}
+
 interface FormCanvasOptions {
   container: HTMLElement
   doc: FormDoc
-  /** 选区变化（含所在区域；区域面板与绑定面板据此高亮/跟随） */
+  /** 选区变化（含所在数据块；数据块面板与绑定面板据此高亮/跟随） */
   onSelectionChange?(info: { addr: CellAddress; region: FormRegion | undefined }): void
+  /** 点击数据块右下角手柄（跳「数据块」tab 并聚焦该数据块） */
+  onRegionHandleClick?(index: number): void
+  /** 边缘拖拽结束提交（守卫在 doc.setRegionFields，错误呈现归调用方） */
+  onRegionResizeCommit?(index: number, patch: Partial<RegionGridRect>): void
+  /** 画布右键菜单（body 格 / 行头 / 列头分流；x/y 为客户端坐标） */
+  onContextMenu?(info: SheetGridContextMenuInfo): void
   /** 纸张边界/分页参考线初始配置（overlay 显示层；缺省关闭，运行时经 setPaperGuides 切换） */
   paperGuides?: PaperGuidesConfig
   width?: number
@@ -73,7 +108,7 @@ interface FormCanvasOptions {
 export interface FormCanvas {
   /**
    * 整表重绘（几何同步 + repaint）：cell-meta 单格写入不发引擎事件，
-   * 绑定编辑写入/清除占位符后由宿主调用
+   * 绑定/函数编辑写入/清除占位符后由宿主调用
    */
   refresh(): void
   /** 纸张边界/分页参考线开关/配置（null 关闭；仅 overlay 显示层，不落模板） */
@@ -93,39 +128,149 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   const disposers: (() => void)[] = []
   /** 纸张参考线配置（显示层状态，由宿主经 setPaperGuides 写入） */
   let guidesConfig: PaperGuidesConfig | null = options.paperGuides ?? null
-  /** 指针命中的区域下标（悬停态：overlay 只在有值时画区域名 pill） */
+  /** 指针命中的数据块下标（悬停态：overlay 只在有值时画数据块名 pill） */
   let hoveredRegionIndex: number | undefined
-  /** sky 层组合 overlay（区域轨道 + 参考线；每次网格创建/重建随 createGrid 重挂新引擎） */
+  /** 指针悬停在手柄上的数据块下标（手柄强调 + cursor 依据） */
+  let handleHoverIndex: number | undefined
+  /** 边缘拖拽会话（进行中才有值；overlay 画虚线预览） */
+  let dragSession: DragSession | undefined
+  /** sky 层组合 overlay（数据块轨道 + 参考线；每次网格创建/重建随 createGrid 重挂） */
   const overlay: CanvasOverlay = createCanvasOverlay({
     getGrid: () => grid,
     getPaperGuides: () => guidesConfig,
     getRegions: () => doc.regions,
-    // 当前选中格（overlay 据此判定「现在说的是哪个区域」并加粗描边）
+    // 当前选中格（overlay 据此判定「现在说的是哪个数据块」并加粗描边）
     getActiveCell: () => doc.sheet.getSelection().activeCell ?? undefined,
     // 无限画布下引擎行列含大量扩容空行：参考线只在内容包围盒内估算换页
     getContentBounds: () => doc.bounds,
-    // 悬停区域（默认不显示区域名，指针落在区域内才出 pill）
+    // 悬停数据块（默认不显示数据块名，指针落在数据块内才出 pill）
     getHoveredRegionIndex: () => hoveredRegionIndex,
+    getHandleHoverIndex: () => handleHoverIndex,
+    getDragPreview: () =>
+      dragSession ? { index: dragSession.index, rect: dragSession.preview } : undefined,
+  })
+
+  /** 全部数据块的视口包围盒命中表（拖拽/手柄/边缘判定共用） */
+  const regionTargets = (instance: SheetGrid): RegionHitTarget[] => {
+    const table = instance.getTable()
+    const targets: RegionHitTarget[] = []
+    doc.regions.forEach((region, index) => {
+      const bounds = regionBoundsOf(table, region)
+      if (bounds) targets.push({ index, bounds })
+    })
+    return targets
+  }
+
+  const regionGridRect = (region: FormRegion): RegionGridRect => ({
+    startRow: region.startRow,
+    endRow: region.endRow,
+    startCol: region.startCol,
+    endCol: region.endCol,
   })
 
   /**
-   * 指针跟踪：只在「命中区域下标变化」时失效 sky 层——区域内逐格移动不重绘，
-   * 移出区域即清除悬停。监听随 host 节点一起销毁（remount 会整体移除 host），
-   * 因此不需要额外的 disposer。
+   * 指针交互：捕获阶段先于引擎处理手柄/边缘（stopPropagation 不触发选区），
+   * 悬停态（数据块 pill / 手柄强调 / 边缘 cursor）在同一 listener 内维护，
+   * 只在命中变化时失效 sky 层。监听随 host 节点一起销毁（remount 会整体移除 host）。
    */
-  const bindHover = (host: HTMLDivElement, instance: SheetGrid): void => {
-    host.addEventListener('pointermove', (event) => {
+  const bindPointer = (host: HTMLDivElement, instance: SheetGrid): void => {
+    const pointOf = (event: PointerEvent): { x: number; y: number } => {
       const rect = host.getBoundingClientRect()
-      const addr = instance.hitTestSheetAddr(event.clientX - rect.left, event.clientY - rect.top)
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top }
+    }
+    const addrOf = (event: PointerEvent): CellAddress | null => {
+      const { x, y } = pointOf(event)
+      return instance.hitTestSheetAddr(x, y)
+    }
+
+    host.addEventListener(
+      'pointerdown',
+      (event) => {
+        if (released || event.button !== 0) return
+        const { x, y } = pointOf(event)
+        const targets = regionTargets(instance)
+        const handleIndex = hitRegionHandle(targets, x, y)
+        if (handleIndex !== undefined) {
+          event.stopPropagation()
+          event.preventDefault()
+          options.onRegionHandleClick?.(handleIndex)
+          return
+        }
+        const edge = hitRegionEdge(targets, x, y)
+        if (edge) {
+          event.stopPropagation()
+          event.preventDefault()
+          const region = doc.regions[edge.index]
+          if (!region) return
+          dragSession = { index: edge.index, edge: edge.edge, preview: regionGridRect(region) }
+          host.setPointerCapture(event.pointerId)
+          host.style.cursor = cursorForEdge(edge.edge)
+          overlay.refresh()
+        }
+      },
+      true,
+    )
+
+    host.addEventListener('pointermove', (event) => {
+      if (released) return
+      if (dragSession) {
+        const addr = addrOf(event)
+        if (addr) {
+          const region = doc.regions[dragSession.index]
+          if (region) {
+            const patch = resizeRegionRect(regionGridRect(region), dragSession.edge, addr)
+            dragSession.preview = { ...regionGridRect(region), ...patch }
+            overlay.refresh()
+          }
+        }
+        return
+      }
+      const { x, y } = pointOf(event)
+      const targets = regionTargets(instance)
+      // 悬停态三档：手柄 > 边缘（resize cursor）> 数据块本体（pill）
+      const nextHandle = hitRegionHandle(targets, x, y)
+      const nextEdge = nextHandle === undefined ? hitRegionEdge(targets, x, y) : undefined
+      const addr = instance.hitTestSheetAddr(x, y)
       const region = addr ? regionsAt(doc.regions, addr.row, addr.col) : undefined
-      const next = region ? doc.regions.indexOf(region) : undefined
-      if (next === hoveredRegionIndex) return
-      hoveredRegionIndex = next
+      const nextHover = region ? doc.regions.indexOf(region) : undefined
+      const cursor = nextHandle !== undefined
+        ? 'pointer'
+        : nextEdge
+          ? cursorForEdge(nextEdge.edge)
+          : ''
+      if (host.style.cursor !== cursor) host.style.cursor = cursor
+      if (nextHandle === handleHoverIndex && nextHover === hoveredRegionIndex) return
+      handleHoverIndex = nextHandle
+      hoveredRegionIndex = nextHover
       overlay.refresh()
     })
+
+    const finishDrag = (event: PointerEvent, commit: boolean): void => {
+      if (!dragSession) return
+      const session = dragSession
+      dragSession = undefined
+      host.style.cursor = ''
+      if (host.hasPointerCapture(event.pointerId)) host.releasePointerCapture(event.pointerId)
+      overlay.refresh()
+      if (!commit) return
+      const region = doc.regions[session.index]
+      if (!region) return
+      const patch: Partial<RegionGridRect> = {}
+      if (session.preview.startRow !== region.startRow) patch.startRow = session.preview.startRow
+      if (session.preview.endRow !== region.endRow) patch.endRow = session.preview.endRow
+      if (session.preview.startCol !== region.startCol) patch.startCol = session.preview.startCol
+      if (session.preview.endCol !== region.endCol) patch.endCol = session.preview.endCol
+      if (Object.keys(patch).length === 0) return
+      options.onRegionResizeCommit?.(session.index, patch)
+    }
+
+    host.addEventListener('pointerup', (event) => finishDrag(event, true))
+    host.addEventListener('pointercancel', (event) => finishDrag(event, false))
+
     host.addEventListener('pointerleave', () => {
-      if (hoveredRegionIndex === undefined) return
+      if (hoveredRegionIndex === undefined && handleHoverIndex === undefined) return
       hoveredRegionIndex = undefined
+      handleHoverIndex = undefined
       overlay.refresh()
     })
   }
@@ -144,27 +289,35 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
       theme: FORM_CANVAS_THEME,
       // 无限画布：序列化时 FormDoc.toTemplate 会收紧到内容包围盒
       growOnScroll: true,
-      // 配置态占位符：绑定格显示 {{path}}，其余回落存储值；数据行不进画布
+      // 画布右键菜单：内核分流 body/行头/列头，菜单内容归 DesignerPage
+      onContextMenu: (info) => options.onContextMenu?.(info),
+      // 配置态占位符：绑定格显示 {{path}}、函数格显示 {{表达式}}，其余回落存储值
       resolveDisplayValue: (addr, base) => {
+        const fn = doc.sheet.getCellMeta<FormCellFunction>(addr, FORM_FUNCTION_META_NAMESPACE)
+        if (fn) return formatFunctionPlaceholder(fn)
         const binding = doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE)
         return binding ? formatBindingPlaceholder(binding) : base
       },
       // 底色标记：仅叠加在无显式填充的格上（用户填充优先）
-      // 优先级保持现状：展开区淡蓝 > 已绑定格淡蓝
+      // 优先级保持现状：展开区淡蓝 > 已绑定/函数格淡蓝
       resolveCellStyle: (addr, base): CellStyle | undefined => {
         if (base?.fill) return undefined
         const region = regionsAt(doc.regions, addr.row, addr.col)
         if (region && region.expand !== 'none') {
           return { ...base, fill: { color: EXPAND_REGION_TINT } }
         }
-        const binding = doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE)
-        return binding ? { ...base, fill: { color: BOUND_CELL_TINT } } : undefined
+        const bound =
+          doc.sheet.getCellMeta<FormCellBinding>(addr, FORM_BINDING_META_NAMESPACE) ??
+          doc.sheet.getCellMeta<FormCellFunction>(addr, FORM_FUNCTION_META_NAMESPACE)
+        return bound ? { ...base, fill: { color: BOUND_CELL_TINT } } : undefined
       },
     })
     mountedGeometry = captureGeometry(doc)
     wrapper = host
     hoveredRegionIndex = undefined
-    bindHover(host, instance)
+    handleHoverIndex = undefined
+    dragSession = undefined
+    bindPointer(host, instance)
     overlay.attach(instance)
     return instance
   }
@@ -173,7 +326,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
 
   /**
    * 模型变更后的视图同步：只按行高/列宽键集缩小、合并区变化重建网格（快照级静默
-   * restore 清空模型键、区域平移改写合并——引擎侧行高覆盖无清除 API、合并 Map 仅
+   * restore 清空模型键、数据块平移改写合并——引擎侧行高覆盖无清除 API、合并 Map 仅
    * 事件驱动同步，非重建路径无法表达）；其余同步尺寸并整表重绘。
    *
    * 不比对行列数：无限画布下 sheet.rows 随滚动增长，把它当重建依据会一滚就重建。
@@ -193,14 +346,14 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     grid?.applyAxisSizes('row', [...geometry.rowKeys])
     grid?.applyAxisSizes('col', [...geometry.colKeys])
     grid?.updateTheme({})
-    // 行高/列宽就地同步后区域轨道/参考线随 sky 整层失效重绘（重建路径经 createGrid 重挂已覆盖）
+    // 行高/列宽就地同步后数据块轨道/参考线随 sky 整层失效重绘（重建路径经 createGrid 重挂已覆盖）
     overlay.refresh()
   }
 
-  // 区域结构或撤销链变化（快照级编辑的静默 restore 不发 sheet 事件，统一走这里）
+  // 数据块结构或撤销链变化（快照级编辑的静默 restore 不发 sheet 事件，统一走这里）
   disposers.push(doc.on('regions-change', syncView))
   disposers.push(doc.on('history-change', syncView))
-  // 选区流动：回带活动格所在区域（区域/格选中语义）
+  // 选区流动：回带活动格所在数据块（数据块/格选中语义）
   disposers.push(
     doc.sheet.on('selection-change', (state) => {
       if (released || !state.activeCell) return

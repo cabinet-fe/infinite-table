@@ -1,7 +1,7 @@
 // 内容包围盒：无限画布（SheetGrid growOnScroll）的行列数只是引擎扩容噪声，真正的
 // 「版面有多大」由内容自己决定。序列化模板、打印取数、参考线分页三处共用这一份口径。
 //
-// 为什么独立成文件：这是一组只看 SheetSnapshot 与区域序列的纯变换，不碰 FormDoc 的
+// 为什么独立成文件：这是一组只看 SheetSnapshot 与数据块序列的纯变换，不碰 FormDoc 的
 // 事件/撤销门面；抽出来让 form-doc 与 data-state 都能复用，也便于单独测试。
 //
 // 口径：
@@ -39,7 +39,7 @@ function touchRange(extent: Extent, range: CellRange): void {
   touch(extent, range.end.row, range.end.col)
 }
 
-/** 参与包围盒计数的区域矩形（结构子集；只要行列范围，不依赖 FormRegion 其余字段） */
+/** 参与包围盒计数的数据块矩形（结构子集；只要行列范围，不依赖 FormRegion 其余字段） */
 interface RegionRect {
   startRow: number
   endRow: number
@@ -48,8 +48,8 @@ interface RegionRect {
 }
 
 /**
- * 内容包围盒：给定快照与区域序列，返回版面实际占用的行列数。
- * `regions` 参与计数——区域可以圈住尚无内容的空行（用户刚框出来还没填字），
+ * 内容包围盒：给定快照与数据块序列，返回版面实际占用的行列数。
+ * `regions` 参与计数——数据块可以圈住尚无内容的空行（用户刚框出来还没填字），
  * 此时那块矩形仍属于版面。
  */
 export function contentBounds(

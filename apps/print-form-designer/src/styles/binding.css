@@ -1,4 +1,4 @@
-/* 字段绑定：目标格条、字段 chip、作用方式切换、高级层、已绑定清单
+/* 字段绑定：目标格条、字段 chip（单元格函数编辑器的插入组也复用）、高级层、已绑定清单
    从 designer.css 拆出——绑定交互是独立的一块，单独成文件便于维护并守住单文件行数上限。 */
 
 .binding-editor {
@@ -8,11 +8,11 @@
   min-width: 0;
 }
 
-/* 目标格条：地址 + 区域标签 + 当前绑定 + 解除按钮 */
+/* 目标格条：地址 + 数据块标签 + 当前绑定 + 解除按钮 */
 .binding-target {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 8px;
   align-items: center;
   min-height: 24px;
   padding-bottom: 10px;
@@ -29,13 +29,6 @@
   background: var(--bg-subtle);
   color: var(--text-tertiary);
   line-height: 1.5;
-}
-
-.binding-target .addr {
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .binding-target-value {
@@ -60,17 +53,6 @@
 .binding-unbind:hover:not(:disabled) {
   background: var(--danger-soft);
   color: var(--danger);
-}
-
-/* 空态：无数据集时的引导 */
-.binding-empty {
-  padding: 10px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
 /* 字段 chip 区 */
@@ -133,13 +115,7 @@
   color: var(--border-strong);
 }
 
-/* 作用方式切换组 */
-.binding-modes {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+/* 作用方式切换组（数据块设置的展开方向等仍复用） */
 .mode-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -216,16 +192,6 @@
   padding-top: 10px;
 }
 
-/* 路径树容器 */
-.binding-tree-wrap {
-  max-height: 200px;
-  padding: 4px;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-}
-
 .binding-tree {
   font-size: 12px;
 }
@@ -279,12 +245,6 @@
   color: var(--accent);
 }
 
-.binding-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
-  gap: 10px;
-}
-
 .binding-actions {
   display: flex;
   flex-wrap: wrap;
@@ -293,6 +253,12 @@
 }
 
 /* ─── 已绑定字段清单 ───────────────────────────────────────────────────── */
+/* 地址列宽：目标格条与已绑定清单共用，两处地址与路径列竖向对齐 */
+.binding-editor,
+.bound-list {
+  --addr-col: 42px;
+}
+
 .bound-list {
   display: flex;
   flex-direction: column;
@@ -301,11 +267,18 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.bound-list-head {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  justify-content: space-between;
+/* head 与条目行共用同一套列网格：地址列 | 路径列 | 计数列 */
+.bound-list-head,
+.bound-item {
+  display: grid;
+  grid-template-columns: var(--addr-col) minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+}
+
+/* head 的标题落在路径列（与条目路径同一起点），计数沉到行尾 */
+.bound-list-head .field-label {
+  grid-column: 2;
 }
 
 .bound-items {
@@ -316,16 +289,14 @@
 
 .bound-items.scroll {
   max-height: 156px;
+  margin-bottom: 6px;
   overflow-y: auto;
 }
 
 .bound-item {
-  display: flex;
-  gap: 8px;
-  align-items: center;
   width: 100%;
   height: 24px;
-  padding: 0 6px;
+  padding: 0;
   border-color: transparent;
   background: transparent;
   text-align: left;
@@ -335,13 +306,29 @@
   background: var(--bg-hover);
 }
 
-.bound-addr {
-  flex: none;
-  width: 40px;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
+/* 空态：一行轻提示，与路径列对齐 */
+.bound-empty {
+  margin-left: calc(var(--addr-col) + 8px);
+  color: var(--text-tertiary);
   font-size: 11.5px;
+}
+
+/* 地址徽章：目标格条与已绑定清单同一风格（mono、等宽数字、定宽列） */
+.addr-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--addr-col);
+  height: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .bound-path {

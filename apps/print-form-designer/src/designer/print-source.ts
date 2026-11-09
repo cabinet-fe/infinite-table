@@ -1,8 +1,9 @@
-// 打印供数适配（P8）：P6 数据态表单快照 → print 插件 PrintSource。
+// 打印供数适配：数据态表单快照 → print 插件 PrintSource。
 //
-// 数据链（预览与打印共用同一条，同输入同输出）：文档绑定 sidecar → 按
-// （数据集 × 重塑表达式）收集形态 → 原始行经 reshapeDatasetData（P7 唯一重塑
-// 管线）重塑 → renderDataState 数据态快照 → 还原进只读 Sheet 模型逐项映射
+// 数据链（预览与打印共用同一条，同输入同输出）：
+// 数据块数据源 + 聚合入参 → 收集数据集 id 并集 → 原始行 → 按（数据集 × 重塑表达式）
+// 收集形态（reshapeDatasetData 唯一重塑管线）→ runAggregations 产出 agg →
+// renderDataState 数据态快照（分组展开 + 函数求值）→ 还原进只读 Sheet 模型逐项映射
 // PrintSource。样式与显示链取 @infinitable/sheet 公开的显示链纯投影
 // （sheetStyleToEngineStyle / formatByNumFmt / 缺省行列尺寸），与屏上渲染同一份
 // 换算——打印页所见即画布所得。
@@ -23,86 +24,54 @@ import {
 } from '@infinitable/plugins'
 
 import type { SourceRow } from '../transform/reshape'
+import { runAggregations } from './aggregation'
 import { reshapeDatasetData } from './binding'
 import type { FormDoc } from './form-doc'
-import { FORM_BINDING_META_NAMESPACE, type FormCellBinding, type RegionSource } from './template'
-import { datasetShapeKey, renderDataState, type DatasetShapes } from './data-state'
-
-/** 收集文档内全部格绑定（快照 sidecar 扫描；顺序即快照行序，重复格只取一次） */
-export function collectPrintBindings(doc: FormDoc): FormCellBinding[] {
-  const items = doc.sheet.snapshot().meta ?? []
-  const seen = new Set<string>()
-  const bindings: FormCellBinding[] = []
-  for (const item of items) {
-    if (item.namespace !== FORM_BINDING_META_NAMESPACE) continue
-    const key = `${item.row}|${item.col}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    bindings.push(structuredClone(item.payload as FormCellBinding))
-  }
-  return bindings
-}
+import type { RegionSource } from './template'
+import { renderDataState, datasetShapeKey, type DatasetShapes } from './data-state'
 
 /**
- * 收集文档内全部区域数据源（只取真正在展开的区域——份数由它的 source 驱动）。
- * 展开份数由区域 source 驱动，与区域内绑定无关——打印取数必须把它们也算进去，
- * 否则区域驱动的数据集根本不会被请求。
+ * 收集文档内全部数据块的数据源（v4：**任何**带源的数据块都要取数——不展开的数据块带源时
+ * 数据块内的绑定取第 1 条；agg 来源不需要数据集行，由聚合阶段覆盖）。
  */
 export function collectRegionSources(doc: FormDoc): RegionSource[] {
-  const sources: RegionSource[] = []
-  for (const region of doc.regions) {
-    if (region.expand !== 'none' && region.source) sources.push(structuredClone(region.source))
-  }
-  return sources
+  // source 只被读取（kind/datasetId/expression/path），按只读约定共享引用
+  return doc.regions
+    .filter((region) => region.source)
+    .map((region) => region.source!)
 }
 
-/** 一份「取哪个数据集的哪种形态」的需求描述：区域 source 与单元格绑定共用的窄口径 */
-interface ShapeDemand {
-  datasetId: string
-  expression?: string
-}
-
-/**
- * 形态需求并集：区域 source ∪ 单元格绑定 → 按（datasetId, expression）去重。
- * 相对绑定（展开区内，形状只有 `{ path }`）没有 datasetId，在这里跳过——它们的形态
- * 由区域 source 那条需求提供。
- */
-function shapeDemands(
-  bindings: readonly FormCellBinding[],
-  regionSources: readonly RegionSource[],
-): ShapeDemand[] {
-  const demands: ShapeDemand[] = []
-  const seen = new Set<string>()
-  for (const demand of [...regionSources, ...bindings]) {
-    const datasetId = demand.datasetId
-    if (!datasetId) continue
-    const key = datasetShapeKey(datasetId, demand.expression)
-    if (seen.has(key)) continue
-    seen.add(key)
-    demands.push({ datasetId, expression: demand.expression })
+/** 打印/预览需要执行的数据集 id 并集：数据块 dataset 来源 ∪ 聚合入参 */
+export function collectDatasetIds(doc: FormDoc): string[] {
+  const ids = new Set<string>()
+  for (const source of collectRegionSources(doc)) {
+    if (source.kind === 'dataset') ids.add(source.datasetId)
   }
-  return demands
+  for (const aggregation of doc.aggregations) {
+    for (const param of aggregation.params) ids.add(param.datasetId)
+  }
+  return [...ids]
 }
 
 /**
  * 形态需求 → 数据集形态表：按（datasetId, expression）对去重逐对重塑。
  * 同一数据集多表达式并存时各消费者各用各的形态（datasetShapeKey 口径）；表达式
- * 非法抛 TransformError（P7），由调用方呈现。既无区域 source 也无绑定引用的数据集
- * 不出现在结果里。
+ * 非法抛 TransformError，由调用方呈现。既无数据块 source 引用的数据集不出现在结果里。
  */
 function buildPrintShapes(
-  bindings: readonly FormCellBinding[],
-  rowsByDataset: ReadonlyMap<string, SourceRow[]>,
   regionSources: readonly RegionSource[],
+  rowsByDataset: ReadonlyMap<string, SourceRow[]>,
 ): DatasetShapes {
   const shapes: DatasetShapes = new Map()
-  for (const demand of shapeDemands(bindings, regionSources)) {
-    const rows = rowsByDataset.get(demand.datasetId)
+  const seen = new Set<string>()
+  for (const source of regionSources) {
+    if (source.kind !== 'dataset') continue
+    const key = datasetShapeKey(source.datasetId, source.expression)
+    if (seen.has(key)) continue
+    const rows = rowsByDataset.get(source.datasetId)
     if (!rows) continue
-    shapes.set(
-      datasetShapeKey(demand.datasetId, demand.expression),
-      reshapeDatasetData(demand.expression, rows),
-    )
+    seen.add(key)
+    shapes.set(key, reshapeDatasetData(source.expression, rows))
   }
   return shapes
 }
@@ -143,7 +112,7 @@ function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string): Print
       const at = addr(col, row)
       const data = sheet.getCellData(at)
       if (!data) return undefined
-      // 公式格取计算缓存（数据态绑定值已去公式，此处仅覆盖模板遗留公式格）
+      // 公式格取计算缓存（数据态绑定/函数值已去公式，此处仅覆盖模板遗留公式格）
       const raw = data.f != null ? sheet.getDisplayValue(at) : data.v
       if (typeof raw === 'number') {
         const fmt = sheet.getEffectiveStyle(at)?.numFmt
@@ -191,11 +160,9 @@ export function preparePrintSession(
   name: string,
   hooks?: PrintPluginOptions['hooks'],
 ): PrintSession {
-  const shapes = buildPrintShapes(
-    collectPrintBindings(doc),
-    rowsByDataset,
-    collectRegionSources(doc),
-  )
-  const source = createSnapshotPrintSource(renderDataState(doc, shapes), name)
+  const regionSources = collectRegionSources(doc)
+  const shapes = buildPrintShapes(regionSources, rowsByDataset)
+  const agg = runAggregations(doc.aggregations, rowsByDataset)
+  const source = createSnapshotPrintSource(renderDataState(doc, { shapes, agg }), name)
   return createPrintSession(source, hooks)
 }

@@ -12,7 +12,7 @@ type CanvasTheme = NonNullable<SheetGridOptions['theme']>
  * body 显式 ellipsis（引擎缺省是 Excel 式溢出走廊）：画布上的长文本主要是绑定占位符
  * （`{{[0].items[].unit_price}}` 这类远长于真实数据的字符串），窄列里按缺省向右/向左
  * 溢出时，右对齐格的左溢与左对齐格的右溢会同时穿过中间的空格，两段文本叠在同一片
- * 区域——设计态看过去就是「文本堆起来」。打印产物里 td 恒 `overflow:hidden`
+ * 空间——设计态看过去就是「文本堆起来」。打印产物里 td 恒 `overflow:hidden`
  * 逐格裁剪（page-html 的 .print-table td），画布不溢出即与打印口径一致。
  */
 export const FORM_CANVAS_THEME: CanvasTheme = {

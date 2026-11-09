@@ -1,7 +1,7 @@
 // seed 演练库：首次启动幂等内置一个 SQLite 演练数据源（销售订单两表）、三个演练数据集
-// 与两份内置起点模板（P9 列表样/中式单据），数据口径覆盖模板取数——列表样（销售明细
-// 平铺）与中式单据（订单头 + 明细，嵌套重塑交给前端转换器）。空库首启即可加载模板、
-// 绑定 seed 数据集并直接预览打印，无需手工建数据。
+// 与九份内置模板（2 份完整业务样：P9 列表样/中式单据；7 份「示例 ·」教学样，各讲一个
+// 配置主题），数据口径覆盖模板取数。空库首启即可加载模板、绑定 seed 数据集并直接
+// 预览打印，无需手工建数据。
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -69,7 +69,8 @@ const DEMO_ITEMS: [string, number, string, string, string, number, number, numbe
   ['SO-2026-002', 2, '哑粉纸', '105g 大度 889×1194', '令', 45, 210, 9450],
 ]
 
-const SEED_DATASETS: Omit<DatasetRow, 'datasource_id' | 'created_at'>[] = [
+// 演练数据集不带字段命名（fields 列默认 '[]'：别名留给用户自己取字段后填）
+const SEED_DATASETS: Omit<DatasetRow, 'datasource_id' | 'fields' | 'created_at'>[] = [
   {
     id: 'seed-dataset-order-header',
     name: '订单头（单据样）',

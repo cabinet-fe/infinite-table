@@ -7,3 +7,6 @@
 @import './styles/data.css';
 @import './styles/dialog.css';
 @import './styles/region-dialog.css';
+@import './styles/context-menu.css';
+@import './styles/aggregation.css';
+@import './styles/info-bubble.css';

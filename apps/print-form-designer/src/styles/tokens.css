@@ -133,7 +133,7 @@ button.ghost:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
-/* 主色描边的次要主操作（如添加区域） */
+/* 主色描边的次要主操作（如添加数据块） */
 button.accent-outline {
   border-color: var(--accent-border);
   background: var(--accent-soft);

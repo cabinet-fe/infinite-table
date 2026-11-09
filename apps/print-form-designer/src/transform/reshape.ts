@@ -1,12 +1,11 @@
-// 数据集重塑转换器（P7）：数据集原始行经用户 JS 表达式重塑为任意嵌套形态的唯一前端管线。
-// 预览（P6 数据态渲染）与打印（P8 PrintSource 适配）都只经 reshapeRows 取重塑数据，
+// 数据集重塑转换器：数据集原始行经用户 JS 表达式重塑为任意嵌套形态的唯一前端管线。
+// 预览（数据态渲染）与打印（PrintSource 适配）都只经 reshapeRows 取重塑数据，
 // 不给第二套重塑路径留口。纯前端模块，不依赖后端。
 //
-// 受限求值口径（按任务书）：new Function 包裹 + 明确入参白名单——表达式体内唯一入参是
-// `rows`（数据集原始行数组），严格模式求值（this 为 undefined、未声明赋值直接抛错）。
-// 这是同源用户自写表达式的受限求值，不是硬安全沙箱，不引入更重的隔离机制。
-// 纯函数口径：每次求值对入参做深拷贝，表达式对 rows 的原地改动不影响调用方数据与重复求值。
-import { describeError } from '../errors'
+// 受限求值的编译/求值实现在 expr.ts（v4 起与聚合、单元格函数共用同一管线）；
+// 本文件只保留重塑专属的错误类型与入口。求值环境按只读约定共享：入参按引用
+// 传入，不做防御性拷贝——用户表达式承诺不做原地改写。
+import { evaluateExpr } from './expr'
 
 /** 数据集原始行：SQL 结果的一行（列名 → 值） */
 export type SourceRow = Record<string, unknown>
@@ -30,15 +29,6 @@ export class TransformError extends Error {
   }
 }
 
-/** 编译表达式：函数体只在调用时执行，构造期即暴露语法错误 */
-function compileExpression(expression: string): (rows: SourceRow[]) => unknown {
-  // 受限求值口径即任务书点名的 new Function 包裹（见文件头注），非隐式 eval 误用
-  // oxlint-disable-next-line typescript/no-implied-eval
-  return new Function('rows', `"use strict";\nreturn (\n${expression}\n);`) as (
-    rows: SourceRow[],
-  ) => unknown
-}
-
 /**
  * 唯一重塑管线入口：数据集原始行 + 用户 JS 表达式定义 → 任意嵌套形态
  * （含嵌套二级数组的构造与取数）。预览与打印共用本入口，重复调用同输入同输出。
@@ -47,19 +37,10 @@ export function reshapeRows(definition: TransformDefinition, rows: SourceRow[]):
   if (!definition.expression.trim()) {
     throw new TransformError('compile', '重塑表达式为空')
   }
-  let evaluate: (rows: SourceRow[]) => unknown
   try {
-    evaluate = compileExpression(definition.expression)
+    return evaluateExpr('重塑表达式', ['rows'], [rows], definition.expression)
   } catch (error) {
-    throw new TransformError('compile', `重塑表达式编译失败：${describeError(error)}`, {
-      cause: error,
-    })
-  }
-  try {
-    return evaluate(structuredClone(rows))
-  } catch (error) {
-    throw new TransformError('runtime', `重塑表达式求值失败：${describeError(error)}`, {
-      cause: error,
-    })
+    const phase = (error as { phase?: 'compile' | 'runtime' }).phase ?? 'runtime'
+    throw new TransformError(phase, (error as Error).message, { cause: error })
   }
 }

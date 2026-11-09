@@ -217,6 +217,30 @@
   border-bottom: 0;
 }
 
+/* 字段命名表（复用 .preview 表格骨架）：原始字段名 mono 只读 + 显示名输入框 + 样例值 */
+.field-naming .preview-head > button {
+  margin-left: auto;
+}
+
+.field-naming td.mono {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+.field-naming td:nth-child(2) {
+  width: 40%;
+}
+
+.field-naming input {
+  width: 100%;
+  height: 24px;
+  font-size: 12px;
+}
+
+.field-naming td:last-child {
+  color: var(--text-tertiary);
+}
+
 /* 页面级错误提示条 */
 .page-error {
   display: flex;

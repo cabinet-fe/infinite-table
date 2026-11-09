@@ -1,16 +1,17 @@
-// 绑定域（P6）：取数路径的解析/还原/求值 + 绑定树构建。
+// 绑定域：取数路径的解析/还原/求值 + 绑定树构建。
 //
-// 路径语法（P3 schema 定型，只是点分寻址记法，不自造 DSL）：
+// 路径语法（只是点分寻址记法，不自造 DSL）：
 // - 对象段点分：`customer.name`（键名兼容 SQL 列名，除 `.` `[` `]` 外任意字符）；
 // - 数组下标：`items[0].name`；
-// - 空下标 `[]` = 循环标记：展开区内逐份取值（`items[].price`），
-//   非明细语境配合聚合遍历（`items[].price` + sum）；
+// - 空下标 `[]` = 循环标记：仅供数据块数据源路径与绑定树分支使用；
 // - 根为数组时首段可直接写下标：`[0].name` / `[]`（原始行数组直取）。
-// 嵌套数组任意深度由「键步 / 下标步」交替序列自然承载（`a[0][1]`、`orders[].lines[].qty`）。
+// 嵌套数组任意深度由「键步 / 下标步」交替序列自然承载（`a[0][1]`、`orders[0].lines`）。
+//
+// v4 口径：字段绑定只剩「条目内相对路径」（resolveItemValue），绝对绑定与
+// 单元格聚合已由单元格函数（cell-function.ts）替代。
 import type { CellValue } from '@infinitable/sheet'
 
 import { reshapeRows, type SourceRow } from '../transform/reshape'
-import type { FormCellBinding } from './template'
 
 /** 路径步：对象键步或数组下标步（'each' = 空下标循环标记） */
 type BindingPathStep = { key: string } | { index: number | 'each' }
@@ -20,7 +21,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** 解析点分路径为步序列；非法形态（空路径、空段、非整数下标、多循环标记）抛错 */
+/** 解析点分路径为步序列；非法形态（空路径、空段、非整数下标）抛错 */
 export function parseBindingPath(path: string): BindingPathStep[] {
   if (path.trim() === '') throw new Error('路径不能为空')
   const steps: BindingPathStep[] = []
@@ -44,7 +45,7 @@ export function parseBindingPath(path: string): BindingPathStep[] {
     }
   }
   if (steps.filter((step) => 'index' in step && step.index === 'each').length > 1) {
-    // 一个绑定只循环一个数组：嵌套二级数组把 [] 放在目标层（如 orders[0].lines[].qty）
+    // 一条路径只循环一个数组：嵌套二级数组把 [] 放在目标层（如 orders[0].lines[].qty）
     throw new Error('路径最多一个 [] 循环标记')
   }
   return steps
@@ -58,20 +59,6 @@ export function formatBindingPath(steps: readonly BindingPathStep[]): string {
     else path += step.index === 'each' ? '[]' : `[${step.index}]`
   }
   return path
-}
-
-/** 聚合实现：映射值数组 → 聚合结果（null/undefined 不计，数值聚合只吃 number） */
-function aggregateValues(
-  values: unknown[],
-  kind: NonNullable<FormCellBinding['aggregate']>,
-): CellValue | undefined {
-  const present = values.filter((value) => value !== undefined && value !== null)
-  if (kind === 'count') return present.length
-  const numbers = present.filter((value): value is number => typeof value === 'number')
-  if (kind === 'sum') return numbers.reduce((total, value) => total + value, 0)
-  if (numbers.length === 0) return undefined
-  if (kind === 'avg') return numbers.reduce((total, value) => total + value, 0) / numbers.length
-  return kind === 'max' ? Math.max(...numbers) : Math.min(...numbers)
 }
 
 /** 沿步序列取值：each 步以传入下标代换（无循环语境传 -1 时该步自然取不到值） */
@@ -93,40 +80,8 @@ function toCellValue(value: unknown): CellValue | undefined {
     : undefined
 }
 
-/** 绑定求值语境：展开区内 each = 当前份（行份或列份）对应的数组元素下标 */
-interface BindingResolveContext {
-  each?: number
-}
-
 /**
- * 绑定 → 格值：数据形态内沿路径取值。
- * - 循环标记 `[]`：明细语境（ctx.each）取当前元素继续下探；非明细语境走聚合
- *   （aggregate 缺省 = 无值，避免隐式取首元素）；
- * - 聚合在展开语境忽略（展开区格按份取值，聚合无意义）。
- */
-export function resolveBindingValue(
-  data: unknown,
-  binding: FormCellBinding,
-  context: BindingResolveContext,
-): CellValue | undefined {
-  const steps = parseBindingPath(binding.path)
-  const eachAt = steps.findIndex((step) => 'index' in step && step.index === 'each')
-  if (eachAt === -1) return toCellValue(walkSteps(data, steps, -1))
-  // 明细语境：整条路径从根下探，each 步代换为当前元素下标
-  if (context.each !== undefined) return toCellValue(walkSteps(data, steps, context.each))
-  // 非明细语境：each 前缀定位数组，各元素对余步求值后聚合
-  if (!binding.aggregate) return undefined
-  const array = walkSteps(data, steps.slice(0, eachAt), -1)
-  if (!Array.isArray(array)) return undefined
-  const rest = steps.slice(eachAt + 1)
-  return aggregateValues(
-    array.map((element) => walkSteps(element, rest, -1)),
-    binding.aggregate,
-  )
-}
-
-/**
- * 区域 source 的循环数组：形态内 `path` 的解析结果即展开份数的来源。
+ * 数据块 source 的循环数组：形态内 `path` 的解析结果即展开份数的来源。
  * - `path === ''` 表示「形态根就是列表」，要求形态本身是数组；
  * - 其余按常规路径寻址（`items` / `[0].items` / `order.lines`），取到的必须是数组；
  * - 形态缺失、路径取不到、取到非数组一律返回 undefined（调用方按「取不到」处理），
@@ -140,17 +95,18 @@ export function loopArrayAt(shape: unknown, path: string): unknown[] | undefined
 }
 
 /**
- * 展开区内绑定的取值：条目 + 条目内相对字段路径 → 格值。
+ * 数据块内绑定的取值：条目 + 条目内相对字段路径 → 格值。
  * - `relativePath === ''` 表示条目本身就是该格的值（仅原始类型进格）；
- * - 相对路径不允许出现 `[]` 循环标记——展开区已按条目分份，条目内再循环没有落点，
+ * - 相对路径不允许出现 `[]` 循环标记——数据块已按条目分份，条目内再循环没有落点，
  *   出现即抛错（模板写错时快速失败，不做「取第一份」之类的隐式猜测）。
+ * 同时也是单元格函数里 `GROUP('字段')` / `SUM('数据块','字段')` 的字段取值器。
  */
 export function resolveItemValue(item: unknown, relativePath: string): CellValue | undefined {
   const trimmed = relativePath.trim()
   if (trimmed === '') return toCellValue(item)
   const steps = parseBindingPath(trimmed)
   if (steps.some((step) => 'index' in step && step.index === 'each')) {
-    throw new Error(`展开区内绑定的路径不能含 [] 循环标记：${trimmed}`)
+    throw new Error(`数据块内的绑定路径不能含 [] 循环标记：${trimmed}`)
   }
   return toCellValue(walkSteps(item, steps, -1))
 }
@@ -193,7 +149,7 @@ function objectChildren(
 
 /**
  * 数组的下钻分支：`[]`（明细循环取值）与 `[0]`（固定下标采样）；
- * 已在 `[]` 分支内不再提供第二层 `[]`（一个绑定只循环一个数组）。
+ * 已在 `[]` 分支内不再提供第二层 `[]`（一条路径只循环一个数组）。
  */
 function arrayBranches(
   array: unknown[],
