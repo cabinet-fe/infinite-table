@@ -1,8 +1,8 @@
 ---
 title: "@infinitable/sheet 电子表格核心"
-description: infinitable 电子表格能力（infinitable/sheet 子路径转出 @infinitable/sheet 全量）：Sheet 单表模型（值/公式/样式/合并/冻结/浮动图/嵌入图/超链接/元数据，写操作一律经命令系统可撤销）、Workbook 多表簿（共享公式引擎跨表联动）、SheetGrid 画布装配适配层，以及 xlsx/csv 导入导出、快照持久化、填充生成与查找。
+description: infinitable 电子表格能力（infinitable/sheet 子路径转出 @infinitable/sheet 全量）：Sheet 单表模型（值/公式/样式/合并/冻结/浮动图/嵌入图/超链接/元数据，写操作一律经命令系统可撤销）、Workbook 多表簿（共享公式引擎跨表联动）、SheetGrid 画布装配适配层，以及 xlsx/csv 导入导出、快照持久化（内容包围盒裁剪、快照行插删、快照打印供数适配）、填充生成与查找。
 aliases: [sheet, 电子表格, Sheet 模型, Workbook, SheetGrid, 工作簿, 表格模型]
-keywords: [Sheet, Workbook, SheetGrid, FormulaEngine, setCellValue, setCellFormula, setCellStyle, mergeCells, setFrozen, snapshot, restore, undo, redo, importXlsx, exportWorkbookXlsx, importCsv, exportSheetCsv, generateFill, setCellLink, setCellImage, registerFunction, recalcAllFormulas, SHEET_DEFAULT_ROW_HEIGHT, SHEET_DEFAULT_COL_WIDTH, formatByNumFmt, sheetStyleToEngineStyle, 自定义公式, 合并单元格, 冻结, 撤销, 快照, 电子表格, xlsx 导入导出]
+keywords: [Sheet, Workbook, SheetGrid, FormulaEngine, setCellValue, setCellFormula, setCellStyle, mergeCells, setFrozen, snapshot, restore, undo, redo, importXlsx, exportWorkbookXlsx, importCsv, exportSheetCsv, generateFill, setCellLink, setCellImage, registerFunction, recalcAllFormulas, SHEET_DEFAULT_ROW_HEIGHT, SHEET_DEFAULT_COL_WIDTH, formatByNumFmt, sheetStyleToEngineStyle, snapshotContentBounds, clampSnapshotToBounds, insertSnapshotRows, deleteSnapshotRows, createSnapshotPrintSource, ContentBounds, 自定义公式, 合并单元格, 冻结, 撤销, 快照, 内容包围盒, 打印供数, 电子表格, xlsx 导入导出]
 ---
 
 # @infinitable/sheet 电子表格核心
@@ -224,6 +224,87 @@ export function formatByNumFmt(value: number, fmt: NumFmt): string // numFmt 数
 export function sheetStyleToEngineStyle(style: CellStyle | undefined): CellStyle | null // sheet 样式 → 引擎样式纯映射（入参为本子路径 CellStyle，返回 grid 词汇 CellStyle；font pt→px、thin/medium/thick 归并 solid；空样式 → null 沿用主题分区 token）
 ```
 
+快照级纯变换与打印供数（自 print-form-designer app 下沉）：一组只看 `SheetSnapshot` 与数据块序列的纯变换，不碰模型实例、不进 undo、不发事件。本组符号只在 `@infinitable/sheet` 包公共面，未经 `infinitable/sheet` 子路径转出——仓内分层引用从 `@infinitable/sheet` 导入。
+
+```ts
+/** 内容包围盒（行/列数，等价于最大下标 + 1） */
+export interface ContentBounds {
+  rows: number
+  cols: number
+}
+
+/**
+ * 快照内容包围盒：返回版面实际占用的行列数（无限画布下快照 rows/cols 只是引擎扩容
+ * 噪声，版面多大由内容决定）。七类来源取最大行列 + 1：cells / meta / merges（首尾）/
+ * images（anchor.from 与 anchor.to）/ 行高列宽（rowHeights + colWidths）/
+ * 行列默认样式（rowStyles + colStyles）/ regions（数据块矩形，可圈住尚无内容的空行）。
+ * 空内容回落 { rows: 1, cols: 1 }（引擎与打印内核都要求至少一行一列）；不尊重快照
+ * rows/cols 声明值——包围盒即最终口径。
+ */
+export function snapshotContentBounds(
+  snapshot: SheetSnapshot,
+  regions: readonly { startRow: number; endRow: number; startCol: number; endCol: number }[],
+): ContentBounds
+
+/**
+ * 把快照裁到包围盒：cells / meta / rowHeights / colWidths / rowStyles / colStyles
+ * 逐项按下标过滤；merges 与 images 起止任一端越界即整条丢弃（裁半个合并区/图片没有
+ * 合法语义）。rows/cols 改写为包围盒本身，使「模板 JSON 的行列数 = 内容尺寸」，round-trip 幂等。
+ * styles 池与 selection 原样保留：样式 id 是池内下标，重排会打乱全部引用；选区是运行态
+ * 视图状态，不参与版面尺寸。输入快照不被就地修改；可选字段原本不存在时不会被补成空数组。
+ */
+export function clampSnapshotToBounds(snapshot: SheetSnapshot, bounds: ContentBounds): SheetSnapshot
+
+/** 在 at 行处插入 count 行空白（at 及下方内容下移，行数 +count） */
+export function insertSnapshotRows(snapshot: SheetSnapshot, at: number, count: number): SheetSnapshot
+
+/** 删除 [at, at+count) 行（下方内容上移，行数 −count、下限 0） */
+export function deleteSnapshotRows(snapshot: SheetSnapshot, at: number, count: number): SheetSnapshot
+
+/**
+ * 打印数据源（sheet 侧结构化类型）：字段形状与 @infinitable/plugins 的 PrintSource
+ * 逐字段对齐——sheet 不依赖 plugins（依赖方向只允许 plugins → 各引擎包），宿主把
+ * createSnapshotPrintSource 产物直接喂给 plugins 打印内核靠结构化兼容，不需要适配层。
+ * 两包任一侧改字段必须同步另一侧（双侧互指）。单位约定：行高/列宽一律 px（96dpi）。
+ */
+export interface PrintSource {
+  /** 表名（页面标题缺省源） */
+  name: string
+  /** 数据行数（含重复表头行在内的全表行数） */
+  rowCount: number
+  /** 数据列数 */
+  colCount: number
+  /** 行高读取（px） */
+  rowHeight(row: number): number
+  /** 列宽读取（px） */
+  colWidth(col: number): number
+  /** 合并单元格区域列表：扁平区间形状（{ startRow, startCol, endRow, endCol }，grid 词汇
+   *  CellRange——不是本子路径 { start, end } 嵌套形） */
+  merges(): readonly CellRange[]
+  /** 原始格值（分组换页按此判定分组语义，不受显示链影响） */
+  cellValue(col: number, row: number): unknown
+  /** 有效格样式（引擎词汇 CellStyle，无样式返回 undefined） */
+  cellStyle(col: number, row: number): CellStyle | undefined
+  /** 显示值（经显示链产出展示形态） */
+  displayValue(col: number, row: number): unknown
+  /** 可选格图通道（本模块不产出，字段保留保证形状对齐） */
+  cellImage?: (col: number, row: number) => string | null | undefined
+}
+
+/**
+ * 数据态快照 → 打印数据源：快照还原进只读 Sheet 模型（'print-data' 实例仅作读取载体，
+ * 不接视图、不进任何 undo/事件链）后逐项映射——行列数取模型 rows/cols；行高列宽未自定义
+ * 依次回落模型 defaultRowHeight/defaultColWidth 与内置缺省 28px/80px（与屏上同口径）；
+ * merges 由模型区间映射为扁平区间形状；cellValue 取存储原始值；cellStyle 取有效样式投影
+ * （列 → 行 → 格三层叠加 + 合并锚点解析，经 sheetStyleToEngineStyle）；displayValue 走
+ * numFmt 显示链（公式格取计算缓存；数字且格上有 numFmt 时经 formatByNumFmt 格式化）。
+ * cellImage 通道不产出（快照无格图数据源）。
+ */
+export function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string): PrintSource
+```
+
+行平移语义口径（有意分叉，勿顺手统一）：`insertSnapshotRows`/`deleteSnapshotRows` 是**快照级静默变换**——cells 的值/公式原文/样式引用、meta、merges、rowHeights、rowStyles 随行平移（colWidths/colStyles/styles 池不动），但**不平移公式引用**：公式格里的引用文本（如 `=A1`）不改写，平移后引用文本与引用目标错位（仍指向原坐标，不是随行移动的目标）。它与 `Sheet.insertRows`/`deleteRows` 的**命令级变换**语义不同：后者除数据/合并/行高平移外还平移全表公式引用文本（被删区间引用记 `#REF!`），并维护依赖图与 undo 历史。合并区首尾行独立映射，映射后区间坍缩（起点越过终点）或一端落进删除区间视为整条丢弃，另一端存活的部分跨越随存活行收缩。
+
 ## 参数说明
 
 `SheetGridOptions`（五要素）：
@@ -259,6 +340,8 @@ export function sheetStyleToEngineStyle(style: CellStyle | undefined): CellStyle
 | `selection` | `{ activeCell, ranges }` | 空选区省略 | 旧快照缺省回落 A1；不进 undo |
 
 `SheetReplaceItem`（`replaceWorkbookWithSnapshots` 条目）：`{ name, snapshot, rowHeights?, colWidths?, defaultRowHeight?, defaultColWidth? }`——行高列宽与默认行列尺寸不进 `restore` 内容替换，随条目单独传输。
+
+快照级纯变换组（参数全部必填，无默认值）：`snapshotContentBounds` 的 `regions` 元素为数据块矩形 `{ startRow, endRow, startCol, endCol }`（左上 → 右下含端点；结构子集，宿主数据块类型多出的字段不参与计数）。sheet 侧 `PrintSource`（`createSnapshotPrintSource` 返回）：`merges()` 返回扁平区间形状 `{ startRow, startCol, endRow, endCol }`（grid 词汇 CellRange，不是本子路径 `{ start, end }` 嵌套形）；`cellStyle` 返回引擎词汇 CellStyle（`sheetStyleToEngineStyle` 投影产物，不是 styles 池 id）；行高/列宽单位 px（96dpi）。
 
 ## 方法与事件
 
@@ -406,6 +489,44 @@ const hit: FindMatch | null = matches[0] ?? null
 if (hit) sheet.selectRange({ start: hit.addr, end: hit.addr })
 ```
 
+### 快照内容包围盒、行插删与打印供数（@infinitable/sheet 直出）
+
+```ts
+import {
+  Sheet,
+  clampSnapshotToBounds,
+  createSnapshotPrintSource,
+  insertSnapshotRows,
+  snapshotContentBounds,
+  type SheetSnapshot,
+} from '@infinitable/sheet'
+
+const sheet = new Sheet('Sheet1')
+sheet.setCellValue({ row: 0, col: 0 }, '合计')
+sheet.mergeCells({ start: { row: 0, col: 0 }, end: { row: 0, col: 2 } }) // 表头横跨 3 列
+sheet.setCellValue({ row: 1, col: 0 }, 10)
+const snap: SheetSnapshot = sheet.snapshot()
+
+// 包围盒：合并区终点 (0,2) + 数据格 (1,0) → 2 行 3 列（不尊重快照声明的 rows/cols）
+const bounds = snapshotContentBounds(snap, [])
+console.log(bounds) // => { rows: 2, cols: 3 }
+
+// 数据块行数调整：在第 1 行前插 1 行空白（静默重排不进 undo，撤销由宿主自管快照条目）
+const expanded = insertSnapshotRows(snap, 1, 1)
+console.log(expanded.cells) // => 原第 1 行内容整体移到第 2 行
+
+// 序列化收紧：裁回内容包围盒（越界合并/图片整条丢弃，styles 池与选区原样保留）
+const tight = clampSnapshotToBounds(expanded, snapshotContentBounds(expanded, []))
+console.log(tight.rows, tight.cols) // => 3, 3（模板 JSON 行列数 = 内容尺寸，round-trip 幂等）
+
+// 打印供数：快照 → PrintSource，结构与 @infinitable/plugins 的 PrintSource 逐字段对齐，
+// 可直接喂给 plugins 打印内核（结构化兼容，无适配层）
+const source = createSnapshotPrintSource(tight, '月度报表')
+console.log(source.rowCount, source.colCount) // => 3, 3
+console.log(source.rowHeight(0)) // => 28（未自定义行高回落内置缺省 SHEET_DEFAULT_ROW_HEIGHT）
+console.log(source.displayValue(0, 0)) // => '合计'
+```
+
 ## 注意事项
 
 > [!WARNING]
@@ -420,6 +541,9 @@ if (hit) sheet.selectRange({ start: hit.addr, end: hit.addr })
 > - 默认行列尺寸：`sheet.setDefaultRowHeight`/`setDefaultColWidth` 声明（px，不进 undo）后 `SheetGrid` 全部默认尺寸消费点优先读模型，未声明回落内置缺省 28px / 80px（`SHEET_DEFAULT_ROW_HEIGHT`/`SHEET_DEFAULT_COL_WIDTH`，导出/打印适配消费同一常量）。xlsx 导入按文件声明写入：行高 pt→px `Math.round(v * 4 / 3)`（缺省 15pt→20px），列宽字符→px `Math.round(v * 7 + 5)`（缺省 8.43→64px）。
 > - IO 映射：xlsx 往返日期用 1900 系序列数（`t: 'd'`）保真；`exportWorkbookXlsx`/`exportSheetXlsx` 对合并区覆盖格按有效样式（覆盖格解析到锚点，列 → 行 → 格叠加）自动物化纯样式格（值仍空），多行/列合并的外边框在 Excel 端完整渲染；`importCsv` 从 A1 覆盖写入既有表（空格不覆盖既有格，空串清除目标格）；`exportSheetCsv` 合并覆盖格输出空（同 Excel）、带 UTF-8 BOM。
 > - 本库 A1 坐标系统有两套：本子路径的 `parseAddress`/`formatAddress`/`CellRange`（0 基格坐标域）与 formulas 层的 `parseCellRef`/`CellRef`（公式引用域）分立，禁止混用。
+> - 快照级纯变换（`snapshotContentBounds`/`clampSnapshotToBounds`/`insertSnapshotRows`/`deleteSnapshotRows`/`createSnapshotPrintSource`）只在 `@infinitable/sheet` 包公共面，未经 `infinitable/sheet` 子路径转出（子路径白名单与冻结快照未含本组符号）：仓内分层引用从 `@infinitable/sheet` 导入，从 `infinitable/sheet` 导入会解析失败。
+> - 快照行平移**不平移公式引用**（公式原文随行移动、引用文本不改写，平移后引用文本与引用目标错位）——与 `Sheet.insertRows`/`deleteRows` 命令级变换是有意分叉。二选一：交互插删行列走命令系统（公式正确性由引擎保证：平移全表公式引用、被删区间引用记 `#REF!`、进 undo）；宿主对快照做整体重排后静默 `restore`（如数据块行数调整，撤销由宿主自管快照条目）用 `insertSnapshotRows`/`deleteSnapshotRows`。
+> - sheet 侧 `PrintSource` 与 `@infinitable/plugins` 的 `PrintSource` 靠结构化兼容对接（两包不互相依赖、字段逐一对齐）：任一侧改字段必须同步另一侧，失配会在打印内核消费时才暴露；`cellImage` 通道 `createSnapshotPrintSource` 不产出（快照无格图数据源），需要格内图打印的宿主自行实现该字段。
 
 ## 常见问题
 

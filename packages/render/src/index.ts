@@ -1,5 +1,5 @@
 // 自研 canvas 渲染引擎公共入口：RenderHost 窄接口、场景树（含内建图元节点）、
-// 绘制/命中遍历与 region 几何工具的显式导出
+// 绘制/命中遍历、命令式路径助手与 region 几何工具的显式导出
 export { createRenderHost } from './render-host'
 export type { RenderHostOptions } from './render-host'
 export { SceneNode } from './scene/scene-node'
@@ -16,6 +16,9 @@ export type {
   TextNodeInit,
 } from './scene/primitives'
 export { ceil, clip, contains, equals, intersects, spread, union } from './region'
+// 命令式路径助手（不经场景树的直接绘制方使用；ctx 为最小结构化接口）
+export { dashedLine, roundRectPath } from './scene/canvas-paths'
+export type { DashLineContext, DashPattern, RoundRectPathContext } from './scene/canvas-paths'
 export type { SceneEvent, SceneEventType } from './events/event-system'
 export type {
   FrameTask,

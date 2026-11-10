@@ -36,6 +36,10 @@ export type { PrintPluginHandle, PrintPluginOptions } from './print/print-plugin
 // 便捷入口，与 createPrintPlugin 的挂载引擎供数共用同一适配
 export { createEnginePrintSource } from './print/engine-source'
 export type { EnginePrintSourceOptions } from './print/engine-source'
+// 纸张几何纯函数（纸幅/可用区域推导，分页与页面构建共用的同一口径）：设计器画布
+// 参考线等显示层经此复用，宿主不再逐字复制 mm→px 换算与预设尺寸表
+export { derivePrintableArea } from './print/paper'
+export type { PrintableArea } from './print/paper'
 export type {
   PrintConfig,
   PrintHeaderFooterConfig,

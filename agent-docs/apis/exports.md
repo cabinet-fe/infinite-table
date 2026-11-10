@@ -2,7 +2,7 @@
 title: 导出面判据与清单
 description: infinitable 对外导出面的判定判据、逐项清单（导出/不导出与理由）、core 拆分更名迁移登记（无兼容层，破坏性变更明示）、移出项与过渡方案、0.1.x 已发布使用者兼容结论。主入口（render/grid/table/formulas/plugins 五层显式转售 + CellRef 消歧）、./sheet 子路径（@infinitable/sheet 白名单）与 ./pivot 子路径（@infinitable/pivot 白名单）的符号集合由 packages/infinitable/tests/public-surface.test.ts 快照冻结。
 aliases: [exports, 导出面, 公共 API, public surface, API 面, 导出清单]
-keywords: [导出面, public API, export, 快照冻结, public-surface, 显式导出, 星号导出, 0.1.x, 兼容性, CellRef, GridCellRef, ScrollbarOptions, ScrollbarMode, 移出, deprecation, core 拆分, grid, table, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, 引擎装配协议]
+keywords: [导出面, public API, export, 快照冻结, public-surface, 显式导出, 星号导出, 0.1.x, 兼容性, CellRef, GridCellRef, ScrollbarOptions, ScrollbarMode, 移出, deprecation, core 拆分, grid, table, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, createSnapshotPrintSource, derivePrintableArea, dashedLine, roundRectPath, 引擎装配协议]
 ---
 
 # 导出面判据与清单
@@ -28,14 +28,14 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 
 支撑口径（满足其一即可保留在公共面）：仓内非测试消费（playground / 跨包公共入口）、红线文档面（`docs/plugin-interface-map.md` 红线 + `agent-docs/index.md` 速查表逐项覆盖）。同名消歧：grid 的格坐标 `CellRef` 与 formulas 的 A1 引用 `CellRef` 同名——A1 引用保留原名（配 `parseCellRef`/`formatCellRef`/`createRangeRef`），格坐标以 `GridCellRef` 别名从主入口导出。同源去重：`RenderContext`/`Size`（render 定义、table 亦转出）与 `EnginePlugin`（protocol 定义、table/plugins 亦转出）在主入口各从定义包导出一次。
 
-## 主入口逐项清单（src/index.ts，40 值 + 96 类型）
+## 主入口逐项清单（src/index.ts，43 值 + 100 类型）
 
 按包分组；组内符号的保留理由是组级判据，个别符号另有特别说明。全部符号可在 `agent-docs/index.md` 速查表逐项 grep 到文档路径。
 
 | 分组 | 符号 | 理由 |
 | --- | --- | --- |
-| render 值 | `createRenderHost`、`SceneNode` | 渲染宿主装配唯一入口与场景树节点（宿主注入 host 必用） |
-| render 类型 | `RenderHostOptions`、`SceneEventListener`、`SceneNodeInit`、`SceneEvent`、`SceneEventType`、`FrameTask`、`Invalidation`、`LayerHandle`、`LayerKind`、`LayerOpts`、`Region`、`RenderCanvas`、`RenderContext`、`RenderHost`、`RenderImageSource`、`Size` | 渲染窄接口的对外形态：宿主选项、federated 事件、层句柄与三档失效、绘制上下文与基础几何（自定义 CellRenderer / underlay/overlay painter 消费） |
+| render 值 | `createRenderHost`、`SceneNode`、`dashedLine`、`roundRectPath` | 渲染宿主装配唯一入口与场景树节点（宿主注入 host 必用）；命令式路径助手（RenderContext 无 `setLineDash`/`roundRect`，overlay painter 消费者铺虚线/圆角路径用，本轮起转出） |
+| render 类型 | `RenderHostOptions`、`SceneEventListener`、`SceneNodeInit`、`SceneEvent`、`SceneEventType`、`FrameTask`、`Invalidation`、`LayerHandle`、`LayerKind`、`LayerOpts`、`Region`、`RenderCanvas`、`RenderContext`、`RenderHost`、`RenderImageSource`、`Size`、`DashPattern`、`DashLineContext`、`RoundRectPathContext` | 渲染窄接口的对外形态：宿主选项、federated 事件、层句柄与三档失效、绘制上下文与基础几何（自定义 CellRenderer / underlay/overlay painter 消费）、路径助手的图案与窄 ctx 接口 |
 | grid 值 | `extendsTheme`、`normalizeCellRange`、`normalizeRange`、`MergeCellMap`、`MergeOverlapError`、`sanitizeMerges`、`warnMergeConflicts` | 共享网格内核的合并区集合与重叠消解、选区段归一化、主题派生公共工具（`MergeCellMap`/`MergeOverlapError`/`sanitizeMerges`/`warnMergeConflicts` 为合并区集合与重叠消解，0.2.0 起新增） |
 | grid 类型 | `CellRange`、`CellRef`→`GridCellRef`、`CellStyle`、`CellBorder`、`CellBorderEdge`、`TableTheme`、`ThemeOverride`、`RangeBounds`、`SelectionSnapshot`、`SanitizedMerges`、`MergeConflict`、`LoadedImage`、`FloatObject`、`FloatTransformEndEvent`、`FloatTransformHandle`、`FloatContextMenuEvent`、`ScrollbarOptions`、`ScrollbarMode` | 网格内核的格/样式/主题/选区/媒体/浮动层词汇：选区状态（G18 下游剪贴板路径）与视口/文本读取所依赖的选区快照形态在此层；`GridCellRef` 为消歧别名；`ScrollbarOptions`/`ScrollbarMode` 为内建滚动条配置（`scrollbar` 选项对象形态，`mode: 'native'` 原生滚动条档，0.1.4 起新增） |
 | table 值 | `ListTable`、`SheetModel`、`EditorRegistry`、`projectCellStyle` | 表格主类、内置模型、编辑器注册表、样式投影纯函数（G7/G9 样式解析链公共面可达） |
@@ -44,10 +44,10 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 | table 协议面 | `TableEngine` | 表格领域公共操作增量（中立本体的 table 领域面），SheetGrid 等适配层按协议面消费 table 引擎 |
 | formulas 值 | `colLetters`、`parseCellRef`、`formatCellRef`、`formatRangeRef`、`createRangeRef`、`formulaError`、`isFormulaError`、`isFormulaErrorCode`、`FormulaParseError`、`tokenText`、`parseFormula`、`astHasVolatileCall`、`collectAstReferences`、`DependencyGraph`、`scanFormulaReferences`、`shiftFormulaText`、`shiftFormulaRefs`、`evaluate`、`FORMULA_FUNCTION_CATEGORIES`、`getFormulaFunction`、`getFormulaFunctionInfo`、`listFormulaFunctions`、`registerFormulaFunction` | A1 地址系统、错误值体系、Pratt 解析、AST 静态分析、依赖图、容错引用扫描、引用平移（`tokenText` 随引用级文本改出公共化）、求值器、函数注册表读写（宿主自定义函数注册面） |
 | formulas 类型 | `CellRef`（原名）、`RangeRef`（A1 区间引用）、`FormulaError`、`AstNode`、`FormulaRefCoord`、`SheetCellCoord`、`FormulaShiftResult`、`FormulaEvalContext`、`FormulaResolver`、`ScalarValue`、`EvalValue`（求值中间值：自定义函数 impl 的入参与返回）、`ScannedReference`（容错引用扫描结果）、`FormulaFunction`、`FormulaFunctionCategory`、`FormulaFunctionInfo`、`FormulaFunctionOverrides`（实例函数集，`evaluate` 的 `options.functions`） | 地址/区间/错误/AST/依赖/平移/求值上下文（自定义函数求值需要）/扫描/注册表元数据与实例函数集形态 |
-| plugins 值 | `createChartPlugin`、`createWatermarkPlugin`、`createPrintPlugin`、`createEnginePrintSource` | 官方插件三工厂（插件对象形态：同时是 EnginePlugin 与运行时 handle）；`createEnginePrintSource` 为引擎供数适配（0.4.0 起新增，P7 落地）：把装配协议的导出读取面（`engine.read`）适配为 `PrintSource`，宿主打印引擎实例不再自写适配器 |
-| plugins 类型 | `ChartPluginOptions`、`ChartPluginHandle`、`ChartCellDeclaration`、`ChartDatasetDeclaration`、`ChartDatasetSpec`、`ChartSpec`、`ChartSpecType`、`ChartType`、`WatermarkHandle`、`WatermarkTextConfig`、`PrintPluginOptions`、`PrintPluginHandle`、`PrintConfig`、`PrintSource`、`PrintPaperPreset`、`PrintPaperSpec`、`PrintOrientation`、`PrintMargin`、`PrintScaleMode`、`PrintPagingMode`、`PrintHeaderFooterConfig`、`PrintHeaderFooterSection` | 三插件的配置与声明/预设形态（`WatermarkTextConfig` 与打印水印共享同一模型，经插件入口一并转出；`PrintSource` 纯表格供数） |
+| plugins 值 | `createChartPlugin`、`createWatermarkPlugin`、`createPrintPlugin`、`createEnginePrintSource`、`derivePrintableArea` | 官方插件三工厂（插件对象形态：同时是 EnginePlugin 与运行时 handle）；`createEnginePrintSource` 为引擎供数适配（0.4.0 起新增，P7 落地）：把装配协议的导出读取面（`engine.read`）适配为 `PrintSource`，宿主打印引擎实例不再自写适配器；`derivePrintableArea` 为纸张可打印区推导（mm→px，与 print 插件分页同口径，本轮起转出） |
+| plugins 类型 | `ChartPluginOptions`、`ChartPluginHandle`、`ChartCellDeclaration`、`ChartDatasetDeclaration`、`ChartDatasetSpec`、`ChartSpec`、`ChartSpecType`、`ChartType`、`WatermarkHandle`、`WatermarkTextConfig`、`PrintPluginOptions`、`PrintPluginHandle`、`PrintConfig`、`PrintSource`、`PrintPaperPreset`、`PrintPaperSpec`、`PrintOrientation`、`PrintMargin`、`PrintScaleMode`、`PrintPagingMode`、`PrintHeaderFooterConfig`、`PrintHeaderFooterSection`、`PrintableArea` | 三插件的配置与声明/预设形态（`WatermarkTextConfig` 与打印水印共享同一模型，经插件入口一并转出；`PrintSource` 纯表格供数） |
 
-## ./sheet 子路径逐项清单（src/sheet.ts，83 值 + 96 类型）
+## ./sheet 子路径逐项清单（src/sheet.ts，88 值 + 98 类型）
 
 与 `packages/sheet/src/index.ts` 白名单同步维护（同判据、同集合）。公式引擎 API 不在此转售（下游直接 `import '@infinitable/formulas'`）。分组与理由：
 
@@ -63,6 +63,7 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 | 图片 | `createImageId`、`cloneImageAnchor`、`cloneSheetImage`、`IMAGE_MIME`；类型 `SheetImageType`、`SheetImageAnchor`、`SheetImage`、`ImageInput`、`ImageFitMode` |
 | IO | `exportWorkbookXlsx`、`exportSheetXlsx`、`exportSheetCsv`、`importXlsx`、`importCsv`、`replaceWorkbookWithSnapshots`；类型 `SheetReplaceItem` |
 | 显示链纯投影 | `SHEET_DEFAULT_ROW_HEIGHT`、`SHEET_DEFAULT_COL_WIDTH`（内置缺省行高/列宽 px：模型未声明 `defaultRowHeight`/`defaultColWidth` 时视图与导出共同的回落值）、`formatByNumFmt`（numFmt 数字显示文本：date/thousands/cnUpper/fixed(digits)）、`sheetStyleToEngineStyle`（sheet 样式 → 引擎 CellStyle 纯映射：font pt→px、thin/medium/thick 归并 solid）；导出/打印适配与屏上渲染共用同一显示口径（P8 打印供数起公开） |
+| 快照级版面与打印供数 | `snapshotContentBounds`、`clampSnapshotToBounds`（类型 `ContentBounds`）：快照内容包围盒推导与按包围盒裁剪；`insertSnapshotRows`、`deleteSnapshotRows`：快照行平移纯变换（不平移公式引用，与命令级 `Sheet.insertRows`/`deleteRows` 有意分叉）；`createSnapshotPrintSource`（类型 `PrintSource` 为 sheet 侧结构化副本，与 plugins 侧逐字段对齐、双侧互指同步）：快照还原进只读 Sheet 后逐项映射打印供数。自 print-form-designer 下沉（本轮起公开） |
 | SheetGrid 适配 | `SheetGrid`；类型 `ResolveCellRenderer`、`SheetGridHighlight`（公式引用拾取染色框条目）、`SheetGridOptions`、`SelectionInterceptMeta`（选区拦截手势载荷，配 `SheetGridOptions.interceptSelection`/`onSelectionIntercept`）、`ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 原生滚动条档，0.1.4 起新增）、`ResolveCellStyleHook`、`ResolveDisplayValue`、`SheetGridContextMenuInfo`、`SheetGridContextMenuKind`、`SheetGridHeaderOptions`、`GridCellEditor`、`GridEditorRect`、`GridEditorSession`、`SheetGridEditorsOptions`、`CellRenderer`、`CellRenderTarget` |
 
 ## ./pivot 子路径逐项清单（src/pivot.ts，6 值 + 8 类型）
@@ -78,6 +79,8 @@ infinitable 对外只有三个发布入口：主入口 `infinitable`（npm 单�
 ## 各子包 src/index.ts 复核结论
 
 `packages/{render,grid,protocol,table,formulas,plugins,sheet}` 各包公共入口按同一判据复核：原 core 公共面在 P4 拆分时逐项重判后按定义层落入 grid（合并/选区/主题/样式词汇/浮动对象/滚动条配置）与 table（表格主体/编辑/媒体/插件契约），集合不变零移出；P7 新增协议类型（中立本体与读取面，协议归位起迁入 `@infinitable/protocol` 契约包）与 plugins 引擎供数适配（`createEnginePrintSource`/`EnginePrintSourceOptions`，后者留在子包面、主入口经 `createEnginePrintSource` 函数签名可达）。子包公共面同时是主入口显式清单的来源与插件红线边界（`docs/plugin-interface-map.md`：插件包只允许依赖 table/grid 公共入口显式导出的 API）。
+
+快照纯变换与打印几何下沉轮子包面新增登记（全部纯新增，无删除无签名变更）：`@infinitable/sheet` 增快照级纯变换与打印供数组——`snapshotContentBounds`/`clampSnapshotToBounds`（类型 `ContentBounds`）、`insertSnapshotRows`/`deleteSnapshotRows`（快照行平移，不平移公式引用，与命令级结构变更有意分叉）、`createSnapshotPrintSource`（类型 `PrintSource` 为 sheet 侧结构化副本，与 plugins 侧逐字段对齐、双侧互指同步）；`@infinitable/plugins` 增 `derivePrintableArea`（类型 `PrintableArea`）；`@infinitable/render` 增 `dashedLine`/`roundRectPath`（类型 `DashPattern`/`DashLineContext`/`RoundRectPathContext`）。本组符号随发布入口一并转出：`dashedLine`/`roundRectPath`（+3 类型）与 `derivePrintableArea`（+类型 `PrintableArea`）入主入口，快照级版面/打印供数 7 符号入 `./sheet` 子路径白名单；`public-surface.test.ts` 冻结快照已同步显式更新（主入口 40→43 值 + 96→100 类型；`./sheet` 83→88 值 + 96→98 类型）。逐项事实见 `apis/sheet.md` / `apis/print-plugin.md` / `apis/render-engine.md`。
 
 ## core 拆分更名迁移登记（0.4.0 起，无兼容层）
 

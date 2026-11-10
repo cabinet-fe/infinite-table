@@ -10,8 +10,16 @@
 // ./sheet 子路径（@infinitable/sheet 全量白名单）见 src/sheet.ts，不经本入口转售。
 
 // ---- render 层（canvas 渲染引擎窄接口：宿主装配 / 场景树 / 层句柄与失效档）----
-export { createRenderHost, SceneNode } from '@infinitable/render'
+export {
+  createRenderHost,
+  // 命令式路径助手：RenderContext 无 setLineDash/roundRect 的 overlay painter 消费者直用
+  dashedLine,
+  roundRectPath,
+  SceneNode,
+} from '@infinitable/render'
 export type {
+  DashLineContext,
+  DashPattern,
   FrameTask,
   Invalidation,
   LayerHandle,
@@ -23,6 +31,7 @@ export type {
   RenderHost,
   RenderHostOptions,
   RenderImageSource,
+  RoundRectPathContext,
   SceneEvent,
   SceneEventListener,
   SceneNodeInit,
@@ -148,6 +157,8 @@ export {
   createEnginePrintSource,
   createPrintPlugin,
   createWatermarkPlugin,
+  // 纸张可打印区推导（mm → px）：宿主侧纸张/分页几何与 print 插件同口径
+  derivePrintableArea,
 } from '@infinitable/plugins'
 export type {
   ChartCellDeclaration,
@@ -158,6 +169,7 @@ export type {
   ChartSpec,
   ChartSpecType,
   ChartType,
+  PrintableArea,
   PrintConfig,
   PrintHeaderFooterConfig,
   PrintHeaderFooterSection,

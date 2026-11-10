@@ -1,8 +1,8 @@
 ---
 title: RenderHost 渲染引擎
-description: infinitable 自研 canvas 渲染引擎：createRenderHost 创建宿主（四层 canvas ground/body/media/sky）、SceneNode 场景树、三档失效 Invalidation（region/band/full）与层失效消费策略 LayerConsumption、LayerHandle 层句柄、federated 事件系统与 DPR 跟随。ListTable 经 RenderHost 窄接口提交渲染。
+description: infinitable 自研 canvas 渲染引擎：createRenderHost 创建宿主（四层 canvas ground/body/media/sky）、SceneNode 场景树、三档失效 Invalidation（region/band/full）与层失效消费策略 LayerConsumption、LayerHandle 层句柄、federated 事件系统与 DPR 跟随；dashedLine/roundRectPath 命令式路径助手（手动虚线分段与 arc 拼圆角矩形，窄 ctx 接口）。ListTable 经 RenderHost 窄接口提交渲染。
 aliases: [RenderHost, 渲染引擎, SceneNode, 场景树, canvas 引擎]
-keywords: [createRenderHost, RenderHostOptions, RenderHost, SceneNode, SceneEvent, LayerHandle, LayerKind, LayerOpts, LayerConsumption, Invalidation, submitInvalidation, requestFrame, measure, ground, body, media, sky, pickable, getGlobalBounds, 分层 canvas, 失效, 脏区]
+keywords: [createRenderHost, RenderHostOptions, RenderHost, SceneNode, SceneEvent, LayerHandle, LayerKind, LayerOpts, LayerConsumption, Invalidation, submitInvalidation, requestFrame, measure, ground, body, media, sky, pickable, getGlobalBounds, dashedLine, roundRectPath, DashPattern, 虚线, 圆角矩形, 分层 canvas, 失效, 脏区]
 ---
 
 # RenderHost 渲染引擎
@@ -248,6 +248,67 @@ export interface SceneEvent {
   /** 阻止继续冒泡 */
   stopPropagation(): void
 }
+
+// ---- 命令式路径助手（不经场景树、直接在 2D 上下文铺路径；@infinitable/render 包
+// 公共面与 infinitable 主入口均可导入。纯函数零 DOM，不含表格语义）----
+
+/** 虚线图案（段长 + 间隔，px）：RenderContext 无 setLineDash，按图案手动分段铺路径 */
+export interface DashPattern {
+  /** 实线段长（px） */
+  dash: number
+  /** 间隔长（px） */
+  gap: number
+}
+
+/** 虚线铺设的最小路径接口（结构化子类型：RenderContext 及宿主窄上下文天然满足） */
+export interface DashLineContext {
+  moveTo(x: number, y: number): void
+  lineTo(x: number, y: number): void
+}
+
+/** 圆角矩形路径构造的最小路径接口 */
+export interface RoundRectPathContext {
+  beginPath(): void
+  moveTo(x: number, y: number): void
+  lineTo(x: number, y: number): void
+  arc(
+    x: number,
+    y: number,
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    counterclockwise?: boolean,
+  ): void
+  closePath(): void
+}
+
+/**
+ * 手动虚线段：从 (x1,y1) 到 (x2,y2) 按 pattern 推进（水平/垂直/斜线通用，沿单位向量
+ * 按 dash+gap 步进）。每段 moveTo 起点 + lineTo 段尾；末段不足一个完整段时夹取到线段
+ * 终点；零长度线不产生任何调用。本函数只铺路径：beginPath / 描边样式 / stroke 由调用方编排。
+ */
+export function dashedLine(
+  ctx: DashLineContext,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  pattern: DashPattern,
+): void
+
+/**
+ * 圆角矩形路径：用 arc 拼四角（RenderContext 无 roundRect）。自带 beginPath 与 closePath
+ * 构造一条闭合路径（顺时针：四边直线 + 四角 90° 圆弧），调用方随后 fill 或 stroke；
+ * radius 超出半宽/半高时夹取到较短半边（退化为胶囊形）。
+ */
+export function roundRectPath(
+  ctx: RoundRectPathContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void
 ```
 
 ## 参数说明
@@ -269,6 +330,8 @@ export interface SceneEvent {
 `LayerOpts`：`consumption` 缺省 `'regions'`（band 与 region 档逐脏区增量补画）；`'band-full-only'` 仅响应 band/full 档、忽略 region 档（背景类内容层）；`'always-full'` 响应一切失效但整层重画（重绘便宜的内容层）。消费策略随首次建层注入并固定，同 kind 幂等建层时后传的 `consumption` 被忽略。
 
 `Invalidation` 三档选择规则：有可靠脏区用 `region`（带 `prevRegion` 覆盖移动前后双包围盒）；滚动窗口滑动产生的条带用 `band`；无可靠 bounds 必须 `full`（禁止猜小块）。
+
+`dashedLine` / `roundRectPath` 参数全部必填（无默认值）；`ctx` 是窄接口（结构化子类型）：传引擎 `RenderContext`、原生 `CanvasRenderingContext2D` 或只声明用到的成员的宿主自备对象均可，测试可注入录制调用的假上下文按调用序列断言。`dashedLine` 的 `pattern` 约束：`dash`/`gap` 取正数，步进 = `dash + gap`；`roundRectPath` 的 `radius` 超 `min(width, height) / 2` 时夹取到较短半边。
 
 ## 方法与事件
 
@@ -347,6 +410,37 @@ layer.invalidate({ type: 'band', region: { x: 0, y: 100, width: 800, height: 32 
 layer.invalidate({ type: 'full' })
 ```
 
+### 路径助手（虚线参考线 + 圆角矩形，overlay 自绘）
+
+```ts
+import { dashedLine, roundRectPath, type DashPattern } from '@infinitable/render'
+import { createRenderHost, SceneNode } from 'infinitable'
+
+const container = document.querySelector<HTMLDivElement>('#stage')!
+container.style.position = 'relative'
+const host = createRenderHost({ width: 400, height: 200, container })
+const layer = host.createLayer({ kind: 'sky' })
+
+class GuideNode extends SceneNode {
+  override paint(ctx: CanvasRenderingContext2D): void {
+    // 虚线参考线：dashedLine 只铺路径，beginPath / 描边样式 / stroke 由调用方编排
+    ctx.beginPath()
+    ctx.strokeStyle = '#f5556a'
+    ctx.lineWidth = 1
+    const pattern: DashPattern = { dash: 4, gap: 3 }
+    dashedLine(ctx, 10, 20, 390, 20, pattern) // 每段 moveTo 起点 + lineTo 段尾
+    ctx.stroke() // => 20px 高处一条 dash 4 / gap 3 的红色水平虚线
+
+    // 圆角矩形：roundRectPath 自带 beginPath/closePath 构造闭合路径，随后 fill 或 stroke
+    roundRectPath(ctx, 20, 40, 120, 32, 8)
+    ctx.fillStyle = 'rgba(46, 106, 219, 0.12)'
+    ctx.fill() // => 8px 圆角的半透明蓝底圆角矩形
+  }
+}
+layer.root.appendChild(new GuideNode({ width: 400, height: 200 }))
+host.submitInvalidation('sky', { type: 'full' })
+```
+
 ## 注意事项
 
 > [!WARNING]
@@ -356,6 +450,8 @@ layer.invalidate({ type: 'full' })
 > - `SceneNode.paint` 的 ctx 已平移到本节点局部原点（且已按 dpr 缩放），坐标计算用格内局部坐标即可。
 > - 运行期 DPR 变化宿主自动跟随（window resize + matchMedia resolution 双通道）；显式 `resize(w, h, dpr)` 传 dpr 才更新内部 dpr。
 > - `ListTable` 的 ground/sky 整层绘制预留位经 `table.setUnderlayPainter`/`setOverlayPainter` 挂接，不直接操作 host 建层。
+> - `dashedLine`/`roundRectPath` 从 `@infinitable/render` 包公共面与 `infinitable` 主入口均可导入（本轮起主入口已转出）。
+> - 引擎 `RenderContext` 没有 `setLineDash` 与 `roundRect`：虚线与圆角矩形一律用 `dashedLine`/`roundRectPath` 铺路径，本引擎上下文上不存在这两个 canvas 原生成员。
 
 ## 常见问题
 

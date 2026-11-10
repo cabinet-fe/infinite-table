@@ -62,6 +62,8 @@ const MAIN_ENTRY_VALUES = [
   'createRangeRef',
   'createRenderHost',
   'createWatermarkPlugin',
+  'dashedLine',
+  'derivePrintableArea',
   'evaluate',
   'extendsTheme',
   'formulaError',
@@ -80,6 +82,7 @@ const MAIN_ENTRY_VALUES = [
   'parseFormula',
   'projectCellStyle',
   'registerFormulaFunction',
+  'roundRectPath',
   'sanitizeMerges',
   'scanFormulaReferences',
   'shiftFormulaRefs',
@@ -90,6 +93,8 @@ const MAIN_ENTRY_VALUES = [
 
 const MAIN_ENTRY_TYPES = [
   // render 层
+  'DashLineContext',
+  'DashPattern',
   'FrameTask',
   'Invalidation',
   'LayerHandle',
@@ -101,6 +106,7 @@ const MAIN_ENTRY_TYPES = [
   'RenderHost',
   'RenderHostOptions',
   'RenderImageSource',
+  'RoundRectPathContext',
   'SceneEvent',
   'SceneEventListener',
   'SceneNodeInit',
@@ -190,6 +196,7 @@ const MAIN_ENTRY_TYPES = [
   'PrintPluginOptions',
   'PrintScaleMode',
   'PrintSource',
+  'PrintableArea',
   'WatermarkHandle',
   'WatermarkTextConfig',
 ]
@@ -245,6 +252,7 @@ const SHEET_ENTRY_VALUES = [
   'cellMetaKey',
   'cellMetaKeyFrom',
   'cellMetaPayloadEqual',
+  'clampSnapshotToBounds',
   'cloneCellMetaPayload',
   'cloneImageAnchor',
   'cloneSheetImage',
@@ -254,7 +262,9 @@ const SHEET_ENTRY_VALUES = [
   'computeFillTargetRange',
   'createImageId',
   'createRange',
+  'createSnapshotPrintSource',
   'defaultCommandRegistry',
+  'deleteSnapshotRows',
   'exportSheetCsv',
   'exportSheetXlsx',
   'exportWorkbookXlsx',
@@ -270,6 +280,7 @@ const SHEET_ENTRY_VALUES = [
   'importCsv',
   'importXlsx',
   'inferCellType',
+  'insertSnapshotRows',
   'isEmptyCellData',
   'iterateRange',
   'normalizeInputValue',
@@ -280,6 +291,7 @@ const SHEET_ENTRY_VALUES = [
   'rangesIntersect',
   'replaceWorkbookWithSnapshots',
   'sheetStyleToEngineStyle',
+  'snapshotContentBounds',
 ]
 
 const SHEET_ENTRY_TYPES = [
@@ -314,6 +326,7 @@ const SHEET_ENTRY_TYPES = [
   'Command',
   'CommandContext',
   'CommandResult',
+  'ContentBounds',
   'FillDirection',
   'FindMatch',
   'FindOptions',
@@ -341,6 +354,7 @@ const SHEET_ENTRY_TYPES = [
   'NumFmt',
   'Patch',
   'PatchDirection',
+  'PrintSource',
   'RemoveCellImageParams',
   'RemoveImageParams',
   'ResolveCellRenderer',

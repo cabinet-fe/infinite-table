@@ -23,7 +23,7 @@ bun add infinitable @cat-kit/core
 
 ## 模块速查
 
-统一入口与 `./sheet`、`./pivot` 子路径全部公共导出（含 `CellRef` 消歧：formulas 的 A1 引用保留 `CellRef`，grid 的格坐标以 `GridCellRef` 别名导出）按下表定位篇目，逐项可 grep 核对。
+统一入口与 `./sheet`、`./pivot` 子路径全部公共导出（含 `CellRef` 消歧：formulas 的 A1 引用保留 `CellRef`，grid 的格坐标以 `GridCellRef` 别名导出）按下表定位篇目，逐项可 grep 核对。个别符号只在子包公共面、不经发布入口转出，在用途列标注所在包名。
 
 | 导出名 | 用途 | 文档路径 |
 | --- | --- | --- |
@@ -48,6 +48,7 @@ bun add infinitable @cat-kit/core
 | `SceneNode` / `SceneNodeInit` / `SceneEvent` / `SceneEventType` / `SceneEventListener` | 场景树与 federated 事件 | `apis/render-engine.md` |
 | `LayerHandle` / `LayerKind` / `LayerOpts` / `Invalidation` / `FrameTask` | 层句柄与三档失效 | `apis/render-engine.md` |
 | `Region` / `Size` / `RenderContext` / `RenderCanvas` / `RenderImageSource` | 渲染基础类型（render 层导出，table 层亦转出 `RenderContext`/`Size`） | `apis/render-engine.md` |
+| `dashedLine` / `roundRectPath` / `DashPattern` / `DashLineContext` / `RoundRectPathContext` | canvas 路径助手：手动虚线分段铺路径与 arc 拼四角圆角矩形（窄 ctx 接口，RenderContext 与原生 2D 上下文天然满足；主入口与 `@infinitable/render` 包公共面均可导入） | `apis/render-engine.md` |
 | `parseCellRef` / `formatCellRef` / `colLetters` / `formatRangeRef` / `createRangeRef` / `CellRef` | A1 地址系统（0 基坐标） | `apis/formula-engine.md` |
 | `FormulaError` / `formulaError` / `isFormulaError` / `isFormulaErrorCode` / `FormulaParseError` | 公式错误值体系（7 种错误码） | `apis/formula-engine.md` |
 | `parseFormula` / `AstNode` | Pratt 解析器与 AST | `apis/formula-engine.md` |
@@ -68,6 +69,9 @@ bun add infinitable @cat-kit/core
 | `createImageId` / `cloneImageAnchor` / `cloneSheetImage` / `IMAGE_MIME` / `SheetImageType` / `SheetImageAnchor` / `SheetImage` / `ImageInput` / `ImageFitMode` | sheet 浮动图片锚点与克隆（`IMAGE_MIME` 类型→MIME 映射、`ImageFitMode` 嵌入图 fit 档） | `apis/sheet.md` |
 | `exportWorkbookXlsx` / `exportSheetXlsx` / `exportSheetCsv` / `importXlsx` / `importCsv` / `replaceWorkbookWithSnapshots` / `SheetReplaceItem` | sheet xlsx/csv 导入导出与快照替换 | `apis/sheet.md` |
 | `SHEET_DEFAULT_ROW_HEIGHT` / `SHEET_DEFAULT_COL_WIDTH` / `formatByNumFmt` / `sheetStyleToEngineStyle` | sheet 显示链纯投影：内置缺省行高/列宽（28px/80px，模型未声明默认尺寸的回落值）、numFmt 数字显示文本格式化、sheet 样式 → 引擎样式纯映射；导出/打印适配与屏上渲染共用同一显示口径（所见即所打，P8 打印供数起公开） | `apis/sheet.md` |
+| `snapshotContentBounds` / `clampSnapshotToBounds` / `ContentBounds` | 快照内容包围盒与按包围盒裁剪：cells/meta/merges/images/行列尺寸/行列默认样式/数据块七类来源取最大行列 + 1，空内容回落 1×1、不尊重声明行列数；裁剪时越界合并区/图片整条丢弃、styles 池与选区原样保留（经 `./sheet` 子路径转出） | `apis/sheet.md` |
+| `insertSnapshotRows` / `deleteSnapshotRows` | 快照行平移纯变换：插/删行时值/公式原文/meta/合并区/行高/行样式随行平移，列向字段与 styles 池不动；**不平移公式引用**——与命令级结构变换（`Sheet.insertRows`/`deleteRows`）有意分叉（经 `./sheet` 子路径转出） | `apis/sheet.md` |
+| `createSnapshotPrintSource` / `PrintSource`（sheet 侧） | 快照 → 打印数据源适配：还原进只读 Sheet 模型逐项映射（行高列宽回落内置缺省与屏上同口径）；与 `@infinitable/plugins` 的 PrintSource 结构化对齐、双侧互指同步，merges 为扁平区间形状（经 `./sheet` 子路径转出） | `apis/sheet.md` |
 | `SheetGrid` / `ResolveCellRenderer` / `SheetGridOptions` / `SelectionInterceptMeta`（选区拦截手势载荷） / `ScrollbarOptions`（grid 同形再导出，`mode: 'native'` 档） / `ResolveCellStyleHook` / `ResolveDisplayValue` / `SheetGridContextMenuInfo` / `SheetGridContextMenuKind` / `SheetGridHeaderOptions` / `GridCellEditor` / `GridEditorRect` / `GridEditorSession` / `SheetGridEditorsOptions` / `CellRenderer` / `CellRenderTarget` | SheetGrid 装配（Sheet 模型 ↔ ListTable 适配层） | `apis/sheet.md` |
 | `@infinitable/pivot` 全部符号经 `infinitable` 的 `./pivot` 子路径转出（透视表领域引擎：行维度树多列树形布局 × 列维度多级表头 × 度量交叉聚合，包本体 private 不发布），按域分见下列各行 | 透视表引擎装配与领域操作（运行时勾选/折叠/下钻，结构原地落地不重建实例） | `apis/pivot.md` |
 | `PivotGrid` / `PivotModel` / `PivotGridOptions` / `PivotDimension` / `PivotMeasure` / `PivotAggregator` / `PivotRecord` / `PivotRow` / `PivotColumn` / `PivotCellDrillEvent`（双击下钻载荷） / `PIVOT_ROW_HEIGHT` / `PIVOT_HEADER_BACKGROUND` / `PIVOT_SUBTOTAL_BACKGROUND` / `PIVOT_GRAND_BACKGROUND`（冒烟像素断言锚点常量） | 透视表引擎（实现 EngineAssembly 转发面，协议插件可跨引擎挂载）、聚合模型（TableModel 数据面）与领域词汇 | `apis/pivot.md` |
@@ -79,6 +83,7 @@ bun add infinitable @cat-kit/core
 | `createPrintPlugin` / `PrintPluginOptions` / `PrintPluginHandle` | 打印插件工厂与句柄（分页/文档构建/打印输出/预览经 handle 方法） | `apis/print-plugin.md` |
 | `createEnginePrintSource` | 引擎供数适配（0.4.0 起）：装配协议导出读取面 `engine.read` → `PrintSource`，宿主打印引擎实例的便捷入口 | `apis/print-plugin.md` |
 | `PrintConfig` / `PrintSource` / `PrintPaperPreset` / `PrintPaperSpec` / `PrintOrientation` / `PrintMargin` / `PrintScaleMode` / `PrintPagingMode` / `PrintHeaderFooterConfig` / `PrintHeaderFooterSection` | 打印配置与数据源 | `apis/print-plugin.md` |
+| `derivePrintableArea` / `PrintableArea` | 可用打印区域推导：96dpi mm→px、margin 单值四边同距或对象缺边回落 48px、页眉页脚缺省预留 32px、可用宽高下限 0；`paginate`/`openPreview` 同一推导入口（主入口与 `@infinitable/plugins` 包公共面均可导入） | `apis/print-plugin.md` |
 | （导出面判据、逐项清单、移出项过渡方案、0.1.x 兼容结论） | 主入口与 `./sheet`、`./pivot` 子路径导出集合的判定依据与冻结机制 | `apis/exports.md` |
 
 指南：`guide/quick-start.md`（快速上手）、`guide/performance-virtual-scroll.md`（大数据量性能与虚拟滚动）、`guide/plugin-integration.md`（插件接入：图表/水印/表格插件契约）。

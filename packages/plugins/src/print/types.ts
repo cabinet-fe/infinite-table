@@ -18,6 +18,9 @@ import type { CellRange, CellStyle } from '@infinitable/grid'
  * - meta 快照适配：cells 稀疏条目映射为 cellValue/displayValue、
  *   rowHeights/colWidths 元组映射为 rowHeight/colWidth。
  * 单位约定：行高/列宽一律 px（96dpi，与引擎行列尺寸同口径）。
+ * 口径对齐：@infinitable/sheet 有本接口的结构化副本
+ * （packages/sheet/src/core/print-source.ts，sheet 不反向依赖本包，靠结构化兼容
+ * 直接供数）；任一侧改字段须同步另一侧。
  */
 export interface PrintSource {
   /** 表名（页面标题缺省源，P2 占位符求值消费） */

@@ -29,6 +29,11 @@ export { SHEET_DEFAULT_COL_WIDTH, SHEET_DEFAULT_ROW_HEIGHT } from './core/defaul
 export { formatByNumFmt } from './core/format'
 export { sheetStyleToEngineStyle } from './grid/grid-style-map'
 
+// 快照 → 打印供数适配（显示链投影的打印侧消费者）：PrintSource 是本包的结构化类型，
+// 字段口径与 @infinitable/plugins 的 PrintSource 对齐（sheet 不依赖 plugins，靠结构化
+// 兼容直接供数；互指文档见 core/print-source.ts 与 plugins print/types.ts 头注释）。
+export { createSnapshotPrintSource, type PrintSource } from './core/print-source'
+
 export {
   NUMERIC_TEXT_RE,
   normalizeInputValue,
@@ -114,6 +119,15 @@ export {
 } from './core/find'
 
 export { Sheet, type FrozenState, type SheetSnapshot, type SheetEvents } from './core/sheet'
+
+// 快照级纯变换（宿主静默重排 / 序列化收紧用）：不进 undo、不发事件、不平移公式引用
+// （与命令级 applyStructureChange 的语义分叉是有意的，口径见各文件头注释）。
+export {
+  snapshotContentBounds,
+  clampSnapshotToBounds,
+  type ContentBounds,
+} from './core/snapshot-bounds'
+export { insertSnapshotRows, deleteSnapshotRows } from './core/snapshot-rows'
 
 export {
   Workbook,

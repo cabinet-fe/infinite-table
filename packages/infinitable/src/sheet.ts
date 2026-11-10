@@ -25,6 +25,15 @@ export {
   SHEET_DEFAULT_COL_WIDTH,
   formatByNumFmt,
   sheetStyleToEngineStyle,
+  // 快照级版面与打印供数（自 print-form-designer 下沉）：内容包围盒 / 快照行静默变换
+  // （不平移公式引用，与 Sheet.applyStructureChange 有意分叉）/ 快照 → PrintSource 适配
+  snapshotContentBounds,
+  clampSnapshotToBounds,
+  type ContentBounds,
+  insertSnapshotRows,
+  deleteSnapshotRows,
+  createSnapshotPrintSource,
+  type PrintSource,
   NUMERIC_TEXT_RE,
   normalizeInputValue,
   inferCellType,

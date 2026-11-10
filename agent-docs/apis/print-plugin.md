@@ -1,8 +1,8 @@
 ---
 title: createPrintPlugin 打印插件
-description: infinitable 打印插件 createPrintPlugin（ureport2 双模式移植，headless 内核 + DOM 输出）：handle.paginate 分页（fitpage 行高累加 / fixrows 固定行数、重复表头、分组换页、fit-width 缩放）、buildDocumentHtml 页面 HTML、print iframe 打印输出与 openPreview 预览弹层；PrintSource 供数适配（cellImage 格内图片通道——签名图等经 <img> 进打印），PrintConfig 纸张/边距/页眉页脚占位符（{page}/{pageSum:COL}）与水印配置。
+description: infinitable 打印插件 createPrintPlugin（ureport2 双模式移植，headless 内核 + DOM 输出）：handle.paginate 分页（fitpage 行高累加 / fixrows 固定行数、重复表头、分组换页、fit-width 缩放）、buildDocumentHtml 页面 HTML、print iframe 打印输出与 openPreview 预览弹层；PrintSource 供数适配（cellImage 格内图片通道——签名图等经 <img> 进打印），PrintConfig 纸张/边距/页眉页脚占位符（{page}/{pageSum:COL}）与水印配置，derivePrintableArea 可用打印区域推导（96dpi mm→px、边距归一化、页眉页脚预留）。
 aliases: [print 插件, 打印, 打印预览, paginate, 分页, printPages, openPrintPreview]
-keywords: [createPrintPlugin, PrintPluginOptions, PrintPluginHandle, paginate, buildDocumentHtml, print, openPreview, PrintConfig, PrintSource, cellImage, paperSize, A4, orientation, landscape, fitpage, fixrows, headerRepeatRows, groupBreakBy, "pageSum", PrintPaperPreset, 打印, 分页, 页眉页脚, 套打, 打印预览]
+keywords: [createPrintPlugin, PrintPluginOptions, PrintPluginHandle, paginate, buildDocumentHtml, print, openPreview, PrintConfig, PrintSource, cellImage, paperSize, A4, orientation, landscape, fitpage, fixrows, headerRepeatRows, groupBreakBy, "pageSum", PrintPaperPreset, derivePrintableArea, PrintableArea, 打印, 分页, 页眉页脚, 页边距, 可用页宽, 套打, 打印预览]
 ---
 
 # createPrintPlugin 打印插件
@@ -115,6 +115,37 @@ export interface PrintConfig {
   watermark?: WatermarkTextConfig
 }
 
+// ---- 纸张几何（纯函数零 DOM；@infinitable/plugins 包公共面与 infinitable 主入口均可导入）----
+
+/** 可用打印区域推导产物（px） */
+export interface PrintableArea {
+  /** 纸张全宽（px，@page 宽） */
+  pageWidth: number
+  /** 纸张全高（px，@page 高） */
+  pageHeight: number
+  /** 可用页宽（px = 纸宽 − 左右边距；下限 0） */
+  width: number
+  /** 可用页高（px = 纸高 − 上下边距 − 页眉高 − 页脚高；下限 0） */
+  height: number
+  /** 页眉预留高（px） */
+  headerHeight: number
+  /** 页脚预留高（px） */
+  footerHeight: number
+  /** 归一化后的四边距（px） */
+  margin: Required<PrintMargin>
+}
+
+/**
+ * 推导可用打印区域（paginate 与 openPreview 页面几何的同一推导入口）：纸张尺寸按
+ * 96dpi 由 mm 换 px（预设 portrait 口径 A3 297×420 / A4 210×297 / A5 148×210 /
+ * Letter 215.9×279.4 mm；landscape 交换宽高）。margin 为 number 时四边同距，为
+ * PrintMargin 时缺边回落缺省 48px；页眉/页脚高取显式 headerFooter.headerHeight/
+ * footerHeight，缺省按 section 是否存在自动（存在预留 32px，不存在 0）。页眉页脚
+ * 不占数据区（ureport2 fitpage 口径）。边距/预留超出纸面时可用宽高夹取 0（分页
+ * 退化为每页单行，配置问题在预览一望可知）。
+ */
+export function derivePrintableArea(config: PrintConfig): PrintableArea
+
 // ---- 插件 ----
 
 export interface PrintPluginOptions {
@@ -188,6 +219,8 @@ export function createPrintPlugin(options: PrintPluginOptions): PrintPluginHandl
 `PrintSource.rowHeight/colWidth` 单位 px（96dpi）；`cellValue` 是分组换页判定口径（显示变换不改变分组语义），`displayValue` 是页面渲染口径。
 
 `PrintSource.cellImage` 是可选格图通道（类型 `(col: number, row: number) => string | null | undefined`，缺省不提供）：返回图源 URL/dataURL 的格在打印页输出 `<img src="…">`（src 经属性转义，图经文档级 `.print-table img { max-width: 100%; max-height: 100%; object-fit: contain; }` 约束在格内，不改变列宽/行高栅格），命中格不再输出 `displayValue` 文本；未提供通道或返回 `null`/`undefined`/空串的格维持纯文本输出。一行用法：`cellImage: (col, row) => rows[row].signDataUrl ?? null`——屏上对应 `ListTableOptions.resolveCellImage`（media 层按图渲染），同一数据源两口径，签名图等图片字段屏上与打印一致呈现。
+
+`derivePrintableArea(config)` 参数即 `PrintConfig`（全字段可选，缺省口径同上表）；返回 `PrintableArea`：`pageWidth`/`pageHeight` 为纸张全宽/全高（px，@page 口径），`width` 为可用页宽（纸宽 − 左右边距，下限 0），`height` 为可用页高（纸高 − 上下边距 − 页眉高 − 页脚高，下限 0），`headerHeight`/`footerHeight` 为页眉/页脚预留高，`margin` 为归一化后的四边全量边距。`margin` 参数形态二选一：`number`（四边同距）或 `PrintMargin` 对象（未给的边回落缺省 48px）。
 
 ## 方法与事件
 
@@ -268,6 +301,28 @@ console.log(print.paginate().map((page) => page.blankRows))
 // => 每页 20 数据行；组边界提前换页的页 blankRows > 0（补齐行栅格）
 ```
 
+### 可用打印区域推导（参考线 / 分页预判）
+
+```ts
+import { derivePrintableArea, type PrintConfig } from '@infinitable/plugins'
+
+const config: PrintConfig = {
+  paperSize: 'A4',
+  orientation: 'landscape',
+  margin: { top: 48, left: 64 }, // 未给的边（right/bottom）回落缺省 48px
+  headerFooter: { footer: { center: '第 {page} 页' } }, // footer 存在且未给 footerHeight → 预留 32px
+}
+
+const area = derivePrintableArea(config)
+console.log(area.pageWidth.toFixed(2)) // => "1122.52"（297mm × 96 / 25.4，landscape 全宽）
+console.log(area.pageHeight.toFixed(2)) // => "793.70"（210mm 换 px）
+console.log(area.width.toFixed(2)) // => "1010.52"（页宽 − 64 − 48：right 未给回落缺省 48）
+console.log(area.height.toFixed(2)) // => "665.70"（页高 − 48 − 48 − 0 − 32）
+console.log(area.margin) // => { top: 48, right: 48, bottom: 48, left: 64 }
+```
+
+`paginate` 与 `openPreview` 内部用同一入口推导页面几何；宿主做打印参考线、自绘分页预判时复用 `derivePrintableArea`，与插件输出保持同一口径。
+
 ### 预览弹层 + 打印钩子接管
 
 ```ts
@@ -304,6 +359,8 @@ await print.print(config) // 桩接管打印触发
 > - `groupBreakBy` 按 `cellValue`（原始值）判定分组，显示链（numFmt 等）不影响换页。
 > - 占位符求值对未识别的 `{...}` 原样保留——宿主自定义文案里的花括号不会被清空。
 > - `PrintSource` 是纯表格供数接口（值/样式/合并/行列几何/格内图）：浮动图与图表不进打印输出，格内静态图仅经可选 `cellImage` 通道输出 `<img>`（浮动图收数口随死代码清理整体删除——渲染口从未实现）。
+> - `derivePrintableArea`/`PrintableArea` 从 `@infinitable/plugins` 包公共面与 `infinitable` 主入口均可导入（本轮起主入口已转出）。它是 `paginate`/`openPreview` 页面几何的同一推导入口——宿主复用它做参考线/分页预判即可与打印输出同口径，禁止自行换算 mm→px 造成口径漂移。
+> - `@infinitable/sheet` 侧有 `PrintSource` 的结构化副本（`createSnapshotPrintSource` 产物）：字段与本篇 `PrintSource` 逐一对齐、两包不互相依赖，任一侧改字段必须同步另一侧。
 
 ## 常见问题
 
