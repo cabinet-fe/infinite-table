@@ -1,8 +1,9 @@
 // 模型层 headless 测试（v4）：数据块结构操作（含选区建块守卫、数据源绑定与绑定清除）、
 // 内容包围盒驱动的行列尺寸、格样式命令与快照条目的统一撤销链路、绑定/函数 sidecar
-// 形状与占位符推导、重命名联动改写引用。模板序列化在 template.test.ts。
+// 形状与占位符推导、重命名联动改写引用。模板序列化在 shared/template-schema.test.ts。
 import { describe, expect, test } from 'bun:test'
 
+import { FormDoc } from '../../src/domain/form-doc'
 import {
   FORM_BINDING_META_NAMESPACE,
   FORM_FUNCTION_META_NAMESPACE,
@@ -10,9 +11,8 @@ import {
   formatBindingPlaceholder,
   formatFunctionPlaceholder,
   regionsAt,
-} from '../../src/designer/template'
-import { FormDoc } from '../../src/designer/form-doc'
-import { ADDR, RANGE } from './testing/fixtures'
+} from '../../src/shared/template-schema'
+import { ADDR, RANGE } from '../designer/testing/fixtures'
 
 /** 明细展开源（展开区必须带 source，测试里统一用它） */
 const SOURCE = { kind: 'dataset', datasetId: 'ds1', path: '' } as const

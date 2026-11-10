@@ -2,7 +2,7 @@
 // 控件状态跟随当前选区（useSelectionStyle）：加粗按下态、字号、对齐、数字格式、边框预设。
 import type { CellStylePatch } from '@infinitable/sheet'
 
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
 import {
   BORDER_OPTIONS,
   NUM_FMT_QUICK,

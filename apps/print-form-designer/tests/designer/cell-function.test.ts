@@ -19,7 +19,7 @@ import {
   type FormCellBinding,
   type FormCellFunction,
   type FormRegion,
-} from '../../src/designer/template'
+} from '../../src/shared/template-schema'
 import { ExprError } from '../../src/transform/expr'
 import { ADDR } from './testing/fixtures'
 

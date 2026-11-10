@@ -5,20 +5,10 @@ import type { Hono } from 'hono'
 import type { Database } from 'bun:sqlite'
 import { getDataSourceProvider, type QueryResult } from './datasource-provider'
 import type { DatasetField, DatasourceRow, DatasetRow } from './rows'
-
-/** REST 记录视图：库行 fields 列的 JSON 文本解析为数组透出 */
-type DatasetRecord = Omit<DatasetRow, 'fields'> & { fields: DatasetField[] }
+import type { ApiDatasetRow, DatasetInput } from '../shared/api-types'
 
 /** 取字段的样例行数上限（够辨认字段含义即可，不整表回传） */
 const FIELD_SAMPLE_ROWS = 5
-
-interface DatasetBody {
-  name: string
-  datasource_id: string
-  sql: string
-  /** 字段命名（可选；PUT 不带 = 保留已存命名，编辑表单只改名称/SQL 时不误清） */
-  fields?: DatasetField[]
-}
 
 const BAD_BODY_MESSAGE =
   '请求体不合法：需含非空 name、datasource_id、sql（fields 可选，形如 [{ name, alias? }]）'
@@ -37,7 +27,8 @@ function isDatasetFields(value: unknown): value is DatasetField[] {
   )
 }
 
-function isDatasetBody(body: unknown): body is DatasetBody {
+/** 请求体校验：DatasetInput 形状（fields 可选；PUT 不带 = 保留已存命名，编辑表单只改名称/SQL 时不误清） */
+function isDatasetBody(body: unknown): body is DatasetInput {
   if (typeof body !== 'object' || body === null) return false
   const { name, datasource_id, sql, fields } = body as Record<string, unknown>
   return (
@@ -59,8 +50,8 @@ function normalizeFields(fields: DatasetField[]): DatasetField[] {
   })
 }
 
-/** 库行 → API 记录视图：fields 由 JSON 文本解析（列只经本校验写入，坏文本直接抛错暴露） */
-function toRecord(row: DatasetRow): DatasetRecord {
+/** 库行 → API 记录视图（ApiDatasetRow）：fields 由 JSON 文本解析（列只经本校验写入，坏文本直接抛错暴露） */
+function toRecord(row: DatasetRow): ApiDatasetRow {
   const { fields, ...rest } = row
   return { ...rest, fields: JSON.parse(fields) as DatasetField[] }
 }

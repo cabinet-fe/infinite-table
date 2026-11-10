@@ -26,18 +26,18 @@ infinitable/
 
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
-| render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、路径原语与内建图元节点（矩形/文本/路径/图片）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
+| render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、路径原语与内建图元节点（矩形/文本/路径/图片；命令式路径助手 dashedLine/roundRectPath 供无 setLineDash/roundRect 的 RenderContext 消费者使用）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
 | grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影；仅依赖 render | `src/index.ts` |
 | protocol | `packages/protocol` | 引擎装配协议契约包（纯类型、零运行时）：EngineAssembly 中立本体、EngineReadView 可选导出读取面、EnginePlugin 插件契约（协议插件/领域面插件/注册表插件三分类判据见 plugin.ts 头注）、UnderlayPainter/OverlayPainter/CellChangeEvent 槽位与事件词汇；仅依赖 grid 与 render 的类型——协议类型只有一个家，不消费 TableEngine 的引擎与协议插件无需依赖具体引擎包 | `src/index.ts` |
 | table | `packages/table` | ListTable 引擎（core 领域代码原样搬运）：ListTable 主体与装配、溢出走廊、填充柄、表头装配、取值三形态、编辑链路、交互、图片/图表媒体、插件注册路径；依赖 grid、render 与 protocol（实现中立本体 EngineAssembly，承载表格领域面 TableEngine 供 SheetGrid/PivotGrid 等适配层消费） | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表（全局 + 实例函数集覆盖集）、依赖图与容错引用扫描 | `src/index.ts` |
-| plugins | `packages/plugins` | 官方插件承载：EnginePlugin 契约自 `@infinitable/protocol` 具名转出 + chart/print/watermark 插件（watermark/print 为协议插件——mount 只收 EngineAssembly 任意引擎可挂；chart 为领域面插件——经 chartMediaResolver 构造缝注入 table 引擎） | `src/index.ts` |
+| plugins | `packages/plugins` | 官方插件承载：EnginePlugin 契约自 `@infinitable/protocol` 具名转出 + chart/print/watermark 插件（watermark/print 为协议插件——mount 只收 EngineAssembly 任意引擎可挂；chart 为领域面插件——经 chartMediaResolver 构造缝注入 table 引擎；print 公开 derivePrintableArea 纸张可打印区推导供宿主复用） | `src/index.ts` |
 | pivot | `packages/pivot` | 透视表引擎：PivotGrid（平级领域引擎经装配协议接入的参考实现——内部 new ListTable 后以 TableEngine 持有，对外转发实现 EngineAssembly，协议插件跨引擎挂载生效；行方向多列树形布局：每行维度一列，同组跨行合并经 setMergeCells 落地，点击组格左缘展开图标折叠（collapsible 配置可禁用折叠始终平铺），选区不复用 sheet 交互面（引擎 interactiveSelection 关闭：无拖选/表头拖选/键盘移动/填充柄），选区是纯填充无边框领域高亮（主题 selectionBorderWidth 压 0）：组格高亮从命中维度列起的整行带、列维度表头高亮列组 × 全部数据行、数据格高亮自身（均经 applyExternalSelection 回写），图标折叠/展开后按新结构重放高亮（折叠组收敛为自带聚合的单行载体），列方向多级表头以引擎冻结行 + 横向合并落地（引擎自带列头关闭，表头区行维度列按维度分列标题竖条），列结构 setColCount/setFrozenColCount/setFrozenRowCount/setMergeCells 原地落地）+ PivotModel 聚合模型（leaf/折叠载体/grand 行 × 列维度树路径 × 度量聚合 → TableModel 数据面，引擎坐标含表头行偏移；行/列维度与度量动态勾选排序、聚合方式切换、折叠态管理、组可见行块 groupRange 与合并区计算）；依赖 table | `src/index.ts` |
-| sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 table、grid、formulas 与 protocol（SheetGrid 经引擎装配协议消费 table 引擎） | `src/index.ts` |
+| sheet | `packages/sheet` | 电子表格核心：sheet 模型、命令、IO（xlsx 导出）、SheetGrid 适配——自 plugins 的 sheet 插件族整体迁入（`createSheetPlugin` 已删），依赖 table、grid、formulas 与 protocol（SheetGrid 经引擎装配协议消费 table 引擎）；含快照级版面/打印供数（snapshotContentBounds 内容包围盒与裁剪、insert/deleteSnapshotRows 快照行静默变换（不平移公式，与 applyStructureChange 有意分叉）、createSnapshotPrintSource 快照→打印供数，PrintSource 为与 plugins 结构对齐的自有类型） | `src/index.ts` |
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口显式转售各层公共 API + `./sheet`、`./pivot` 子路径（`@infinitable/sheet` / `@infinitable/pivot` 白名单转售），vp build 整体打成自包含 dist（render/grid/table/formulas 钉进单一共享 engine chunk 保跨入口 `instanceof`、chart 保持动态分包、@cat-kit/core 外部化，契约由 `scripts/check-package-exports.mjs` 守卫），`scripts/build-types.mjs` 装配类型树并改写跨包说明符；发版统一走发版技能 `.agents/skills/release`（changesets + CI） | `src/index.ts` |
 | playground | `playground` | 应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、架构与 API 边界页、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ArchitecturePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
-| print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界；设计器内含公式栏与函数库（消费 @infinitable/formulas 的 49 个内置函数） | `src/server/index.ts`、`src/main.tsx` |
+| print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界；app 内分层为 shared（前后端契约：模板 schema/迁移与 REST 类型单源）、domain（领域模型：FormDoc/区域操作/聚合）、designer（表现层：画布与 React 组件）、data（数据视图 + REST 客户端与取数服务 dataset-service）、server（Hono 路由/建库/种子，种子惰性构建）；server 不 import designer；设计器内含公式栏与函数库（消费 @infinitable/formulas 的 49 个内置函数） | `src/server/index.ts`、`src/main.tsx` |
 
 ## 模块内检索
 
@@ -123,6 +123,7 @@ graph TD
     print-form-designer --> formulas
     print-form-designer --> sheet
     print-form-designer --> plugins
+    print-form-designer --> render
 ```
 
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）

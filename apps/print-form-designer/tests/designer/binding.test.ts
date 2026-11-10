@@ -12,7 +12,7 @@ import {
   reshapeDatasetData,
   resolveItemValue,
 } from '../../src/designer/binding'
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
 import { ADDR } from './testing/fixtures'
 
 describe('路径解析与还原', () => {

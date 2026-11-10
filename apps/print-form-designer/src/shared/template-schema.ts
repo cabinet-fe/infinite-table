@@ -1,6 +1,8 @@
+// 前后端契约层：模板 schema 类型全集、版本迁移、normalize 校验族、旧载荷嗅探、占位符
+// 格式化与数据块几何——server 启动迁移与路由校验、前端加载/保存共用同一份口径。
+// 零 React/DOM、零网络、零运行时副作用；不 import designer/domain/data/server 任何模块
+// （空数据试跑 probeAggregationType 住在 domain/aggregation.ts，经参数注入，见 AggregationTypeProber）。
 import type { SheetSnapshot } from '@infinitable/sheet'
-
-import { probeAggregationType } from './aggregation'
 
 /**
  * 打印单模板 JSON schema v6（数据块为唯一取数边界 + 单元格函数 + 分组 + 聚合函数体
@@ -22,7 +24,7 @@ import { probeAggregationType } from './aggregation'
  * - 分组是**数据块级**配置：`groupBy`（条目内路径）+ 行角色（明细/组头/小计/合计）。
  *   分组只对 `expand: 'down'` 有意义；`summary` 行对任意纵向列表的数据块有效（明细 ×N 份
  *   后垫 1 份合计行）。
- * - 画布**没有声明尺寸**：行列数由内容包围盒推导（见 content-bounds.ts），模板不存 cols。
+ * - 画布**没有声明尺寸**：行列数由内容包围盒推导（见 @infinitable/sheet 的 snapshot-bounds），模板不存 cols。
  *
  * 格内容/样式/合并/行高列宽/绑定与函数 sidecar 全部由 SheetSnapshot 承载——不自造
  * 第二套样式模型。纸张/边距/缩放/分页等打印配置不进模板（只在打印弹框）。
@@ -36,6 +38,32 @@ import { probeAggregationType } from './aggregation'
 export const TEMPLATE_SCHEMA_VERSION = 6
 
 /**
+ * 空数据试跑结果：成功给出返回形态（array/value）；失败给出带防御式引导的原因。
+ * 类型定义在契约层（prober 注入接口的组成部分），真实试跑实现在 domain/aggregation.ts。
+ */
+export type AggregationTypeProbe =
+  | { ok: true; returns: 'array' | 'value' }
+  | { ok: false; error: string }
+
+/**
+ * 空数据试跑注入接口：真实实现是 domain/aggregation.ts 的 probeAggregationType。
+ * 契约层不反向依赖 domain，normalize/迁移路径需要的试跑能力由调用方（form-doc、
+ * server/db.ts 启动迁移）经参数传入。
+ */
+export type AggregationTypeProber = (
+  params: readonly { varName: string }[],
+  body: string,
+) => AggregationTypeProbe
+
+/** 试跑 prober 缺省时的兜底：走到需要试跑的路径而没有注入即抛错（防静默降级） */
+function requireProber(probe: AggregationTypeProber | undefined): AggregationTypeProber {
+  if (!probe) {
+    throw new Error('空数据试跑 prober 未注入：请传入 domain/aggregation.ts 的 probeAggregationType')
+  }
+  return probe
+}
+
+/**
  * v4/v5 → v6 迁移，分两段、可从任一支持版本直升：
  * - v4 → v5：聚合 expression 从单表达式改为函数体——每个表达式包一层 `return (…);`；
  * - v5 → v6：聚合补 `type`——缺省用**空数据试跑**推导（每个入参数据集传 `[]`、`agg` 传
@@ -46,8 +74,14 @@ export const TEMPLATE_SCHEMA_VERSION = 6
  * （v6 文档不含 repeat）。
  * 其余字段原样保留（不丢数据）；当前版本原样返回（幂等）；比 v4 更老的版本抛错
  * （无机械迁移路径）。
+ *
+ * `probe` 为空数据试跑注入（v5 缺 type 的推导路径用；server 启动迁移传
+ * probeAggregationType）。已是最新的模板原样返回，不会用到试跑。
  */
-export function migrateTemplateToCurrent(input: FormTemplate): FormTemplate {
+export function migrateTemplateToCurrent(
+  input: FormTemplate,
+  probe?: AggregationTypeProber,
+): FormTemplate {
   if (input.schemaVersion === TEMPLATE_SCHEMA_VERSION) return input
   if (input.schemaVersion !== 4 && input.schemaVersion !== 5) {
     throw new Error(
@@ -81,7 +115,7 @@ export function migrateTemplateToCurrent(input: FormTemplate): FormTemplate {
     }),
     aggregations: (v5.aggregations ?? []).map((agg) => ({
       ...agg,
-      type: agg.type ?? deriveAggregationType(agg, referenced),
+      type: agg.type ?? deriveAggregationType(agg, referenced, probe),
     })),
   }
 }
@@ -94,13 +128,10 @@ export function migrateTemplateToCurrent(input: FormTemplate): FormTemplate {
  */
 export type AggregationType = 'array' | 'value'
 
-/** 聚合类型选项（UI 分段按钮直接消费；hint 写清两类产物的用途差异） */
-export const AGGREGATION_TYPE_OPTIONS: { value: AggregationType; label: string; hint: string }[] = [
-  { value: 'array', label: '数组型', hint: '产出一列数据，可绑成数据块逐条打印' },
-  { value: 'value', label: '非数组型', hint: '产出一个值或对象，任意单元格直接引用' },
-]
-
-/** 聚合类型展示名（报错文案与 UI 徽标共用同一口径） */
+/**
+ * 聚合类型展示名（报错文案与 UI 徽标共用同一口径）。normalizeAggregations 的提交
+ * 校验报错消费它，因此住在契约层而非 designer/labels.ts；UI 侧从本模块 import。
+ */
 export function aggregationTypeLabel(type: AggregationType): string {
   return type === 'array' ? '数组型' : '非数组型'
 }
@@ -112,49 +143,15 @@ export function aggregationTypeLabel(type: AggregationType): string {
 function deriveAggregationType(
   agg: Pick<FormAggregation, 'name' | 'params' | 'expression'>,
   referencedNames: ReadonlySet<string>,
+  prober: AggregationTypeProber | undefined,
 ): AggregationType {
-  const probe = probeAggregationType(agg.params, agg.expression)
+  const probe = requireProber(prober)(agg.params, agg.expression)
   if (probe.ok) return probe.returns
   return referencedNames.has(agg.name) ? 'array' : 'value'
 }
 
 /** 数据块列表方式（原「展开方式」）：非列表（固定一块）/ 纵向列表 / 横向列表；模型值不变 */
 export type RegionExpand = 'none' | 'down' | 'right'
-
-/** 列表方式选项（UI select 直接消费；hint 写清行为，面板在 select 下方灰字展示） */
-export const REGION_EXPAND_OPTIONS: { value: RegionExpand; label: string; hint: string }[] = [
-  {
-    value: 'none',
-    label: '非列表（固定一块）',
-    hint: '固定内容，只打印一份（适合标题、签字栏）',
-  },
-  {
-    value: 'down',
-    label: '纵向列表（一条一行）',
-    hint: '每条数据向下复制一份整块（如订单明细行）',
-  },
-  {
-    value: 'right',
-    label: '横向列表（一条一列）',
-    hint: '每条数据向右复制一份整块',
-  },
-]
-
-/** 列表方式的展示名（非列表返回空串）；侧栏标签、绑定面板、悬停 pill 共用 */
-export function regionExpandLabel(expand: RegionExpand): string {
-  return expand === 'none'
-    ? ''
-    : (REGION_EXPAND_OPTIONS.find((option) => option.value === expand)?.label ?? '')
-}
-
-/**
- * 数据块展示名：`数据块 N · 纵向列表` / `数据块 N`（非列表不加后缀）。
- * 侧栏列表、绑定面板、选区 chip、画布悬停 pill 共用同一份文案，四处口径不会走偏。
- */
-export function regionLabel(region: FormRegion, index: number): string {
-  const expand = regionExpandLabel(region.expand)
-  return expand ? `数据块 ${index + 1} · ${expand}` : `数据块 ${index + 1}`
-}
 
 /**
  * 数据块引用名：单元格函数里 `SUM('明细')` / 数据源 `agg` 引用用的键。
@@ -199,19 +196,6 @@ export type RegionSource =
  * - `summary`：全部份数之后垫底渲染一次（合计行），任意纵向列表的数据块可用。
  */
 export type RegionRowRole = 'detail' | 'groupHeader' | 'groupFooter' | 'summary'
-
-/** 行角色选项（右键菜单与数据块弹框共用；顺序即菜单顺序）。hint 是「这行打印什么」的白话说明 */
-export const REGION_ROW_ROLES: { value: RegionRowRole; label: string; hint: string }[] = [
-  { value: 'detail', label: '明细行', hint: '每条数据占一行（默认）' },
-  { value: 'groupHeader', label: '组头行', hint: '每组开头一行，显示分组名（如客户名）' },
-  { value: 'groupFooter', label: '小计行', hint: '每组末尾一行，显示这一组的小计' },
-  { value: 'summary', label: '合计行', hint: '所有组结束后的一行，显示总计' },
-]
-
-/** 行角色展示名（detail 返回空串，与展开方式的展示名口径一致） */
-export function regionRowRoleLabel(role: RegionRowRole): string {
-  return role === 'detail' ? '' : (REGION_ROW_ROLES.find((r) => r.value === role)?.label ?? '')
-}
 
 /** 数据块某行的角色（不在数据块内或未标记 → detail） */
 export function regionRowRoleOf(region: FormRegion, row: number): RegionRowRole {
@@ -488,15 +472,31 @@ export function formatFunctionPlaceholder(fn: FormCellFunction): string {
   return `{{${cellFunctionExpression(fn)}}}`
 }
 
-/** 数据源 → 展示用的数据集 id（agg 来源返回聚合名；无源返回空串） */
-export function regionSourceLabel(source: RegionSource | undefined): string {
-  if (!source) return ''
-  return source.kind === 'dataset' ? source.datasetId : `agg.${source.aggName}`
-}
-
 /** JS 标识符校验（聚合形参变量名用） */
 export function isIdentifier(name: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
+}
+
+/**
+ * 聚合入参变量名的细粒度校验（normalizeAggregations 的提交校验与聚合面板的实时
+ * 反馈共用同一条口径）：按声明序检查每个变量名——trim 后是合法 JS 标识符、不占用
+ * 保留名 `agg`、彼此不重复。返回首条错误的裸文案（不带「聚合 N」前缀，调用方按
+ * 场景自行拼），全部通过返回 undefined。
+ */
+export function aggregationVarNameError(
+  params: readonly { varName: string }[],
+): string | undefined {
+  const seen = new Set<string>()
+  for (const param of params) {
+    const varName = param.varName.trim()
+    if (!isIdentifier(varName)) {
+      return `入参变量名非法：${varName || '（空）'}（须是 JS 标识符）`
+    }
+    if (varName === 'agg') return '入参变量名不能用保留名 agg'
+    if (seen.has(varName)) return `入参变量名重复：${varName}`
+    seen.add(varName)
+  }
+  return undefined
 }
 
 /**
@@ -605,6 +605,12 @@ export interface NormalizeAggregationsOptions {
   mode?: 'load' | 'submit'
   /** 推导回退判定用的数据块序列（取 `kind: 'agg'` 源引用的聚合名集合）；缺省视为无引用 */
   regions?: readonly FormRegion[]
+  /**
+   * 空数据试跑注入（真实实现在 domain/aggregation.ts 的 probeAggregationType；契约层
+   * 不反向依赖 domain）。submit 强校验与缺 type 推导两路径都依赖——走到试跑而未注入
+   * 即抛错；声明齐全的 load 路径不试跑，可不传。
+   */
+  probe?: AggregationTypeProber
 }
 
 /**
@@ -633,20 +639,14 @@ export function normalizeAggregations(
     if (!name) throw new Error(`${label}名字不能为空`)
     if (names.has(name)) throw new Error(`${label}名字重复：${name}`)
     names.add(name)
-    const varNames = new Set<string>()
     const params = agg.params.map((param, paramIndex) => {
       if (param.datasetId.trim() === '') {
         throw new Error(`${label}入参 ${paramIndex + 1} 未选数据集`)
       }
-      const varName = param.varName.trim()
-      if (!isIdentifier(varName)) {
-        throw new Error(`${label}入参变量名非法：${varName || '（空）'}（须是 JS 标识符）`)
-      }
-      if (varName === 'agg') throw new Error(`${label}入参变量名不能用保留名 agg`)
-      if (varNames.has(varName)) throw new Error(`${label}入参变量名重复：${varName}`)
-      varNames.add(varName)
-      return { datasetId: param.datasetId.trim(), varName }
+      return { datasetId: param.datasetId.trim(), varName: param.varName.trim() }
     })
+    const varNameError = aggregationVarNameError(params)
+    if (varNameError) throw new Error(`${label}${varNameError}`)
     const expression = agg.expression.trim()
     if (!expression) throw new Error(`${label}函数体不能为空`)
     if (!/\breturn\b/.test(expression)) {
@@ -662,7 +662,7 @@ export function normalizeAggregations(
     }
     // 空数据试跑：提交路径必跑（强校验）；加载路径仅在缺 type 时跑（推导），声明即信任
     if (strict || type === undefined) {
-      const probe = probeAggregationType(params, expression)
+      const probe = requireProber(options.probe)(params, expression)
       if (!probe.ok) {
         if (strict) {
           throw new Error(`聚合「${name}」用空数据试跑失败：${probe.error}`)
@@ -683,23 +683,27 @@ export function normalizeAggregations(
   })
 }
 
-/** 数据块矩形内命中判定（画布底色、绑定面板判断当前格属于哪个数据块） */
-export function regionsAt(
-  regions: readonly FormRegion[],
-  row: number,
-  col: number,
-): FormRegion | undefined {
-  return regions.find(
-    (region) =>
-      row >= region.startRow &&
-      row <= region.endRow &&
-      col >= region.startCol &&
-      col <= region.endCol,
+/** 闭区间矩形的最小形状（数据块/选区/合并区几何判定的公共输入；FormRegion 结构兼容） */
+export type RegionRect = Pick<FormRegion, 'startRow' | 'endRow' | 'startCol' | 'endCol'>
+
+/** 格是否落在闭区间矩形内（点命中；数据块命中、选区守卫与 sidecar 过滤共用） */
+export function rectContains(rect: RegionRect, row: number, col: number): boolean {
+  return (
+    row >= rect.startRow && row <= rect.endRow && col >= rect.startCol && col <= rect.endCol
   )
 }
 
-/** 两矩形是否重叠（闭区间；数据块创建/改范围时的重叠判定与规范化共用） */
-export function regionsOverlap(a: FormRegion, b: FormRegion): boolean {
+/** 数据块矩形内命中判定（画布底色、绑定面板判断当前格属于哪个数据块） */
+export function regionsAt<T extends RegionRect>(
+  regions: readonly T[],
+  row: number,
+  col: number,
+): T | undefined {
+  return regions.find((region) => rectContains(region, row, col))
+}
+
+/** 两矩形是否重叠（闭区间；数据块创建/改范围的重叠判定、选区与数据块/合并区相交共用） */
+export function regionsOverlap(a: RegionRect, b: RegionRect): boolean {
   return (
     a.startRow <= b.endRow &&
     a.endRow >= b.startRow &&

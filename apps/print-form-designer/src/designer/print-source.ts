@@ -1,20 +1,13 @@
-// 打印供数适配：数据态表单快照 → print 插件 PrintSource。
+// 打印供数编排：数据态表单快照 → print 插件 PrintSource（快照 → PrintSource 的逐项
+// 映射本体已下沉 @infinitable/sheet 的 createSnapshotPrintSource，本文件只保留取数编排）。
 //
 // 数据链（预览与打印共用同一条，同输入同输出）：
 // 数据块数据源 + 聚合入参 → 收集数据集 id 并集 → 原始行 → 按（数据集 × 重塑表达式）
 // 收集形态（reshapeDatasetData 唯一重塑管线）→ runAggregations 产出 agg →
-// renderDataState 数据态快照（分组展开 + 函数求值）→ 还原进只读 Sheet 模型逐项映射
-// PrintSource。样式与显示链取 @infinitable/sheet 公开的显示链纯投影
-// （sheetStyleToEngineStyle / formatByNumFmt / 缺省行列尺寸），与屏上渲染同一份
-// 换算——打印页所见即画布所得。
-import {
-  SHEET_DEFAULT_COL_WIDTH,
-  SHEET_DEFAULT_ROW_HEIGHT,
-  Sheet,
-  formatByNumFmt,
-  sheetStyleToEngineStyle,
-  type SheetSnapshot,
-} from '@infinitable/sheet'
+// renderDataState 数据态快照（分组展开 + 函数求值）→ createSnapshotPrintSource 适配
+// （结构化兼容 plugins 的 PrintSource，样式与显示链和屏上渲染同一份换算——
+// 打印页所见即画布所得）。
+import { createSnapshotPrintSource } from '@infinitable/sheet'
 import {
   createPrintPlugin,
   type PrintConfig,
@@ -24,10 +17,10 @@ import {
 } from '@infinitable/plugins'
 
 import type { SourceRow } from '../transform/reshape'
-import { runAggregations } from './aggregation'
+import { runAggregations } from '../domain/aggregation'
 import { reshapeDatasetData } from './binding'
-import type { FormDoc } from './form-doc'
-import type { RegionSource } from './template'
+import type { FormDoc } from '../domain/form-doc'
+import type { RegionSource } from '../shared/template-schema'
 import { renderDataState, datasetShapeKey, type DatasetShapes } from './data-state'
 
 /**
@@ -57,6 +50,11 @@ export function collectDatasetIds(doc: FormDoc): string[] {
  * 形态需求 → 数据集形态表：按（datasetId, expression）对去重逐对重塑。
  * 同一数据集多表达式并存时各消费者各用各的形态（datasetShapeKey 口径）；表达式
  * 非法抛 TransformError，由调用方呈现。既无数据块 source 引用的数据集不出现在结果里。
+ *
+ * 不并入 data-state 的 loopArrayForRegion：本函数是它的**上游**（构建形态表本身，
+ * 不做循环数组读取，两条职责不重叠）；且口径为严格版——表达式非法直接抛错（打印
+ * 要求快失败，由弹框呈现错误），该行为被 print 测试锁死。编辑器侧消费
+ * loopArrayForRegion 时的容错（非法表达式按数据块跳过）属各消费方的 UI 策略，不拉平。
  */
 function buildPrintShapes(
   regionSources: readonly RegionSource[],
@@ -74,53 +72,6 @@ function buildPrintShapes(
     shapes.set(key, reshapeDatasetData(source.expression, rows))
   }
   return shapes
-}
-
-/**
- * 数据态快照 → PrintSource：快照还原进只读 Sheet 模型后逐项映射——
- * 行列数/行高列宽（未自定义回落内置缺省，与屏上同口径）、合并区（模型区间 →
- * 打印内核的扁平区间形状）、cellValue（存储原始值）、cellStyle（有效样式投影，
- * 含列/行/格三层叠加与合并锚点解析）、displayValue（numFmt 显示链，公式格取
- * 计算缓存）。
- */
-function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string): PrintSource {
-  const sheet = new Sheet('print-data')
-  sheet.restore(snapshot)
-  const addr = (col: number, row: number) => ({ row, col })
-  return {
-    name,
-    get rowCount(): number {
-      return sheet.rows
-    },
-    get colCount(): number {
-      return sheet.cols
-    },
-    rowHeight: (row) =>
-      sheet.getRowHeight(row) ?? sheet.defaultRowHeight ?? SHEET_DEFAULT_ROW_HEIGHT,
-    colWidth: (col) => sheet.getColWidth(col) ?? sheet.defaultColWidth ?? SHEET_DEFAULT_COL_WIDTH,
-    merges: () =>
-      sheet.merges.getMerges().map((range) => ({
-        startRow: range.start.row,
-        startCol: range.start.col,
-        endRow: range.end.row,
-        endCol: range.end.col,
-      })),
-    cellValue: (col, row) => sheet.getCellData(addr(col, row))?.v,
-    cellStyle: (col, row) =>
-      sheetStyleToEngineStyle(sheet.getEffectiveStyle(addr(col, row))) ?? undefined,
-    displayValue: (col, row) => {
-      const at = addr(col, row)
-      const data = sheet.getCellData(at)
-      if (!data) return undefined
-      // 公式格取计算缓存（数据态绑定/函数值已去公式，此处仅覆盖模板遗留公式格）
-      const raw = data.f != null ? sheet.getDisplayValue(at) : data.v
-      if (typeof raw === 'number') {
-        const fmt = sheet.getEffectiveStyle(at)?.numFmt
-        if (fmt) return formatByNumFmt(raw, fmt)
-      }
-      return raw
-    },
-  }
 }
 
 /** 打印会话：一次「取数 → 适配 → 供数」的稳定产物，弹框配置只作为方法入参 */

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { BORDER_STYLE_WIDTH, Sheet } from '@infinitable/sheet'
 
 import type { SourceRow } from '../../src/transform/reshape'
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
 import {
   DEFAULT_PRINT_SETTINGS,
   toPrintConfig,
@@ -17,7 +17,7 @@ import {
   TEMPLATE_SCHEMA_VERSION,
   type FormTemplate,
   type RegionSource,
-} from '../../src/designer/template'
+} from '../../src/shared/template-schema'
 import { domWindow, setupDom } from './testing/dom'
 import { ADDR, relativeBinding } from './testing/fixtures'
 

@@ -19,6 +19,7 @@
       "dependencies": {
         "@infinitable/formulas": "workspace:*",
         "@infinitable/plugins": "workspace:*",
+        "@infinitable/render": "workspace:*",
         "@infinitable/sheet": "workspace:*",
         "hono": "^4.0.0",
         "react": "^19.3.1",

@@ -14,23 +14,25 @@ import { useEffect, useMemo, useState } from 'react'
 
 import type { CellAddress } from '@infinitable/sheet'
 
-import { api, toSourceRows } from '../data/api'
+import { useDatasetRows } from '../data/dataset-service'
 import type { SourceRow } from '../transform/reshape'
 import { InfoBubble } from './InfoBubble'
-import { runAggregations } from './aggregation'
-import { buildBindingTree, loopArrayAt, reshapeDatasetData } from './binding'
+import { runAggregations } from '../domain/aggregation'
+import { buildBindingTree, reshapeDatasetData } from './binding'
+import { datasetShapeKey, loopArrayForRegion, type DatasetShapes } from './data-state'
 import { BindingFieldChips, BindingPathTree, BindingTargetBar } from './binding-fields'
-import { CellFunctionEditor, type FnPickState } from './cell-function-editor'
-import type { FormDoc } from './form-doc'
+import { CellFunctionEditor } from './cell-function-editor'
+import type { FormDoc } from '../domain/form-doc'
+import { regionLabel } from './labels'
+import type { FnPickState } from './panel-state'
 import {
   formatBindingPlaceholder,
   formatFunctionPlaceholder,
   isAggBinding,
-  regionLabel,
   regionsAt,
   type CellFnName,
   type FormCellFunction,
-} from './template'
+} from '../shared/template-schema'
 import { describeError } from '../errors'
 
 interface Props {
@@ -55,10 +57,6 @@ export function BindingEditor({
   onFnPickStart,
   onFnPickCancel,
 }: Props) {
-  const [error, setError] = useState('')
-  /** 数据集原始行缓存（条目字段采样用；按 datasetId 记忆） */
-  const [rowsByDataset, setRowsByDataset] = useState<Map<string, SourceRow[]>>(new Map())
-
   const region = addr ? regionsAt(doc.regions, addr.row, addr.col) : undefined
   const regionIndex = region ? doc.regions.indexOf(region) : -1
   const binding = addr ? doc.getCellBinding(addr) : undefined
@@ -81,30 +79,11 @@ export function BindingEditor({
     return [...ids]
   }, [doc.regions, doc.aggregations])
 
-  useEffect(() => {
-    const missing = neededDatasetIds.filter((id) => !rowsByDataset.has(id))
-    if (missing.length === 0) return
-    let cancelled = false
-    Promise.all(
-      missing.map(async (id) => [id, toSourceRows(await api.executeDataset(id))] as const),
-    )
-      .then((entries) => {
-        if (cancelled) return
-        setRowsByDataset((prev) => {
-          const next = new Map(prev)
-          for (const [id, rows] of entries) next.set(id, rows)
-          return next
-        })
-        setError('')
-      })
-      .catch((cause: unknown) => setError(describeError(cause)))
-    return () => {
-      cancelled = true
-    }
-  }, [neededDatasetIds, rowsByDataset])
+  // 原始行取数走统一服务：缺哪个取哪个，面板生命周期内按 datasetId 记忆
+  const { rowsByDataset, error } = useDatasetRows(neededDatasetIds)
 
   /**
-   * 各数据块循环条目（与打印同一条管线：重塑/聚合 → 列表路径）。
+   * 各数据块循环条目（与打印同一条 loopArrayForRegion 读取管线）。
    * 覆盖全部带源的数据块而不只当前数据块——字段 chips 按当前数据块给字段。
    */
   const itemsByRegion = useMemo(() => {
@@ -126,20 +105,22 @@ export function BindingEditor({
       if (source.kind === 'dataset') {
         if (!rowsByDataset.has(source.datasetId)) return // 取数中
         try {
-          map.set(
-            index,
-            loopArrayAt(
+          // 形态表只装本块的一对（数据集 × 表达式），键口径与打印 buildPrintShapes
+          // 一致（datasetShapeKey）；循环数组读取统一走 loopArrayForRegion
+          const shapes: DatasetShapes = new Map([
+            [
+              datasetShapeKey(source.datasetId, source.expression),
               reshapeDatasetData(source.expression, rowsByDataset.get(source.datasetId) ?? []),
-              source.path,
-            ) ?? [],
-          )
+            ],
+          ])
+          map.set(index, loopArrayForRegion(item, { shapes, agg: {} }) ?? [])
         } catch {
-          // 取不到循环数组：不进表（chips / 参数下拉按「暂无字段」呈现）
+          // 表达式/路径非法：不进表（chips / 参数下拉按「暂无字段」呈现）
         }
         return
       }
       if (!aggResults) return // 取数中或聚合求值失败
-      map.set(index, loopArrayAt(aggResults[source.aggName], source.path) ?? [])
+      map.set(index, loopArrayForRegion(item, { shapes: new Map(), agg: aggResults }) ?? [])
     })
     return map
   }, [doc.regions, doc.aggregations, rowsByDataset, neededDatasetIds])

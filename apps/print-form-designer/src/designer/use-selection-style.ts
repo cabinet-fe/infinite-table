@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import type { CellAddress, CellRange, CellStyle } from '@infinitable/sheet'
 
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
 
 interface SelectionStyleState {
   /** 当前选区首个范围（无选区为 null） */

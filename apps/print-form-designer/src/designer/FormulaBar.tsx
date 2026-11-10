@@ -12,7 +12,7 @@ import {
 
 import { formatAddress, type CellAddress } from '@infinitable/sheet'
 
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
 import { IconFunction } from '../ui/icons'
 
 export interface FormulaBarHandle {

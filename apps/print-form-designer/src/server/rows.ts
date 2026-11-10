@@ -1,29 +1,10 @@
 // 库表行类型：字段口径与 db.ts 建表列一一对应（JSON 接口原样透出行）。
+// 数据源/数据集行类型与前端共用，单源定义在 shared/api-types.ts（经 re-export 保持
+// 既有 import 路径不变；服务端 DatasetRow 即存储口径的 StorageDatasetRow——fields 为
+// JSON 文本，REST 视图的解析口径见 ApiDatasetRow）。
 
-export interface DatasourceRow {
-  id: string
-  name: string
-  type: string
-  /** SQLite 文件绝对路径 */
-  path: string
-  created_at: string
-}
-
-/** 数据集字段命名条目：name = SQL 原始列名，alias 留空即用原名（仅展示用，不改绑定存储值） */
-export interface DatasetField {
-  name: string
-  alias?: string
-}
-
-export interface DatasetRow {
-  id: string
-  datasource_id: string
-  name: string
-  sql: string
-  /** 字段命名 JSON 文本（DatasetField[] 序列化；'[]' = 未命名） */
-  fields: string
-  created_at: string
-}
+export type { DatasourceRow, DatasetField } from '../shared/api-types'
+export type { StorageDatasetRow as DatasetRow } from '../shared/api-types'
 
 export interface TemplateRow {
   id: string

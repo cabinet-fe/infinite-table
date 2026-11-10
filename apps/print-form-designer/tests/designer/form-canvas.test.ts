@@ -2,7 +2,7 @@
 // 引擎几何/合并随模型还原的断言。DOM 面与 canvas 2d 桩由 testing/dom 统一挂载。
 import { describe, expect, test } from 'bun:test'
 import type { SheetGrid } from '@infinitable/sheet'
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
 import { mountFormCanvas } from '../../src/designer/form-canvas'
 import { setupDom } from './testing/dom'
 import { RANGE } from './testing/fixtures'

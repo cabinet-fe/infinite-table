@@ -1,15 +1,15 @@
 // 非 SQLite 数据源概念接口（MySQL/PostgreSQL 等未来接入点）：本阶段只留类型与注册点，不做任何实现。
 // 新数据源实现 DataSourceProvider 并经 registerDataSourceProvider 注册后，即可按 kind 被发现。
+import type { QueryResult } from '../shared/api-types'
+
+// SQL 执行结果与前端 api 客户端共用同一份类型（单源在 shared/api-types.ts；re-export
+// 保持 dataset-routes 等既有 import 路径不变）。
+export type { QueryResult } from '../shared/api-types'
+
 type DataSourceKind = string
 
 /** 数据源配置的开放结构：各源自定义字段（sqlite 为文件路径） */
 export type DataSourceConfig = Record<string, unknown>
-
-/** SQL 执行结果：原始列名 + 原始行（行是按列序的值数组），服务端不做任何重塑 */
-export interface QueryResult {
-  columns: string[]
-  rows: unknown[][]
-}
 
 export interface DataSourceProvider {
   readonly kind: DataSourceKind

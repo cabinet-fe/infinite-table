@@ -13,14 +13,15 @@ import { formatAddress, type CellAddress } from '@infinitable/sheet'
 
 import { CELL_FUNCTION_CATALOG, cellFnLabel } from './cell-function'
 import { InfoBubble, popoverStyleFor } from './InfoBubble'
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
+import type { FnPickState } from './panel-state'
 import {
   cellFunctionExpression,
   regionRefOf,
   type CellFnName,
   type FormCellFunction,
   type RegionFnName,
-} from './template'
+} from '../shared/template-schema'
 import { compileExpr } from '../transform/expr'
 import { describeError } from '../errors'
 
@@ -32,16 +33,6 @@ const FN_OPTIONS = CELL_FUNCTION_CATALOG.filter((item) => item.kind !== 'ref')
 
 /** 下拉取值：七个内置函数 / 自定义 JS / 空（未设置或清除） */
 type Selection = CellFnName | 'expr' | ''
-
-/** 点选参数格状态（DesignerPage 持有并落写入；画布提示条与本面板同源展示） */
-export interface FnPickState {
-  /** 待写入的函数 */
-  fn: CellFnName
-  /** 函数格（写入落点；点选期间选区会临时移到参数格上） */
-  targetAddr: CellAddress
-  /** 最近一次点选失败的中文原因（空 = 还没点错） */
-  error: string
-}
 
 /** 各数据块函数在「参数格语义」摘要里的一句取数口径 */
 const FN_PARAM_TAILS: Record<RegionFnName, string> = {

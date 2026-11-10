@@ -7,7 +7,7 @@ import {
 
 import { FORM_CANVAS_THEME } from './canvas-theme'
 import { createCanvasOverlay, type CanvasOverlay } from './canvas-overlay'
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
 import type { PaperGuidesConfig } from './paper-guides'
 import {
   cursorForEdge,
@@ -28,7 +28,7 @@ import {
   type FormCellBinding,
   type FormCellFunction,
   type FormRegion,
-} from './template'
+} from '../shared/template-schema'
 
 /**
  * 设计画布挂载层：SheetGrid 为所见即所得画布（WPS 式无限单元格，随滚动扩容）。

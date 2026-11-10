@@ -11,8 +11,8 @@ import type {
   PrintPaperPreset,
 } from '@infinitable/plugins'
 
-import { api, toSourceRows } from '../data/api'
-import type { FormDoc } from './form-doc'
+import { fetchDatasetRowsBulk } from '../data/dataset-service'
+import type { FormDoc } from '../domain/form-doc'
 import { collectDatasetIds, preparePrintSession, type PrintSession } from './print-source'
 import { IconClose, IconPrint } from '../ui/icons'
 import { describeError } from '../errors'
@@ -79,17 +79,14 @@ export function PrintDialog({ doc, title, onClose }: Props) {
   const [error, setError] = useState('')
   const [printing, setPrinting] = useState(false)
 
-  // 打开时取数一次：数据块数据源与聚合入参引用的数据集各自执行，构建稳定打印会话；
-  // 弹框内配置变化只重算预览，不重新取数
+  // 打开时取数一次（取数走统一服务，含并发去重）：数据块数据源与聚合入参引用的
+  // 数据集各自执行，构建稳定打印会话；弹框内配置变化只重算预览，不重新取数
   useEffect(() => {
     let cancelled = false
-    const datasetIds = collectDatasetIds(doc)
-    Promise.all(
-      datasetIds.map(async (id) => [id, toSourceRows(await api.executeDataset(id))] as const),
-    )
-      .then((entries) => {
+    fetchDatasetRowsBulk(collectDatasetIds(doc))
+      .then((rowsByDataset) => {
         if (cancelled) return
-        setSession(preparePrintSession(doc, new Map(entries), title))
+        setSession(preparePrintSession(doc, rowsByDataset, title))
         setError('')
       })
       .catch((cause: unknown) => {

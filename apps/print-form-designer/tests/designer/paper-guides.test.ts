@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createEnginePrintSource, createPrintPlugin, type PrintSource } from '@infinitable/plugins'
 
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
 import { mountFormCanvas } from '../../src/designer/form-canvas'
 import {
   DEFAULT_PAPER_GUIDES,
@@ -85,7 +85,7 @@ describe('computePageGuides：分页估算复用 print paginate', () => {
     expect(geometry.colBreaks).toEqual([])
   })
 
-  test('与 paginate 内核同口径：内容区高度 ±1px 决定单页/换页（锁定本地纸张换算不漂移）', () => {
+  test('与 paginate 内核同口径：内容区高度 ±1px 决定单页/换页（paperAreaPx 已委托 derivePrintableArea，同一推导零换算）', () => {
     const area = paperAreaPx(DEFAULT_PAPER_GUIDES)
     // 总高 = 内容区高 − 1 → 恰好单页（avail ≥ 总高）
     const fits = computePageGuides(

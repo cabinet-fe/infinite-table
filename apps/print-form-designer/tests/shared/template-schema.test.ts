@@ -3,9 +3,11 @@
 // 加载拒绝、normalizeRegions/normalizeAggregations/normalizeCellFunction 的校验口径
 // （分组仅 down、行角色、agg 来源引用、引用名唯一、函数体必须 return、type 枚举、
 // 空数据试跑的提交强校验/加载推导两模式、旧表达式嗅探）、v4/v5 → v6 迁移（含 type 推导）。
+// 试跑能力按契约层口径注入（probeAggregationType 来自 domain/aggregation）。
 import { describe, expect, test } from 'bun:test'
 
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
+import { probeAggregationType } from '../../src/domain/aggregation'
 import {
   FORM_BINDING_META_NAMESPACE,
   FORM_FUNCTION_META_NAMESPACE,
@@ -21,8 +23,8 @@ import {
   type FormAggregation,
   type FormRegion,
   type FormTemplate,
-} from '../../src/designer/template'
-import { ADDR, RANGE } from './testing/fixtures'
+} from '../../src/shared/template-schema'
+import { ADDR, RANGE } from '../designer/testing/fixtures'
 
 describe('序列化', () => {
   test('round-trip：保存 → 加载 → 再保存等价（含数据块数据源与聚合）', () => {
@@ -354,27 +356,28 @@ describe('normalizeAggregations：名字/形参/函数体/type 校验', () => {
 
   test('提交模式（submit）强校验：试跑抛错 / 返回形态与声明不一致都拒绝，报错带聚合名', () => {
     expect(() =>
-      normalizeAggregations(
-        [{ ...base, type: 'array', expression: 'return 1' }],
-        { mode: 'submit' },
-      ),
+      normalizeAggregations([{ ...base, type: 'array', expression: 'return 1' }], {
+        mode: 'submit',
+        probe: probeAggregationType,
+      }),
     ).toThrow('聚合「a」声明为数组型，但空数据试跑返回了非数组')
     expect(() =>
-      normalizeAggregations(
-        [{ ...base, type: 'value', expression: 'return []' }],
-        { mode: 'submit' },
-      ),
+      normalizeAggregations([{ ...base, type: 'value', expression: 'return []' }], {
+        mode: 'submit',
+        probe: probeAggregationType,
+      }),
     ).toThrow('聚合「a」声明为非数组型，但空数据试跑返回了数组')
     expect(() =>
-      normalizeAggregations(
-        [{ ...base, type: 'value', expression: "return agg.台账['x']" }],
-        { mode: 'submit' },
-      ),
+      normalizeAggregations([{ ...base, type: 'value', expression: "return agg.台账['x']" }], {
+        mode: 'submit',
+        probe: probeAggregationType,
+      }),
     ).toThrow('聚合「a」用空数据试跑失败')
     // 声明与试跑一致即通过，type 原样保留
     expect(
       normalizeAggregations([{ ...base, type: 'array', expression: 'return []' }], {
         mode: 'submit',
+        probe: probeAggregationType,
       }),
     ).toEqual([{ name: 'a', type: 'array', params: [], expression: 'return []' }])
   })
@@ -383,12 +386,13 @@ describe('normalizeAggregations：名字/形参/函数体/type 校验', () => {
     expect(
       normalizeAggregations([withoutType({ name: 'a', params: [], expression: 'return []' })], {
         mode: 'submit',
+        probe: probeAggregationType,
       }),
     ).toEqual([{ name: 'a', type: 'array', params: [], expression: 'return []' }])
     expect(() =>
       normalizeAggregations(
         [withoutType({ name: 'a', params: [], expression: 'return agg.前序.x' })],
-        { mode: 'submit' },
+        { mode: 'submit', probe: probeAggregationType },
       ),
     ).toThrow('聚合「a」用空数据试跑失败')
   })
@@ -396,19 +400,28 @@ describe('normalizeAggregations：名字/形参/函数体/type 校验', () => {
   test('加载模式（缺省）只推导不卡：缺 type 试跑推导，推导失败按引用回退', () => {
     // 推导成功：返回数组 → array，返回值/对象 → value
     expect(
-      normalizeAggregations([withoutType({ name: 'a', params: [], expression: 'return []' })]),
+      normalizeAggregations(
+        [withoutType({ name: 'a', params: [], expression: 'return []' })],
+        { probe: probeAggregationType },
+      ),
     ).toEqual([{ name: 'a', type: 'array', params: [], expression: 'return []' }])
     expect(
-      normalizeAggregations([withoutType({ name: 'a', params: [], expression: 'return 1' })]),
+      normalizeAggregations(
+        [withoutType({ name: 'a', params: [], expression: 'return 1' })],
+        { probe: probeAggregationType },
+      ),
     ).toEqual([{ name: 'a', type: 'value', params: [], expression: 'return 1' }])
     // 推导抛错（链式引用空 agg）：被数据块 agg 源引用 → array，无引用 → value
     const chained = withoutType({ name: 'a', params: [], expression: 'return agg.前序.x' })
-    expect(normalizeAggregations([chained], { regions: referencing('a') })).toEqual([
-      { name: 'a', type: 'array', params: [], expression: 'return agg.前序.x' },
-    ])
-    expect(normalizeAggregations([chained])).toEqual([
-      { name: 'a', type: 'value', params: [], expression: 'return agg.前序.x' },
-    ])
+    expect(
+      normalizeAggregations([chained], {
+        regions: referencing('a'),
+        probe: probeAggregationType,
+      }),
+    ).toEqual([{ name: 'a', type: 'array', params: [], expression: 'return agg.前序.x' }])
+    expect(
+      normalizeAggregations([chained], { probe: probeAggregationType }),
+    ).toEqual([{ name: 'a', type: 'value', params: [], expression: 'return agg.前序.x' }])
   })
 
   test('加载模式声明即信任：不试跑、不与实际比对（旧档加载不被卡）', () => {
@@ -447,7 +460,7 @@ describe('v4/v5 → v6 迁移（migrateTemplateToCurrent）', () => {
         expression: 'orders.slice(0, 1)',
       } as unknown as FormTemplate['aggregations'][number],
     ])
-    const migrated = migrateTemplateToCurrent(v4)
+    const migrated = migrateTemplateToCurrent(v4, probeAggregationType)
     expect(migrated.schemaVersion).toBe(TEMPLATE_SCHEMA_VERSION)
     // orders 传空数组 → slice 结果是数组 → 试跑推导 array
     expect(migrated.aggregations).toEqual([
@@ -469,6 +482,7 @@ describe('v4/v5 → v6 迁移（migrateTemplateToCurrent）', () => {
         { name: 'total', params: [], expression: 'return 1' },
         { name: 'overview', params: [], expression: 'return { n: 1 }' },
       ]),
+      probeAggregationType,
     )
     expect(migrated.schemaVersion).toBe(TEMPLATE_SCHEMA_VERSION)
     expect(migrated.aggregations.map((agg) => agg.type)).toEqual(['array', 'value', 'value'])
@@ -494,6 +508,7 @@ describe('v4/v5 → v6 迁移（migrateTemplateToCurrent）', () => {
         ],
         regions,
       ),
+      probeAggregationType,
     )
     expect(migrated.aggregations.map((agg) => agg.type)).toEqual(['array', 'value'])
   })
@@ -501,6 +516,7 @@ describe('v4/v5 → v6 迁移（migrateTemplateToCurrent）', () => {
   test('迁移结果可直接按 v6 加载（含 type 与 return 校验），再迁移幂等', () => {
     const migrated = migrateTemplateToCurrent(
       v4Template([{ name: 'a', params: [], expression: '1' } as unknown as FormTemplate['aggregations'][number]]),
+      probeAggregationType,
     )
     const doc = FormDoc.fromTemplate(migrated)
     expect(doc.aggregations[0]!.expression).toBe('return (\n1\n);')

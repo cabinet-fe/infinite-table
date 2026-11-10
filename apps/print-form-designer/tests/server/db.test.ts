@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { openDatabase } from '../../src/server/db'
-import { TEMPLATE_SCHEMA_VERSION } from '../../src/designer/template'
+import { TEMPLATE_SCHEMA_VERSION } from '../../src/shared/template-schema'
 
 let dir: string
 let path: string

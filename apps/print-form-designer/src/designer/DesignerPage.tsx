@@ -12,25 +12,25 @@ import { formatRange, type CellAddress, type SheetGridContextMenuInfo } from '@i
 
 import { buildCanvasContextMenu, selectionRect } from './canvas-context-menu'
 import { cellFnLabel, deriveParamCell } from './cell-function'
-import type { FnPickState } from './cell-function-editor'
-import { ConfigPanel, type ConfigTab } from './ConfigPanel'
-import { FormDoc, type DocHistoryState } from './form-doc'
+import { ConfigPanel } from './ConfigPanel'
+import { FormDoc, type DocHistoryState } from '../domain/form-doc'
 import { mountFormCanvas, type FormCanvas } from './form-canvas'
 import { FormulaBar, type FormulaBarHandle } from './FormulaBar'
 import { FunctionLibraryDialog } from './FunctionLibraryDialog'
+import { regionLabel } from './labels'
+import type { ConfigTab, FnPickState } from './panel-state'
 import { PaperGuidesControl } from './PaperGuidesControl'
 import { DEFAULT_PAPER_GUIDES, type PaperGuidesConfig } from './paper-guides'
 import { PrintDialog } from './PrintDialog'
 import { StyleToolbar } from './StyleToolbar'
 import { TemplatePanel } from './TemplatePanel'
 import {
-  regionLabel,
   regionsAt,
   type CellFnName,
   type FormCellFunction,
   type FormRegion,
   type RegionRowRole,
-} from './template'
+} from '../shared/template-schema'
 import { useSelectionStyle } from './use-selection-style'
 import { ContextMenu } from '../ui/ContextMenu'
 import { runGuarded } from '../errors'
@@ -399,21 +399,23 @@ export function DesignerPage() {
           <section className="card">
             <div className="card-body">
               <ConfigPanel
-                doc={doc}
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-                regions={regions}
-                addr={selection.activeCell ?? undefined}
-                onBindingEdited={onBindingEdited}
-                fnPick={fnPick}
-                onFnPickStart={startFnPick}
-                onFnPickCancel={cancelFnPick}
-                activeRegionIndex={activeRegionIndex}
-                regionFocusIndex={regionFocusIndex}
-                openRegionIndex={openRegionIndex}
-                onOpenRegionIndexChange={setOpenRegionIndex}
-                onSelectRegion={selectRegionFromList}
-                bindRevision={bindRevision}
+                state={{
+                  doc,
+                  activeTab,
+                  onTabChange: setActiveTab,
+                  regions,
+                  addr: selection.activeCell ?? undefined,
+                  onBindingEdited,
+                  fnPick,
+                  onFnPickStart: startFnPick,
+                  onFnPickCancel: cancelFnPick,
+                  activeRegionIndex,
+                  regionFocusIndex,
+                  openRegionIndex,
+                  onOpenRegionIndexChange: setOpenRegionIndex,
+                  onSelectRegion: selectRegionFromList,
+                  bindRevision,
+                }}
               />
             </div>
           </section>

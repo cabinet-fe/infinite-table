@@ -1,37 +1,22 @@
 // 数据管理侧 API 客户端：统一 fetch 包装；行/执行结果类型字段口径与后端库表一致（snake_case 原样透出）。
-import type { FormTemplate } from '../designer/template'
+// 行类型与 server 共用，单源定义在 shared/api-types.ts（经 re-export 保持既有 import 路径不变）。
+import type { FormTemplate } from '../shared/template-schema'
 import type { SourceRow } from '../transform/reshape'
+import {
+  type ApiDatasetRow,
+  type DatasetField,
+  type DatasetInput,
+  type DatasourceRow,
+  type QueryResult,
+} from '../shared/api-types'
 
-export interface DatasourceRow {
-  id: string
-  name: string
-  type: string
-  path: string
-  created_at: string
-}
-
-/** 数据集字段命名条目：name = SQL 原始列名，alias 留空即用原名（仅展示用，绑定仍存原名） */
-export interface DatasetField {
-  name: string
-  alias?: string
-}
-
-export interface DatasetRow {
-  id: string
-  datasource_id: string
-  name: string
-  sql: string
-  fields: DatasetField[]
-  created_at: string
-}
-
-/** 数据集创建/保存请求体（fields 可选：PUT 不带 = 保留已存命名） */
-export interface DatasetInput {
-  name: string
-  datasource_id: string
-  sql: string
-  fields?: DatasetField[]
-}
+export type {
+  DatasetField,
+  DatasetInput,
+  DatasourceRow,
+  QueryResult,
+  ApiDatasetRow as DatasetRow,
+} from '../shared/api-types'
 
 /** 取字段结果：SQL 原始列名 + 前几行样例（列名 → 值） */
 export interface DatasetFieldSample {
@@ -43,12 +28,6 @@ export interface DatasetFieldSample {
 export function datasetFieldLabel(fields: DatasetField[] | undefined, name: string): string {
   const alias = fields?.find((field) => field.name === name)?.alias
   return alias !== undefined && alias.trim() !== '' ? alias : name
-}
-
-/** SQL 执行结果：原始列名 + 原始行（服务端不做任何重塑） */
-export interface QueryResult {
-  columns: string[]
-  rows: unknown[][]
 }
 
 /** SQL 执行结果 → 数据集原始行（列名 → 值），重塑管线的入参形态（绑定编辑/打印共用） */
@@ -91,11 +70,11 @@ export const api = {
     request<DatasourceRow>('/api/datasources', jsonInit('POST', body)),
   deleteDatasource: (id: string) => request<void>(`/api/datasources/${id}`, { method: 'DELETE' }),
 
-  listDatasets: () => request<DatasetRow[]>('/api/datasets'),
+  listDatasets: () => request<ApiDatasetRow[]>('/api/datasets'),
   createDataset: (body: DatasetInput) =>
-    request<DatasetRow>('/api/datasets', jsonInit('POST', body)),
+    request<ApiDatasetRow>('/api/datasets', jsonInit('POST', body)),
   updateDataset: (id: string, body: DatasetInput) =>
-    request<DatasetRow>(`/api/datasets/${id}`, jsonInit('PUT', body)),
+    request<ApiDatasetRow>(`/api/datasets/${id}`, jsonInit('PUT', body)),
   deleteDataset: (id: string) => request<void>(`/api/datasets/${id}`, { method: 'DELETE' }),
   executeDataset: (id: string) =>
     request<QueryResult>(`/api/datasets/${id}/execute`, { method: 'POST' }),

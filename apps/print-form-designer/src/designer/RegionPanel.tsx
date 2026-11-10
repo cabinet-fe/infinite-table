@@ -8,11 +8,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import { colIndexToName } from '@infinitable/sheet'
 
-import { REGION_EXPAND_COLORS } from './canvas-overlay'
 import { InfoBubble } from './InfoBubble'
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
+import { REGION_EXPAND_COLORS, regionExpandLabel, regionRowRoleLabel } from './labels'
 import { RegionDialog } from './RegionDialog'
-import { regionExpandLabel, regionRowRoleLabel, regionRowRoleOf, type FormRegion } from './template'
+import { regionRowRoleOf, type FormRegion } from '../shared/template-schema'
 import { IconEdit, IconTrash } from '../ui/icons'
 import { runGuarded } from '../errors'
 

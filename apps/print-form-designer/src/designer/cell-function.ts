@@ -1,5 +1,5 @@
 // 单元格函数（「作用方式」的 v4 替代）：任何单元格都可设置，求值发生在数据态渲染
-// （预览/打印）时。载荷是判别联合（template.ts 的 FormCellFunction）：结构化聚合
+// （预览/打印）时。载荷是判别联合（shared/template-schema.ts 的 FormCellFunction）：结构化聚合
 // （主路径，编辑器下拉选函数选参数）在求值侧经 cellFunctionExpression 合成下方等价
 // 表达式；自定义 JS 表达式原样进求值。表达式可用：
 // - `agg`：模板聚合结果对象（`agg.summary['总计']`）；
@@ -25,7 +25,7 @@ import {
   type FormCellBinding,
   type FormCellFunction,
   type FormRegion,
-} from './template'
+} from '../shared/template-schema'
 
 /** 函数求值环境（由 data-state 按展开槽位构造） */
 export interface CellFunctionEnv {

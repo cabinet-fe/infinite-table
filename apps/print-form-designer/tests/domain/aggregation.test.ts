@@ -3,8 +3,8 @@
 // 空数据试跑（probeAggregationType）：返回形态判定（array/value）、抛错与防御式写法引导。
 import { describe, expect, test } from 'bun:test'
 
-import { probeAggregationType, runAggregations } from '../../src/designer/aggregation'
-import type { FormAggregation } from '../../src/designer/template'
+import { probeAggregationType, runAggregations } from '../../src/domain/aggregation'
+import type { FormAggregation } from '../../src/shared/template-schema'
 
 const ORDERS = [
   { no: 'A', customer: '甲' },

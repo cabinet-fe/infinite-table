@@ -15,14 +15,11 @@
 // 悬停/手柄/拖拽态由宿主（form-canvas）经 getter 提供：本文件不持有指针状态。
 // 参考线绘制仍复用 paper-guides 的纯函数与既有视觉，不改其口径。
 
+import { dashedLine, roundRectPath, type DashPattern } from '@infinitable/render'
 import type { SheetGrid } from '@infinitable/sheet'
 
-import {
-  createPaperGuidesPainter,
-  dashedLine,
-  type DashPattern,
-  type PaperGuidesConfig,
-} from './paper-guides'
+import { REGION_EXPAND_COLORS } from './labels'
+import { createPaperGuidesPainter, type PaperGuidesConfig } from './paper-guides'
 import {
   REGION_HANDLE_SIZE,
   REGION_HANDLE_SIZE_ACTIVE,
@@ -30,19 +27,12 @@ import {
   regionHandleRect,
   type RegionGridRect,
 } from './region-interaction'
-import { regionsAt, type FormRegion, type RegionExpand } from './template'
+import { regionsAt, type FormRegion, type RegionExpand } from '../shared/template-schema'
 
 /** 视口尺寸（与 overlay painter 协议同形） */
 interface Viewport {
   width: number
   height: number
-}
-
-/** 展开方式 → 强调色（侧栏圆点与画布描边/pill 共用同一份，保证两处同色） */
-export const REGION_EXPAND_COLORS: Record<RegionExpand, string> = {
-  none: '#98a2b3',
-  down: '#f79009',
-  right: '#2f62f0',
 }
 
 /** 列表方式 → 悬停 pill 后缀文案（非列表不加后缀） */
@@ -91,9 +81,11 @@ interface RegionPaintContext {
   save(): void
   restore(): void
   beginPath(): void
+  /** 本文件不直接用 rect：成员保留给参考线子画笔（GuideContext 要求） */
   rect(x: number, y: number, width: number, height: number): void
   moveTo(x: number, y: number): void
   lineTo(x: number, y: number): void
+  /** 本文件不直接用 arc：成员保留给路径助手 roundRectPath（RoundRectPathContext 要求） */
   arc(
     x: number,
     y: number,
@@ -127,29 +119,6 @@ interface CanvasOverlayDeps {
   getDragPreview: () => { index: number; rect: RegionGridRect } | undefined
   /** 内容包围盒（参考线分页域口径）：无限画布的引擎行列含大量空行噪声，只在该域内估算换页线 */
   getContentBounds: () => { rows: number; cols: number }
-}
-
-/** 圆角矩形路径（RenderContext 无 roundRect，用 arc 拼四角） */
-function roundRectPath(
-  ctx: RegionPaintContext,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-): void {
-  const r = Math.min(radius, height / 2, width / 2)
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + width - r, y)
-  ctx.arc(x + width - r, y + r, r, -Math.PI / 2, 0)
-  ctx.lineTo(x + width, y + height - r)
-  ctx.arc(x + width - r, y + height - r, r, 0, Math.PI / 2)
-  ctx.lineTo(x + r, y + height)
-  ctx.arc(x + r, y + height - r, r, Math.PI / 2, Math.PI)
-  ctx.lineTo(x, y + r)
-  ctx.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5)
-  ctx.closePath()
 }
 
 /** 矩形数据块的包围盒（几何判定在 region-interaction，这里只做转发） */
@@ -215,7 +184,7 @@ function drawCornerMark(
 
 /**
  * 悬停 pill 文案：数据块展示名 + 展开方向后缀（后缀只在 pill 上拼这一次）。
- * 展示名 = 自定义名，缺省「数据块 N」——不走 template.regionLabel，那份已含列表方式后缀，
+ * 展示名 = 自定义名，缺省「数据块 N」——不走 labels.regionLabel，那份已含列表方式后缀，
  * 再拼 EXPAND_PILL_SUFFIX 会显示两遍「 · 纵向列表」。
  */
 function hoverPillLabel(region: FormRegion, index: number): string {
@@ -401,7 +370,8 @@ function createCanvasOverlayPainter(
       const preview = deps.getDragPreview()
       if (preview) drawDragPreview(ctx, table, preview, regions)
     }
-    guidesPainter(ctx as never, viewport)
+    // RegionPaintContext 是 GuideContext 的结构化超集，直接喂给参考线子画笔
+    guidesPainter(ctx, viewport)
   }
 }
 

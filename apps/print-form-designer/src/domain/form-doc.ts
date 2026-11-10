@@ -1,13 +1,16 @@
 import {
   Sheet,
   TypedEventEmitter,
+  clampSnapshotToBounds,
+  deleteSnapshotRows,
+  insertSnapshotRows,
+  snapshotContentBounds,
   type CellAddress,
   type CellMetaSnapshotItem,
   type CellRange,
+  type ContentBounds,
   type SheetSnapshot,
 } from '@infinitable/sheet'
-
-import { clampSnapshotToBounds, contentBounds, type ContentBounds } from './content-bounds'
 import {
   appendRegionRect,
   planRegionRowResize,
@@ -19,7 +22,7 @@ import {
   regionsWithRowRole,
   regionsWithSource,
 } from './region-ops'
-import { deleteSnapshotRows, insertSnapshotRows } from './snapshot-rows'
+import { probeAggregationType } from './aggregation'
 import {
   FORM_BINDING_META_NAMESPACE,
   FORM_FUNCTION_META_NAMESPACE,
@@ -29,6 +32,7 @@ import {
   normalizeCellBinding,
   normalizeCellFunction,
   normalizeRegions,
+  rectContains,
   regionRefOf,
   type FormAggregation,
   type FormCellBinding,
@@ -37,15 +41,16 @@ import {
   type FormTemplate,
   type LegacyFormCellFunction,
   type RegionExpand,
+  type RegionRect,
   type RegionRowRole,
   type RegionSource,
-} from './template'
+} from '../shared/template-schema'
 
 /**
  * 设计文档 = Sheet 模型 + 数据块注册表 + 聚合注册表 + 统一 undo 门面。
  *
  * 画布尺寸口径（无限画布）：**没有声明行列数**。行列数一律由内容包围盒推导
- * （content-bounds.ts），序列化时把 sheet 快照收紧到包围盒——引擎 growOnScroll
+ * （@infinitable/sheet 的 snapshot-bounds），序列化时把 sheet 快照收紧到包围盒——引擎 growOnScroll
  * 撑出的上百行空行不进模板，round-trip 幂等。
  *
  * 撤销链路口径（app 内测试覆盖）：
@@ -76,24 +81,6 @@ type FormDocEvents = {
   'aggregations-change': undefined
   /** 撤销链变化（工具栏按钮置灰；画布按几何/合并变化决定重建或就地重绘） */
   'history-change': DocHistoryState
-}
-
-/** 矩形（数据块闭区间口径） */
-interface Rect {
-  startRow: number
-  endRow: number
-  startCol: number
-  endCol: number
-}
-
-/** 格是否落在矩形内（闭区间） */
-function inRect(item: { row: number; col: number }, rect: Rect): boolean {
-  return (
-    item.row >= rect.startRow &&
-    item.row <= rect.endRow &&
-    item.col >= rect.startCol &&
-    item.col <= rect.endCol
-  )
 }
 
 /** 字符串字面量整词替换（数据块引用名改写用：`'明细'` / `"明细"` → 新名） */
@@ -256,7 +243,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
 
   /** 内容包围盒（序列化/打印/参考线的共同口径） */
   get bounds(): ContentBounds {
-    return contentBounds(this.sheet.snapshot(), this.regions)
+    return snapshotContentBounds(this.sheet.snapshot(), this.regions)
   }
 
   /** 画布总行数（内容包围盒的行数，至少 1） */
@@ -295,11 +282,12 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     }
     const aggregations = normalizeAggregations(input.aggregations ?? [], {
       regions: input.regions,
+      probe: probeAggregationType,
     })
     const regions = normalizeRegions(input.regions, aggregations)
     const doc = new FormDoc(new Sheet('form'), regions, aggregations)
     const sheet = normalizeBindingMeta(normalizeFunctionMeta(input.sheet))
-    doc.sheet.restore(clampSnapshotToBounds(sheet, contentBounds(input.sheet, regions)))
+    doc.sheet.restore(clampSnapshotToBounds(sheet, snapshotContentBounds(input.sheet, regions)))
     return doc
   }
 
@@ -310,8 +298,11 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
       schemaVersion: TEMPLATE_SCHEMA_VERSION,
       name,
       regions: normalizeRegions(this.regions, this.aggregations),
-      aggregations: normalizeAggregations(this.aggregations, { regions: this.regions }),
-      sheet: clampSnapshotToBounds(snapshot, contentBounds(snapshot, this.regions)),
+      aggregations: normalizeAggregations(this.aggregations, {
+        regions: this.regions,
+        probe: probeAggregationType,
+      }),
+      sheet: clampSnapshotToBounds(snapshot, snapshotContentBounds(snapshot, this.regions)),
     }
   }
 
@@ -387,13 +378,13 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
    * 矩形内的**相对绑定**格清单（数据块创建/改范围守卫与清除用）。
    * 聚合引用绑定不以数据块为归属（求值只看聚合环境），不算数也不随之清除。
    */
-  private bindingCellsIn(rect: Rect): { row: number; col: number }[] {
+  private bindingCellsIn(rect: RegionRect): { row: number; col: number }[] {
     return (this.sheet.snapshot().meta ?? [])
       .filter(
         (item) =>
           item.namespace === FORM_BINDING_META_NAMESPACE &&
           !isAggBinding(item.payload) &&
-          inRect(item, rect),
+          rectContains(rect, item.row, item.col),
       )
       .map(({ row, col }) => ({ row, col }))
   }
@@ -402,14 +393,14 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
    * 静默清除矩形内的**相对绑定** sidecar（数据块内数据源被清/数据块删除时；随快照条目
    * 可撤销）。聚合引用绑定保留——它不依赖数据块的数据源。
    */
-  private clearBindingsIn(rect: Rect): void {
+  private clearBindingsIn(rect: RegionRect): void {
     const snapshot = this.sheet.snapshot()
     const meta = snapshot.meta?.filter(
       (item) =>
         !(
           item.namespace === FORM_BINDING_META_NAMESPACE &&
           !isAggBinding(item.payload) &&
-          inRect(item, rect)
+          rectContains(rect, item.row, item.col)
         ),
     )
     this.sheet.restore({ ...snapshot, meta })
@@ -572,7 +563,9 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
   ): void {
     const region = regionAt(this.regions, index)
     const next = { ...region, ...patch }
-    const kicked = this.bindingCellsIn(region).filter((cell) => !inRect(cell, next))
+    const kicked = this.bindingCellsIn(region).filter(
+      (cell) => !rectContains(next, cell.row, cell.col),
+    )
     if (kicked.length > 0) {
       throw new Error('调整后的范围把绑定字段的单元格挤出了数据块：请先清除这些格的绑定')
     }
@@ -621,7 +614,11 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
    * （先删引用再删聚合）。
    */
   setAggregations(next: FormAggregation[]): void {
-    const normalized = normalizeAggregations(next, { mode: 'submit', regions: this.regions })
+    const normalized = normalizeAggregations(next, {
+      mode: 'submit',
+      regions: this.regions,
+      probe: probeAggregationType,
+    })
     // 数据块 agg 来源的引用完整性（normalizeRegions 内含该校验，这里前置拿到清晰报错）
     normalizeRegions(this.regions, normalized)
     this.applySnapshotEdit(() => {
@@ -638,7 +635,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
     const next = this.aggregations.map((agg) =>
       agg.name === oldName ? { ...agg, name: newName.trim() } : agg,
     )
-    const normalized = normalizeAggregations(next)
+    const normalized = normalizeAggregations(next, { probe: probeAggregationType })
     normalizeRegions(
       this.regions.map((region) =>
         region.source?.kind === 'agg' && region.source.aggName === oldName

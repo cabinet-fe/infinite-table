@@ -12,7 +12,7 @@ import {
   type RegionExpand,
   type RegionRowRole,
   type RegionSource,
-} from './template'
+} from '../shared/template-schema'
 
 /** 目标数据块下标越界时抛错（面板禁用已保证，防御性兜底） */
 export function regionAt(regions: readonly FormRegion[], index: number): FormRegion {

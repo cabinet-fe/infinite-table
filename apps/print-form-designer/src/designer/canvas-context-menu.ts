@@ -4,14 +4,16 @@
 import type { CellRange, CellAddress, SheetGridContextMenuInfo } from '@infinitable/sheet'
 
 import type { ContextMenuItem } from '../ui/ContextMenu'
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
+import { REGION_ROW_ROLES } from './labels'
 import {
   FORM_BINDING_META_NAMESPACE,
-  REGION_ROW_ROLES,
   isAggBinding,
+  rectContains,
   regionRefOf,
+  regionsOverlap,
   type RegionRowRole,
-} from './template'
+} from '../shared/template-schema'
 
 /** 菜单动作（由 DesignerPage 注入；抛错就地呈现由调用方负责） */
 export interface CanvasContextMenuActions {
@@ -44,23 +46,15 @@ function createRegionBlockedReason(
     return '先在画布上框选一块范围（数据块只为绑数据集或数组型聚合而存在；固定文字直接写在格子里）'
   }
   const rect = selectionRect(range)
-  const overlap = doc.regions.some(
-    (region) =>
-      rect.startRow <= region.endRow &&
-      rect.endRow >= region.startRow &&
-      rect.startCol <= region.endCol &&
-      rect.endCol >= region.startCol,
-  )
-  if (overlap) return '选区与已有数据块重叠'
+  if (doc.regions.some((region) => regionsOverlap(rect, region))) {
+    return '选区与已有数据块重叠'
+  }
   // 只拦相对绑定（数据源继承所在数据块）；聚合引用绑定不依赖数据块，可以框进新数据块
   const hasBinding = (doc.sheet.snapshot().meta ?? []).some(
     (item) =>
       item.namespace === FORM_BINDING_META_NAMESPACE &&
       !isAggBinding(item.payload) &&
-      item.row >= rect.startRow &&
-      item.row <= rect.endRow &&
-      item.col >= rect.startCol &&
-      item.col <= rect.endCol,
+      rectContains(rect, item.row, item.col),
   )
   if (hasBinding) return '选区内有绑定字段的单元格（相对字段绑定只能属于数据块）'
   return undefined
@@ -69,28 +63,21 @@ function createRegionBlockedReason(
 /** 落点地址所在的数据块下标（-1 = 不在任何数据块） */
 function regionIndexOfAddr(doc: FormDoc, addr: CellAddress | null): number {
   if (!addr) return -1
-  return doc.regions.findIndex(
-    (region) =>
-      addr.row >= region.startRow &&
-      addr.row <= region.endRow &&
-      addr.col >= region.startCol &&
-      addr.col <= region.endCol,
-  )
+  return doc.regions.findIndex((region) => rectContains(region, addr.row, addr.col))
 }
 
 /** 选区与任一合并区相交 */
 function selectionIntersectsMerge(doc: FormDoc, range: CellRange | null): boolean {
   if (!range) return false
   const rect = selectionRect(range)
-  return doc.sheet.merges
-    .getMerges()
-    .some(
-      (merge) =>
-        rect.startRow <= merge.end.row &&
-        rect.endRow >= merge.start.row &&
-        rect.startCol <= merge.end.col &&
-        rect.endCol >= merge.start.col,
-    )
+  return doc.sheet.merges.getMerges().some((merge) =>
+    regionsOverlap(rect, {
+      startRow: merge.start.row,
+      endRow: merge.end.row,
+      startCol: merge.start.col,
+      endCol: merge.end.col,
+    }),
+  )
 }
 
 /**

@@ -7,7 +7,7 @@
 // 库里读到不符的文档同样按坏数据处理（抛错暴露，不静默修）。
 import type { Hono } from 'hono'
 import type { Database } from 'bun:sqlite'
-import { TEMPLATE_SCHEMA_VERSION, type FormTemplate } from '../designer/template'
+import { TEMPLATE_SCHEMA_VERSION, type FormTemplate } from '../shared/template-schema'
 import type { TemplateRow } from './rows'
 
 /** 模板行 → API 记录视图（template 为回填 name 后的完整模板 JSON） */

@@ -4,11 +4,12 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
 
+import { probeAggregationType } from '../domain/aggregation'
 import {
   TEMPLATE_SCHEMA_VERSION,
   migrateTemplateToCurrent,
   type FormTemplate,
-} from '../designer/template'
+} from '../shared/template-schema'
 
 export const DEFAULT_DB_PATH = resolve(import.meta.dir, '../../data/print-form-designer.sqlite')
 
@@ -95,7 +96,7 @@ function discardLegacyTemplateTable(db: Database, path: string): void {
 
 /**
  * 行级换代：v4/v5 → v6 有机械迁移路径（v4 聚合表达式包一层 return、v5 聚合缺 type
- * 由空数据试跑推导，见 template.ts 的 migrateTemplateToCurrent），启动时把 v4/v5 行
+ * 由空数据试跑推导，见 shared/template-schema.ts 的 migrateTemplateToCurrent），启动时把 v4/v5 行
  * 原地改写为 v6 保留，不丢数据；比 v4 更早的行（v3 时代：绝对绑定/作用方式被移除）
  * 与 v2 → v3 一样没有可用迁移，连同非 JSON 坏文档一并删除并报出条数。当前版本行
  * 原样保留（幂等，不改写）。
@@ -114,7 +115,10 @@ function migrateOutdatedTemplates(db: Database, path: string): void {
   for (const row of rows) {
     let document: FormTemplate
     try {
-      document = migrateTemplateToCurrent(JSON.parse(row.template) as FormTemplate)
+      document = migrateTemplateToCurrent(
+        JSON.parse(row.template) as FormTemplate,
+        probeAggregationType,
+      )
     } catch {
       drop.run(row.id)
       dropped++

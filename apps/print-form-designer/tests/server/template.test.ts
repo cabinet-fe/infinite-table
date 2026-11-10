@@ -3,8 +3,8 @@
 // （四键、不含打印弹框配置），以及请求体形状校验（版本不符直接 400，不做字段清洗与迁移）。
 import { describe, expect, test } from 'bun:test'
 
-import { FormDoc } from '../../src/designer/form-doc'
-import { TEMPLATE_SCHEMA_VERSION, type FormTemplate } from '../../src/designer/template'
+import { FormDoc } from '../../src/domain/form-doc'
+import { TEMPLATE_SCHEMA_VERSION, type FormTemplate } from '../../src/shared/template-schema'
 import { openDatabase } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import { ADDR, RANGE } from '../designer/testing/fixtures'
@@ -190,6 +190,24 @@ describe('模板 REST CRUD', () => {
       headers: JSON_HEADERS,
     })
     expect(res.status).toBe(404)
+  })
+})
+
+describe('未捕获异常兜底（app.onError 统一 500 JSON）', () => {
+  test('坏数据让路由抛错时返回 500 + { message } JSON（与 4xx 形状一致，不泄露堆栈）', async () => {
+    const db = openDatabase(':memory:')
+    // 直插一行非 JSON 的 template 文档（启动迁移只处理库内已有行）：详情路由
+    // toRecord 的 JSON.parse 抛错，走 app.onError 兜底
+    db.exec(
+      "INSERT INTO template (id, name, template, created_at) VALUES ('bad', '坏文档', '{oops', '2026-11-02')",
+    )
+    const res = await createApp(db).request('/api/templates/bad')
+    expect(res.status).toBe(500)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    const payload = (await res.json()) as Record<string, unknown>
+    expect(Object.keys(payload)).toEqual(['message'])
+    expect(typeof payload.message).toBe('string')
+    expect(payload.message).not.toContain('\n')
   })
 })
 

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api, type TemplateSummary } from '../data/api'
-import { FormDoc } from './form-doc'
+import { FormDoc } from '../domain/form-doc'
 import { describeError } from '../errors'
 
 interface Props {

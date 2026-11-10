@@ -7,11 +7,11 @@ import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 
 import { toSourceRows, type QueryResult, type TemplateRecord } from '../../src/data/api'
-import { probeAggregationType } from '../../src/designer/aggregation'
-import { FormDoc } from '../../src/designer/form-doc'
+import { probeAggregationType } from '../../src/domain/aggregation'
+import { FormDoc } from '../../src/domain/form-doc'
 import { DEFAULT_PRINT_SETTINGS, toPrintConfig } from '../../src/designer/PrintDialog'
 import { preparePrintSession } from '../../src/designer/print-source'
-import { TEMPLATE_SCHEMA_VERSION } from '../../src/designer/template'
+import { TEMPLATE_SCHEMA_VERSION } from '../../src/shared/template-schema'
 import { openDatabase } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import { seedDemoLibrary } from '../../src/server/seed'
@@ -25,7 +25,7 @@ import {
   SEED_TEMPLATE_LIST_ID,
   SEED_TEMPLATE_RESHAPE_ID,
   SEED_TEMPLATE_RIGHT_ID,
-  SEED_TEMPLATES,
+  getSeedTemplates,
 } from '../../src/server/seed-templates'
 import type { SourceRow } from '../../src/transform/reshape'
 import { createTempDir } from './testing/demo-source'
@@ -98,8 +98,9 @@ describe('seed 幂等落内置模板', () => {
 
   test('全部种子模板经 REST 可加载，fromTemplate / toTemplate 幂等 round-trip', async () => {
     const { loadTemplate } = await bootSeededApp()
-    expect(SEED_TEMPLATES).toHaveLength(9)
-    for (const { id, template } of SEED_TEMPLATES) {
+    const seedTemplates = getSeedTemplates()
+    expect(seedTemplates).toHaveLength(9)
+    for (const { id, template } of seedTemplates) {
       const record = await loadTemplate(id)
       expect(record.template.name).toBe(template.name)
       // v6 口径：聚合必有 type，函数体空数据试跑（入参 []、agg {}）不抛错且
@@ -681,7 +682,7 @@ describe('示例 · 组头行与小计：按单据分组', () => {
 describe('内置模板 JSON 口径', () => {
   test('不含打印弹框配置键（纸张/边距/缩放/分页只在弹框）', async () => {
     const { loadTemplate } = await bootSeededApp()
-    for (const { id } of SEED_TEMPLATES) {
+    for (const { id } of getSeedTemplates()) {
       const json = JSON.stringify((await loadTemplate(id)).template)
       for (const forbidden of [
         'paperSize',

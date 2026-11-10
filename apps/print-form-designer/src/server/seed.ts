@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { DEFAULT_DB_PATH } from './db'
 import type { DatasetRow, DatasourceRow } from './rows'
-import { SEED_TEMPLATES } from './seed-templates'
+import { getSeedTemplates } from './seed-templates'
 
 export const SEED_DATASOURCE_ID = 'seed-datasource-demo'
 
@@ -144,7 +144,7 @@ export function seedDemoLibrary(db: Database, options: SeedOptions): DatasourceR
   const insertTemplate = db.query(
     'INSERT OR IGNORE INTO template (id, name, template, created_at) VALUES (?, ?, ?, ?)',
   )
-  for (const { id, template } of SEED_TEMPLATES) {
+  for (const { id, template } of getSeedTemplates()) {
     const { name, ...payload } = template
     insertTemplate.run(id, name, JSON.stringify(payload), SEED_CREATED_AT)
   }

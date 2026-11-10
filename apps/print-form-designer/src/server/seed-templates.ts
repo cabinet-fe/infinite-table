@@ -29,7 +29,7 @@ import {
   type CellStylePatch,
 } from '@infinitable/sheet'
 
-import { FormDoc } from '../designer/form-doc'
+import { FormDoc } from '../domain/form-doc'
 import {
   TEMPLATE_SCHEMA_VERSION,
   type FormAggregation,
@@ -38,7 +38,7 @@ import {
   type FormRegion,
   type FormTemplate,
   type RegionFnName,
-} from '../designer/template'
+} from '../shared/template-schema'
 
 export const SEED_TEMPLATE_LIST_ID = 'seed-template-sales-list'
 export const SEED_TEMPLATE_CN_DOC_ID = 'seed-template-cn-receipt'
@@ -885,14 +885,24 @@ interface SeedTemplate {
   template: FormTemplate
 }
 
-export const SEED_TEMPLATES: readonly SeedTemplate[] = [
-  { id: SEED_TEMPLATE_LIST_ID, template: buildSalesListTemplate() },
-  { id: SEED_TEMPLATE_CN_DOC_ID, template: buildCnReceiptTemplate() },
-  { id: SEED_TEMPLATE_RIGHT_ID, template: buildRightExpandTemplate() },
-  { id: SEED_TEMPLATE_EXPR_ID, template: buildComputedColumnTemplate() },
-  { id: SEED_TEMPLATE_AGG_ID, template: buildAggChainTemplate() },
-  { id: SEED_TEMPLATE_AGG_VALUE_ID, template: buildAggValueTemplate() },
-  { id: SEED_TEMPLATE_RESHAPE_ID, template: buildReshapeNestedTemplate() },
-  { id: SEED_TEMPLATE_FIXED_ID, template: buildFixedLayoutTemplate() },
-  { id: SEED_TEMPLATE_GROUP_ID, template: buildGroupHeaderTemplate() },
-]
+let seedTemplatesCache: readonly SeedTemplate[] | undefined
+
+/**
+ * 内置起点模板集：首次调用才构建、构建一次后缓存。模块级 const 会在 import 时
+ * 立即走 FormDoc 序列化链路构建 9 份模板，拖高所有 server 测试的启动成本——惰性化
+ * 后只有真正 seed / 校验种子的调用方付这笔账。
+ */
+export function getSeedTemplates(): readonly SeedTemplate[] {
+  seedTemplatesCache ??= [
+    { id: SEED_TEMPLATE_LIST_ID, template: buildSalesListTemplate() },
+    { id: SEED_TEMPLATE_CN_DOC_ID, template: buildCnReceiptTemplate() },
+    { id: SEED_TEMPLATE_RIGHT_ID, template: buildRightExpandTemplate() },
+    { id: SEED_TEMPLATE_EXPR_ID, template: buildComputedColumnTemplate() },
+    { id: SEED_TEMPLATE_AGG_ID, template: buildAggChainTemplate() },
+    { id: SEED_TEMPLATE_AGG_VALUE_ID, template: buildAggValueTemplate() },
+    { id: SEED_TEMPLATE_RESHAPE_ID, template: buildReshapeNestedTemplate() },
+    { id: SEED_TEMPLATE_FIXED_ID, template: buildFixedLayoutTemplate() },
+    { id: SEED_TEMPLATE_GROUP_ID, template: buildGroupHeaderTemplate() },
+  ]
+  return seedTemplatesCache
+}

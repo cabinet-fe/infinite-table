@@ -2,7 +2,7 @@
 // 原因、行头菜单（行角色）的当前态与分组前置条件。纯逻辑，不挂 DOM。
 import { describe, expect, test } from 'bun:test'
 
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
 import { buildCanvasContextMenu, type CanvasContextMenuActions } from '../../src/designer/canvas-context-menu'
 import { ADDR, RANGE } from './testing/fixtures'
 

@@ -10,6 +10,9 @@ import { DEFAULT_DEMO_PATH, seedDemoLibrary } from './seed'
 export function createApp(db: Database): Hono {
   registerSqliteDataSource()
   const app = new Hono()
+  // 未捕获异常兜底：统一回 500 + { message } JSON（与 400/404/422 的错误形状一致；
+  // message 取异常文案、缺省「服务器内部错误」，不带堆栈）
+  app.onError((error, c) => c.json({ message: error.message || '服务器内部错误' }, 500))
   mountResourceRoutes(app, db)
   return app
 }

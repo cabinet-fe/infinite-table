@@ -19,12 +19,17 @@
 // - 合并区若跨了展开边界（首尾份数不一致）则丢弃；
 // - 绑定/函数 sidecar 不进数据态快照（已解析为值）。
 
-import type { CellMetaSnapshotItem, CellValue, SheetSnapshot } from '@infinitable/sheet'
+import {
+  clampSnapshotToBounds,
+  snapshotContentBounds,
+  type CellMetaSnapshotItem,
+  type CellValue,
+  type SheetSnapshot,
+} from '@infinitable/sheet'
 
 import { evaluateCellFunction } from './cell-function'
 import { loopArrayAt, resolveItemValue } from './binding'
-import { clampSnapshotToBounds, contentBounds } from './content-bounds'
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
 import {
   FORM_BINDING_META_NAMESPACE,
   FORM_FUNCTION_META_NAMESPACE,
@@ -36,7 +41,7 @@ import {
   type FormCellBinding,
   type FormCellFunction,
   type FormRegion,
-} from './template'
+} from '../shared/template-schema'
 
 /** 数据集 id → 重塑后取数形态（reshapeDatasetData 的产物集合） */
 export type DatasetShapes = Map<string, unknown>
@@ -74,8 +79,18 @@ function sidecarIndex<T>(
   return index
 }
 
-/** 数据块数据源的循环数组（无 source / 形态缺失 / 聚合缺失 / 取不到数组 → undefined） */
-function regionLoopArray(region: FormRegion, input: RenderDataInput): unknown[] | undefined {
+/**
+ * 数据块数据源的循环数组（无 source / 形态缺失 / 聚合缺失 / 取不到数组 → undefined；
+ * 路径语法非法由 parseBindingPath 抛错）。
+ * 「source → 循环数组」的唯一权威读取口径：数据态渲染（renderDataState）、数据块弹框
+ * 的实时预览（RegionDialog 草稿试算）、绑定编辑的条目采样（BindingEditor）都经本函数
+ * 取数，不各自手拼 loopArrayAt。消费方的差异（草稿表达式、容错策略）在各自构建
+ * RenderDataInput 入参时参数化，读取语义不拉平。
+ */
+export function loopArrayForRegion(
+  region: FormRegion,
+  input: RenderDataInput,
+): unknown[] | undefined {
   const source = region.source
   if (!source) return undefined
   const shape =
@@ -287,12 +302,12 @@ export function renderDataState(doc: FormDoc, input: RenderDataInput): SheetSnap
   const snapshot = doc.sheet.snapshot()
   const bindings = sidecarIndex<FormCellBinding>(snapshot.meta, FORM_BINDING_META_NAMESPACE)
   const functions = sidecarIndex<FormCellFunction>(snapshot.meta, FORM_FUNCTION_META_NAMESPACE)
-  const bounds = contentBounds(snapshot, doc.regions)
+  const bounds = snapshotContentBounds(snapshot, doc.regions)
 
   // 数据块循环数组（展开份数、绑定/函数取数、数据块函数引用共用一份）
   const regionItems = new Map<number, unknown[]>()
   doc.regions.forEach((region, index) => {
-    const items = regionLoopArray(region, input)
+    const items = loopArrayForRegion(region, input)
     if (items === undefined && region.expand !== 'none') {
       // 未绑数据源或取不到数组 → 暂按 1 份（绑定解析为空），与历版口径一致
       regionItems.set(index, [undefined])

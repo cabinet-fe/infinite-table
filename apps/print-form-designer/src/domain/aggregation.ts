@@ -5,11 +5,12 @@
 // 求值顺序 = 声明序：后序聚合的入参 `agg` 里已经有前序结果（可链式加工）。
 // 编译/求值走 transform/expr.ts 的函数体管线（严格模式、必须 return；入参按
 // 只读约定共享）。聚合类型（array/value）的推导与提交校验共用 probeAggregationType
-// 的空数据试跑。
+// 的空数据试跑——契约层（shared/template-schema.ts）的 normalize/迁移路径经
+// AggregationTypeProber 注入本实现，不反向 import 本模块。
 import type { SourceRow } from '../transform/reshape'
 import { ExprError, evaluateFunctionBody } from '../transform/expr'
 import { describeError } from '../errors'
-import type { FormAggregation } from './template'
+import type { AggregationTypeProbe, FormAggregation } from '../shared/template-schema'
 
 /** 聚合结果对象：`agg.{name}` 的运行时形态 */
 export type AggregationResults = Record<string, unknown>
@@ -39,11 +40,6 @@ export function runAggregations(
   }
   return agg
 }
-
-/** 空数据试跑结果：成功给出返回形态（array/value）；失败给出带防御式引导的原因 */
-export type AggregationTypeProbe =
-  | { ok: true; returns: 'array' | 'value' }
-  | { ok: false; error: string }
 
 /**
  * 空数据试跑（类型推导与提交校验共用）：每个入参数据集传 `[]`、`agg` 传 `{}`，

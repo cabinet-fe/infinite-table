@@ -7,11 +7,16 @@
 // - 分页估算复用 print 插件 paginate（fitpage/origin 口径）：供数经
 //   createEnginePrintSource 从挂载引擎的导出读取面取行列几何——估算与画布渲染
 //   同源；真实分页以打印弹框预览为准（P8），参考线仅作设计参照。
-// - 纸张尺寸换算（mm→px、预设表、缺省边距）与 print 内核 paper.ts 同口径常量，
-//   由测试用「整页高度恰好放满 → 单页」的边界用例锁定两者一致。
+// - 纸张几何直接复用 print 内核 derivePrintableArea（@infinitable/plugins 公开）：
+//   参考线与 paginate 走同一推导口径，不再本地复制 mm→px 换算与预设尺寸表。
 
 import type { PrintOrientation, PrintPaperPreset, PrintSource } from '@infinitable/plugins'
-import { createEnginePrintSource, createPrintPlugin } from '@infinitable/plugins'
+import {
+  createEnginePrintSource,
+  createPrintPlugin,
+  derivePrintableArea,
+} from '@infinitable/plugins'
+import { dashedLine, type DashPattern } from '@infinitable/render'
 import type { SheetGrid } from '@infinitable/sheet'
 
 /** 纸张参考线配置（显示层概念：纸张预设 + 方向 + 四边距 px） */
@@ -28,27 +33,18 @@ export const DEFAULT_PAPER_GUIDES: PaperGuidesConfig = {
   marginPx: 48,
 }
 
-/** mm → px 换算系数（96dpi，与 print paper.ts MM_TO_PX 同式） */
-const MM_TO_PX = 96 / 25.4
-
 /**
- * 纸张预设尺寸表（mm，portrait 口径宽×高；ISO 标准值与 print paper.ts PAPER_PRESETS_MM 同源）。
- * 只收预设代号——自定义 mm 纸张属打印弹框（P8）配置面，不进设计参考线。
+ * 纸张内容区尺寸（px）：直接复用 print 内核 derivePrintableArea（纸幅 mm→px 换算、
+ * landscape 交换、扣四边距；参考线无页眉页脚配置，可用高即纸高 − 上下边距）。与
+ * paginate 同一推导，显示参考线与真实分页口径天然一致。
  */
-const PAPER_PRESETS_MM: Readonly<Record<PrintPaperPreset, { widthMm: number; heightMm: number }>> =
-  Object.freeze({
-    A3: Object.freeze({ widthMm: 297, heightMm: 420 }),
-    A4: Object.freeze({ widthMm: 210, heightMm: 297 }),
-    A5: Object.freeze({ widthMm: 148, heightMm: 210 }),
-    Letter: Object.freeze({ widthMm: 215.9, heightMm: 279.4 }),
-  })
-
-/** 纸张内容区尺寸（px：纸幅 − 左右/上下边距；landscape 交换宽高后扣边距） */
 export function paperAreaPx(config: PaperGuidesConfig): { width: number; height: number } {
-  const preset = PAPER_PRESETS_MM[config.paperSize]
-  const portrait = { w: preset.widthMm * MM_TO_PX, h: preset.heightMm * MM_TO_PX }
-  const page = config.orientation === 'landscape' ? { w: portrait.h, h: portrait.w } : portrait
-  return { width: page.w - config.marginPx * 2, height: page.h - config.marginPx * 2 }
+  const area = derivePrintableArea({
+    paperSize: config.paperSize,
+    orientation: config.orientation,
+    margin: config.marginPx,
+  })
+  return { width: area.width, height: area.height }
 }
 
 /** 分页参考线几何（画布内容坐标系，px） */
@@ -128,41 +124,8 @@ export interface GuideContext {
 const PAPER_BOUNDARY_COLOR = '#94a3b8'
 const PAGE_BREAK_COLOR = '#3b82f6'
 
-/** 虚线图案（段长 + 间隔，px）：RenderContext 无 setLineDash，按图案手动分段 */
-export interface DashPattern {
-  dash: number
-  gap: number
-}
-
 /** 分页参考线的虚线图案 */
 const GUIDE_DASH: DashPattern = { dash: 6, gap: 4 }
-
-/**
- * 手动虚线段：从 (x1,y1) 到 (x2,y2) 按图案推进（水平/垂直线通用）。
- * 调用方负责 beginPath / strokeStyle / stroke；本函数只铺路径。
- * overlay 的分页参考线与数据块展开提示共用本实现，只有图案不同。
- */
-export function dashedLine(
-  ctx: GuideContext,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  pattern: DashPattern,
-): void {
-  const dx = x2 - x1
-  const dy = y2 - y1
-  const length = Math.hypot(dx, dy)
-  if (length === 0) return
-  const ux = dx / length
-  const uy = dy / length
-  const step = pattern.dash + pattern.gap
-  for (let d = 0; d < length; d += step) {
-    const end = Math.min(d + pattern.dash, length)
-    ctx.moveTo(x1 + ux * d, y1 + uy * d)
-    ctx.lineTo(x1 + ux * end, y1 + uy * end)
-  }
-}
 
 /**
  * 绘制参考线：纸张内容区矩形（第一页锚定画布内容原点 origin）+ 换页/换列虚线

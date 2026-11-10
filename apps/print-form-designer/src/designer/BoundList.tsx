@@ -5,7 +5,7 @@ import { useMemo } from 'react'
 
 import { formatAddress, type CellAddress } from '@infinitable/sheet'
 
-import type { FormDoc } from './form-doc'
+import type { FormDoc } from '../domain/form-doc'
 import {
   FORM_BINDING_META_NAMESPACE,
   FORM_FUNCTION_META_NAMESPACE,
@@ -13,7 +13,7 @@ import {
   formatFunctionPlaceholder,
   type FormCellBinding,
   type FormCellFunction,
-} from './template'
+} from '../shared/template-schema'
 
 interface Props {
   doc: FormDoc

@@ -7,14 +7,14 @@ import { describe, expect, test } from 'bun:test'
 import { Sheet, type SheetSnapshot } from '@infinitable/sheet'
 
 import { renderDataState, datasetShapeKey, type DatasetShapes } from '../../src/designer/data-state'
-import { FormDoc } from '../../src/designer/form-doc'
+import { FormDoc } from '../../src/domain/form-doc'
 import {
   TEMPLATE_SCHEMA_VERSION,
   type FormCellBinding,
   type FormRegion,
   type FormTemplate,
   type RegionSource,
-} from '../../src/designer/template'
+} from '../../src/shared/template-schema'
 import { ADDR, relativeBinding } from './testing/fixtures'
 
 /** 数据块内绑定：条目内相对路径 */

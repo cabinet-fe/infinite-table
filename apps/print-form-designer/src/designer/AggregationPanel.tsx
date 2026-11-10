@@ -10,17 +10,18 @@
 // （联动改写数据块数据源与函数引用）。
 import { useEffect, useMemo, useState } from 'react'
 
-import { api, toSourceRows, type DatasetRow } from '../data/api'
+import { api, type DatasetRow } from '../data/api'
+import { fetchDatasetRowsBulk } from '../data/dataset-service'
 import { InfoBubble } from './InfoBubble'
-import { probeAggregationType, runAggregations } from './aggregation'
-import type { FormDoc } from './form-doc'
+import { probeAggregationType, runAggregations } from '../domain/aggregation'
+import type { FormDoc } from '../domain/form-doc'
+import { AGGREGATION_TYPE_OPTIONS } from './labels'
 import {
-  AGGREGATION_TYPE_OPTIONS,
   aggregationTypeLabel,
-  isIdentifier,
+  aggregationVarNameError,
   type AggregationType,
   type FormAggregation,
-} from './template'
+} from '../shared/template-schema'
 import { compileFunctionBody } from '../transform/expr'
 import { IconPlus, IconTrash } from '../ui/icons'
 import { describeError, runGuarded } from '../errors'
@@ -166,13 +167,13 @@ export function AggregationPanel({ doc }: Props) {
     commit(doc.aggregations.map((agg) => (agg.name === selected.name ? { ...agg, type } : agg)))
   }
 
-  /** 试运行：取全部聚合入参的数据集 → 全量求值（保证链式 agg 依赖正确） */
+  /** 试运行：取全部聚合入参的数据集（每次点击全量重取）→ 全量求值（保证链式 agg 依赖正确） */
   const runTest = (): void => {
     const ids = [...new Set(doc.aggregations.flatMap((agg) => agg.params.map((p) => p.datasetId)))]
-    Promise.all(ids.map(async (id) => [id, toSourceRows(await api.executeDataset(id))] as const))
-      .then((entries) => {
+    fetchDatasetRowsBulk(ids)
+      .then((rowsByDataset) => {
         try {
-          setRunResult(runAggregations(doc.aggregations, new Map(entries)))
+          setRunResult(runAggregations(doc.aggregations, rowsByDataset))
           setRunError('')
         } catch (cause) {
           setRunResult(null)
@@ -225,17 +226,11 @@ export function AggregationPanel({ doc }: Props) {
     }
     return { ok: true, text: `✓ 空数据试跑通过，返回${probe.returns === 'array' ? '数组' : '值'}` }
   }, [selected, expressionDraft])
-  const varNameError = useMemo(() => {
-    if (!selected) return ''
-    const names = new Set<string>()
-    for (const param of selected.params) {
-      if (!isIdentifier(param.varName)) return `变量名 ${param.varName || '（空）'} 不是合法 JS 标识符`
-      if (param.varName === 'agg') return '变量名不能用保留名 agg'
-      if (names.has(param.varName)) return `变量名重复：${param.varName}`
-      names.add(param.varName)
-    }
-    return ''
-  }, [selected])
+  // 入参变量名实时反馈：与提交校验（normalizeAggregations）共用 shared 的同一条口径
+  const varNameError = useMemo(
+    () => (selected ? (aggregationVarNameError(selected.params) ?? '') : ''),
+    [selected],
+  )
 
   return (
     <div className="card-block">

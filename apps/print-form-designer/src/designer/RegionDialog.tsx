@@ -6,7 +6,7 @@
 // - 数据源两档：数据集（重塑表达式 + 列表路径）或**数组型**聚合（取 agg.{name} 的
 //   返回列表循环；下拉只列数组型，非数组型聚合不能作数据块数据源——迁移可能留下
 //   旧选中，就地警示并允许清空/换选），实时预览条数（与打印同一条
-//   reshape/loopArrayAt/runAggregations 管线）；
+//   reshape/loopArrayForRegion/runAggregations 管线）；
 // - 分组页（向下展开区）：场景化说明（用当前字段举例）+ 分组字段 chips（按循环条目采样）
 //   + 迷你示意（组头→明细×N→小计→…→合计的教学小表格）+ 「每一行打印什么」角色表
 //   （明细/组头/小计/合计；画布行头右键也能设；首次配分组字段时管线自动预填典型布局）；
@@ -15,21 +15,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { colIndexToName } from '@infinitable/sheet'
 
-import { api, toSourceRows, type DatasetRow } from '../data/api'
-import type { SourceRow } from '../transform/reshape'
+import { api, type DatasetRow } from '../data/api'
+import { useDatasetRows } from '../data/dataset-service'
+import { runAggregations } from '../domain/aggregation'
 import { InfoBubble } from './InfoBubble'
-import { runAggregations } from './aggregation'
-import { loopArrayAt, reshapeDatasetData } from './binding'
-import { REGION_EXPAND_COLORS } from './canvas-overlay'
-import type { FormDoc } from './form-doc'
+import { reshapeDatasetData } from './binding'
+import { datasetShapeKey, loopArrayForRegion } from './data-state'
+import type { FormDoc } from '../domain/form-doc'
+import { REGION_EXPAND_COLORS, REGION_EXPAND_OPTIONS, REGION_ROW_ROLES } from './labels'
 import {
-  REGION_EXPAND_OPTIONS,
-  REGION_ROW_ROLES,
   regionRowRoleOf,
-  type FormRegion,
   type RegionExpand,
   type RegionRowRole,
-} from './template'
+} from '../shared/template-schema'
 import { IconClose, IconTrash } from '../ui/icons'
 import { describeError, runGuarded } from '../errors'
 
@@ -54,9 +52,6 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
   const [tab, setTab] = useState<DialogTab>('basic')
   const [error, setError] = useState('')
   const [datasets, setDatasets] = useState<DatasetRow[] | null>(null)
-  /** 数据集原始行缓存（数据源预览与聚合试运行共用；按 datasetId 记忆） */
-  const [rowsByDataset, setRowsByDataset] = useState<Map<string, SourceRow[]>>(new Map())
-  const [rowsError, setRowsError] = useState('')
 
   // 名称 / 表达式 / 路径是文本输入：草稿态 + 失焦提交，避免每敲一个字进一次撤销链
   const [nameDraft, setNameDraft] = useState(region?.name ?? '')
@@ -105,50 +100,48 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
     return agg ? agg.params.map((param) => param.datasetId) : []
   }, [region?.source, doc.aggregations])
 
-  // 数据源变化时取原始行（缺哪个取哪个，已缓存的不再请求）
-  useEffect(() => {
-    const missing = neededDatasetIds.filter((id) => !rowsByDataset.has(id))
-    if (missing.length === 0) return
-    let cancelled = false
-    Promise.all(
-      missing.map(async (id) => [id, toSourceRows(await api.executeDataset(id))] as const),
-    )
-      .then((entries) => {
-        if (cancelled) return
-        setRowsByDataset((prev) => {
-          const next = new Map(prev)
-          for (const [id, rows] of entries) next.set(id, rows)
-          return next
-        })
-        setRowsError('')
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setRowsError(describeError(cause))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [neededDatasetIds, rowsByDataset])
+  // 原始行取数走统一服务：缺哪个取哪个，弹框生命周期内按 datasetId 记忆（跨 tab 缓存）
+  const { rowsByDataset, error: rowsError } = useDatasetRows(neededDatasetIds)
 
-  /** 数据源在当前输入下的循环数组（数据集：重塑管线；聚合：全量聚合后取结果） */
-  const loopPreview = useMemo<
-    { array: unknown[] | undefined; error: string } | { array: undefined; error: string }
-  >(() => {
+  /**
+   * 数据源在当前输入下的循环数组：与打印同一条 loopArrayForRegion 管线，差异只在
+   * 入参——表达式/路径用**草稿值**（未提交的试算口径）：dataset 档以草稿表达式构建
+   * 草稿形态表（datasetShapeKey 两侧同键）；agg 档跑全量聚合后从结果取。
+   */
+  const loopPreview = useMemo<{ array: unknown[] | undefined; error: string }>(() => {
     const source = region?.source
-    if (!source || neededDatasetIds.some((id) => !rowsByDataset.has(id))) {
+    if (!region || !source || neededDatasetIds.some((id) => !rowsByDataset.has(id))) {
       return { array: undefined, error: rowsError }
     }
     try {
       if (source.kind === 'dataset') {
         const rows = rowsByDataset.get(source.datasetId) ?? []
-        return { array: loopArrayAt(reshapeDatasetData(expressionDraft, rows), pathDraft), error: '' }
+        const shapes = new Map([
+          [
+            datasetShapeKey(source.datasetId, expressionDraft),
+            reshapeDatasetData(expressionDraft, rows),
+          ],
+        ])
+        return {
+          array: loopArrayForRegion(
+            { ...region, source: { ...source, expression: expressionDraft, path: pathDraft } },
+            { shapes, agg: {} },
+          ),
+          error: '',
+        }
       }
       const agg = runAggregations(doc.aggregations, rowsByDataset)
-      return { array: loopArrayAt(agg[source.aggName], pathDraft), error: '' }
+      return {
+        array: loopArrayForRegion(
+          { ...region, source: { ...source, path: pathDraft } },
+          { shapes: new Map(), agg },
+        ),
+        error: '',
+      }
     } catch (cause) {
       return { array: undefined, error: describeError(cause) }
     }
-  }, [region?.source, neededDatasetIds, rowsByDataset, rowsError, expressionDraft, pathDraft, doc.aggregations])
+  }, [region, neededDatasetIds, rowsByDataset, rowsError, expressionDraft, pathDraft, doc.aggregations])
 
   /** 循环条目的采样键（分组字段 chips 用；条目是对象才有的列） */
   const sampleKeys = useMemo(() => {

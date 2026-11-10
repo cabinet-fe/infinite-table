@@ -2,7 +2,7 @@
 // 这些是纯数据字面量的简写，散在各测试文件里逐份复制时，一处改口径其余会悄悄漂移。
 import type { CellAddress, CellRange } from '@infinitable/sheet'
 
-import type { FormCellBinding } from '../../../src/designer/template'
+import type { FormCellBinding } from '../../../src/shared/template-schema'
 
 /** 单元格地址（0 基行列） */
 export const ADDR = (row: number, col: number): CellAddress => ({ row, col })
