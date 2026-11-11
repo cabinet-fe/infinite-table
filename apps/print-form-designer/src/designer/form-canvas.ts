@@ -4,21 +4,21 @@ import {
   type CellStyle,
   type SheetGridContextMenuInfo,
 } from '@infinitable/sheet'
-
-import { FORM_CANVAS_THEME } from './canvas-theme'
-import { createCanvasOverlay, type CanvasOverlay } from './canvas-overlay'
-import type { FormDoc } from '../domain/form-doc'
-import type { PaperGuidesConfig } from './paper-guides'
 import {
   cursorForEdge,
   hitRegionEdge,
   hitRegionHandle,
   regionBoundsOf,
   resizeRegionRect,
-  type RegionGridRect,
+  type CellRange,
   type RegionHitTarget,
-  type RegionResizeEdge,
-} from './region-interaction'
+  type ResizeEdge,
+} from '@infinitable/grid'
+
+import { FORM_CANVAS_THEME } from './canvas-theme'
+import { createCanvasOverlay, type CanvasOverlay } from './canvas-overlay'
+import type { FormDoc } from '../domain/form-doc'
+import type { PaperGuidesConfig } from './paper-guides'
 import {
   FORM_BINDING_META_NAMESPACE,
   FORM_FUNCTION_META_NAMESPACE,
@@ -43,7 +43,7 @@ import {
  *   其余已绑定/已设函数格给一层极淡品牌蓝，让「哪些格绑了数据」一眼可见；
  * - 选区即绑定目标：画布常规选区正常流动，宿主从 sheet 选区读活动格，无需任何开关；
  *   选区变化回带所在数据块（数据块/格选中语义）；
- * - 数据块交互（region-interaction 的几何）：右下角手柄点击 → onRegionHandleClick
+ * - 数据块交互（@infinitable/grid 的 region-interaction 几何）：右下角手柄点击 → onRegionHandleClick
  *   （跳「数据块」tab）；边缘/角落拖拽 → 虚线预览，松开经 onRegionResizeCommit 提交
  *   （守卫与错误呈现归 DesignerPage）。两者都在捕获阶段拦截，不触发引擎选区；
  * - 右键菜单经 SheetGrid 的 onContextMenu 转发（kind 含 body/行头/列头）；
@@ -84,8 +84,8 @@ function keySetShrunk(prev: ReadonlySet<number>, next: ReadonlySet<number>): boo
 /** 拖拽会话状态（pointerdown 建立到 pointerup/pointercancel 结束） */
 interface DragSession {
   index: number
-  edge: RegionResizeEdge
-  preview: RegionGridRect
+  edge: ResizeEdge
+  preview: CellRange
 }
 
 interface FormCanvasOptions {
@@ -96,7 +96,7 @@ interface FormCanvasOptions {
   /** 点击数据块右下角手柄（跳「数据块」tab 并聚焦该数据块） */
   onRegionHandleClick?(index: number): void
   /** 边缘拖拽结束提交（守卫在 doc.setRegionFields，错误呈现归调用方） */
-  onRegionResizeCommit?(index: number, patch: Partial<RegionGridRect>): void
+  onRegionResizeCommit?(index: number, patch: Partial<CellRange>): void
   /** 画布右键菜单（body 格 / 行头 / 列头分流；x/y 为客户端坐标） */
   onContextMenu?(info: SheetGridContextMenuInfo): void
   /** 纸张边界/分页参考线初始配置（overlay 显示层；缺省关闭，运行时经 setPaperGuides 切换） */
@@ -161,7 +161,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     return targets
   }
 
-  const regionGridRect = (region: FormRegion): RegionGridRect => ({
+  const regionGridRect = (region: FormRegion): CellRange => ({
     startRow: region.startRow,
     endRow: region.endRow,
     startCol: region.startCol,
@@ -233,11 +233,8 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
       const addr = instance.hitTestSheetAddr(x, y)
       const region = addr ? regionsAt(doc.regions, addr.row, addr.col) : undefined
       const nextHover = region ? doc.regions.indexOf(region) : undefined
-      const cursor = nextHandle !== undefined
-        ? 'pointer'
-        : nextEdge
-          ? cursorForEdge(nextEdge.edge)
-          : ''
+      const cursor =
+        nextHandle !== undefined ? 'pointer' : nextEdge ? cursorForEdge(nextEdge.edge) : ''
       if (host.style.cursor !== cursor) host.style.cursor = cursor
       if (nextHandle === handleHoverIndex && nextHover === hoveredRegionIndex) return
       handleHoverIndex = nextHandle
@@ -255,7 +252,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
       if (!commit) return
       const region = doc.regions[session.index]
       if (!region) return
-      const patch: Partial<RegionGridRect> = {}
+      const patch: Partial<CellRange> = {}
       if (session.preview.startRow !== region.startRow) patch.startRow = session.preview.startRow
       if (session.preview.endRow !== region.endRow) patch.endRow = session.preview.endRow
       if (session.preview.startCol !== region.startCol) patch.startCol = session.preview.startCol

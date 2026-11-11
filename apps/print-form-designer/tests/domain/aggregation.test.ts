@@ -1,7 +1,7 @@
 // 聚合执行器测试：按声明序求值、多数据集形参注入、函数体（多语句 + return）求值、
 // 后序聚合经 agg 访问前序结果、未取数的数据集按空数组入参、错误带「聚合「名」」前缀；
 // 空数据试跑（probeAggregationType）：返回形态判定（array/value）、抛错与防御式写法引导。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import { probeAggregationType, runAggregations } from '../../src/domain/aggregation'
 import type { FormAggregation } from '../../src/shared/template-schema'
@@ -16,7 +16,7 @@ const LINES = [
   { no: 'B', qty: 5 },
 ]
 
-const rowsByDataset = new Map<string, (typeof ORDERS | typeof LINES)>([
+const rowsByDataset = new Map<string, typeof ORDERS | typeof LINES>([
   ['orders', ORDERS],
   ['lines', LINES],
 ])
@@ -43,7 +43,8 @@ describe('runAggregations', () => {
         name: 'byNo',
         type: 'value',
         params: [{ datasetId: 'lines', varName: 'l' }],
-        expression: 'const groups = {}\nfor (const r of l) (groups[r.no] ??= []).push(r)\nreturn groups',
+        expression:
+          'const groups = {}\nfor (const r of l) (groups[r.no] ??= []).push(r)\nreturn groups',
       },
     ]
     expect(runAggregations(aggregations, rowsByDataset)).toEqual({
@@ -116,7 +117,9 @@ describe('probeAggregationType（空数据试跑）', () => {
       ok: true,
       returns: 'value',
     })
-    expect(probeAggregationType([{ varName: 'l' }], 'return l.reduce((t, r) => t + r.qty, 0)')).toEqual({
+    expect(
+      probeAggregationType([{ varName: 'l' }], 'return l.reduce((t, r) => t + r.qty, 0)'),
+    ).toEqual({
       ok: true,
       returns: 'value',
     })
@@ -129,24 +132,17 @@ describe('probeAggregationType（空数据试跑）', () => {
 
   test('多入参按序注入空数组（形参名各自生效）', () => {
     expect(
-      probeAggregationType(
-        [
-          { varName: 'o' },
-          { varName: 'l' },
-        ],
-        'return o.length + l.length',
-      ),
+      probeAggregationType([{ varName: 'o' }, { varName: 'l' }], 'return o.length + l.length'),
     ).toEqual({ ok: true, returns: 'value' })
   })
 
   test('链式引用在空 agg 下抛错：ok false，原因带相位且引导防御式写法', () => {
     const probe = probeAggregationType([], "return agg.台账['x']")
     expect(probe).toMatchObject({ ok: false })
-    if (!probe.ok) {
-      expect(probe.error).toContain('求值失败')
-      expect(probe.error).toContain('防御式')
-      expect(probe.error).toContain("(agg.台账 ?? {})['x'] ?? 0")
-    }
+    if (probe.ok) throw new Error('应失败但成功')
+    expect(probe.error).toContain('求值失败')
+    expect(probe.error).toContain('防御式')
+    expect(probe.error).toContain("(agg.台账 ?? {})['x'] ?? 0")
   })
 
   test('防御式写法通过空数据试跑（链式引用不断链）', () => {
@@ -163,9 +159,8 @@ describe('probeAggregationType（空数据试跑）', () => {
   test('语法错误归类为编译失败（不带防御式引导）', () => {
     const probe = probeAggregationType([{ varName: 'l' }], 'return l.filter((')
     expect(probe).toMatchObject({ ok: false })
-    if (!probe.ok) {
-      expect(probe.error).toContain('编译失败')
-      expect(probe.error).not.toContain('防御式')
-    }
+    if (probe.ok) throw new Error('应失败但成功')
+    expect(probe.error).toContain('编译失败')
+    expect(probe.error).not.toContain('防御式')
   })
 })

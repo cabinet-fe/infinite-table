@@ -363,7 +363,15 @@ function buildSalesListTemplate(): FormTemplate {
       mergeFunction(doc, span(3, 0, 5), groupFn('customer'), centered, bold, bordered)
       putFunction(doc, cell(3, 6), regionFn('SUBTOTAL', '明细行'), centered, bold, bordered)
       paint(doc, cell(3, 7), [bordered])
-      putFunction(doc, cell(3, 8), regionFn('SUBTOTAL', '明细行'), rightAligned, bold, fixed2, bordered)
+      putFunction(
+        doc,
+        cell(3, 8),
+        regionFn('SUBTOTAL', '明细行'),
+        rightAligned,
+        bold,
+        fixed2,
+        bordered,
+      )
       // 合计行（垫底一条）：SUM 同列全量
       mergeText(doc, span(4, 0, 5), '合计', centered, bold, bordered)
       putFunction(doc, cell(4, 6), regionFn('SUM', '明细行'), centered, bold, bordered)
@@ -385,8 +393,7 @@ function buildCnReceiptTemplate(): FormTemplate {
    * 教学口径：单据头字段直接引用非数组聚合，不需要数据块——聚合引用绑定任意格可设，
    * 求值只看聚合环境、与所在数据块无关。
    */
-  const headerField = (path: string): FormCellBinding =>
-    aggField(ORDER_AGGREGATION.name, path)
+  const headerField = (path: string): FormCellBinding => aggField(ORDER_AGGREGATION.name, path)
   return buildTemplate(
     '销售出库单（中式单据）',
     [
@@ -767,43 +774,35 @@ function buildReshapeNestedTemplate(): FormTemplate {
 // 画布上，不绑任何数据源；打印预览不需要任何数据集。适合套打或手工填写的空白单据。
 // 去哪里看：数据块面板为空；预览/打印无需选数据集。
 function buildFixedLayoutTemplate(): FormTemplate {
-  return buildTemplate(
-    '示例 · 固定排版（空白领料单）',
-    [],
-    (doc) => {
-      // 单据头：标题 + 领料部门/日期/用途的手写留白
-      mergeText(doc, span(0, 0, 5), '领料单', centered, bold, { font: { size: 18 } })
-      putText(doc, cell(1, 0), '领料部门：', rightAligned)
-      mergeText(doc, span(1, 1, 2), '', bordered)
-      putText(doc, cell(1, 3), '领料日期：', rightAligned)
-      mergeText(doc, span(1, 4, 5), '', bordered)
-      putText(doc, cell(2, 0), '物料用途：', rightAligned)
-      mergeText(doc, span(2, 1, 5), '', bordered)
-      // 物料明细：列头 + 6 行空白手写行（只有样式与合并，没有任何值/绑定）
-      mergeText(doc, span(3, 0, 2), '物料名称', centered, bold, headerFill, bordered)
-      putText(doc, cell(3, 3), '单位', centered, bold, headerFill, bordered)
-      putText(doc, cell(3, 4), '数量', centered, bold, headerFill, bordered)
-      putText(doc, cell(3, 5), '用途', centered, bold, headerFill, bordered)
-      for (let row = 4; row <= 9; row++) {
-        mergeText(doc, span(row, 0, 2), '', bordered)
-        for (let col = 3; col <= 5; col++) paint(doc, cell(row, col), [bordered])
-      }
-      // 签字与备注：固定文字 + 手写留白
-      putText(doc, cell(10, 0), '领料人：', rightAligned)
-      paint(doc, cell(10, 1), [bordered])
-      putText(doc, cell(10, 2), '审批人：', rightAligned)
-      paint(doc, cell(10, 3), [bordered])
-      putText(doc, cell(10, 4), '仓管员：', rightAligned)
-      paint(doc, cell(10, 5), [bordered])
-      putText(doc, cell(11, 0), '备注：', rightAligned)
-      mergeText(doc, span(11, 1, 5), '', bordered)
-      geometry(
-        doc,
-        [40, 28, 28, 26, 26, 26, 26, 26, 26, 26, 30, 30],
-        [76, 60, 60, 46, 46, 90],
-      )
-    },
-  )
+  return buildTemplate('示例 · 固定排版（空白领料单）', [], (doc) => {
+    // 单据头：标题 + 领料部门/日期/用途的手写留白
+    mergeText(doc, span(0, 0, 5), '领料单', centered, bold, { font: { size: 18 } })
+    putText(doc, cell(1, 0), '领料部门：', rightAligned)
+    mergeText(doc, span(1, 1, 2), '', bordered)
+    putText(doc, cell(1, 3), '领料日期：', rightAligned)
+    mergeText(doc, span(1, 4, 5), '', bordered)
+    putText(doc, cell(2, 0), '物料用途：', rightAligned)
+    mergeText(doc, span(2, 1, 5), '', bordered)
+    // 物料明细：列头 + 6 行空白手写行（只有样式与合并，没有任何值/绑定）
+    mergeText(doc, span(3, 0, 2), '物料名称', centered, bold, headerFill, bordered)
+    putText(doc, cell(3, 3), '单位', centered, bold, headerFill, bordered)
+    putText(doc, cell(3, 4), '数量', centered, bold, headerFill, bordered)
+    putText(doc, cell(3, 5), '用途', centered, bold, headerFill, bordered)
+    for (let row = 4; row <= 9; row++) {
+      mergeText(doc, span(row, 0, 2), '', bordered)
+      for (let col = 3; col <= 5; col++) paint(doc, cell(row, col), [bordered])
+    }
+    // 签字与备注：固定文字 + 手写留白
+    putText(doc, cell(10, 0), '领料人：', rightAligned)
+    paint(doc, cell(10, 1), [bordered])
+    putText(doc, cell(10, 2), '审批人：', rightAligned)
+    paint(doc, cell(10, 3), [bordered])
+    putText(doc, cell(10, 4), '仓管员：', rightAligned)
+    paint(doc, cell(10, 5), [bordered])
+    putText(doc, cell(11, 0), '备注：', rightAligned)
+    mergeText(doc, span(11, 1, 5), '', bordered)
+    geometry(doc, [40, 28, 28, 26, 26, 26, 26, 26, 26, 26, 30, 30], [76, 60, 60, 46, 46, 90])
+  })
 }
 
 // ─── 示例 · 组头行与小计（按单据分组） ───────────────────────────────────────
@@ -844,8 +843,24 @@ function buildGroupHeaderTemplate(): FormTemplate {
         putText(doc, cell(1, col), text, centered, bold, headerFill, bordered),
       )
       // 组头行（每组一条）：绑定取组内第 1 条——单号 + 客户拼成组横条
-      mergeBinding(doc, span(2, 0, 1), itemField('order_no'), leftAligned, bold, headerFill, bordered)
-      mergeBinding(doc, span(2, 2, 3), itemField('customer'), leftAligned, bold, headerFill, bordered)
+      mergeBinding(
+        doc,
+        span(2, 0, 1),
+        itemField('order_no'),
+        leftAligned,
+        bold,
+        headerFill,
+        bordered,
+      )
+      mergeBinding(
+        doc,
+        span(2, 2, 3),
+        itemField('customer'),
+        leftAligned,
+        bold,
+        headerFill,
+        bordered,
+      )
       // 明细行：序号/品名/数量/金额（数量、金额列有小计/合计同列函数，字段可省）
       putBinding(doc, cell(3, 0), itemField('line_no'), centered, bordered)
       putBinding(doc, cell(3, 1), itemField('item_name'), leftAligned, bordered)

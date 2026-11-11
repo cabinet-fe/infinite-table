@@ -39,6 +39,7 @@ bun add infinitable @cat-kit/core
 | `CellStyle` / `CellBorder` / `CellBorderEdge` / `projectCellStyle` | 逐格样式、逐边边框与样式投影 | `apis/theme-style.md` |
 | `SelectionSnapshot` / `RangeBounds` / `normalizeRange` | 选区快照与归一化 | `apis/interaction-selection.md` |
 | `HighlightRange` / `FillDragEndEvent` | sky 浮层高亮区与填充柄拖拽结束事件 | `apis/interaction-selection.md` |
+| `ResizeEdge` / `cursorForEdge` / `floatHandleEdge` / `regionBoundsOf` / `regionHandleRect` / `hitRegionHandle` / `hitRegionEdge` / `resizeRegionRect` / `REGION_HANDLE_SIZE` / `REGION_HANDLE_SIZE_ACTIVE` / `REGION_HANDLE_INSET` / `REGION_EDGE_HIT_PX`（+ 类型 `RegionRect` / `RegionHitTarget` / `CellRectSource`） | 区域交互几何：8 方向边词汇与方向光标、浮层缩放手柄→边换算、格区间区域包围盒/右下角手柄/边缘热区命中与拖拽落点应用（纯函数；自 print-form-designer 下沉，方向语义与 FloatObjectLayer 变换手柄单源） | `apis/region-interaction.md` |
 | `EditorRegistry` | 编辑器注册表与格级路由 | `apis/editing.md` |
 | `CellRenderer` | 自定义单元格渲染器（`resolveCellRenderer` hook） | `apis/cell-rendering.md` |
 | `CellRange` / `normalizeCellRange` / `sanitizeMerges` / `MergeCellMap` / `MergeOverlapError` | 合并单元格区间模型与重叠消解（`sanitizeMerges` 纯函数 + `MergeOverlapError` 类型化报错 + `warnMergeConflicts` 提示工具；`MergeConflict`/`SanitizedMerges` 类型同行） | `apis/cell-rendering.md` |

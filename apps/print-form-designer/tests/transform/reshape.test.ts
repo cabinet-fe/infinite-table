@@ -1,5 +1,5 @@
 // P7 转换器口径：扁平行 → 嵌套对象、嵌套二级数组构造/取数、分组聚合、重复调用同输入同输出、错误相位。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import {
   reshapeRows,
   TransformError,
@@ -151,17 +151,23 @@ describe('数据重塑转换器', () => {
   })
 
   test('错误相位：空/语法错误为编译期，求值抛错为求值期', () => {
-    const capture = (expression: string, rows: SourceRow[]): TransformError => {
+    // 捕获器只抓错（应抛未抛时炸出），类型断言与相位断言平铺在外
+    const capture = (expression: string, rows: SourceRow[]): unknown => {
       try {
         reshape({ expression }, rows)
       } catch (error) {
-        expect(error).toBeInstanceOf(TransformError)
-        return error as TransformError
+        return error
       }
-      throw new Error('预期抛出 TransformError')
+      throw new Error('应抛错但未抛')
     }
-    expect(capture('   ', []).phase).toBe('compile')
-    expect(capture('rows..', []).phase).toBe('compile')
-    expect(capture('rows[0].nope.deep', [{ id: 1 }]).phase).toBe('runtime')
+    const empty = capture('   ', [])
+    expect(empty).toBeInstanceOf(TransformError)
+    expect((empty as TransformError).phase).toBe('compile')
+    const syntax = capture('rows..', [])
+    expect(syntax).toBeInstanceOf(TransformError)
+    expect((syntax as TransformError).phase).toBe('compile')
+    const runtime = capture('rows[0].nope.deep', [{ id: 1 }])
+    expect(runtime).toBeInstanceOf(TransformError)
+    expect((runtime as TransformError).phase).toBe('runtime')
   })
 })

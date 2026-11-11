@@ -2,7 +2,7 @@
 // 取值（resolveItemValue，含相对路径禁 [] 口径）、数据集形态入口缺省口径、
 // 绑定树（嵌套二级数组节点）、绑定/函数 sidecar 随模板 JSON round-trip 不丢。
 // 绝对绑定与单元格聚合已删除（由 cell-function.test.ts 覆盖函数体系）。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import {
   buildBindingTree,

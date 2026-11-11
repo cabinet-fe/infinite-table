@@ -1,8 +1,9 @@
+// @vitest-environment happy-dom
 // 打印输出测试（v4）：PrintSource 适配（数据态快照 → print 插件供数）、同一数据集
 // 多表达式形态口径、数据块/聚合取数并集、聚合作数据源与函数求值进打印产物、明细跨页
 // 自动分页、弹框配置不落模板、预览与打印同输入同输出（一致性）。打印输出路径
-// （iframe 装载）需要 DOM，由 testing/dom 统一挂载。
-import { describe, expect, test } from 'bun:test'
+// （iframe 装载）需要 DOM，由环境注释挂载（打印管线不触 canvas，无需 2d 桩）。
+import { describe, expect, test } from 'vitest'
 import { BORDER_STYLE_WIDTH, Sheet } from '@infinitable/sheet'
 
 import type { SourceRow } from '../../src/transform/reshape'
@@ -12,16 +13,17 @@ import {
   toPrintConfig,
   type DialogPrintSettings,
 } from '../../src/designer/PrintDialog'
-import { collectDatasetIds, collectRegionSources, preparePrintSession } from '../../src/designer/print-source'
+import {
+  collectDatasetIds,
+  collectRegionSources,
+  preparePrintSession,
+} from '../../src/designer/print-source'
 import {
   TEMPLATE_SCHEMA_VERSION,
   type FormTemplate,
   type RegionSource,
 } from '../../src/shared/template-schema'
-import { domWindow, setupDom } from './testing/dom'
 import { ADDR, relativeBinding } from './testing/fixtures'
-
-setupDom()
 
 /** 明细数据集的数据块源：原始行数组即循环源（列表样口径） */
 const DETAIL_SOURCE: RegionSource = { kind: 'dataset', datasetId: 'ds1', path: '' }
@@ -94,7 +96,11 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     )
     doc.setCellBinding(ADDR(0, 0), relativeBinding('name'))
     doc.setCellBinding(ADDR(0, 1), relativeBinding('rate'))
-    const session = preparePrintSession(doc, new Map([['ds1', [{ name: '甲', rate: 3.14159 }]]]), 't')
+    const session = preparePrintSession(
+      doc,
+      new Map([['ds1', [{ name: '甲', rate: 3.14159 }]]]),
+      't',
+    )
     const html = session.previewHtml({})
     expect(html).toContain('甲')
     // 显示值经 numFmt 固定两位小数（打印 HTML 内为转义文本）
@@ -152,12 +158,24 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     // 明细格只有相对字段（不带 datasetId），唯一的数据集引用来自数据块 source
     doc.setCellBinding(ADDR(2, 0), relativeBinding('name'))
     doc.setAggregations([
-      { name: 'n', type: 'value', params: [{ datasetId: 'ds2', varName: 'r' }], expression: 'return r.length' },
+      {
+        name: 'n',
+        type: 'value',
+        params: [{ datasetId: 'ds2', varName: 'r' }],
+        expression: 'return r.length',
+      },
     ])
     expect(collectDatasetIds(doc)).toEqual(['ds1', 'ds2'])
     expect(collectRegionSources(doc)).toEqual([DETAIL_SOURCE])
     // 若数据块 source 不进形态集合，这里会一行明细都取不到
-    const html = preparePrintSession(doc, new Map([['ds1', itemRows(2)], ['ds2', itemRows(3)]]), 't').previewHtml({})
+    const html = preparePrintSession(
+      doc,
+      new Map([
+        ['ds1', itemRows(2)],
+        ['ds2', itemRows(3)],
+      ]),
+      't',
+    ).previewHtml({})
     expect(html).toContain('货品1')
     expect(html).toContain('货品2')
   })
@@ -178,7 +196,10 @@ describe('PrintSource 适配（数据态快照 → print 插件供数）', () =>
     doc.setCellBinding(ADDR(0, 0), relativeBinding('qty'))
     // 数据块外函数引用聚合结果
     doc.setCellFunction(ADDR(3, 0), { expression: "agg.first['label']" })
-    const rows = new Map([['ds1', itemRows(1)], ['ds2', [{ label: '首单', items: [{ qty: 7 }] }]]])
+    const rows = new Map([
+      ['ds1', itemRows(1)],
+      ['ds2', [{ label: '首单', items: [{ qty: 7 }] }]],
+    ])
     const html = preparePrintSession(doc, rows, 't').previewHtml({})
     expect(html).toContain('>7<')
     expect(html).toContain('首单')
@@ -253,10 +274,7 @@ describe('展开区跨页自动分页', () => {
       [2, 5],
     ])
     // 页面构建产物：每页只含本组明细（分组列值与明细值都不越页）
-    const parsed = new domWindow.DOMParser().parseFromString(
-      session.previewHtml(config),
-      'text/html',
-    )
+    const parsed = new DOMParser().parseFromString(session.previewHtml(config), 'text/html')
     const pageEls = parsed.querySelectorAll('.print-page')
     expect(pageEls.length).toBe(2)
     expect(pageEls[0]!.textContent).toContain('单A')

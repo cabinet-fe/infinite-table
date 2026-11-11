@@ -56,7 +56,9 @@ export function BindingTargetBar({
   clearLabel: string
 }) {
   if (!addr) {
-    return <p className="binding-target empty">在画布上点选一个单元格，即可为它绑定字段或设置函数。</p>
+    return (
+      <p className="binding-target empty">在画布上点选一个单元格，即可为它绑定字段或设置函数。</p>
+    )
   }
   return (
     <div className="binding-target">
@@ -108,7 +110,7 @@ export function BindingFieldChips({
   if (fields.length === 0) return <p className="hint">循环条目里没有可绑定的字段。</p>
   return (
     <div className="binding-fields">
-        <span className="field-label">点一个字段即绑定</span>
+      <span className="field-label">点一个字段即绑定</span>
       <div className="field-chips">
         {fields.map(({ key, sample }) => {
           const kind = fieldKindOf(sample)

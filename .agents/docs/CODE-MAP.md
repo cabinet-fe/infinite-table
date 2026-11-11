@@ -27,7 +27,7 @@ infinitable/
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
 | render | `packages/render` | 通用 canvas 渲染工具包：场景树、分层 canvas、多 region 失效（档名去表格语义、各层消费策略建层参数化）、federated 事件、路径原语与内建图元节点（矩形/文本/路径/图片；命令式路径助手 dashedLine/roundRectPath 供无 setLineDash/roundRect 的 RenderContext 消费者使用）、paintTree/hitTest/region 工具导出 | `src/index.ts` |
-| grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、主题投影；仅依赖 render | `src/index.ts` |
+| grid | `packages/grid` | 共享网格内核（自 core 拆出的通用网格机器纯搬运）：ScrollManager（唯一滚动源）、行列前缀和/虚拟窗口/二分命中、滚动条几何、触控惯性、共享边、cell-range、选区状态、float-object-layer、区域交互几何（interaction/：8 方向 resize 几何单源 + 格区间区域的右下角手柄/边缘拖拽命中与应用）、主题投影；仅依赖 render | `src/index.ts` |
 | protocol | `packages/protocol` | 引擎装配协议契约包（纯类型、零运行时）：EngineAssembly 中立本体、EngineReadView 可选导出读取面、EnginePlugin 插件契约（协议插件/领域面插件/注册表插件三分类判据见 plugin.ts 头注）、UnderlayPainter/OverlayPainter/CellChangeEvent 槽位与事件词汇；仅依赖 grid 与 render 的类型——协议类型只有一个家，不消费 TableEngine 的引擎与协议插件无需依赖具体引擎包 | `src/index.ts` |
 | table | `packages/table` | ListTable 引擎（core 领域代码原样搬运）：ListTable 主体与装配、溢出走廊、填充柄、表头装配、取值三形态、编辑链路、交互、图片/图表媒体、插件注册路径；依赖 grid、render 与 protocol（实现中立本体 EngineAssembly，承载表格领域面 TableEngine 供 SheetGrid/PivotGrid 等适配层消费） | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate、49 内置函数注册表（全局 + 实例函数集覆盖集）、依赖图与容错引用扫描 | `src/index.ts` |
@@ -45,7 +45,7 @@ infinitable/
 
 ### grid — `packages/grid/src`
 
-- 自 core 纯搬运的通用网格机器：滚动 `scroll-manager.ts`（唯一滚动源）、`touch-scroll.ts`、画布内建滚动条 `scrollbar.ts`；几何 `grid-layout.ts`（前缀和/虚拟窗口/二分命中）、`shared-edges.ts`、cell-range；选区状态 `selection.ts`；浮动 `float/float-object-layer.ts`；主题投影 `theme.ts`
+- 自 core 纯搬运的通用网格机器：滚动 `scroll-manager.ts`（唯一滚动源）、`touch-scroll.ts`、画布内建滚动条 `scrollbar.ts`；几何 `grid-layout.ts`（前缀和/虚拟窗口/二分命中）、`shared-edges.ts`、cell-range；选区状态 `selection.ts`；浮动 `float/float-object-layer.ts`；区域交互 `interaction/`（`resize-geometry.ts` 8 方向边/轴向符号/光标/手柄方块命中单源，`region-interaction.ts` 格区间区域包围盒、右下角手柄与边缘拖拽命中/应用——与浮层变换手柄共用方向词汇，print-form-designer 数据块交互消费）；主题投影 `theme.ts`
 
 ### table — `packages/table/src`
 
@@ -120,6 +120,7 @@ graph TD
     playground --> plugins
     playground --> pivot
     playground --> sheet
+    print-form-designer --> grid
     print-form-designer --> formulas
     print-form-designer --> sheet
     print-form-designer --> plugins

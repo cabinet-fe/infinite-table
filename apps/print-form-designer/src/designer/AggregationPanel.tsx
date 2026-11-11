@@ -114,8 +114,7 @@ export function AggregationPanel({ doc }: Props) {
   const [runError, setRunError] = useState('')
   const [copiedRef, setCopiedRef] = useState('')
 
-  const selected =
-    doc.aggregations.find((agg) => agg.name === selectedName) ?? doc.aggregations[0]
+  const selected = doc.aggregations.find((agg) => agg.name === selectedName) ?? doc.aggregations[0]
 
   useEffect(() => {
     api
@@ -205,7 +204,9 @@ export function AggregationPanel({ doc }: Props) {
       return
     }
     commit(
-      doc.aggregations.map((agg) => (agg.name === selected.name ? { ...agg, expression: next } : agg)),
+      doc.aggregations.map((agg) =>
+        agg.name === selected.name ? { ...agg, expression: next } : agg,
+      ),
     )
     setError('')
   }
@@ -450,7 +451,10 @@ export function AggregationPanel({ doc }: Props) {
                       agg.name === selected.name
                         ? {
                             ...agg,
-                            params: [...agg.params, { datasetId: dataset.id, varName: `rows${index}` }],
+                            params: [
+                              ...agg.params,
+                              { datasetId: dataset.id, varName: `rows${index}` },
+                            ],
                           }
                         : agg,
                     ),
@@ -473,7 +477,9 @@ export function AggregationPanel({ doc }: Props) {
               </InfoBubble>
             </span>
             {/* 外壳签名固定展示（形参随入参实时派生），textarea 只放函数体 */}
-            <div className="mono meta">function ({[...selected.params.map((p) => p.varName), 'agg'].join(', ')}) {'{'}</div>
+            <div className="mono meta">
+              function ({[...selected.params.map((p) => p.varName), 'agg'].join(', ')}) {'{'}
+            </div>
             <textarea
               className="mono"
               rows={5}
@@ -501,15 +507,15 @@ export function AggregationPanel({ doc }: Props) {
             <button type="button" className="primary" onClick={runTest}>
               试运行（真实取数）
             </button>
-            {runResult ? <span className="meta">agg 共 {Object.keys(runResult).length} 个变量</span> : null}
+            {runResult ? (
+              <span className="meta">agg 共 {Object.keys(runResult).length} 个变量</span>
+            ) : null}
           </div>
 
           {runError ? <p className="status error">{runError}</p> : null}
           {runResult && selected ? (
             <div className="agg-run-result">
-              <span className="field-label">
-                结果（点任意节点复制引用，粘贴到单元格函数里用）
-              </span>
+              <span className="field-label">结果（点任意节点复制引用，粘贴到单元格函数里用）</span>
               <AggResultTree
                 rootRef={`agg.${selected.name}`}
                 value={selectedResult}

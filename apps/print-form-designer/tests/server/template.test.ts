@@ -1,7 +1,7 @@
 // P5 模板持久化：REST CRUD 行为、保存→加载→再保存 round-trip 等价（含数据块数据源/
 // 数据块名/格样式/合并/行高列宽/绑定 sidecar 与 v6 聚合类型）、模板 JSON 键集守护
 // （四键、不含打印弹框配置），以及请求体形状校验（版本不符直接 400，不做字段清洗与迁移）。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import { FormDoc } from '../../src/domain/form-doc'
 import { TEMPLATE_SCHEMA_VERSION, type FormTemplate } from '../../src/shared/template-schema'

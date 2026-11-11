@@ -11,7 +11,7 @@ import {
   type FormTemplate,
 } from '../shared/template-schema'
 
-export const DEFAULT_DB_PATH = resolve(import.meta.dir, '../../data/print-form-designer.sqlite')
+export const DEFAULT_DB_PATH = resolve(import.meta.dirname, '../../data/print-form-designer.sqlite')
 
 export function resolveDbPath(): string {
   return process.env.PRINT_FORM_DB ?? DEFAULT_DB_PATH

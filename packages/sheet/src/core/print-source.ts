@@ -65,8 +65,7 @@ export function createSnapshotPrintSource(snapshot: SheetSnapshot, name: string)
     },
     rowHeight: (row) =>
       sheet.getRowHeight(row) ?? sheet.defaultRowHeight ?? SHEET_DEFAULT_ROW_HEIGHT,
-    colWidth: (col) =>
-      sheet.getColWidth(col) ?? sheet.defaultColWidth ?? SHEET_DEFAULT_COL_WIDTH,
+    colWidth: (col) => sheet.getColWidth(col) ?? sheet.defaultColWidth ?? SHEET_DEFAULT_COL_WIDTH,
     merges: () =>
       sheet.merges.getMerges().map((range) => ({
         startRow: range.start.row,

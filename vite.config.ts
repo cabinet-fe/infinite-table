@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite-plus'
 
 // vite-plus 统一配置：oxfmt + oxlint + vitest 全部收敛在仓库根
@@ -41,7 +42,19 @@ export default defineConfig({
       'packages/*/tests/**/*.test.ts',
       'playground/src/bench/*.test.ts',
       'playground/src/app/*.test.ts',
+      'apps/print-form-designer/tests/**/*.test.ts',
     ],
+    // print-form-designer 服务端双运行时：生产 dev:server 在 Bun 下走真 bun:sqlite，
+    // vitest 在 node 下运行时适配到 node:sqlite shim（仅测试运行时改写；类型仍走
+    // app 自己的 @types/bun，不经此 alias）
+    alias: {
+      'bun:sqlite': fileURLToPath(
+        new URL(
+          './apps/print-form-designer/tests/server/testing/bun-sqlite-shim.ts',
+          import.meta.url,
+        ),
+      ),
+    },
     // 默认 node 环境；需要 DOM 的测试文件在文件头加 // @vitest-environment happy-dom
     // （happy-dom 比 jsdom 快，避免全量默认挂 DOM）
     environment: 'node',

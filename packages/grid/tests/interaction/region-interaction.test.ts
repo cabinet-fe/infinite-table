@@ -1,25 +1,24 @@
-// 数据块交互几何测试：手柄命中、边缘/角落命中与热区、拖拽应用（start ≤ end 恒成立）。
+// 区域交互几何测试：手柄命中、边缘/角落命中与热区、拖拽应用（start ≤ end 恒成立）。
 // 纯函数，不挂 DOM——命中口径与拖拽口径在这里锁死。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import {
   REGION_HANDLE_INSET,
   REGION_HANDLE_SIZE,
   REGION_HANDLE_SIZE_ACTIVE,
-  cursorForEdge,
   hitRegionEdge,
   hitRegionHandle,
   regionBoundsOf,
   regionHandleRect,
   resizeRegionRect,
   type RegionHitTarget,
-} from '../../src/designer/region-interaction'
+} from '../../src/interaction/region-interaction'
 
-/** 100×50 的数据块矩形（左上 20,10） */
+/** 100×50 的区域矩形（左上 20,10） */
 const BOUNDS = { x: 20, y: 10, width: 100, height: 50 }
 const TARGETS: RegionHitTarget[] = [{ index: 3, bounds: BOUNDS }]
 
-describe('数据块包围盒与手柄矩形', () => {
+describe('区域包围盒与手柄矩形', () => {
   test('四角格取并集（任一角不可见 → null）', () => {
     const table = {
       getCellRelativeRect: (col: number, row: number) =>
@@ -29,7 +28,9 @@ describe('数据块包围盒与手柄矩形', () => {
             ? { x: 80, y: 40, width: 40, height: 20 }
             : null,
     }
-    expect(regionBoundsOf(table, { startRow: 0, endRow: 1, startCol: 0, endCol: 2 })).toEqual(BOUNDS)
+    expect(regionBoundsOf(table, { startRow: 0, endRow: 1, startCol: 0, endCol: 2 })).toEqual(
+      BOUNDS,
+    )
     expect(regionBoundsOf(table, { startRow: 0, endRow: 5, startCol: 0, endCol: 2 })).toBeNull()
   })
 
@@ -43,7 +44,7 @@ describe('数据块包围盒与手柄矩形', () => {
     })
   })
 
-  test('悬停放大向内扩（右/下内缩不变，不越出数据块）', () => {
+  test('悬停放大向内扩（右/下内缩不变，不越出区域）', () => {
     const handle = regionHandleRect(BOUNDS, REGION_HANDLE_SIZE_ACTIVE)
     expect(handle).toEqual({
       x: 120 - REGION_HANDLE_INSET - REGION_HANDLE_SIZE_ACTIVE,
@@ -62,7 +63,7 @@ describe('手柄命中', () => {
   })
 
   test('右下角点、中心与其它角落不命中', () => {
-    // 角点 (120,60) 是选区填充柄的位置，数据块手柄已内缩让位
+    // 角点 (120,60) 是选区填充柄的位置，区域手柄已内缩让位
     expect(hitRegionHandle(TARGETS, 120, 60)).toBeUndefined()
     expect(hitRegionHandle(TARGETS, 70, 35)).toBeUndefined()
     expect(hitRegionHandle(TARGETS, 20, 10)).toBeUndefined()
@@ -87,15 +88,8 @@ describe('边缘/角落命中', () => {
     expect(hitRegionEdge(TARGETS, 130, 35)).toBeUndefined()
   })
 
-  test('数据块内部不命中（离边超过热区）', () => {
+  test('区域内部不命中（离边超过热区）', () => {
     expect(hitRegionEdge(TARGETS, 70, 30)).toBeUndefined()
-  })
-
-  test('边 → 指针样式', () => {
-    expect(cursorForEdge('left')).toBe('ew-resize')
-    expect(cursorForEdge('top')).toBe('ns-resize')
-    expect(cursorForEdge('top-left')).toBe('nwse-resize')
-    expect(cursorForEdge('top-right')).toBe('nesw-resize')
   })
 })
 

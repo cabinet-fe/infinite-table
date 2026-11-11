@@ -20,8 +20,10 @@ import {
   resolveFocusRange,
 } from './fill-handle'
 import {
+  cursorForEdge,
   findColAt,
   findRowAt,
+  floatHandleEdge,
   resolveCellX,
   resolveCellYFromOffsets,
   spanHeight,
@@ -85,17 +87,13 @@ const FILL_EDGE_STEP = 24
 /** resize 手柄光标：列缘横向 col-resize、行缘纵向 row-resize（与 Excel / 浏览器列宽拖拽同口径） */
 const RESIZE_CURSOR = { col: 'col-resize', row: 'row-resize' } as const
 
-/** 浮动对象变换手柄光标：对角 nwse/nesw、边中点 ns/ew、旋转手柄 grab（与主流编辑器同口径） */
-const TRANSFORM_CURSOR: Record<FloatTransformHandle, string> = {
-  'left-top': 'nwse-resize',
-  'center-top': 'ns-resize',
-  'right-top': 'nesw-resize',
-  'left-middle': 'ew-resize',
-  'right-middle': 'ew-resize',
-  'left-bottom': 'nesw-resize',
-  'center-bottom': 'ns-resize',
-  'right-bottom': 'nwse-resize',
-  rotate: 'grab',
+/**
+ * 浮动对象变换手柄光标：对角 nwse/nesw、边中点 ns/ew、旋转手柄 grab。
+ * 方向 → 光标单源于 grid 的 resize 几何（cursorForEdge），手柄名经 floatHandleEdge
+ * 换算到 8 方向边——本包不再持有第二份方向光标真值表。
+ */
+function transformHandleCursor(handle: FloatTransformHandle): string {
+  return handle === 'rotate' ? 'grab' : cursorForEdge(floatHandleEdge(handle))
 }
 
 /**
@@ -1042,7 +1040,7 @@ function updatePointerCursor(table: ListTable, event: SceneEvent): void {
   if (floats) {
     const handle = floats.handleAt(x, y)
     if (handle) {
-      table.setContainerCursor(TRANSFORM_CURSOR[handle])
+      table.setContainerCursor(transformHandleCursor(handle))
       return
     }
   }

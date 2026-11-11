@@ -3,7 +3,7 @@
 // 结果收敛（非原始类型不进格）与错误分类。结构化载荷（FormCellFunction 的 fn 形态）
 // 经 cellFunctionExpression 合成等价表达式后走同一条求值管线；旧表达式载荷的
 // 嗅探转换（可迁移 → fn / 不可迁移 → expr）在这里验证语义等价。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import {
   CELL_FUNCTION_CATALOG,
@@ -22,6 +22,16 @@ import {
 } from '../../src/shared/template-schema'
 import { ExprError } from '../../src/transform/expr'
 import { ADDR } from './testing/fixtures'
+
+/** 捕获 action 抛出的错误（应抛未抛时炸出，expect 平铺在外，不做条件断言） */
+const thrownOf = (action: () => unknown): unknown => {
+  try {
+    action()
+  } catch (error) {
+    return error
+  }
+  throw new Error('应抛错但未抛')
+}
 
 const ITEMS = [
   { customer: '甲', qty: 2, price: 120 },
@@ -358,21 +368,15 @@ describe('参数校验与错误分类', () => {
 
   test('语法错误分类为 compile，运行期错误分类为 runtime', () => {
     expect(() => evaluateCellFunction('1 +', env())).toThrow(ExprError)
-    try {
-      evaluateCellFunction('1 +', env())
-    } catch (error) {
-      expect((error as ExprError).phase).toBe('compile')
-    }
+    const compileError = thrownOf(() => evaluateCellFunction('1 +', env())) as ExprError
+    expect(compileError.phase).toBe('compile')
     try {
       evaluateCellFunction('item.x.y.z', env({ item: {} }))
       // item 为空对象时 undefined 下探不抛错——换真抛错的表达式
     } catch {
       // 不应进入
     }
-    try {
-      evaluateCellFunction('null.x', env())
-    } catch (error) {
-      expect((error as ExprError).phase).toBe('runtime')
-    }
+    const runtimeError = thrownOf(() => evaluateCellFunction('null.x', env())) as ExprError
+    expect(runtimeError.phase).toBe('runtime')
   })
 })

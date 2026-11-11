@@ -27,6 +27,10 @@ for (const file of changed) {
     scopes.add(`packages/${pkg}`)
   } else if (file.startsWith('playground/')) {
     scopes.add('playground')
+  } else if (file.startsWith('apps/')) {
+    // 应用测试已入根 vitest 范围（vite.config.ts test.include），按应用目录收敛增量
+    const app = file.match(/^apps\/([^/]+)\//)?.[1]
+    if (app) scopes.add(`apps/${app}`)
   } else if (
     /\.(md|mdx)$/.test(file) ||
     file.startsWith('.agents/') ||

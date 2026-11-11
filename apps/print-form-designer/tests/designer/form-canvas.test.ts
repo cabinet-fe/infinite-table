@@ -1,13 +1,14 @@
+// @vitest-environment happy-dom
 // B1/B2 画布级回归：快照级静默 restore（行高列宽撤销、波段平移改写合并）后
-// 引擎几何/合并随模型还原的断言。DOM 面与 canvas 2d 桩由 testing/dom 统一挂载。
-import { describe, expect, test } from 'bun:test'
+// 引擎几何/合并随模型还原的断言。DOM 面由环境注释挂载，canvas 2d 桩由 testing/canvas-mock 补。
+import { describe, expect, test } from 'vitest'
 import type { SheetGrid } from '@infinitable/sheet'
 import { FormDoc } from '../../src/domain/form-doc'
 import { mountFormCanvas } from '../../src/designer/form-canvas'
-import { setupDom } from './testing/dom'
+import { setupCanvasMock } from './testing/canvas-mock'
 import { RANGE } from './testing/fixtures'
 
-setupDom()
+setupCanvasMock()
 
 /** 引擎读取面：协议面 + 合并区读取（getMergeRanges 未收敛进 TableEngine 协议面，按实现窄化） */
 type EngineView = ReturnType<SheetGrid['getTable']> & {

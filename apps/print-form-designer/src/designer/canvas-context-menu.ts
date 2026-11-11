@@ -26,9 +26,12 @@ export interface CanvasContextMenuActions {
 }
 
 /** 选区 → 规范矩形（start ≤ end 的闭区间口径） */
-export function selectionRect(
-  range: CellRange,
-): { startRow: number; endRow: number; startCol: number; endCol: number } {
+export function selectionRect(range: CellRange): {
+  startRow: number
+  endRow: number
+  startCol: number
+  endCol: number
+} {
   return {
     startRow: Math.min(range.start.row, range.end.row),
     endRow: Math.max(range.start.row, range.end.row),
@@ -38,10 +41,7 @@ export function selectionRect(
 }
 
 /** 「设置为数据块」的禁用原因：无选区 / 与已有数据块重叠 / 含相对绑定字段的单元格 */
-function createRegionBlockedReason(
-  doc: FormDoc,
-  range: CellRange | null,
-): string | undefined {
+function createRegionBlockedReason(doc: FormDoc, range: CellRange | null): string | undefined {
   if (!range) {
     return '先在画布上框选一块范围（数据块只为绑数据集或数组型聚合而存在；固定文字直接写在格子里）'
   }
@@ -95,9 +95,7 @@ export function buildCanvasContextMenu(
   if (info.kind === 'row-header') {
     const row = info.row
     if (row === undefined) return []
-    const index = doc.regions.findIndex(
-      (region) => row >= region.startRow && row <= region.endRow,
-    )
+    const index = doc.regions.findIndex((region) => row >= region.startRow && row <= region.endRow)
     const region = doc.regions[index]
     if (!region) return []
     return REGION_ROW_ROLES.map((role, roleIndex) => {
@@ -110,8 +108,7 @@ export function buildCanvasContextMenu(
       ) {
         disabledReason = '先在数据块设置的「分组」页配置分组字段'
       }
-      const current =
-        region.rowRoles?.find((entry) => entry.row === row)?.role ?? 'detail'
+      const current = region.rowRoles?.find((entry) => entry.row === row)?.role ?? 'detail'
       return {
         key: `role-${role.value}`,
         label: `设为${role.label}`,
@@ -140,11 +137,7 @@ export function buildCanvasContextMenu(
   items.push({
     key: 'resize-region',
     label: '把数据块调整为选区大小',
-    disabledReason: !region
-      ? '落点不在任何数据块内'
-      : !rect
-        ? '先在画布上框选目标范围'
-        : undefined,
+    disabledReason: !region ? '落点不在任何数据块内' : !rect ? '先在画布上框选目标范围' : undefined,
     onSelect: () => regionIndex >= 0 && actions.resizeRegionToSelection(regionIndex),
   })
   if (region) {

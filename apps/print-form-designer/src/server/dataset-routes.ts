@@ -151,13 +151,9 @@ export function mountDatasetRoutes(app: Hono, db: Database): void {
     const fields = body.fields
       ? normalizeFields(body.fields)
       : (JSON.parse(existing.fields) as DatasetField[])
-    db.query('UPDATE dataset SET name = ?, datasource_id = ?, sql = ?, fields = ? WHERE id = ?').run(
-      body.name,
-      body.datasource_id,
-      body.sql,
-      JSON.stringify(fields),
-      id,
-    )
+    db.query(
+      'UPDATE dataset SET name = ?, datasource_id = ?, sql = ?, fields = ? WHERE id = ?',
+    ).run(body.name, body.datasource_id, body.sql, JSON.stringify(fields), id)
     return c.json({
       id,
       datasource_id: body.datasource_id,
@@ -196,9 +192,11 @@ export function mountDatasetRoutes(app: Hono, db: Database): void {
       const result = await executeDatasetSql(db, dataset)
       return c.json({
         fields: result.columns,
-        sample: result.rows.slice(0, FIELD_SAMPLE_ROWS).map((row) =>
-          Object.fromEntries(result.columns.map((column, index) => [column, row[index]])),
-        ),
+        sample: result.rows
+          .slice(0, FIELD_SAMPLE_ROWS)
+          .map((row) =>
+            Object.fromEntries(result.columns.map((column, index) => [column, row[index]])),
+          ),
       })
     } catch (error) {
       return c.json({ message: (error as Error).message }, 422)

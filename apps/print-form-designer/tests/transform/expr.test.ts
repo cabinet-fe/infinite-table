@@ -1,7 +1,7 @@
 // 通用受限求值管线（expr.ts）测试：单表达式与函数体两种形态的形参白名单注入、
 // 严格模式、入参按引用共享（只读约定）、错误分类（compile/runtime）与 what 前缀。
 // reshape/aggregation/cell-function 三方共用本管线，各自的行为测试在对应文件。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import {
   compileExpr,
@@ -10,6 +10,16 @@ import {
   evaluateFunctionBody,
   ExprError,
 } from '../../src/transform/expr'
+
+/** 捕获 action 抛出的错误（应抛未抛时炸出，expect 平铺在外，不做条件断言） */
+const thrownOf = (action: () => unknown): unknown => {
+  try {
+    action()
+  } catch (error) {
+    return error
+  }
+  throw new Error('应抛错但未抛')
+}
 
 describe('compileExpr（单表达式）', () => {
   test('形参与 new Function 声明一一对应，构造期即暴露语法错误', () => {
@@ -37,20 +47,14 @@ describe('compileFunctionBody（函数体）', () => {
 describe('evaluateExpr（单表达式）', () => {
   test('多形参求值 + what 前缀错误消息', () => {
     expect(evaluateExpr('测试', ['x', 'y'], [2, 3], 'x * y')).toBe(6)
-    try {
-      evaluateExpr('测试', ['x'], [1], 'x.')
-      expect.unreachable()
-    } catch (error) {
-      expect((error as ExprError).phase).toBe('compile')
-      expect((error as Error).message).toContain('测试编译失败')
-    }
-    try {
-      evaluateExpr('测试', ['x'], [{} as never], 'x.a.b.c')
-      expect.unreachable()
-    } catch (error) {
-      expect((error as ExprError).phase).toBe('runtime')
-      expect((error as Error).message).toContain('测试求值失败')
-    }
+    const compileError = thrownOf(() => evaluateExpr('测试', ['x'], [1], 'x.')) as ExprError
+    expect(compileError.phase).toBe('compile')
+    expect(compileError.message).toContain('测试编译失败')
+    const runtimeError = thrownOf(() =>
+      evaluateExpr('测试', ['x'], [{} as never], 'x.a.b.c'),
+    ) as ExprError
+    expect(runtimeError.phase).toBe('runtime')
+    expect(runtimeError.message).toContain('测试求值失败')
   })
 
   test('严格模式：未声明赋值直接抛错', () => {
@@ -70,19 +74,15 @@ describe('evaluateFunctionBody（函数体）', () => {
     expect(
       evaluateFunctionBody('测试', ['rows'], [[1, 2, 3]], 'const n = rows.length\nreturn n * 2'),
     ).toBe(6)
-    try {
-      evaluateFunctionBody('测试', [], [], 'return (')
-      expect.unreachable()
-    } catch (error) {
-      expect((error as ExprError).phase).toBe('compile')
-      expect((error as Error).message).toContain('测试编译失败')
-    }
-    try {
-      evaluateFunctionBody('测试', [], [], 'return null.x')
-      expect.unreachable()
-    } catch (error) {
-      expect((error as ExprError).phase).toBe('runtime')
-      expect((error as Error).message).toContain('测试求值失败')
-    }
+    const compileError = thrownOf(() =>
+      evaluateFunctionBody('测试', [], [], 'return ('),
+    ) as ExprError
+    expect(compileError.phase).toBe('compile')
+    expect(compileError.message).toContain('测试编译失败')
+    const runtimeError = thrownOf(() =>
+      evaluateFunctionBody('测试', [], [], 'return null.x'),
+    ) as ExprError
+    expect(runtimeError.phase).toBe('runtime')
+    expect(runtimeError.message).toContain('测试求值失败')
   })
 })

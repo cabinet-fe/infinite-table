@@ -2,7 +2,7 @@
 // QueryResult → 原始行的转换口径、错误传播与「结算后出表」的重取语义。
 // api 层（data/api.ts 的 request）最终走全局 fetch——测试打桩 globalThis.fetch，
 // 不碰模块注册表；由此连带锁住 api 层的错误文案口径（message → 状态码回落）。
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import type { QueryResult } from '../../src/shared/api-types'
 import { fetchDatasetRows, fetchDatasetRowsBulk } from '../../src/data/dataset-service'
@@ -15,15 +15,14 @@ const okResponse = (result: QueryResult): Response =>
 const errorResponse = (message: string, status = 500): Response =>
   ({ ok: false, status, json: async () => ({ message }) }) as unknown as Response
 
-/** 断言 promise 以指定 message 拒绝（bun:test 的 expect().rejects 返回类型不含 Promise，lint 不认 await） */
-const expectReject = async (promise: Promise<unknown>, message: string): Promise<void> => {
+/** 捕获 promise 的拒绝错误（应拒未拒时炸出）；调用方平铺 expect 做 message 的 exact 匹配 */
+const rejectionOf = async (promise: Promise<unknown>): Promise<Error> => {
   try {
     await promise
   } catch (error) {
-    expect((error as Error).message).toBe(message)
-    return
+    return error as Error
   }
-  throw new Error(`应抛出「${message}」但成功返回`)
+  throw new Error('应抛错但未抛')
 }
 
 /** 数据集 id → 可编程响应；未编排的 id 是测试编排失误，直接炸出来 */
@@ -36,9 +35,11 @@ const datasetIdOfUrl = (url: string): string => {
   return hit[1]!
 }
 
-const fetchMock = mock(async (input: string | URL | Request): Promise<Response> => {
-  return responses.get(datasetIdOfUrl(String(input)))!()
-})
+const fetchMock = vi.fn<(input: string | URL | Request) => Promise<Response>>(
+  async (input: string | URL | Request): Promise<Response> => {
+    return responses.get(datasetIdOfUrl(String(input)))!()
+  },
+)
 
 const realFetch = globalThis.fetch
 globalThis.fetch = fetchMock as unknown as typeof fetch
@@ -54,9 +55,14 @@ beforeEach(() => {
 
 describe('取数与转换口径', () => {
   test('QueryResult（columns + 行值数组）→ 列名到值的行对象', async () => {
-    responses.set(
-      'ds1',
-      async () => okResponse({ columns: ['no', 'qty'], rows: [['A1', 2], ['A2', 5]] }),
+    responses.set('ds1', async () =>
+      okResponse({
+        columns: ['no', 'qty'],
+        rows: [
+          ['A1', 2],
+          ['A2', 5],
+        ],
+      }),
     )
     expect(await fetchDatasetRows('ds1')).toEqual([
       { no: 'A1', qty: 2 },
@@ -103,7 +109,7 @@ describe('错误传播', () => {
   test('任一数据集失败 → 整批拒绝，文案来自服务端 message', async () => {
     responses.set('a', async () => okResponse({ columns: ['x'], rows: [[1]] }))
     responses.set('bad', async () => errorResponse('数据集不存在', 404))
-    await expectReject(fetchDatasetRowsBulk(['a', 'bad']), '数据集不存在')
+    expect((await rejectionOf(fetchDatasetRowsBulk(['a', 'bad']))).message).toBe('数据集不存在')
   })
 
   test('无 message 的失败响应回落状态码文案', async () => {
@@ -111,18 +117,17 @@ describe('错误传播', () => {
       'bad',
       async () => ({ ok: false, status: 502, json: async () => null }) as unknown as Response,
     )
-    await expectReject(fetchDatasetRows('bad'), '请求失败（502）')
+    expect((await rejectionOf(fetchDatasetRows('bad'))).message).toBe('请求失败（502）')
   })
 })
 
 describe('结算后出表（不留缓存）', () => {
   test('失败后重新调用会再次执行；成功同样不缓存', async () => {
     let fail = true
-    responses.set(
-      'ds1',
-      async () => (fail ? errorResponse('SQL 报错') : okResponse({ columns: ['n'], rows: [[1]] })),
+    responses.set('ds1', async () =>
+      fail ? errorResponse('SQL 报错') : okResponse({ columns: ['n'], rows: [[1]] }),
     )
-    await expectReject(fetchDatasetRows('ds1'), 'SQL 报错')
+    expect((await rejectionOf(fetchDatasetRows('ds1'))).message).toBe('SQL 报错')
     fail = false
     expect(await fetchDatasetRows('ds1')).toEqual([{ n: 1 }])
     // 「试运行每次全量重取」的口径：成功的请求也不留缓存，下次调用重新执行

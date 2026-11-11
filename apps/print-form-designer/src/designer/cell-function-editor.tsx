@@ -303,8 +303,7 @@ export function CellFunctionEditor({
           <p className="hint cell-function-target">
             应用到 <span className="addr-badge">{formatAddress(addr)}</span>
             <InfoBubble label="提交规则">
-              点「应用」或按 ⌘/Ctrl+Enter 提交；内容清空再应用 = 清除函数；未应用就切格 =
-              丢弃草稿。
+              点「应用」或按 ⌘/Ctrl+Enter 提交；内容清空再应用 = 清除函数；未应用就切格 = 丢弃草稿。
             </InfoBubble>
           </p>
           <textarea

@@ -20,6 +20,7 @@ import {
   type SceneEvent,
 } from '@infinitable/render'
 
+import { hitSquare, type ResizeEdge } from '../interaction/resize-geometry'
 import { drawFittedImage, paintImagePlaceholder, type ImageFit } from '../media/draw-image'
 import type { ImageService, LoadedImage } from '../media/image-service'
 import type { CellRef } from '../types'
@@ -389,10 +390,14 @@ function scaleHandleCenter(
   return [((sx + 1) / 2) * width, ((sy + 1) / 2) * height]
 }
 
-/** 局部帧内点是否落在以 (hx, hy) 为中心的 size 方块内（手柄命中判定） */
-function inHandleRect(p: { x: number; y: number }, hx: number, hy: number, size: number): boolean {
-  const half = size / 2
-  return p.x >= hx - half && p.x < hx + half && p.y >= hy - half && p.y < hy + half
+/** 缩放手柄名 → 8 方向边（共享 resize 几何词汇；由 SCALE_HANDLES 轴向符号推导，不另立真值表） */
+export function floatHandleEdge(handle: Exclude<FloatTransformHandle, 'rotate'>): ResizeEdge {
+  const { sx, sy } = SCALE_HANDLES.find((item) => item.name === handle)!
+  const vertical = sy < 0 ? 'top' : sy > 0 ? 'bottom' : ''
+  const horizontal = sx < 0 ? 'left' : sx > 0 ? 'right' : ''
+  return (
+    vertical && horizontal ? `${vertical}-${horizontal}` : vertical || horizontal
+  ) as ResizeEdge
 }
 
 export class FloatObjectLayer {
@@ -637,12 +642,20 @@ export class FloatObjectLayer {
       return null
     }
     const local = node.toLocalPoint(x, y)
-    if (inHandleRect(local, node.x + node.width / 2, node.y - ROTATE_HANDLE_OFFSET, HANDLE_SIZE)) {
+    if (
+      hitSquare(
+        local.x,
+        local.y,
+        node.x + node.width / 2,
+        node.y - ROTATE_HANDLE_OFFSET,
+        HANDLE_SIZE,
+      )
+    ) {
       return 'rotate'
     }
     for (const { name, sx, sy } of SCALE_HANDLES) {
       const [cx, cy] = scaleHandleCenter(sx, sy, node.width, node.height)
-      if (inHandleRect(local, node.x + cx, node.y + cy, HANDLE_SIZE)) {
+      if (hitSquare(local.x, local.y, node.x + cx, node.y + cy, HANDLE_SIZE)) {
         return name
       }
     }

@@ -143,11 +143,7 @@ describe('deleteSnapshotRows', () => {
   })
 
   it('合并区一端被删（另一端存活）→ 整条丢弃', () => {
-    const next = deleteSnapshotRows(
-      snapshot({ rows: 4, merges: [RANGE(1, 0, 3, 1)] }),
-      1,
-      1,
-    )
+    const next = deleteSnapshotRows(snapshot({ rows: 4, merges: [RANGE(1, 0, 3, 1)] }), 1, 1)
     expect(next.merges).toEqual([])
   })
 

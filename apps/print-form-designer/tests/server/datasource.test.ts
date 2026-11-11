@@ -1,5 +1,5 @@
 // 数据源 REST：创建校验（路径可建/文件可达、类型白名单）、清单、详情、删除级联。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDatabase } from '../../src/server/db'

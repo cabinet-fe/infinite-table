@@ -94,8 +94,6 @@ export function useDatasetRows(ids: readonly string[]): DatasetRowsState {
     }
   }, [idsKey, rowsByDataset])
 
-  const loading = (idsKey === '' ? [] : idsKey.split('\u0000')).some(
-    (id) => !rowsByDataset.has(id),
-  )
+  const loading = (idsKey === '' ? [] : idsKey.split('\u0000')).some((id) => !rowsByDataset.has(id))
   return { rowsByDataset, loading, error }
 }

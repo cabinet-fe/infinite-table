@@ -8,11 +8,11 @@
     "dev:server": "bun src/server/index.ts",
     "dev:web": "vp dev",
     "build": "vp build",
-    "preview": "vp preview",
-    "test": "bun test --conditions=dev"
+    "preview": "vp preview"
   },
   "dependencies": {
     "@infinitable/formulas": "workspace:*",
+    "@infinitable/grid": "workspace:*",
     "@infinitable/plugins": "workspace:*",
     "@infinitable/render": "workspace:*",
     "@infinitable/sheet": "workspace:*",

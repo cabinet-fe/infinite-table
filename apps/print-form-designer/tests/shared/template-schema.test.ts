@@ -4,7 +4,7 @@
 // （分组仅 down、行角色、agg 来源引用、引用名唯一、函数体必须 return、type 枚举、
 // 空数据试跑的提交强校验/加载推导两模式、旧表达式嗅探）、v4/v5 → v6 迁移（含 type 推导）。
 // 试跑能力按契约层口径注入（probeAggregationType 来自 domain/aggregation）。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import { FormDoc } from '../../src/domain/form-doc'
 import { probeAggregationType } from '../../src/domain/aggregation'
@@ -40,7 +40,12 @@ describe('序列化', () => {
     doc.setCellBinding(ADDR(0, 1), { path: 'order_no' })
     // 旧表达式形状写入：写入即嗅探为结构化（文档内不存在未规范化载荷）
     doc.setCellFunction(ADDR(1, 1), { expression: "SUM('数据块 1')" })
-    doc.setRegionSource(0, { kind: 'dataset', datasetId: 'ds1', expression: 'rows[0]', path: '[0].items' })
+    doc.setRegionSource(0, {
+      kind: 'dataset',
+      datasetId: 'ds1',
+      expression: 'rows[0]',
+      path: '[0].items',
+    })
     doc.setRegionExpand(0, 'down')
 
     const first = doc.toTemplate('测试模板')
@@ -235,7 +240,11 @@ describe('normalizeRegions：校验 + 数据源/分组口径', () => {
         source: { kind: 'dataset', datasetId: ' ds1 ', path: '' },
       },
     ]
-    expect(normalizeRegions(regions)[0]!.source).toEqual({ kind: 'dataset', datasetId: 'ds1', path: '' })
+    expect(normalizeRegions(regions)[0]!.source).toEqual({
+      kind: 'dataset',
+      datasetId: 'ds1',
+      path: '',
+    })
   })
 
   test('分组仅支持纵向列表；组头/小计行要求已配分组字段', () => {
@@ -247,7 +256,9 @@ describe('normalizeRegions：校验 + 数据源/分组口径', () => {
       expand: 'down' as const,
       source: { kind: 'dataset' as const, datasetId: 'ds1', path: '' },
     }
-    expect(() => normalizeRegions([{ ...base, expand: 'right', groupBy: ['a'] }])).toThrow('纵向列表')
+    expect(() => normalizeRegions([{ ...base, expand: 'right', groupBy: ['a'] }])).toThrow(
+      '纵向列表',
+    )
     expect(() =>
       normalizeRegions([
         {
@@ -400,16 +411,14 @@ describe('normalizeAggregations：名字/形参/函数体/type 校验', () => {
   test('加载模式（缺省）只推导不卡：缺 type 试跑推导，推导失败按引用回退', () => {
     // 推导成功：返回数组 → array，返回值/对象 → value
     expect(
-      normalizeAggregations(
-        [withoutType({ name: 'a', params: [], expression: 'return []' })],
-        { probe: probeAggregationType },
-      ),
+      normalizeAggregations([withoutType({ name: 'a', params: [], expression: 'return []' })], {
+        probe: probeAggregationType,
+      }),
     ).toEqual([{ name: 'a', type: 'array', params: [], expression: 'return []' }])
     expect(
-      normalizeAggregations(
-        [withoutType({ name: 'a', params: [], expression: 'return 1' })],
-        { probe: probeAggregationType },
-      ),
+      normalizeAggregations([withoutType({ name: 'a', params: [], expression: 'return 1' })], {
+        probe: probeAggregationType,
+      }),
     ).toEqual([{ name: 'a', type: 'value', params: [], expression: 'return 1' }])
     // 推导抛错（链式引用空 agg）：被数据块 agg 源引用 → array，无引用 → value
     const chained = withoutType({ name: 'a', params: [], expression: 'return agg.前序.x' })
@@ -419,9 +428,9 @@ describe('normalizeAggregations：名字/形参/函数体/type 校验', () => {
         probe: probeAggregationType,
       }),
     ).toEqual([{ name: 'a', type: 'array', params: [], expression: 'return agg.前序.x' }])
-    expect(
-      normalizeAggregations([chained], { probe: probeAggregationType }),
-    ).toEqual([{ name: 'a', type: 'value', params: [], expression: 'return agg.前序.x' }])
+    expect(normalizeAggregations([chained], { probe: probeAggregationType })).toEqual([
+      { name: 'a', type: 'value', params: [], expression: 'return agg.前序.x' },
+    ])
   })
 
   test('加载模式声明即信任：不试跑、不与实际比对（旧档加载不被卡）', () => {
@@ -515,7 +524,13 @@ describe('v4/v5 → v6 迁移（migrateTemplateToCurrent）', () => {
 
   test('迁移结果可直接按 v6 加载（含 type 与 return 校验），再迁移幂等', () => {
     const migrated = migrateTemplateToCurrent(
-      v4Template([{ name: 'a', params: [], expression: '1' } as unknown as FormTemplate['aggregations'][number]]),
+      v4Template([
+        {
+          name: 'a',
+          params: [],
+          expression: '1',
+        } as unknown as FormTemplate['aggregations'][number],
+      ]),
       probeAggregationType,
     )
     const doc = FormDoc.fromTemplate(migrated)
@@ -577,7 +592,12 @@ describe('sidecar 形状与函数载荷 normalize', () => {
           namespace: FORM_BINDING_META_NAMESPACE,
           payload: { kind: 'agg', aggName: 'head', path: 'customer.name' },
         },
-        { row: 1, col: 0, namespace: FORM_BINDING_META_NAMESPACE, payload: { kind: 'agg', aggName: '总计', path: '' } },
+        {
+          row: 1,
+          col: 0,
+          namespace: FORM_BINDING_META_NAMESPACE,
+          payload: { kind: 'agg', aggName: '总计', path: '' },
+        },
       ],
     }
     const restored = FormDoc.fromTemplate({ ...template, sheet })
@@ -618,8 +638,18 @@ describe('sidecar 形状与函数载荷 normalize', () => {
     const sheet = {
       ...template.sheet,
       meta: [
-        { row: 0, col: 0, namespace: FORM_FUNCTION_META_NAMESPACE, payload: { expression: "SUM('数据块 1', 'qty')" } },
-        { row: 1, col: 0, namespace: FORM_FUNCTION_META_NAMESPACE, payload: { expression: 'item.qty * item.price' } },
+        {
+          row: 0,
+          col: 0,
+          namespace: FORM_FUNCTION_META_NAMESPACE,
+          payload: { expression: "SUM('数据块 1', 'qty')" },
+        },
+        {
+          row: 1,
+          col: 0,
+          namespace: FORM_FUNCTION_META_NAMESPACE,
+          payload: { expression: 'item.qty * item.price' },
+        },
       ],
     }
     const restored = FormDoc.fromTemplate({ ...template, sheet })
@@ -670,7 +700,14 @@ describe('sidecar 形状与函数载荷 normalize', () => {
     const template = FormDoc.create(8).toTemplate('t')
     const sheet = {
       ...template.sheet,
-      meta: [{ row: 0, col: 0, namespace: FORM_FUNCTION_META_NAMESPACE, payload: { kind: 'fn', fn: 'TOTAL', region: 'x' } }],
+      meta: [
+        {
+          row: 0,
+          col: 0,
+          namespace: FORM_FUNCTION_META_NAMESPACE,
+          payload: { kind: 'fn', fn: 'TOTAL', region: 'x' },
+        },
+      ],
     }
     expect(() => FormDoc.fromTemplate({ ...template, sheet })).toThrow('函数名非法')
   })

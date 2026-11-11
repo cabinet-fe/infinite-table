@@ -1,8 +1,9 @@
+// @vitest-environment happy-dom
 // P4 纸张边界与分页参考线：几何/绘制纯函数、挂载画布的 painter 端到端、以及两条
 // spec 验收口径——参考线与纸张显示参数不落模板（保存 JSON 键集断言）、overlay 不
 // 参与数据态渲染（打印产物逐字相等 + 画布模型快照不变）。
-// DOM 面与 canvas 2d 桩由 testing/dom 统一挂载。
-import { describe, expect, test } from 'bun:test'
+// DOM 面由环境注释挂载，canvas 2d 桩由 testing/canvas-mock 补。
+import { describe, expect, test } from 'vitest'
 import { createEnginePrintSource, createPrintPlugin, type PrintSource } from '@infinitable/plugins'
 
 import { FormDoc } from '../../src/domain/form-doc'
@@ -18,9 +19,9 @@ import {
   type GuideOriginTable,
   type PaperGuidesConfig,
 } from '../../src/designer/paper-guides'
-import { setupDom } from './testing/dom'
+import { setupCanvasMock } from './testing/canvas-mock'
 
-setupDom()
+setupCanvasMock()
 
 // ─── 纯函数：纸张内容区与分页估算 ─────────────────────────────────────────────
 
@@ -503,9 +504,10 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
         'schemaVersion',
         'sheet',
       ])
-      // 深层键扫描：任何层级都不出现参考线/纸张/分页类键名
+      // 深层键扫描：任何层级都不出现参考线/纸张/分页类键名（先收集违规键，expect 平铺在外）
       const forbidden =
         /^(paper|paperSize|paperGuides|orientation|margin|paging|scale|guides?|rowBreaks|colBreaks|pageBreaks?)$/i
+      const hits: string[] = []
       const walkKeys = (value: unknown): void => {
         if (Array.isArray(value)) {
           for (const item of value) walkKeys(item)
@@ -513,12 +515,13 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
         }
         if (value && typeof value === 'object') {
           for (const [key, child] of Object.entries(value)) {
-            expect(forbidden.test(key)).toBe(false)
+            if (forbidden.test(key)) hits.push(key)
             walkKeys(child)
           }
         }
       }
       walkKeys(template)
+      expect(hits).toEqual([])
     } finally {
       canvas.release()
     }

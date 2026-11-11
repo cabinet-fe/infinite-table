@@ -1,5 +1,5 @@
 // seed 演练库：首次落库即存在演练数据源/数据集与演练 SQLite 文件；二次 seed 不重复建、不重复插。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'

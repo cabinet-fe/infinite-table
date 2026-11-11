@@ -39,13 +39,24 @@ export type {
   Size,
 } from '@infinitable/render'
 
-// ---- grid 层（共享网格内核：合并区 / 选区 / 主题与样式词汇 / 浮动对象 / 滚动条配置）----
+// ---- grid 层（共享网格内核：合并区 / 选区 / 主题与样式词汇 / 浮动对象 / 区域交互几何 / 滚动条配置）----
 export {
   MergeCellMap,
   MergeOverlapError,
+  REGION_EDGE_HIT_PX,
+  REGION_HANDLE_INSET,
+  REGION_HANDLE_SIZE,
+  REGION_HANDLE_SIZE_ACTIVE,
+  cursorForEdge,
   extendsTheme,
+  floatHandleEdge,
+  hitRegionEdge,
+  hitRegionHandle,
   normalizeCellRange,
   normalizeRange,
+  regionBoundsOf,
+  regionHandleRect,
+  resizeRegionRect,
   sanitizeMerges,
   warnMergeConflicts,
 } from '@infinitable/grid'
@@ -53,6 +64,7 @@ export type {
   CellBorder,
   CellBorderEdge,
   CellRange,
+  CellRectSource,
   CellStyle,
   FloatContextMenuEvent,
   FloatObject,
@@ -61,6 +73,9 @@ export type {
   LoadedImage,
   MergeConflict,
   RangeBounds,
+  RegionHitTarget,
+  RegionRect,
+  ResizeEdge,
   // 内建滚动条配置（ListTableOptions.scrollbar 对象形态；mode: 'native' 原生滚动条档）
   ScrollbarMode,
   ScrollbarOptions,

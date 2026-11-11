@@ -101,8 +101,7 @@ export function RegionPanel({
                 <span className="region-title">{region.name?.trim() || `数据块 ${index + 1}`}</span>
                 <span className="region-range meta">
                   第{region.startRow + 1}-{region.endRow + 1}行 · {colIndexToName(region.startCol)}-
-                  {colIndexToName(region.endCol)}列
-                  {roles.length ? ` · ${roles.join(' / ')}` : ''}
+                  {colIndexToName(region.endCol)}列{roles.length ? ` · ${roles.join(' / ')}` : ''}
                 </span>
               </span>
               {expandLabel ? <span className="region-row-tag">{expandLabel}</span> : null}

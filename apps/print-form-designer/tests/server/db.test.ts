@@ -2,7 +2,7 @@
 // 数据源表原样保留，数据集表数据保留并补 fields 列（字段命名 JSON 文本）；
 // v3 及更早的行（template 列但 schemaVersion < 4）在启动时行级丢弃，v4 行自动
 // 迁移为 v5（聚合表达式包一层 return），当前版行保留。
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -96,9 +96,9 @@ describe('启动建库', () => {
     seed.close()
 
     const db = openDatabase(path)
-    const columns = (
-      db.query("PRAGMA table_info('dataset')").all() as { name: string }[]
-    ).map((column) => column.name)
+    const columns = (db.query("PRAGMA table_info('dataset')").all() as { name: string }[]).map(
+      (column) => column.name,
+    )
     expect(columns).toEqual(['id', 'datasource_id', 'name', 'sql', 'created_at', 'fields'])
 
     // 旧行原样保留，fields 回填默认 '[]'（未命名）
@@ -122,9 +122,9 @@ describe('启动建库', () => {
 
     // 幂等：已补列库再打开不重复 ALTER
     const again = openDatabase(path)
-    const after = (
-      again.query("PRAGMA table_info('dataset')").all() as { name: string }[]
-    ).map((column) => column.name)
+    const after = (again.query("PRAGMA table_info('dataset')").all() as { name: string }[]).map(
+      (column) => column.name,
+    )
     again.close()
     expect(after).toEqual(columns)
     rmSync(dir, { recursive: true, force: true })
@@ -174,9 +174,7 @@ describe('启动建库', () => {
     }[]
     db.close()
     expect(rows.map((row) => row.id)).toEqual(['v4-row', 'v5-row'])
-    const migrated = JSON.parse(
-      rows.find((row) => row.id === 'v4-row')!.template,
-    ) as {
+    const migrated = JSON.parse(rows.find((row) => row.id === 'v4-row')!.template) as {
       schemaVersion: number
       aggregations: { expression: string }[]
     }

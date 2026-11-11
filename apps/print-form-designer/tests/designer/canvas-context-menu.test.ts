@@ -1,9 +1,12 @@
 // 画布右键菜单项构建测试：body 菜单（设置数据块/调整范围/删除/合并）的启用与禁用
 // 原因、行头菜单（行角色）的当前态与分组前置条件。纯逻辑，不挂 DOM。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import { FormDoc } from '../../src/domain/form-doc'
-import { buildCanvasContextMenu, type CanvasContextMenuActions } from '../../src/designer/canvas-context-menu'
+import {
+  buildCanvasContextMenu,
+  type CanvasContextMenuActions,
+} from '../../src/designer/canvas-context-menu'
 import { ADDR, RANGE } from './testing/fixtures'
 
 /** 无动作桩：断言只看菜单结构（label/disabledReason/checked） */
@@ -107,7 +110,12 @@ describe('行头菜单：行角色', () => {
   test('非 down 数据块：全部禁用并提示', () => {
     const doc = FormDoc.create(8) // expand none
     const items = buildCanvasContextMenu(doc, rowHeaderInfo(0), null, NOOP)
-    expect(keysOf(items)).toEqual(['role-detail', 'role-groupHeader', 'role-groupFooter', 'role-summary'])
+    expect(keysOf(items)).toEqual([
+      'role-detail',
+      'role-groupHeader',
+      'role-groupFooter',
+      'role-summary',
+    ])
     for (const item of items) expect(item.disabledReason).toContain('纵向列表')
   })
 

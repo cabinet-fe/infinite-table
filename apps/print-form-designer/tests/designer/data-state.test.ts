@@ -2,7 +2,7 @@
 // 字段取值（不展开带源的数据块取第 1 条）、空数组塌缩、分组（组头/明细/小计/合计）、
 // 单元格函数（SUM/SUBTOTAL/GROUP/item/agg）、聚合作数据块数据源、包围盒裁剪，
 // 以及配置态画布不被数据态渲染触碰。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import { Sheet, type SheetSnapshot } from '@infinitable/sheet'
 
@@ -56,7 +56,11 @@ function render(doc: FormDoc, shapes: DatasetShapes, agg: Record<string, unknown
 }
 
 /** 数据态快照还原进 Sheet 便于取值断言 */
-function materialize(doc: FormDoc, shapes: DatasetShapes, agg: Record<string, unknown> = {}): Sheet {
+function materialize(
+  doc: FormDoc,
+  shapes: DatasetShapes,
+  agg: Record<string, unknown> = {},
+): Sheet {
   const sheet = new Sheet('data-state')
   sheet.restore(render(doc, shapes, agg))
   return sheet
@@ -97,7 +101,9 @@ describe('向下展开：数据块 source 驱动份数', () => {
     noSource.setCellBinding(ADDR(2, 0), item('name'))
     // 3 外行 + 1 份（不随数据条数变化，与「取不到数组 → 1 份」口径一致）
     expect(render(noSource, new Map([['ds1', ITEMS]])).rows).toBe(4)
-    expect(materialize(noSource, new Map([['ds1', ITEMS]])).getDisplayValue(ADDR(2, 0))).toBeUndefined()
+    expect(
+      materialize(noSource, new Map([['ds1', ITEMS]])).getDisplayValue(ADDR(2, 0)),
+    ).toBeUndefined()
   })
 
   test('source 取不到数组（形态缺失 / 路径不是数组 / 数据集没取数）→ 1 份', () => {
@@ -175,9 +181,7 @@ describe('嵌套列表路径（source.path）', () => {
     // 数据块 source 带表达式（rows[0] → 单据头对象），再下钻 items
     const doc = expandDownDoc(datasetSource('ds1', 'items', 'rows[0]'))
     doc.setCellBinding(ADDR(2, 0), item('qty'))
-    const shapes = new Map<string, unknown>([
-      [datasetShapeKey('ds1', 'rows[0]'), rows[0]],
-    ])
+    const shapes = new Map<string, unknown>([[datasetShapeKey('ds1', 'rows[0]'), rows[0]]])
     expect(render(doc, shapes).rows).toBe(6)
     expect(materialize(doc, shapes).getDisplayValue(ADDR(2, 0))).toBe(2)
   })
@@ -212,7 +216,7 @@ describe('不展开 + 带源的数据块：静态取第 1 条', () => {
 })
 
 describe('单元格函数（作用方式的替代）', () => {
-  test("SUM 同列省字段：合计格取所在列在数据块内的绑定字段求和", () => {
+  test('SUM 同列省字段：合计格取所在列在数据块内的绑定字段求和', () => {
     const doc = expandDownDoc(ITEMS_SOURCE)
     doc.setCellBinding(ADDR(2, 1), item('qty'))
     doc.setCellFunction(ADDR(3, 1), { expression: "SUM('数据块 3')" })
@@ -220,7 +224,7 @@ describe('单元格函数（作用方式的替代）', () => {
     expect(sheet.getDisplayValue(ADDR(5, 1))).toBe(4) // 2 + 1 + 1
   })
 
-  test("SUM 显式字段 + 基本聚合函数族", () => {
+  test('SUM 显式字段 + 基本聚合函数族', () => {
     const doc = expandDownDoc(ITEMS_SOURCE)
     doc.setCellBinding(ADDR(2, 1), item('qty'))
     doc.setCellFunction(ADDR(3, 0), { expression: "SUM('数据块 3', 'price')" })
@@ -312,7 +316,7 @@ describe('分组（groupBy + 行角色）', () => {
     expect(sheet.getDisplayValue(ADDR(7, 1))).toBe(8) // 合计 3+5
   })
 
-  test("GROUP() 出组名（缺省取首个分组字段）", () => {
+  test('GROUP() 出组名（缺省取首个分组字段）', () => {
     const doc = groupedDoc()
     doc.setCellFunction(ADDR(0, 0), { expression: 'GROUP()' })
     doc.setCellFunction(ADDR(0, 1), { expression: "GROUP('customer')" })

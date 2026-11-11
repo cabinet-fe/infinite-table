@@ -23,11 +23,7 @@ import { reshapeDatasetData } from './binding'
 import { datasetShapeKey, loopArrayForRegion } from './data-state'
 import type { FormDoc } from '../domain/form-doc'
 import { REGION_EXPAND_COLORS, REGION_EXPAND_OPTIONS, REGION_ROW_ROLES } from './labels'
-import {
-  regionRowRoleOf,
-  type RegionExpand,
-  type RegionRowRole,
-} from '../shared/template-schema'
+import { regionRowRoleOf, type RegionExpand, type RegionRowRole } from '../shared/template-schema'
 import { IconClose, IconTrash } from '../ui/icons'
 import { describeError, runGuarded } from '../errors'
 
@@ -78,7 +74,7 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
     setNameDraft(doc.regions[index]?.name ?? '')
     setExpressionDraft(
       doc.regions[index]?.source?.kind === 'dataset'
-        ? (doc.regions[index]!.source as { expression?: string }).expression ?? ''
+        ? ((doc.regions[index]!.source as { expression?: string }).expression ?? '')
         : '',
     )
     setPathDraft(doc.regions[index]?.source?.path ?? '')
@@ -141,7 +137,15 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
     } catch (cause) {
       return { array: undefined, error: describeError(cause) }
     }
-  }, [region, neededDatasetIds, rowsByDataset, rowsError, expressionDraft, pathDraft, doc.aggregations])
+  }, [
+    region,
+    neededDatasetIds,
+    rowsByDataset,
+    rowsError,
+    expressionDraft,
+    pathDraft,
+    doc.aggregations,
+  ])
 
   /** 循环条目的采样键（分组字段 chips 用；条目是对象才有的列） */
   const sampleKeys = useMemo(() => {
@@ -176,7 +180,9 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
   /** 分组说明里代入的字段名：第一个已选分组字段 → 最像「分类」的字段（客户/名称/类型…，
    * 避免拿金额、数量当分类举例）→ 条目第一个字段 → 通用「客户」 */
   const categoricalKey = sampleKeys.find(
-    (key) => /(customer|client|name|type|categor|status|dept|_no)$/i.test(key) && !/(qty|amount|price|count)/i.test(key),
+    (key) =>
+      /(customer|client|name|type|categor|status|dept|_no)$/i.test(key) &&
+      !/(qty|amount|price|count)/i.test(key),
   )
   const exampleField = region.groupBy?.[0] ?? categoricalKey ?? sampleKeys[0] ?? '客户'
 
@@ -191,8 +197,7 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
     const nextKind = patch.kind ?? sourceKind
     if (nextKind === 'dataset') {
       const nextDatasetId =
-        patch.datasetId ??
-        (region.source?.kind === 'dataset' ? region.source.datasetId : '')
+        patch.datasetId ?? (region.source?.kind === 'dataset' ? region.source.datasetId : '')
       if (!nextDatasetId) {
         guard(() => doc.setRegionSource(index, undefined))
         return
@@ -208,7 +213,8 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
       )
       return
     }
-    const nextAggName = patch.aggName ?? (region.source?.kind === 'agg' ? region.source.aggName : '')
+    const nextAggName =
+      patch.aggName ?? (region.source?.kind === 'agg' ? region.source.aggName : '')
     if (!nextAggName) {
       guard(() => doc.setRegionSource(index, undefined))
       return
@@ -293,7 +299,9 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
           {tab === 'basic' ? (
             <section className="region-dialog-group">
               <label className="field-col">
-                <span className="field-label">数据块名（留空显示「数据块 {index + 1}」；函数里用名字引用它）</span>
+                <span className="field-label">
+                  数据块名（留空显示「数据块 {index + 1}」；函数里用名字引用它）
+                </span>
                 <input
                   value={nameDraft}
                   placeholder={`数据块 ${index + 1}`}
@@ -362,8 +370,8 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                 绑了数据源才按数据复制。
                 <InfoBubble label="数据源口径">
                   数据块只为绑数据集或数组型聚合（逐条打印/复制）而存在；固定文字直接写在
-                  格子里，不需要数据块。绑了数据源才按数据复制（取到几条就复制几份），还没
-                  绑时暂按 1 份渲染；非列表的数据块绑源后，块内字段取第 1 条数据。块内的
+                  格子里，不需要数据块。绑了数据源才按数据复制（取到几条就复制几份），还没 绑时暂按
+                  1 份渲染；非列表的数据块绑源后，块内字段取第 1 条数据。块内的
                   格子只写「条目内字段名」，不单独选数据集；块外格可直接引用非数组聚合或
                   用函数取数。
                 </InfoBubble>
@@ -407,7 +415,9 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                   </label>
 
                   <label className="field-col">
-                    <span className="field-label">重塑表达式（JS，入参 rows；留空 = 原始行数组）</span>
+                    <span className="field-label">
+                      重塑表达式（JS，入参 rows；留空 = 原始行数组）
+                    </span>
                     <textarea
                       rows={3}
                       className="mono"
@@ -420,7 +430,9 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                 </>
               ) : (
                 <label className="field-col">
-                  <span className="field-label">聚合（agg.变量名；只列数组型——非数组型返回单个值/对象，没有可循环的列表）</span>
+                  <span className="field-label">
+                    聚合（agg.变量名；只列数组型——非数组型返回单个值/对象，没有可循环的列表）
+                  </span>
                   <select
                     value={aggSource?.aggName ?? ''}
                     onChange={(event) => commitSource({ aggName: event.target.value, kind: 'agg' })}
@@ -443,7 +455,8 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                   </select>
                   {aggSource && selectedAggIsValue ? (
                     <p className="status error">
-                      agg.{aggSource.aggName} 是非数组型，不能作数据块数据源，请换一个或选「不设数据源」。
+                      agg.{aggSource.aggName}{' '}
+                      是非数组型，不能作数据块数据源，请换一个或选「不设数据源」。
                     </p>
                   ) : null}
                 </label>
@@ -471,7 +484,9 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                   <span className="error">{loopPreview.error}</span>
                 ) : loopPreview.array === undefined ? (
                   <span className="meta">
-                    {region.source ? '取数中…' : '未设数据源：暂按 1 份渲染；数据块内要绑字段需先设数据源'}
+                    {region.source
+                      ? '取数中…'
+                      : '未设数据源：暂按 1 份渲染；数据块内要绑字段需先设数据源'}
                   </span>
                 ) : (
                   <span className={loopPreview.array.length === 0 ? 'error' : undefined}>
@@ -498,8 +513,8 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                   <p className="hint">
                     分组 = 按字段值归类，每一类打印一小块。
                     <InfoBubble label="分组怎么打印">
-                      比如按「{exampleField}」分组、数据里有 3 个值（A / B / C），就会打印
-                      3 小块：每块先是组头（显示该值），中间是这一类的明细行，块尾是小计
+                      比如按「{exampleField}」分组、数据里有 3 个值（A / B / C），就会打印 3
+                      小块：每块先是组头（显示该值），中间是这一类的明细行，块尾是小计
                       （这一类的合计）；所有块结束后最后一行是合计（全部数据的总计）。
                     </InfoBubble>
                   </p>
@@ -523,10 +538,13 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                         })}
                       </div>
                     ) : (
-                      <p className="hint">先在「数据源」页选好数据集与列表路径，这里会列出数据的字段。</p>
+                      <p className="hint">
+                        先在「数据源」页选好数据集与列表路径，这里会列出数据的字段。
+                      </p>
                     )}
                     <p className="hint">
-                      上面的列表只列顶层字段；要按嵌套字段（如 customer.name）分组就在这里补写、回车加入：
+                      上面的列表只列顶层字段；要按嵌套字段（如
+                      customer.name）分组就在这里补写、回车加入：
                       <input
                         className="region-groupby-add"
                         placeholder="嵌套字段路径，如 customer.name"
@@ -535,7 +553,9 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                           const value = event.currentTarget.value.trim()
                           if (!value || region.groupBy?.includes(value)) return
                           event.currentTarget.value = ''
-                          guard(() => doc.setRegionGroupBy(index, [...(region.groupBy ?? []), value]))
+                          guard(() =>
+                            doc.setRegionGroupBy(index, [...(region.groupBy ?? []), value]),
+                          )
                         }}
                       />
                     </p>
@@ -545,15 +565,17 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                     <span className="field-label">
                       数据块里的每一行打印什么
                       <InfoBubble label="行角色怎么配">
-                        画布行头右键也能设。选第一个分组字段时，下面会自动按典型布局配好
-                        （第 1 行组头、最后一行合计），可随意改。小计/合计行的格子：在单元格
-                        tab 选函数（如小计）后，点到画布上的明细数值格即可。
+                        画布行头右键也能设。选第一个分组字段时，下面会自动按典型布局配好 （第 1
+                        行组头、最后一行合计），可随意改。小计/合计行的格子：在单元格 tab
+                        选函数（如小计）后，点到画布上的明细数值格即可。
                       </InfoBubble>
                     </span>
 
                     {/* 迷你示意（教学用，不随数据块行数/角色变化）：一眼看懂「一小块长什么样」 */}
                     <div className="region-group-demo">
-                      <p className="demo-caption">按「{exampleField}」分组时，打印出来大致长这样：</p>
+                      <p className="demo-caption">
+                        按「{exampleField}」分组时，打印出来大致长这样：
+                      </p>
                       <div className="demo-row demo-header">
                         <span className="demo-role">组头</span>
                         <span>A</span>
@@ -605,7 +627,11 @@ export function RegionDialog({ doc, index, onClose }: RegionDialogProps) {
                                     disabled={disabled}
                                     onClick={() =>
                                       guard(() =>
-                                        doc.setRegionRowRole(index, row, item.value as RegionRowRole),
+                                        doc.setRegionRowRole(
+                                          index,
+                                          row,
+                                          item.value as RegionRowRole,
+                                        ),
                                       )
                                     }
                                   >

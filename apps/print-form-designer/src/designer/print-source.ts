@@ -29,9 +29,7 @@ import { renderDataState, datasetShapeKey, type DatasetShapes } from './data-sta
  */
 export function collectRegionSources(doc: FormDoc): RegionSource[] {
   // source 只被读取（kind/datasetId/expression/path），按只读约定共享引用
-  return doc.regions
-    .filter((region) => region.source)
-    .map((region) => region.source!)
+  return doc.regions.filter((region) => region.source).map((region) => region.source!)
 }
 
 /** 打印/预览需要执行的数据集 id 并集：数据块 dataset 来源 ∪ 聚合入参 */

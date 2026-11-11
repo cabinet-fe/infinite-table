@@ -1,6 +1,6 @@
 // 骨架口径：内存库上验证启动建表、清单路由空集/直查库、数据源提供者注册点。
 // 模板 CRUD 行为与 round-trip 在 template.test.ts 覆盖（P5 落实后占位 501 断言移除）。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { openDatabase, resolveDbPath } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import {

@@ -1,7 +1,7 @@
 // 模型层 headless 测试（v4）：数据块结构操作（含选区建块守卫、数据源绑定与绑定清除）、
 // 内容包围盒驱动的行列尺寸、格样式命令与快照条目的统一撤销链路、绑定/函数 sidecar
 // 形状与占位符推导、重命名联动改写引用。模板序列化在 shared/template-schema.test.ts。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 
 import { FormDoc } from '../../src/domain/form-doc'
 import {
@@ -101,7 +101,12 @@ describe('默认文档与数据块结构', () => {
   test('数据块数据源：先选数据源再改展开是主流程，过渡态不被其它数据块操作清掉', () => {
     const doc = FormDoc.create(8)
     doc.addRegion(3)
-    doc.setRegionSource(0, { kind: 'dataset', datasetId: 'ds1', expression: 'rows', path: '[0].items' })
+    doc.setRegionSource(0, {
+      kind: 'dataset',
+      datasetId: 'ds1',
+      expression: 'rows',
+      path: '[0].items',
+    })
     // 此刻还没展开，source 必须留住（设顺序随意，绑好的源不能被其它操作顺手清掉）
     expect(doc.regions[0]!.source).toEqual({
       kind: 'dataset',
@@ -363,10 +368,16 @@ describe('重命名联动改写引用', () => {
     doc.renameRegion(0, '明细')
     doc.setCellFunction(ADDR(4, 0), { expression: "SUM('明细', 'qty') + agg.x" })
     doc.renameRegion(0, '货品')
-    expect(doc.getCellFunction(ADDR(4, 0))).toMatchObject({ kind: 'expr', expression: "SUM('货品', 'qty') + agg.x" })
+    expect(doc.getCellFunction(ADDR(4, 0))).toMatchObject({
+      kind: 'expr',
+      expression: "SUM('货品', 'qty') + agg.x",
+    })
     // 撤销重命名连带改写一起回滚
     expect(doc.history.undo()).toBe(true)
-    expect(doc.getCellFunction(ADDR(4, 0))).toMatchObject({ kind: 'expr', expression: "SUM('明细', 'qty') + agg.x" })
+    expect(doc.getCellFunction(ADDR(4, 0))).toMatchObject({
+      kind: 'expr',
+      expression: "SUM('明细', 'qty') + agg.x",
+    })
     // 引用名撞车（与另一数据块的引用名相同）会被拒绝
     doc.addRegion(2)
     expect(() => doc.renameRegion(1, '明细')).toThrow('引用名重复')
@@ -397,7 +408,12 @@ describe('重命名联动改写引用', () => {
   test('renameAggregation：数据块 agg 数据源、函数与聚合引用绑定里的 agg.old 同步改写（含撤销）', () => {
     const doc = FormDoc.create(8)
     doc.setAggregations([
-      { name: 'summary', type: 'array', params: [{ datasetId: 'd1', varName: 'r' }], expression: 'return r' },
+      {
+        name: 'summary',
+        type: 'array',
+        params: [{ datasetId: 'd1', varName: 'r' }],
+        expression: 'return r',
+      },
     ])
     doc.setRegionSource(0, { kind: 'agg', aggName: 'summary', path: '' })
     doc.setCellFunction(ADDR(4, 0), { expression: "agg['summary'] + 1" })
@@ -407,20 +423,36 @@ describe('重命名联动改写引用', () => {
     doc.renameAggregation('summary', 'totals')
     expect(doc.aggregations[0]!.name).toBe('totals')
     expect(doc.regions[0]!.source).toMatchObject({ kind: 'agg', aggName: 'totals' })
-    expect(doc.getCellFunction(ADDR(4, 0))).toMatchObject({ kind: 'expr', expression: "agg['totals'] + 1" })
+    expect(doc.getCellFunction(ADDR(4, 0))).toMatchObject({
+      kind: 'expr',
+      expression: "agg['totals'] + 1",
+    })
     expect(doc.getCellBinding(ADDR(4, 1))).toEqual({ kind: 'agg', aggName: 'totals', path: '' })
-    expect(doc.getCellBinding(ADDR(4, 2))).toEqual({ kind: 'agg', aggName: 'totals', path: 'total' })
+    expect(doc.getCellBinding(ADDR(4, 2))).toEqual({
+      kind: 'agg',
+      aggName: 'totals',
+      path: 'total',
+    })
     expect(doc.getCellBinding(ADDR(4, 3))).toEqual({ path: 'summary' })
     // 撤销重命名：绑定里的聚合名随快照条目一并回滚
     expect(doc.history.undo()).toBe(true)
     expect(doc.getCellBinding(ADDR(4, 1))).toEqual({ kind: 'agg', aggName: 'summary', path: '' })
-    expect(doc.getCellBinding(ADDR(4, 2))).toEqual({ kind: 'agg', aggName: 'summary', path: 'total' })
+    expect(doc.getCellBinding(ADDR(4, 2))).toEqual({
+      kind: 'agg',
+      aggName: 'summary',
+      path: 'total',
+    })
   })
 
   test('setAggregations：删除被数据块数据源引用的聚合会被拒绝', () => {
     const doc = FormDoc.create(8)
     doc.setAggregations([
-      { name: 'a', type: 'array', params: [{ datasetId: 'd1', varName: 'r' }], expression: 'return r' },
+      {
+        name: 'a',
+        type: 'array',
+        params: [{ datasetId: 'd1', varName: 'r' }],
+        expression: 'return r',
+      },
     ])
     doc.setRegionSource(0, { kind: 'agg', aggName: 'a', path: '' })
     expect(() => doc.setAggregations([])).toThrow('聚合不存在')
@@ -521,7 +553,12 @@ describe('统一撤销链（数据块结构 × 样式命令交错）', () => {
       fired += 1
     })
     doc.setAggregations([
-      { name: 'a', type: 'array', params: [{ datasetId: 'd1', varName: 'r' }], expression: 'return r' },
+      {
+        name: 'a',
+        type: 'array',
+        params: [{ datasetId: 'd1', varName: 'r' }],
+        expression: 'return r',
+      },
     ])
     expect(doc.aggregations).toHaveLength(1)
     expect(fired).toBe(1)
@@ -636,7 +673,12 @@ describe('绑定/函数 sidecar 与占位符（配置态）', () => {
 
   test('setCellFunction 新形状：结构化 fn 原样落 sidecar，旧表达式写入即嗅探', () => {
     const doc = FormDoc.create(8)
-    doc.setCellFunction(ADDR(0, 0), { kind: 'fn', fn: 'SUBTOTAL', region: '数据块 1', field: 'qty' })
+    doc.setCellFunction(ADDR(0, 0), {
+      kind: 'fn',
+      fn: 'SUBTOTAL',
+      region: '数据块 1',
+      field: 'qty',
+    })
     expect(doc.sheet.getCellMeta(ADDR(0, 0), FORM_FUNCTION_META_NAMESPACE)).toEqual({
       kind: 'fn',
       fn: 'SUBTOTAL',

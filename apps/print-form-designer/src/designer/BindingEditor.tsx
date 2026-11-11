@@ -183,7 +183,11 @@ export function BindingEditor({
 
   /** 试跑返回对象（非数组）：键 chips 与路径树的取值来源 */
   const probeRecord =
-    probe && !probe.error && typeof probe.value === 'object' && probe.value !== null && !Array.isArray(probe.value)
+    probe &&
+    !probe.error &&
+    typeof probe.value === 'object' &&
+    probe.value !== null &&
+    !Array.isArray(probe.value)
       ? (probe.value as Record<string, unknown>)
       : undefined
   const aggFields = useMemo(
@@ -314,7 +318,9 @@ export function BindingEditor({
                       key={agg.name}
                       type="button"
                       className={
-                        pickedAgg === agg.name ? 'field-chip mono-chip active' : 'field-chip mono-chip'
+                        pickedAgg === agg.name
+                          ? 'field-chip mono-chip active'
+                          : 'field-chip mono-chip'
                       }
                       title={`点开 agg.${agg.name} 返回值里的可绑路径`}
                       onClick={() => setPickedAgg(agg.name)}

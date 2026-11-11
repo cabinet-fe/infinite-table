@@ -58,7 +58,9 @@ export type AggregationTypeProber = (
 /** 试跑 prober 缺省时的兜底：走到需要试跑的路径而没有注入即抛错（防静默降级） */
 function requireProber(probe: AggregationTypeProber | undefined): AggregationTypeProber {
   if (!probe) {
-    throw new Error('空数据试跑 prober 未注入：请传入 domain/aggregation.ts 的 probeAggregationType')
+    throw new Error(
+      '空数据试跑 prober 未注入：请传入 domain/aggregation.ts 的 probeAggregationType',
+    )
   }
   return probe
 }
@@ -366,7 +368,8 @@ export const FORM_FUNCTION_META_NAMESPACE = 'form-function'
 const REGION_FN_NAMES: readonly RegionFnName[] = ['SUM', 'AVG', 'COUNT', 'MIN', 'MAX', 'SUBTOTAL']
 
 /** 旧表达式可嗅探为结构化的形态：`FN('数据块')` / `FN('数据块', '字段')` */
-const REGION_FN_SNIFF = /^(SUM|AVG|COUNT|MIN|MAX|SUBTOTAL)\s*\(\s*'([^']*)'\s*(?:,\s*'([^']*)'\s*)?\)$/
+const REGION_FN_SNIFF =
+  /^(SUM|AVG|COUNT|MIN|MAX|SUBTOTAL)\s*\(\s*'([^']*)'\s*(?:,\s*'([^']*)'\s*)?\)$/
 
 /** 同上，GROUP 家族：`GROUP()` / `GROUP('字段')` */
 const GROUP_FN_SNIFF = /^GROUP\s*\(\s*(?:'([^']*)'\s*)?\)$/
@@ -462,7 +465,9 @@ export interface FormTemplate {
 /** 绑定 → 画布占位符文本（配置态显示；数据只在打印预览/打印时渲染） */
 export function formatBindingPlaceholder(binding: FormCellBinding): string {
   if (isAggBinding(binding)) {
-    return binding.path ? `{{agg.${binding.aggName}.${binding.path}}}` : `{{agg.${binding.aggName}}}`
+    return binding.path
+      ? `{{agg.${binding.aggName}.${binding.path}}}`
+      : `{{agg.${binding.aggName}}}`
   }
   return `{{${binding.path}}}`
 }
@@ -688,9 +693,7 @@ export type RegionRect = Pick<FormRegion, 'startRow' | 'endRow' | 'startCol' | '
 
 /** 格是否落在闭区间矩形内（点命中；数据块命中、选区守卫与 sidecar 过滤共用） */
 export function rectContains(rect: RegionRect, row: number, col: number): boolean {
-  return (
-    row >= rect.startRow && row <= rect.endRow && col >= rect.startCol && col <= rect.endCol
-  )
+  return row >= rect.startRow && row <= rect.endRow && col >= rect.startCol && col <= rect.endCol
 }
 
 /** 数据块矩形内命中判定（画布底色、绑定面板判断当前格属于哪个数据块） */

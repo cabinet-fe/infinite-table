@@ -6,9 +6,9 @@
 // 只留最低成本的数据块识别信号（数据块色圆角描边 + 左上角折角标记 + 展开方向色条/虚线），
 // 数据块名改成**悬停才出现**（pill 画到数据块外侧上沿，不盖内容）。
 //
-// 右下角手柄（region-interaction 的几何）是数据块的身份入口：点击跳「数据块」tab（宿主
-// form-canvas 命中后回调）。手柄整体落在右下角单元格内部，视觉上用数据块主色直角三角
-// 角标，与骑在角点上的选区填充柄（白描边圆角小方块）形态、位置都区分。
+// 右下角手柄（@infinitable/grid 的 region-interaction 几何）是数据块的身份入口：点击跳
+// 「数据块」tab（宿主 form-canvas 命中后回调）。手柄整体落在右下角单元格内部，视觉上用
+// 数据块主色直角三角角标，与骑在角点上的选区填充柄（白描边圆角小方块）形态、位置都区分。
 //
 // 侧栏圆点用同一份颜色表（REGION_EXPAND_COLORS），两处一致才能建立「列表 ↔ 画布」对应直觉。
 // 几何全部每帧现算（getCellRelativeRect 返回视口坐标，天然跟随滚动/尺寸变化，不缓存）。
@@ -16,17 +16,17 @@
 // 参考线绘制仍复用 paper-guides 的纯函数与既有视觉，不改其口径。
 
 import { dashedLine, roundRectPath, type DashPattern } from '@infinitable/render'
-import type { SheetGrid } from '@infinitable/sheet'
-
-import { REGION_EXPAND_COLORS } from './labels'
-import { createPaperGuidesPainter, type PaperGuidesConfig } from './paper-guides'
 import {
   REGION_HANDLE_SIZE,
   REGION_HANDLE_SIZE_ACTIVE,
   regionBoundsOf,
   regionHandleRect,
-  type RegionGridRect,
-} from './region-interaction'
+  type CellRange,
+} from '@infinitable/grid'
+import type { SheetGrid } from '@infinitable/sheet'
+
+import { REGION_EXPAND_COLORS } from './labels'
+import { createPaperGuidesPainter, type PaperGuidesConfig } from './paper-guides'
 import { regionsAt, type FormRegion, type RegionExpand } from '../shared/template-schema'
 
 /** 视口尺寸（与 overlay painter 协议同形） */
@@ -116,7 +116,7 @@ interface CanvasOverlayDeps {
   /** 指针悬停在数据块手柄上的数据块下标（手柄放大强调 + cursor:pointer 的绘制依据） */
   getHandleHoverIndex: () => number | undefined
   /** 拖拽调整中的预览矩形（模型坐标；undefined = 不在拖拽） */
-  getDragPreview: () => { index: number; rect: RegionGridRect } | undefined
+  getDragPreview: () => { index: number; rect: CellRange } | undefined
   /** 内容包围盒（参考线分页域口径）：无限画布的引擎行列含大量空行噪声，只在该域内估算换页线 */
   getContentBounds: () => { rows: number; cols: number }
 }
@@ -251,7 +251,7 @@ function drawRegionHandle(
 function drawDragPreview(
   ctx: RegionPaintContext,
   table: ReturnType<SheetGrid['getTable']>,
-  preview: { index: number; rect: RegionGridRect },
+  preview: { index: number; rect: CellRange },
   regions: readonly FormRegion[],
 ): void {
   const region = regions[preview.index]

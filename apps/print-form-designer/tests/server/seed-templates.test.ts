@@ -3,7 +3,7 @@
 // 组头行）；空库首启经 REST 加载 → FormDoc 还原画布 → 打印会话直接产出成品。
 // 每份模板两类断言：normalize round-trip（REST 加载 + fromTemplate/toTemplate 幂等）
 // 与数据态渲染冒烟（占位符全部解析出值）。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { join } from 'node:path'
 
 import { toSourceRows, type QueryResult, type TemplateRecord } from '../../src/data/api'
@@ -126,12 +126,7 @@ describe('列表样：加载还原并打印出分组小计成品', () => {
     const doc = FormDoc.fromTemplate((await loadTemplate(SEED_TEMPLATE_LIST_ID)).template)
     // 唯一数据块 = 明细区（按客户分组：明细+小计+合计）；标题/列头/签字是数据块外静态内容
     expect(
-      doc.regions.map((region) => [
-        region.startRow,
-        region.endRow,
-        region.expand,
-        region.name,
-      ]),
+      doc.regions.map((region) => [region.startRow, region.endRow, region.expand, region.name]),
     ).toEqual([[2, 4, 'down', '明细行']])
     // 明细区驱动源：销售明细原始行数组直接作形态（形态根即数组），按客户分组
     expect(doc.regions[0]!.source).toEqual({
@@ -241,12 +236,7 @@ describe('中式单据：单块明细数据块并打印出单据成品', () => {
     // 唯一数据块 = 明细（归组表达式 + [0].items 循环源，向下展开）；
     // 表头/客户/列头/合计/签字都是数据块外的内容（静态文字或聚合引用绑定）
     expect(
-      doc.regions.map((region) => [
-        region.startRow,
-        region.endRow,
-        region.expand,
-        region.name,
-      ]),
+      doc.regions.map((region) => [region.startRow, region.endRow, region.expand, region.name]),
     ).toEqual([[5, 5, 'down', '明细']])
     // 聚合：非数组型订单头（orders[0] ?? {} 空数据安全），表头/客户/签字字段直引它
     expect(doc.aggregations).toEqual([
@@ -264,9 +254,9 @@ describe('中式单据：单块明细数据块并打印出单据成品', () => {
       datasetId: 'seed-dataset-order-items',
       path: '[0].items',
     })
-    expect(
-      linesSource?.kind === 'dataset' ? (linesSource.expression ?? '') : '',
-    ).toContain('reduce')
+    expect(linesSource?.kind === 'dataset' ? (linesSource.expression ?? '') : '').toContain(
+      'reduce',
+    )
     expect(doc.rows).toBe(9)
     expect(doc.cols).toBe(8)
     // 表头字段是聚合引用绑定（{{agg.订单头.字段}}，不套数据块）；明细绑定是条目内相对字段
@@ -466,7 +456,9 @@ describe('示例 · 计算列：自定义 JS 表达式', () => {
   })
 
   test('渲染冒烟：现算金额与数据集金额一致，税额按 13% 现算', async () => {
-    const { session } = await prepareSeededSession(SEED_TEMPLATE_EXPR_ID, ['seed-dataset-sales-lines'])
+    const { session } = await prepareSeededSession(SEED_TEMPLATE_EXPR_ID, [
+      'seed-dataset-sales-lines',
+    ])
     const pages = session.plugin.paginate(PRINT_CONFIG)
     // 2 表头 + 5 明细 + 1 合计 = 8 行，A4 单页
     expect(pages).toHaveLength(1)
@@ -521,7 +513,9 @@ describe('示例 · 聚合加工与链式引用：订单台账', () => {
   })
 
   test('渲染冒烟：聚合台账行、合计 SUM 与总览链式值全部解析出值', async () => {
-    const { session } = await prepareSeededSession(SEED_TEMPLATE_AGG_ID, ['seed-dataset-sales-lines'])
+    const { session } = await prepareSeededSession(SEED_TEMPLATE_AGG_ID, [
+      'seed-dataset-sales-lines',
+    ])
     const pages = session.plugin.paginate(PRINT_CONFIG)
     // 2 表头 + 2 台账行 + 1 合计 + 1 总览 = 6 行
     expect(pages).toHaveLength(1)
@@ -613,7 +607,15 @@ describe('示例 · 固定排版：空白领料单', () => {
     expect(pages).toHaveLength(1)
     expect(pages[0]!.rowRange).toEqual({ start: 0, end: 12 })
     const html = session.previewHtml(PRINT_CONFIG)
-    for (const text of ['领料单', '领料部门：', '物料名称', '领料人：', '审批人：', '仓管员：', '备注：']) {
+    for (const text of [
+      '领料单',
+      '领料部门：',
+      '物料名称',
+      '领料人：',
+      '审批人：',
+      '仓管员：',
+      '备注：',
+    ]) {
       expect(html).toContain(text)
     }
     // 固定版面无占位符、无手写留白被裁剪（空白手写行带框线）
@@ -652,7 +654,9 @@ describe('示例 · 组头行与小计：按单据分组', () => {
   })
 
   test('渲染冒烟：组头横条 + 按单小计 + 总合计进产物', async () => {
-    const { session } = await prepareSeededSession(SEED_TEMPLATE_GROUP_ID, ['seed-dataset-sales-lines'])
+    const { session } = await prepareSeededSession(SEED_TEMPLATE_GROUP_ID, [
+      'seed-dataset-sales-lines',
+    ])
     const pages = session.plugin.paginate(PRINT_CONFIG)
     // 2 表头 + 首单(组头+3 明细+小计) + 次单(组头+2 明细+小计) + 1 合计 + 1 签字 = 13 行
     expect(pages).toHaveLength(1)

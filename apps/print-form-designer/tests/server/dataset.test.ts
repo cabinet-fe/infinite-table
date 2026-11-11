@@ -1,6 +1,6 @@
 // 数据集 REST：创建/保存/编辑（关联校验、只读 SQL 护栏）、执行（原始行直出：列名 + 行数组）
 // 与字段命名（取字段接口 + fields 持久化透传）。
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { openDatabase } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import { createDemoSqliteFile, createTempDir } from './testing/demo-source'
@@ -206,7 +206,11 @@ describe('数据集 REST', () => {
       app,
       createDemoSqliteFile(dir),
     )
-    const base = { name: '商品明细', datasource_id: datasourceId, sql: 'SELECT name, qty FROM item ORDER BY qty' }
+    const base = {
+      name: '商品明细',
+      datasource_id: datasourceId,
+      sql: 'SELECT name, qty FROM item ORDER BY qty',
+    }
 
     const saved = await app.request(`/api/datasets/${datasetId}`, {
       method: 'PUT',
@@ -222,20 +226,14 @@ describe('数据集 REST', () => {
     })
     expect(saved.status).toBe(200)
     expect(await saved.json()).toMatchObject({
-      fields: [
-        { name: 'name', alias: '品名' },
-        { name: 'qty' },
-      ],
+      fields: [{ name: 'name', alias: '品名' }, { name: 'qty' }],
     })
 
     // 清单与详情都解析成数组透出
     const listed = (await (await app.request('/api/datasets')).json()) as {
       fields: { name: string; alias?: string }[]
     }[]
-    expect(listed[0]!.fields).toEqual([
-      { name: 'name', alias: '品名' },
-      { name: 'qty' },
-    ])
+    expect(listed[0]!.fields).toEqual([{ name: 'name', alias: '品名' }, { name: 'qty' }])
     const detail = (await (await app.request(`/api/datasets/${datasetId}`)).json()) as {
       fields: { name: string; alias?: string }[]
     }
