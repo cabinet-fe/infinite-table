@@ -43,6 +43,7 @@ export default defineConfig({
       'playground/src/bench/*.test.ts',
       'playground/src/app/*.test.ts',
       'apps/print-form-designer/tests/**/*.test.ts',
+      'apps/smart-table/tests/**/*.test.ts',
     ],
     // print-form-designer 服务端双运行时：生产 dev:server 在 Bun 下走真 bun:sqlite，
     // vitest 在 node 下运行时适配到 node:sqlite shim（仅测试运行时改写；类型仍走

@@ -34,6 +34,29 @@
         "vite-plus": "1.4.0",
       },
     },
+    "apps/smart-table": {
+      "name": "@infinitable/smart-table",
+      "version": "0.0.0",
+      "dependencies": {
+        "@infinitable/formulas": "workspace:*",
+        "@infinitable/grid": "workspace:*",
+        "@infinitable/pivot": "workspace:*",
+        "@infinitable/plugins": "workspace:*",
+        "@infinitable/protocol": "workspace:*",
+        "@infinitable/render": "workspace:*",
+        "@infinitable/table": "workspace:*",
+        "hono": "^4.0.0",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.0.0",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "@vitejs/plugin-react": "^6.1.2",
+        "vite-plus": "1.4.0",
+      },
+    },
     "packages/formulas": {
       "name": "@infinitable/formulas",
       "version": "0.0.0",
@@ -405,6 +428,8 @@
     "@infinitable/render": ["@infinitable/render@workspace:packages/render"],
 
     "@infinitable/sheet": ["@infinitable/sheet@workspace:packages/sheet"],
+
+    "@infinitable/smart-table": ["@infinitable/smart-table@workspace:apps/smart-table"],
 
     "@infinitable/table": ["@infinitable/table@workspace:packages/table"],
 

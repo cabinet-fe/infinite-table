@@ -7,7 +7,8 @@
 ```text
 infinitable/
 ├── apps/                # 独立全栈应用
-│   └── print-form-designer/  # 打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端）
+│   ├── print-form-designer/  # 打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端）
+│   └── smart-table/          # 多维智能表格（前端 Grid/Pivot 双画布 + 跨表 VLOOKUP + Bun/bun:sqlite/Hono 后端）
 ├── packages/            # monorepo 主体
 │   ├── render/          # 通用 canvas 渲染工具包（场景树/分层 canvas/失效登记/事件/路径原语与内建图元）
 │   ├── grid/            # 共享网格内核（自 core 拆出：ScrollManager/虚拟窗口/二分命中/共享边/选区状态/主题投影）
@@ -38,6 +39,7 @@ infinitable/
 | playground | `playground` | 应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、架构与 API 边界页、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ArchitecturePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
 | print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界；app 内分层为 shared（前后端契约：模板 schema/迁移与 REST 类型单源）、domain（领域模型：FormDoc/区域操作/聚合）、designer（表现层：画布与 React 组件）、data（数据视图 + REST 客户端与取数服务 dataset-service）、server（Hono 路由/建库/种子，种子惰性构建）；server 不 import designer；设计器内含公式栏与函数库（消费 @infinitable/formulas 的 49 个内置函数） | `src/server/index.ts`、`src/main.tsx` |
+| smart-table | `apps/smart-table` | 独立全栈应用：飞书/企微风格多维智能表格（React 19 + Hono + bun:sqlite）；app 内分层为 shared（前后端 schema 与 REST 契约单源）、domain（VLOOKUP 联合匹配/消歧/汇总、公式列求值、筛选排序汇总管线、透视下钻拆解）、canvas（SmartGridAdapter 富媒体自绘与角标 + SmartPivotAdapter 原地刷新与双击下钻）、server（普通表 JSON + 进阶物理表 SQL 双模持久层与 3 表演示种子）、components（工作台与向导/消歧/下钻 UI）；server 不 import canvas/components | `src/server/index.ts`、`src/main.tsx` |
 
 ## 模块内检索
 
@@ -125,6 +127,11 @@ graph TD
     print-form-designer --> sheet
     print-form-designer --> plugins
     print-form-designer --> render
+    smart-table --> table
+    smart-table --> pivot
+    smart-table --> plugins
+    smart-table --> formulas
+    smart-table --> render
 ```
 
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）
