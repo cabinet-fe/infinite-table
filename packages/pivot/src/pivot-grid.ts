@@ -38,7 +38,7 @@ import type {
 } from '@infinitable/protocol'
 
 import { PivotModel } from './pivot-model'
-import type { PivotGridOptions, PivotMeasure, PivotRecord } from './types'
+import type { PivotDimension, PivotGridOptions, PivotMeasure, PivotRecord } from './types'
 
 /** 数据行高（引擎构造 rowHeight 缺省；表头冻结行同高） */
 export const PIVOT_ROW_HEIGHT = 32
@@ -185,6 +185,21 @@ export class PivotGrid implements EngineAssembly {
     if (this.model.updateMeasure(key, patch)) this.applyStructure()
   }
 
+  /** 原地更新原始记录并重算聚合矩阵与引擎几何（不重建实例） */
+  setRecords(records: readonly PivotRecord[]): void {
+    if (this.model.setRecords(records)) this.applyStructure()
+  }
+
+  /** 原地更新维度池（增删维度字段时重算结构与几何） */
+  setDimensions(dimensions: readonly PivotDimension[]): void {
+    if (this.model.setDimensions(dimensions)) this.applyStructure()
+  }
+
+  /** 原地更新度量池（增删度量字段时重算结构与几何） */
+  setMeasurePool(measures: readonly PivotMeasure[]): void {
+    if (this.model.setMeasurePool(measures)) this.applyStructure()
+  }
+
   /** 切换 branch 节点展开态（展开时组格跨行合并，折叠时收敛为载体行） */
   toggleNode(path: readonly string[]): void {
     if (this.model.toggleNode(path)) this.applyStructure()
@@ -260,6 +275,16 @@ export class PivotGrid implements EngineAssembly {
   /** 当前度量定义快照（含运行时改过的聚合方式；副本，防外改池） */
   getMeasures(): readonly PivotMeasure[] {
     return this.model.activeMeasures.map((measure) => ({ ...measure }))
+  }
+
+  /** 当前维度池快照（副本） */
+  getDimensions(): readonly PivotDimension[] {
+    return this.model.dimensions
+  }
+
+  /** 当前度量池快照（副本） */
+  getMeasurePool(): readonly PivotMeasure[] {
+    return this.model.measures
   }
 
   /** 交叉格明细：该格聚合覆盖的原始记录（双击下钻数据源；引擎坐标） */

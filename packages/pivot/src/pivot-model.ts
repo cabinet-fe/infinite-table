@@ -231,6 +231,16 @@ export class PivotModel implements TableModel {
     return this.mergeList
   }
 
+  /** 维度池快照（浅拷贝防外改） */
+  get dimensions(): readonly PivotDimension[] {
+    return this.dimensionPool.map((dimension) => ({ ...dimension }))
+  }
+
+  /** 度量池快照（浅拷贝防外改） */
+  get measures(): readonly PivotMeasure[] {
+    return this.measurePool.map((measure) => ({ ...measure }))
+  }
+
   /** 当前行维度序列（调用方顺序即树层级序） */
   get activeRowDimensions(): readonly PivotDimension[] {
     return this.rowDimKeys
@@ -369,6 +379,35 @@ export class PivotModel implements TableModel {
 
   setRecords(records: readonly PivotRecord[]): boolean {
     this.records = records
+    this.rebuild()
+    return true
+  }
+
+  /** 原地替换维度池：保留仍存在的行/列维度顺序；行维度全失效时回落池首项 */
+  setDimensions(dimensions: readonly PivotDimension[]): boolean {
+    this.dimensionPool = dimensions.map((dimension) => ({ ...dimension }))
+    const validKeys = new Set(this.dimensionPool.map((dimension) => dimension.key))
+    const nextRows = this.rowDimKeys.filter((key) => validKeys.has(key))
+    if (nextRows.length === 0 && this.dimensionPool.length > 0) {
+      nextRows.push(this.dimensionPool[0]!.key)
+    }
+    this.rowDimKeys = nextRows
+    this.columnDimKeys = this.columnDimKeys.filter((key) => validKeys.has(key))
+    this.collapsedKeys.clear()
+    this.rebuild()
+    return true
+  }
+
+  /** 原地替换度量池：保留仍存在的激活度量顺序；全失效时回落池首项 */
+  setMeasurePool(measures: readonly PivotMeasure[]): boolean {
+    this.measurePool = measures.map((measure) => ({ ...measure }))
+    const validKeys = new Set(this.measurePool.map((measure) => measure.key))
+    const nextMeasures = this.measureKeys.filter((key) => validKeys.has(key))
+    if (nextMeasures.length === 0 && this.measurePool.length > 0) {
+      nextMeasures.push(this.measurePool[0]!.key)
+    }
+    this.measureKeys = nextMeasures
+    this.collapsedKeys.clear()
     this.rebuild()
     return true
   }

@@ -144,4 +144,27 @@ describe('PivotGrid 组高亮（选区不复用 sheet 交互面）', () => {
     expect(table.getSelection().ranges).toEqual([])
     pivot.destroy()
   })
+
+  it('setRecords / setDimensions / setMeasurePool 原地更新矩阵与结构', () => {
+    const { pivot } = createPivot()
+    pivot.setRecords([
+      { status: '已完成', priority: '高', amount: 50 },
+      { status: '进行中', priority: '低', amount: 70 },
+    ])
+    expect(pivot.getRecordCount()).toBe(2)
+    expect(pivot.getVisibleRowCount()).toBe(3) // 2 leaf + 1 总计
+    expect(pivot.getCellValue(2, 3)).toBe(120) // 总计金额和
+
+    pivot.setDimensions([...DIMENSIONS, { key: 'dept', title: '部门', width: 110 }])
+    expect(pivot.getDimensions().map((d) => d.key)).toEqual(['status', 'priority', 'dept'])
+
+    pivot.setMeasurePool([
+      { key: 'amount', title: '金额和', field: 'amount', agg: 'sum', width: 120 },
+      { key: 'max-amount', title: '最大金额', field: 'amount', agg: 'max', width: 120 },
+    ])
+    expect(pivot.getMeasurePool().map((m) => m.key)).toEqual(['amount', 'max-amount'])
+    pivot.setMeasures(['max-amount'])
+    expect(pivot.getCellValue(2, 3)).toBe(70)
+    pivot.destroy()
+  })
 })

@@ -116,6 +116,9 @@ export class PivotGrid implements EngineAssembly {
   setColumnDimensions(keys: readonly string[]): void // 勾选列维度序列（空序列度量直排）
   setMeasures(keys: readonly string[]): void // 勾选度量序列（顺序即数据列分组序；至少一个）
   updateMeasure(key: string, patch: Partial<Pick<PivotMeasure, 'agg' | 'title' | 'width'>>): void
+  setRecords(records: readonly PivotRecord[]): void // 原地更新原始记录并重算矩阵与几何
+  setDimensions(dimensions: readonly PivotDimension[]): void // 原地更新维度池
+  setMeasurePool(measures: readonly PivotMeasure[]): void // 原地更新度量池
   toggleNode(path: readonly string[]): void // 切换 branch 节点展开态
   getCollapsible(): boolean
   setCollapsible(enabled: boolean): void // 关闭时既有折叠态清空，整树平铺
@@ -133,6 +136,8 @@ export class PivotGrid implements EngineAssembly {
   getColumnDimensionKeys(): readonly string[]
   getMeasureKeys(): readonly string[]
   getMeasures(): readonly PivotMeasure[] // 当前度量定义快照（副本，防外改池）
+  getDimensions(): readonly PivotDimension[] // 当前维度池快照（副本）
+  getMeasurePool(): readonly PivotMeasure[] // 当前度量池快照（副本）
   getCellRecords(col: number, row: number): readonly PivotRecord[] // 交叉格明细（下钻数据源）
   onCellDrill(listener: (event: PivotCellDrillEvent) => void): () => void // 双击数据格下钻
   getTable(): TableEngine // 引擎协议面出口（调试/领域外操作的窄接口）
@@ -186,6 +191,8 @@ export class PivotModel implements TableModel {
   get activeRowDimensions(): readonly PivotDimension[]
   get activeColumnDimensions(): readonly PivotDimension[]
   get activeMeasures(): readonly PivotMeasure[]
+  get dimensions(): readonly PivotDimension[]
+  get measures(): readonly PivotMeasure[]
   getColumnWidth(col: number): number | undefined
   getCellRecords(col: number, row: number): readonly PivotRecord[]
   groupRange(path: readonly string[]): { startRow: number; endRow: number } | null // 组的可见行区块
@@ -196,6 +203,9 @@ export class PivotModel implements TableModel {
   setColumnDimensions(keys: readonly string[]): boolean
   setMeasures(keys: readonly string[]): boolean
   updateMeasure(key: string, patch: Partial<Pick<PivotMeasure, 'agg' | 'title' | 'width'>>): boolean
+  setRecords(records: readonly PivotRecord[]): boolean
+  setDimensions(dimensions: readonly PivotDimension[]): boolean
+  setMeasurePool(measures: readonly PivotMeasure[]): boolean
   toggleNode(path: readonly string[]): boolean
   expandAll(): boolean
   collapseAll(): boolean

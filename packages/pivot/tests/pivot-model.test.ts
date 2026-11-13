@@ -380,4 +380,29 @@ describe('动态勾选与聚合切换', () => {
     // 东·A·(空) 数量和 = 10
     expect(pivot.getCellValue(2, 2)).toBe(10)
   })
+
+  it('setDimensions / setMeasurePool 原地替换池并回落有效激活序列', () => {
+    const pivot = model()
+    expect(pivot.setDimensions([{ key: 'channel', title: '渠道', width: 100 }])).toBe(true)
+    expect(pivot.dimensions.map((d) => d.key)).toEqual(['channel'])
+    // 原 rowDimensions ['region', 'product'] 全失效，回落池首项 'channel'；原 columnDimensions ['channel'] 保留
+    expect(pivot.activeRowDimensions.map((d) => d.key)).toEqual(['channel'])
+    expect(pivot.activeColumnDimensions.map((d) => d.key)).toEqual(['channel'])
+
+    expect(
+      pivot.setMeasurePool([
+        { key: 'amount-sum', title: '金额合计', field: 'amount', agg: 'sum', width: 130 },
+        { key: 'extra-max', title: '最大金额', field: 'amount', agg: 'max', width: 120 },
+      ]),
+    ).toBe(true)
+    expect(pivot.measures.map((m) => m.key)).toEqual(['amount-sum', 'extra-max'])
+    expect(pivot.activeMeasures.map((m) => m.key)).toEqual(['amount-sum'])
+
+    expect(
+      pivot.setMeasurePool([
+        { key: 'extra-min', title: '最小金额', field: 'amount', agg: 'min', width: 120 },
+      ]),
+    ).toBe(true)
+    expect(pivot.activeMeasures.map((m) => m.key)).toEqual(['extra-min'])
+  })
 })
