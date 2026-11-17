@@ -106,6 +106,26 @@ export class FormulaEngine {
     return this.sheets.get(name)
   }
 
+  /** 解析表名（改名后的旧名返回当前规范表名，否则原样返回） */
+  resolveSheetName(name: string): string {
+    return this.aliases.get(name) ?? name
+  }
+
+  /** 返回规范表名及所有指向它的历史别名集合（供结构平移识别改名后的旧名引用） */
+  getSheetTargetNames(sheetName: string): Set<string> {
+    const canonical = this.resolveSheetName(sheetName)
+    const names = new Set([canonical])
+    for (const [alias, target] of this.aliases) {
+      if (target === canonical) names.add(alias)
+    }
+    return names
+  }
+
+  /** 收集所有引用指定表的公式格坐标（含本表自引用；去重） */
+  affectedBySheet(sheetName: string): SheetCellCoord[] {
+    return this.graph.affectedBySheet(sheetName)
+  }
+
   // ─── 实例函数集 ───────────────────────────────────────────
 
   /**
@@ -245,6 +265,19 @@ export class FormulaEngine {
     }
   }
 
+  /**
+   * 按 sheet 当前存储重建该表全部公式节点（结构平移 / 行列删除后调用）：
+   * 先移除本 sheet 旧坐标下的全部公式节点，再从 store.entries() 重新注册全部含 f 的格——
+   * 保证仅坐标平移（公式文本未变）的节点同步更新，且被删行列的公式节点彻底清除。
+   */
+  rebuildSheetFromStore(sheet: Sheet): void {
+    for (const coord of this.graph.formulasOf(sheet.name)) this.graph.remove(coord)
+    for (const [addr, data] of sheet.store.entries()) {
+      if (!data.f) continue
+      this.registerFormula(sheet, { sheet: sheet.name, col: addr.col, row: addr.row }, data.f)
+    }
+  }
+
   // ─── 增量重算 ─────────────────────────────────────────────
 
   /**
@@ -345,8 +378,7 @@ export class FormulaEngine {
     }
 
     const resolveSheet = (name: string): Sheet | undefined => {
-      const resolved = this.aliases.get(name) ?? name
-      return this.sheets.get(resolved)
+      return this.sheets.get(this.resolveSheetName(name))
     }
 
     const resolver: FormulaResolver = {
@@ -417,7 +449,8 @@ export class FormulaEngine {
       volatile = astHasVolatileCall(ast, this.functions)
       const seen = new Set<string>()
       for (const ref of collectAstReferences(ast)) {
-        const target = renameMap?.get(ref.ref.sheet ?? sheet.name) ?? ref.ref.sheet ?? sheet.name
+        const rawTarget = ref.ref.sheet ?? sheet.name
+        const target = renameMap?.get(rawTarget) ?? this.resolveSheetName(rawTarget)
         if (ref.kind === 'cell') {
           const dedupe = `c|${target}|${ref.ref.col},${ref.ref.row}`
           if (seen.has(dedupe)) continue

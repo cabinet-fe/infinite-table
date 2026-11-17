@@ -134,3 +134,37 @@ describe('shiftFormulaRefs 填充柄增量平移', () => {
     expect(shiftFormulaRefs('SUM(', 1, 0)).toBe('SUM(')
   })
 })
+
+describe('shiftFormulaText 跨表隔离（scope）', () => {
+  it('Sheet2 上的公式仅平移指向 targetSheet=Sheet1 的引用（裸引用与 Sheet2! 不动）', () => {
+    const r = shiftFormulaText('A5+Sheet1!A5+Sheet2!A5', 'rows', 2, 3, 'insert', {
+      formulaSheet: 'Sheet2',
+      targetSheet: 'Sheet1',
+    })
+    expect(r).toEqual({ text: 'A5+Sheet1!A8+Sheet2!A5', broken: false })
+  })
+
+  it('Sheet1 上的公式仅平移裸引用 A5，Sheet2!A5 保持不变', () => {
+    const r = shiftFormulaText('A5+Sheet2!A5', 'rows', 2, 3, 'insert', {
+      formulaSheet: 'Sheet1',
+      targetSheet: 'Sheet1',
+    })
+    expect(r).toEqual({ text: 'A8+Sheet2!A5', broken: false })
+  })
+
+  it('删除区间仅对 targetSheet 触发 #REF!，非目标表引用不 broken', () => {
+    const r = shiftFormulaText('A3+Sheet1!A3+Sheet2!A3', 'rows', 2, 1, 'delete', {
+      formulaSheet: 'Sheet2',
+      targetSheet: 'Sheet1',
+    })
+    expect(r).toEqual({ text: 'A3+Sheet1!#REF!+Sheet2!A3', broken: true })
+  })
+
+  it('支持 targetSheet 传入 ReadonlySet<string>（改名别名集合）及带引号表名', () => {
+    const r = shiftFormulaText("OldName!A5+'My Sheet'!A5+A5", 'rows', 2, 2, 'insert', {
+      formulaSheet: 'Sheet2',
+      targetSheet: new Set(['My Sheet', 'OldName']),
+    })
+    expect(r).toEqual({ text: "OldName!A7+'My Sheet'!A7+A5", broken: false })
+  })
+})

@@ -72,6 +72,12 @@ describe('projectCellStyle 样式投影', () => {
     const result = projectCellStyle(base, { border: {} })
     expect(result.border).toEqual({ right: { width: 1, color: '#ddd' } })
   })
+
+  it('override 未给 border 时直接复用 base.border 引用（零多余分配）', () => {
+    const base: CellStyle = { border: { top: { width: 1, color: '#ddd' } } }
+    const result = projectCellStyle(base, { color: '#f00' })
+    expect(result.border).toBe(base.border)
+  })
 })
 
 describe('projectCellStyle 文本样式字段逐字段覆盖', () => {

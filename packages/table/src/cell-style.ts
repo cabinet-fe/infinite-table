@@ -90,9 +90,15 @@ export function projectCellStyle(
     textOverflow: override?.textOverflow ?? base.textOverflow,
     padding: override?.padding ?? base.padding,
   }
+  if (!override?.border) {
+    if (base.border) {
+      result.border = base.border
+    }
+    return result
+  }
   let border: CellBorder | undefined
   for (const edge of BORDER_EDGES) {
-    const style = override?.border?.[edge] ?? base.border?.[edge]
+    const style = override.border[edge] ?? base.border?.[edge]
     if (style) {
       border = border ?? {}
       border[edge] = style

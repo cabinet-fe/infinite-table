@@ -142,6 +142,8 @@ export class PivotGrid implements EngineAssembly {
   private readonly pluginHost = new PluginHost(this)
   private readonly disposers: (() => void)[] = []
   private readonly drillListeners = new Set<(event: PivotCellDrillEvent) => void>()
+  /** 用户拖拽列宽覆盖（按列稳定键记录，结构重算后保留） */
+  private readonly userColWidths = new Map<string, number>()
   private measureFormatter?: (measure: PivotMeasure, value: number) => string
   private released = false
 
@@ -192,6 +194,13 @@ export class PivotGrid implements EngineAssembly {
     this.capabilities = {
       gridRead: this.read,
     }
+
+    this.disposers.push(
+      this.table.onColResizeEnd(({ col, width }) => {
+        const key = this.pivotColumnKey(col)
+        if (key !== undefined) this.userColWidths.set(key, width)
+      }),
+    )
 
     this.applyStructure()
     this.bindWheel()
@@ -494,6 +503,16 @@ export class PivotGrid implements EngineAssembly {
 
   // ---- 内部：结构落地 ----
 
+  /** 列稳定键（行维度键或度量键+列路径），用于结构重算后保留用户拖拽列宽 */
+  private pivotColumnKey(col: number): string | undefined {
+    const column = this.model.columns[col]
+    if (!column) return undefined
+    if (column.kind === 'row-header') {
+      return `row:${this.model.activeRowDimensions[col]?.key ?? column.title}`
+    }
+    return `measure:${column.measure.key}:${column.colPath.join('\u0000')}`
+  }
+
   /**
    * 结构落地：行数（表头行 + 数据行）/列数/冻结带（行维度列 × 表头行）/逐列宽/
    * 合并区（batchUpdate 合并为一次失效提交）。结构变化后行列坐标整体重排，旧
@@ -507,8 +526,13 @@ export class PivotGrid implements EngineAssembly {
       this.table.setFrozenColCount(this.model.rowHeaderCount)
       this.table.setFrozenRowCount(this.model.headerRowCount)
       for (let col = 0; col < this.model.columns.length; col++) {
-        const width = this.model.getColumnWidth(col)
-        if (width !== undefined) this.table.setColWidth(col, width)
+        const key = this.pivotColumnKey(col)
+        const width =
+          (key !== undefined ? this.userColWidths.get(key) : undefined) ??
+          this.model.getColumnWidth(col)
+        if (width !== undefined && this.table.getColWidth(col) !== width) {
+          this.table.setColWidth(col, width)
+        }
       }
       this.table.setMergeCells(this.model.mergeRanges)
     })

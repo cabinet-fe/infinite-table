@@ -64,8 +64,13 @@ export interface OverlayContent {
   }
   /** 预留轨道条带（右缘宽/下缘高；reserve 开启时可滚动轴常驻，0 = 该侧无预留） */
   readonly scrollbarGutter: { width: number; height: number }
-  /** 可视窗口（选区裁剪用，[start, end)） */
-  readonly window: { rows: WindowRange; cols: WindowRange }
+  /** 可视窗口（选区裁剪用，冻结计数与滚动带 [start, end) 分离） */
+  readonly window: {
+    readonly frozenRowCount: number
+    readonly frozenColCount: number
+    readonly rows: WindowRange
+    readonly cols: WindowRange
+  }
 }
 
 export class OverlayNode extends SceneNode {
@@ -337,26 +342,54 @@ export class OverlayNode extends SceneNode {
     return this.boundsRect(normalizeRange(range), content)
   }
 
-  /** 边界矩形裁剪到可视窗口后的视口矩形；完全在窗口外返回 null */
-  private boundsRect(bounds: RangeBounds, content: OverlayContent): Region | null {
-    const minCol = Math.max(bounds.minCol, content.window.cols.start)
-    const maxCol = Math.min(bounds.maxCol, content.window.cols.end - 1)
-    const minRow = Math.max(bounds.minRow, content.window.rows.start)
-    const maxRow = Math.min(bounds.maxRow, content.window.rows.end - 1)
-    if (minCol > maxCol || minRow > maxRow) {
+  /** 单轴在冻结带 [0, frozenCount) 与滚动带 [scrollable.start, scrollable.end) 上的可见区间 */
+  private resolveAxisSpan(
+    min: number,
+    max: number,
+    frozenCount: number,
+    scrollable: WindowRange,
+  ): { start: number; end: number; inFrozen: boolean } | null {
+    const hasFrozen = frozenCount > 0 && min < frozenCount
+    const hasScrollable =
+      scrollable.end > scrollable.start && max >= scrollable.start && min < scrollable.end
+    if (!hasFrozen && !hasScrollable) {
       return null
     }
-    const topLeft = this.geometry.cellRect(minCol, minRow)
-    const bottomRight = this.geometry.cellRect(maxCol, maxRow)
+    const start = hasFrozen ? Math.max(min, 0) : Math.max(min, scrollable.start)
+    const end = hasScrollable ? Math.min(max, scrollable.end - 1) : Math.min(max, frozenCount - 1)
+    if (start > end) {
+      return null
+    }
+    return { start, end, inFrozen: hasFrozen }
+  }
+
+  /** 边界矩形裁剪到可视窗口后的视口矩形；完全在窗口外返回 null */
+  private boundsRect(bounds: RangeBounds, content: OverlayContent): Region | null {
+    const { frozenColCount, frozenRowCount, cols, rows } = content.window
+    const colSpan = this.resolveAxisSpan(bounds.minCol, bounds.maxCol, frozenColCount, cols)
+    const rowSpan = this.resolveAxisSpan(bounds.minRow, bounds.maxRow, frozenRowCount, rows)
+    if (!colSpan || !rowSpan) {
+      return null
+    }
+    const topLeft = this.geometry.cellRect(colSpan.start, rowSpan.start)
+    const bottomRight = this.geometry.cellRect(colSpan.end, rowSpan.end)
     if (!topLeft || !bottomRight) {
       return null
     }
-    return {
-      x: topLeft.x,
-      y: topLeft.y,
-      width: bottomRight.x + bottomRight.width - topLeft.x,
-      height: bottomRight.y + bottomRight.height - topLeft.y,
+    let left = topLeft.x
+    let top = topLeft.y
+    const right = bottomRight.x + bottomRight.width
+    const bottom = bottomRight.y + bottomRight.height
+    if (!colSpan.inFrozen && content.freezeDividers.x !== null) {
+      left = Math.max(left, content.freezeDividers.x)
     }
+    if (!rowSpan.inFrozen && content.freezeDividers.y !== null) {
+      top = Math.max(top, content.freezeDividers.y)
+    }
+    if (right <= left || bottom <= top) {
+      return null
+    }
+    return { x: left, y: top, width: right - left, height: bottom - top }
   }
 }
 

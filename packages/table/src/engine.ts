@@ -48,10 +48,28 @@ export interface TableEngine extends EngineAssembly {
   getColWidth(col: number): number
   /** 运行时修改列宽 */
   setColWidth(col: number, width: number): void
+  /** 运行时批量修改列宽 */
+  setColWidths(
+    widths:
+      | ReadonlyMap<number, number>
+      | Iterable<readonly [number, number]>
+      | Record<number, number>,
+  ): void
   /** 行高读取（含逐行覆盖） */
   getRowHeight(row: number): number
   /** 运行时修改行高 */
   setRowHeight(row: number, height: number): void
+  /** 运行时批量修改行高 */
+  setRowHeights(
+    heights:
+      | ReadonlyMap<number, number>
+      | Iterable<readonly [number, number]>
+      | Record<number, number>,
+  ): void
+  /** 清除指定行的逐行高度覆盖（恢复为默认行高） */
+  clearRowHeight(row: number): void
+  /** 清除全部逐行高度覆盖（全部恢复为默认行高） */
+  resetRowHeights(): void
   /** 运行时修改行数（无限滚动 / 动态增长） */
   setRowCount(count: number): void
   /** 运行时修改列数（增出列回落列定义模板与 resolveColTitle） */

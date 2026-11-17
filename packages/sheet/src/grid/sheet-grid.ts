@@ -1,12 +1,14 @@
 import {
   EditorRegistry,
   ListTable,
+  type CellChangeEvent,
   type CellRenderer,
   type ColumnDefine,
   type ListTableOptions,
   type TableEngine,
 } from '@infinitable/table'
 import {
+  cellKey,
   extendsTheme,
   PluginHost,
   type CellRange as EngineCellRange,
@@ -199,6 +201,16 @@ export class SheetGrid implements EngineAssembly {
   private readonly cellImages: GridCellImages
   private readonly cellLinks: GridCellLinks
   private readonly disposers: (() => void)[] = []
+  /** ModelBinding 的单元格变更转发集合（与批缓冲共链：batch-end 统一合并刷新） */
+  private readonly modelCellChangeListeners = new Set<(change: CellChangeEvent) => void>()
+  /** 批事件嵌套深度（Sheet batch-start / batch-end 成对计数） */
+  private sheetBatchDepth = 0
+  /** 批内缓冲的单元格变更（按格去重保序） */
+  private readonly batchCells = new Map<number, CellChangeEvent>()
+  /** 批内缓冲的 wrap 行号（batch-end 统一重估） */
+  private readonly batchWrapRows = new Set<number>()
+  /** 批内是否发生结构变更（batch-end 合并进同一次 table.batchUpdate） */
+  private batchHasStructure = false
   /** LRU 可见性：隐藏实例停用视图同步（只置脏），激活时一次性全量同步 */
   private visible = true
   private dirty = false
@@ -285,7 +297,10 @@ export class SheetGrid implements EngineAssembly {
       width: options.width ?? this.measureContainerWidth(),
       height: options.height ?? this.measureContainerHeight(),
       columns: this.buildColumns(cols),
-      model: createSheetTableModel(this.sheet),
+      model: createSheetTableModel(this.sheet, (listener) => {
+        this.modelCellChangeListeners.add(listener)
+        return () => this.modelCellChangeListeners.delete(listener)
+      }),
       resolveDisplayValue: createEngineDisplayValue(this.sheet, this.hooks),
       resolveCellStyle: createEngineCellStyle(this.sheet, this.hooks),
       // 按格嵌入图：无条件接入引擎图片格渲染通道（宿主无需传 hook，模型有图即渲染），
@@ -317,6 +332,7 @@ export class SheetGrid implements EngineAssembly {
       editorRegistry,
       editorMaxLength: 50000,
       rowHeight: this.defaultRowHeight,
+      rowHeights: this.sheet.getRowHeights(),
       defaultColWidth: this.defaultColWidth,
       headerHeight: SHEET_HEADER_HEIGHT,
       rowHeaderWidth: SHEET_ROW_HEADER_WIDTH,
@@ -361,10 +377,6 @@ export class SheetGrid implements EngineAssembly {
       writableGridData: this.table,
     }
 
-    // 构造期一次落地行列尺寸覆盖（列宽已随列定义写入，行为运行时 API）
-    for (const [row, height] of this.sheet.getRowHeights()) {
-      if (height !== this.defaultRowHeight) this.table.setRowHeight(row, height)
-    }
     this.lastMergeSignature = JSON.stringify(this.readMergeCells())
 
     // 表头 DOM 覆盖层挂载（列头带存在且传 resolveHeader 时）；滚动帧同步定位
@@ -528,6 +540,11 @@ export class SheetGrid implements EngineAssembly {
     this.headerLayer?.dispose()
     for (const dispose of this.disposers) dispose()
     this.disposers.length = 0
+    this.modelCellChangeListeners.clear()
+    this.batchCells.clear()
+    this.batchWrapRows.clear()
+    this.batchHasStructure = false
+    this.sheetBatchDepth = 0
     this.resizeObserver?.disconnect()
     this.resizeObserver = undefined
     if (this.resizeTimer !== undefined) {
@@ -550,23 +567,35 @@ export class SheetGrid implements EngineAssembly {
       return
     }
     if (axis === 'row') {
-      for (const row of indexes) {
-        const height = this.sheet.getRowHeight(row)
-        if (height != null && this.table.getRowHeight(row) !== height) {
-          this.table.setRowHeight(row, height)
+      this.table.batchUpdate(() => {
+        for (const row of indexes) {
+          const height = this.sheet.getRowHeight(row)
+          if (height == null) {
+            this.table.clearRowHeight(row)
+          } else if (this.table.getRowHeight(row) !== height) {
+            this.table.setRowHeight(row, height)
+          }
         }
-      }
+      })
       return
     }
-    for (const col of indexes) {
-      const width = this.sheet.getColWidth(col)
-      if (width == null || this.table.getColWidth(col) === width) continue
-      this.table.setColWidth(col, width)
-      // 列宽变化影响 wrap 折行：该列各行重估 wrap 行高（同拖拽落定路径）
-      for (const row of this.sheet.store.rowsForColumn(col)) {
-        this.rowHeightEngine.syncWrapRowHeight(row, this.table)
+    this.table.batchUpdate(() => {
+      for (const col of indexes) {
+        const width = this.sheet.getColWidth(col)
+        if (width == null) {
+          if (this.table.getColWidth(col) !== this.defaultColWidth) {
+            this.table.setColWidth(col, this.defaultColWidth)
+          }
+          continue
+        }
+        if (this.table.getColWidth(col) === width) continue
+        this.table.setColWidth(col, width)
+        // 列宽变化影响 wrap 折行：该列各行重估 wrap 行高（同拖拽落定路径）
+        for (const row of this.sheet.store.rowsForColumn(col)) {
+          this.rowHeightEngine.syncWrapRowHeight(row, this.table)
+        }
       }
-    }
+    })
     // 表头覆盖层随列几何重定位
     this.headerLayer?.sync()
   }
@@ -740,6 +769,12 @@ export class SheetGrid implements EngineAssembly {
   // ─── 事件接线 ───────────────────────────────────────────
 
   private bindSheetEvents(onColResizeEnd?: SheetGridOptions['onColResizeEnd']): void {
+    const emitModelCellChange = (change: CellChangeEvent): void => {
+      for (const listener of this.modelCellChangeListeners) {
+        listener(change)
+      }
+    }
+
     const syncWrapRow = (row: number): void => {
       if (this.released) return
       if (!this.visible) {
@@ -775,7 +810,68 @@ export class SheetGrid implements EngineAssembly {
     }
 
     this.disposers.push(
-      this.sheet.on('cell-change', ({ addr }) => syncWrapRow(addr.row)),
+      this.sheet.on('batch-start', () => {
+        this.sheetBatchDepth++
+      }),
+      this.sheet.on('batch-end', () => {
+        if (this.sheetBatchDepth > 0) this.sheetBatchDepth--
+        if (this.sheetBatchDepth > 0) return
+        const cells = [...this.batchCells.values()]
+        const wrapRows = [...this.batchWrapRows]
+        const hasStructure = this.batchHasStructure
+        this.batchCells.clear()
+        this.batchWrapRows.clear()
+        this.batchHasStructure = false
+        if (this.released) return
+        if (cells.length === 0 && wrapRows.length === 0 && !hasStructure) return
+
+        // 单格（无结构变更）直刷保留单格 region 失效，避免退化为整批 band
+        if (!hasStructure && cells.length <= 1 && wrapRows.length <= 1) {
+          for (const change of cells) emitModelCellChange(change)
+          for (const row of wrapRows) syncWrapRow(row)
+          return
+        }
+
+        const syncStructureVisible = hasStructure && this.visible
+        if (hasStructure && !this.visible) {
+          this.dirty = true
+        }
+        this.table.batchUpdate(() => {
+          if (syncStructureVisible) {
+            this.syncStructureCore()
+            this.refreshWindow()
+          }
+          for (const change of cells) emitModelCellChange(change)
+          for (const row of wrapRows) syncWrapRow(row)
+        })
+        if (syncStructureVisible) {
+          this.headerLayer?.sync()
+          this.selectionController.pushSelectionToTable(this.sheet.getSelection())
+        }
+      }),
+      this.sheet.on('cell-change', ({ addr }) => {
+        if (this.released) return
+        if (this.sheetBatchDepth > 0) {
+          const key = cellKey(addr.col, addr.row)
+          if (!this.batchCells.has(key)) {
+            this.batchCells.set(key, {
+              col: addr.col,
+              row: addr.row,
+              oldValue: undefined,
+              newValue: undefined,
+            })
+          }
+          this.batchWrapRows.add(addr.row)
+          return
+        }
+        emitModelCellChange({
+          col: addr.col,
+          row: addr.row,
+          oldValue: undefined,
+          newValue: undefined,
+        })
+        syncWrapRow(addr.row)
+      }),
       // 拖拽落定持久化：行列尺寸写模型（切 sheet 重建后还原；不进 undo 同旧约定）
       this.table.onRowResizeEnd((event) => {
         this.sheet.setRowHeight(event.row, event.height)
@@ -811,9 +907,21 @@ export class SheetGrid implements EngineAssembly {
       }),
       this.sheet.on('image-change', () => scheduleFloatSync()),
       this.sheet.on('structure-change', () => {
-        // 行列数运行时变化超出发擎适配面（引擎维度构造期固定），交宿主重建实例
         if (this.released) return
-        if (!this.visible) this.dirty = true
+        if (this.sheetBatchDepth > 0) {
+          this.batchHasStructure = true
+          return
+        }
+        if (!this.visible) {
+          this.dirty = true
+          return
+        }
+        this.table.batchUpdate(() => {
+          this.syncStructureCore()
+          this.refreshWindow()
+        })
+        this.headerLayer?.sync()
+        this.selectionController.pushSelectionToTable(this.sheet.getSelection())
       }),
     )
   }
@@ -846,21 +954,33 @@ export class SheetGrid implements EngineAssembly {
     })
   }
 
-  /** 全量同步（激活/隐藏后切回）：选区/冻结/合并/行列尺寸/浮动图/可视窗口 */
+  /** 结构几何同步内核（须在 table.batchUpdate 内调用）：行列数/行高/列宽/合并/浮动图 */
+  private syncStructureCore(): void {
+    const rows = Math.max(this.sheet.rows, 1)
+    const cols = Math.max(this.sheet.cols, 1)
+    this.rowHeightEngine.resize(rows, cols)
+    this.table.setRowCount(rows)
+    this.table.setColCount(cols, this.isReadonly ? {} : { editor: SHEET_TEXT_EDITOR })
+    this.table.resetRowHeights()
+    this.table.setRowHeights(this.sheet.getRowHeights())
+    for (let col = 0; col < cols; col++) {
+      const width = this.sheet.getColWidth(col) ?? this.defaultColWidth
+      if (this.table.getColWidth(col) !== width) this.table.setColWidth(col, width)
+    }
+    this.applyMerges()
+    this.floatImages.sync()
+  }
+
+  /** 全量同步（激活/隐藏后切回）：行列数/冻结/合并/行列尺寸/浮动图/选区/可视窗口 */
   private fullResync(): void {
     const wrapRows = this.pendingWrapRows
     this.pendingWrapRows = new Set()
-    for (const row of wrapRows) this.rowHeightEngine.syncWrapRowHeight(row, this.table)
-    this.applyFrozen()
-    this.applyMerges()
-    for (const [col, width] of this.sheet.getColWidths()) {
-      if (this.table.getColWidth(col) !== width) this.table.setColWidth(col, width)
-    }
-    for (const [row, height] of this.sheet.getRowHeights()) {
-      if (this.table.getRowHeight(row) !== height) this.table.setRowHeight(row, height)
-    }
-    this.floatImages.sync()
-    this.refreshWindow()
+    this.table.batchUpdate(() => {
+      this.applyFrozen()
+      this.syncStructureCore()
+      for (const row of wrapRows) this.rowHeightEngine.syncWrapRowHeight(row, this.table)
+      this.refreshWindow()
+    })
     this.headerLayer?.sync()
     this.selectionController.pushSelectionToTable(this.sheet.getSelection())
   }

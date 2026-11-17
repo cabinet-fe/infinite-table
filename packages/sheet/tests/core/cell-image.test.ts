@@ -141,12 +141,12 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
     try {
       vi.spyOn(table.imageService, 'request').mockReturnValue('idle')
       const url = 'https://example.com/readd.png'
-      // 首图：惰性建 media 层并留下本格缓存 key 口径（image:col:row:WxH），随后清图
+      // 首图：惰性建 media 层并留下本格缓存 key 口径（image:url:WxH），随后清图
       sheet.setCellImage({ row: 0, col: 0 }, { src: url })
       expect(table.sceneState.media).toBeDefined()
       const first = imageNodeAt(table, 0, 0)
       expect(first).toBeDefined()
-      const cacheKey = `image:0:0:${Math.round(first!.width)}x${Math.round(first!.height)}`
+      const cacheKey = `image:${url}:${Math.round(first!.width)}x${Math.round(first!.height)}`
       sheet.setCellImage({ row: 0, col: 0 }, null)
       // 冲一帧：摘除分支的 media 失效消费干净（层队列排空后，无新失效即不重绘）
       await flushFrame()

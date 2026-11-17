@@ -5,7 +5,7 @@
 // 拖拽释放（down/up 位移超阈）不触发高亮。事件经真实 DOM 派发（容器 rect 为零矩形，
 // clientX/clientY 即容器相对坐标）；选区快照经引擎 getSelection 读取。
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ListTable } from '@infinitable/table'
 
@@ -166,5 +166,85 @@ describe('PivotGrid 组高亮（选区不复用 sheet 交互面）', () => {
     pivot.setMeasures(['max-amount'])
     expect(pivot.getCellValue(2, 3)).toBe(70)
     pivot.destroy()
+  })
+})
+
+/** 模拟引擎列宽拖拽落定：更新列宽并触发 onColResizeEnd 监听 */
+function simulateColResizeEnd(table: ListTable, col: number, width: number): void {
+  table.setColWidth(col, width)
+  for (const listener of table.interactionState.colResizeEndListeners) {
+    listener({ col, width })
+  }
+}
+
+describe('PivotGrid 列宽保留与短路', () => {
+  it('用户拖拽列宽在 toggleNode / collapseAll / expandAll 后保留，且未变宽度短路不调 setColWidth', () => {
+    const { pivot, table } = createPivot()
+    try {
+      // 用户将第 0 列（status）和第 2 列（amount）拖宽
+      simulateColResizeEnd(table, 0, 180)
+      simulateColResizeEnd(table, 2, 210)
+      expect(table.getColWidth(0)).toBe(180)
+      expect(table.getColWidth(2)).toBe(210)
+
+      const setColWidthSpy = vi.spyOn(table, 'setColWidth')
+
+      pivot.toggleNode(['已完成'])
+      expect(table.getColWidth(0)).toBe(180)
+      expect(table.getColWidth(2)).toBe(210)
+      expect(setColWidthSpy).not.toHaveBeenCalled()
+
+      pivot.collapseAll()
+      expect(table.getColWidth(0)).toBe(180)
+      expect(table.getColWidth(2)).toBe(210)
+      expect(setColWidthSpy).not.toHaveBeenCalled()
+
+      pivot.expandAll()
+      expect(table.getColWidth(0)).toBe(180)
+      expect(table.getColWidth(2)).toBe(210)
+      expect(setColWidthSpy).not.toHaveBeenCalled()
+    } finally {
+      pivot.destroy()
+    }
+  })
+
+  it('setMeasures / setRowDimensions 重排或重建列后按稳定键还原用户拖拽列宽', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const pivot = new PivotGrid({
+      container,
+      dimensions: DIMENSIONS,
+      measures: MEASURES,
+      records: [
+        { status: '已完成', priority: '中', amount: 1 },
+        { status: '待启动', priority: '低', amount: 4 },
+      ],
+      rowDimensions: ['status', 'priority'],
+      columnDimensions: ['priority'],
+    })
+    const table = pivot.getTable() as unknown as ListTable
+    try {
+      // 初始列：0=status(120), 1=priority(100), 2=(低,amount), 3=(低,count), 4=(中,amount), 5=(中,count)
+      simulateColResizeEnd(table, 0, 175)
+      simulateColResizeEnd(table, 4, 240)
+
+      // 切换度量序列：仅保留 amount → (中, amount) 移到 col 3
+      pivot.setMeasures(['amount'])
+      expect(table.getColWidth(0)).toBe(175)
+      expect(table.getColWidth(3)).toBe(240)
+
+      // 恢复两度量：原列宽仍按稳定键还原
+      pivot.setMeasures(['amount', 'count'])
+      expect(table.getColWidth(0)).toBe(175)
+      expect(table.getColWidth(4)).toBe(240)
+
+      // 切换行维度顺序：priority 在前(col 0), status 在后(col 1) → status 仍保留 175
+      pivot.setRowDimensions(['priority', 'status'])
+      expect(table.getColWidth(0)).toBe(100)
+      expect(table.getColWidth(1)).toBe(175)
+      expect(table.getColWidth(4)).toBe(240)
+    } finally {
+      pivot.destroy()
+    }
   })
 })

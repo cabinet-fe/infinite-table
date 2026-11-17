@@ -90,7 +90,12 @@ describe('InteractionOverlay 绘制填充柄', () => {
       freezeDividers: { x: null, y: null },
       scrollbars: { vertical: null, horizontal: null },
       scrollbarGutter: { width: 0, height: 0 },
-      window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 100 } },
+      window: {
+        frozenRowCount: 0,
+        frozenColCount: 0,
+        rows: { start: 0, end: 100 },
+        cols: { start: 0, end: 100 },
+      },
     }
     return content
   }

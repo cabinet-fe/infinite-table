@@ -4,11 +4,12 @@ import type { RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '../src/list-table'
+import { ChartCellNode } from '../src/media/chart-cell-node'
 import { ImageCellNode } from '../src/media/image-cell-node'
 import type { LoadedImage } from '@infinitable/grid'
 import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
-import type { ListTableOptions } from '../src/types'
+import type { CellChartMedia, ListTableOptions } from '../src/types'
 
 function fakeImage(width = 10, height = 10): LoadedImage {
   return { source: { width, height } as unknown as RenderImageSource, width, height }
@@ -197,7 +198,7 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
     url = null
     table.refreshCell(0, 0)
     expect(imageNodeAt(host, 0, 0)).toBeUndefined()
-    expect(table.mediaState.mediaCache.get('image:0:0:100x32')).toBeUndefined()
+    expect(table.mediaState.mediaCache.get('image:a.png:100x32')).toBeUndefined()
     // 重嵌入新图：补建分支不得命中残留位图
     url = 'b.png'
     table.refreshCell(0, 0)
@@ -205,6 +206,71 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
     loader.resolveAll()
     await flush()
     expect(imageNodeAt(host, 0, 0)?.hasBitmap).toBe(true)
+  })
+
+  it('更换 URL 后经 setFrozenColCount 触发 rebuildScene：缓存按 URL 隔离，不贴旧图位图', async () => {
+    let url = 'a.png'
+    const { host, loader, table } = createImageTable({ resolveCellImage: () => url })
+    loader.resolveAll(fakeImage(10, 10))
+    await flush()
+    expect(imageNodeAt(host, 0, 0)?.hasBitmap).toBe(true)
+    expect(table.mediaState.mediaCache.get('image:a.png:100x32')).toBeDefined()
+
+    // URL 变更后不先调 refreshCell，直接触发 rebuildScene（如 setFrozenColCount）
+    url = 'b.png'
+    table.setFrozenColCount(1)
+    const rebuilt = imageNodeAt(host, 0, 0)
+    expect(rebuilt?.url).toBe('b.png')
+    expect(rebuilt?.hasBitmap).toBe(false)
+    expect(loader.started).toContain('b.png')
+
+    const nextImg = fakeImage(24, 24)
+    loader.resolveAll(nextImg)
+    await flush()
+    expect(rebuilt?.hasBitmap).toBe(true)
+  })
+
+  it('refreshChartCell：普通格运行时转为图表格，补建节点并提交 media 失效', async () => {
+    let chart: CellChartMedia | null = null
+    const chartImg = fakeImage(30, 20)
+    const host = new StubHost()
+    const table = new ListTable({
+      ...BASE_OPTIONS,
+      rowCount: 100,
+      host,
+      records: [{ C0: 'plain' }],
+      resolveCellChart: (col, row) => (col === 0 && row === 0 ? chart : null),
+    })
+    expect(host.layers.has('media')).toBe(false)
+
+    chart = {
+      key: 'chart-1',
+      produce: () => Promise.resolve(chartImg),
+    }
+    host.submitted.length = 0
+    table.refreshCell(0, 0)
+
+    const mediaLayer = host.layers.get('media')
+    expect(mediaLayer).toBeDefined()
+    let chartNode: ChartCellNode | undefined
+    for (const group of mediaLayer!.root.children) {
+      const found = group.children.find(
+        (child): child is ChartCellNode =>
+          child instanceof ChartCellNode && child.col === 0 && child.row === 0,
+      )
+      if (found) {
+        chartNode = found
+        break
+      }
+    }
+    expect(chartNode).toBeDefined()
+    expect(host.submitted).toContainEqual({
+      kind: 'media',
+      inv: { type: 'region', region: { x: 48, y: 36, width: 100, height: 32 } },
+    })
+    await flush()
+    await flush()
+    expect(chartNode?.hasBitmap).toBe(true)
   })
 
   it('滚动更新窗口：滚出余量的 loading 请求被取消，滚回后重新加载', async () => {

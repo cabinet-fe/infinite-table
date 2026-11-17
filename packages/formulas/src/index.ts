@@ -37,7 +37,7 @@ export { scanFormulaReferences } from './scan-refs'
 export type { ScannedReference } from './scan-refs'
 
 export { shiftFormulaText, shiftFormulaRefs } from './shift'
-export type { FormulaShiftResult } from './shift'
+export type { FormulaShiftResult, FormulaShiftScope } from './shift'
 
 export { evaluate } from './evaluator'
 export type { EvalValue, FormulaEvalContext, FormulaResolver, ScalarValue } from './evaluator'

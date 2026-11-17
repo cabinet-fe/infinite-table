@@ -3,7 +3,7 @@
 // 越界合并区；增出列头标题回落 resolveColTitle；overscan 只扩场景装配窗口，
 // 不改变滚动边界。
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { cellKey } from '@infinitable/grid'
 import { ListTable } from '../src/list-table'
@@ -184,5 +184,149 @@ describe('滚动缓冲（overscan）', () => {
       rows: { start: 0, end: 20 },
       cols: { start: 0, end: 5 },
     })
+  })
+})
+
+describe('几何批处理与行高/列宽完整 API（Stage 2.1）', () => {
+  it('options.rowHeights：支持 Map/Iterable/Record，构造前生效并钳制最小行高与过滤默认/非法值', () => {
+    const fromMap = createTable({
+      rowHeights: new Map([
+        [0, 60],
+        [1, 8], // 正数小于 MIN_ROW_HEIGHT(20) → 钳制为 20
+        [2, 32], // 等于默认 rowHeight(32) → 跳过入表
+        [3, -10], // 非正 → 跳过
+        [4, Number.NaN], // 非有限 → 跳过
+      ]),
+    })
+    expect(fromMap.table.getRowHeight(0)).toBe(60)
+    expect(fromMap.table.getRowHeight(1)).toBe(20)
+    expect(fromMap.table.getRowHeight(2)).toBe(32)
+    expect(fromMap.table.geometryState.rowHeights.has(2)).toBe(false)
+    expect(fromMap.table.getRowHeight(3)).toBe(32)
+    expect(fromMap.table.getRowHeight(4)).toBe(32)
+    expect(fromMap.table.geometryState.rowOffsets[2]).toBe(80)
+    expect(fromMap.table.contentHeight).toBe(60 + 20 + 18 * 32)
+
+    const fromRecord = createTable({ rowHeights: { 0: 48, 2: 52 } })
+    expect(fromRecord.table.getRowHeight(0)).toBe(48)
+    expect(fromRecord.table.getRowHeight(2)).toBe(52)
+
+    const fromIterable = createTable({ rowHeights: [[1, 44]] })
+    expect(fromIterable.table.getRowHeight(1)).toBe(44)
+  })
+
+  it('setColWidth / setRowHeight 相等短路，恢复默认行高清理 rowHeights 条目', () => {
+    const { host, table } = createTable()
+    host.submitted.length = 0
+    const spy = vi.spyOn(table, 'applyGeometryChange')
+
+    // 初始 col 0 = 100, row 0 = 32 → 同值调用不触发几何重建
+    table.setColWidth(0, 100)
+    table.setRowHeight(0, 32)
+    expect(spy).not.toHaveBeenCalled()
+    expect(host.submitted).toEqual([])
+
+    table.setRowHeight(0, 50)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(table.geometryState.rowHeights.get(0)).toBe(50)
+
+    // 同覆盖值再次设置短路
+    table.setRowHeight(0, 50)
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    // 设回默认行高 32 → 删除条目并触发一次重建
+    table.setRowHeight(0, 32)
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(table.geometryState.rowHeights.has(0)).toBe(false)
+  })
+
+  it('clearRowHeight / resetRowHeights：按需清理与空状态短路', () => {
+    const { table } = createTable({ rowHeights: { 0: 48, 2: 64 } })
+    const spy = vi.spyOn(table, 'applyGeometryChange')
+
+    table.clearRowHeight(1) // 无覆盖 → 短路
+    expect(spy).not.toHaveBeenCalled()
+
+    table.clearRowHeight(0)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(table.getRowHeight(0)).toBe(32)
+    expect(table.getRowHeight(2)).toBe(64)
+
+    table.resetRowHeights()
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(table.geometryState.rowHeights.size).toBe(0)
+    expect(table.getRowHeight(2)).toBe(32)
+
+    table.resetRowHeights() // 已空 → 短路
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('setColWidths / setRowHeights：批内合并为单次 applyGeometryChange（全等值空操作）', () => {
+    const { host, table } = createTable()
+    host.submitted.length = 0
+    const spy = vi.spyOn(table, 'applyGeometryChange')
+
+    // 全等值不触发重建
+    table.setColWidths({ 0: 100, 1: 100 })
+    table.setRowHeights(new Map([[0, 32]]))
+    expect(spy).not.toHaveBeenCalled()
+    expect(host.submitted).toEqual([])
+
+    table.setColWidths(
+      new Map([
+        [0, 140],
+        [1, 160],
+        [2, 120],
+      ]),
+    )
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(table.getColWidth(0)).toBe(140)
+    expect(table.getColWidth(1)).toBe(160)
+    expect(table.getColWidth(2)).toBe(120)
+    expect(table.contentWidth).toBe(140 + 160 + 120 + 200)
+
+    table.setRowHeights([
+      [0, 40],
+      [1, 50],
+    ])
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect(table.getRowHeight(0)).toBe(40)
+    expect(table.getRowHeight(1)).toBe(50)
+  })
+
+  it('batchUpdate 延迟重算 colOffsets/rowOffsets 并合并为单次 applyGeometryChange（含嵌套与 rowHeightAt 即时可读）', () => {
+    const { host, table } = createTable({ records: undefined, rowCount: 20 })
+    host.submitted.length = 0
+    const spy = vi.spyOn(table, 'applyGeometryChange')
+    const initialRowOffsets = table.geometryState.rowOffsets
+    const initialColOffsets = table.geometryState.colOffsets
+
+    table.batchUpdate(() => {
+      table.setColWidth(0, 150)
+      table.setRowHeight(0, 60)
+      table.batchUpdate(() => {
+        table.setColCount(6)
+        table.setRowCount(25)
+        table.setFrozenRowCount(1)
+      })
+      // 批内 rowHeightAt / getColWidth 即时可读，而偏移前缀和与 applyGeometryChange 尚未执行
+      expect(table.rowHeightAt(0)).toBe(60)
+      expect(table.getColWidth(0)).toBe(150)
+      expect(table.geometryState.rowOffsets).toBe(initialRowOffsets)
+      expect(table.geometryState.colOffsets).toBe(initialColOffsets)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    // 仅最外层结束时重算一次偏移并执行一次 applyGeometryChange
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(table.geometryState.colOffsets).toEqual([0, 150, 250, 350, 450, 550, 650])
+    expect(table.geometryState.rowOffsets[0]).toBe(0)
+    expect(table.geometryState.rowOffsets[1]).toBe(60)
+    expect(table.geometryState.rowOffsets[25]).toBe(60 + 24 * 32)
+    expect(table.geometryState.frozenRowsHeight).toBe(60)
+    expect(host.submitted).toEqual([
+      { kind: 'body', inv: { type: 'full' } },
+      { kind: 'sky', inv: { type: 'full' } },
+    ])
   })
 })

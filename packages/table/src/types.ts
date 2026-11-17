@@ -301,6 +301,11 @@ export interface ListTableOptions {
    */
   mergeCells?: readonly CellRange[]
   rowHeight?: number
+  /** 逐行高度覆盖（构造期直接注入，先于首次 rowOffsets 计算生效） */
+  rowHeights?:
+    | ReadonlyMap<number, number>
+    | Iterable<readonly [number, number]>
+    | Record<number, number>
   defaultColWidth?: number
   /** 列头高度 */
   headerHeight?: number

@@ -86,7 +86,7 @@ export function appendImageCell(
     placeholderAfter: Date.now() + table.imageService.placeholderDelay,
     bodyViewport: mediaViewport(table, col, row),
   })
-  const cacheKey = imageCacheKey(col, row, width, height)
+  const cacheKey = imageCacheKey(url, width, height)
   const cached = mediaState.mediaCache.get(cacheKey)
   const image = cached ?? table.imageService.getBitmap(url)
   if (image) {
@@ -122,11 +122,11 @@ export function refreshImageCell(table: ListTable, col: number, row: number): vo
   }
   const region = node.getGlobalBounds()
   if (!url) {
-    mediaState.mediaCache.invalidateKey(imageCacheKey(col, row, node.width, node.height))
+    mediaState.mediaCache.invalidateKey(imageCacheKey(node.url, node.width, node.height))
     node.removeFromParent()
     mediaState.imageCellNodes.delete(key)
   } else if (url !== node.url) {
-    mediaState.mediaCache.invalidateKey(imageCacheKey(col, row, node.width, node.height))
+    mediaState.mediaCache.invalidateKey(imageCacheKey(node.url, node.width, node.height))
     node.removeFromParent()
     mediaState.imageCellNodes.delete(key)
     appendImageCell(table, col, row, url, node.x, node.y, node.width, node.height)
@@ -164,7 +164,7 @@ export function onImageServiceLoad(table: ListTable, e: ImageLoadEvent): void {
     }
     node.setBitmap(image)
     mediaState.mediaCache.put(
-      imageCacheKey(cell.col, cell.row, node.width, node.height),
+      imageCacheKey(e.url, node.width, node.height),
       image,
       Math.round(node.width * node.height * 4),
     )
@@ -196,8 +196,8 @@ export function updateImageWindow(table: ListTable): void {
   )
 }
 
-function imageCacheKey(col: number, row: number, width: number, height: number): string {
-  return `image:${col}:${row}:${Math.round(width)}x${Math.round(height)}`
+function imageCacheKey(url: string, width: number, height: number): string {
+  return `image:${url}:${Math.round(width)}x${Math.round(height)}`
 }
 
 // ---- 图表格路由（L2 media 的 chart 预留位落地） ----
@@ -216,7 +216,7 @@ export function appendChartCell(
   y: number,
   width: number,
   height: number,
-): void {
+): ChartCellNode {
   const { mediaState } = table
   const size: CellChartMediaSize = { width, height, dpr: mediaState.hostDpr }
   const cacheKey = chartCacheKey(media.key, width, height, mediaState.hostDpr)
@@ -239,6 +239,7 @@ export function appendChartCell(
   }
   targetMediaGroup(table, col, row).appendChild(node)
   mediaState.chartCellNodes.set(cellKey(col, row), node)
+  return node
 }
 
 /** 图表格局部刷新 */
@@ -246,11 +247,31 @@ export function refreshChartCell(table: ListTable, col: number, row: number): vo
   const { mediaState, sceneState } = table
   const key = cellKey(col, row)
   const node = mediaState.chartCellNodes.get(key)
-  if (!node || !sceneState.media) {
+  const media = table.options.resolveCellImage?.(col, row)
+    ? null
+    : (table.options.resolveCellChart?.(col, row) ?? null)
+  if (!node) {
+    const body = sceneState.cellNodes.get(key)
+    if (!media || !body) {
+      return
+    }
+    const appended = appendChartCell(
+      table,
+      col,
+      row,
+      media,
+      body.x,
+      body.y,
+      body.width,
+      body.height,
+    )
+    table.host.submitInvalidation('media', { type: 'region', region: appended.getGlobalBounds() })
+    return
+  }
+  if (!sceneState.media) {
     return
   }
   const region = node.getGlobalBounds()
-  const media = table.options.resolveCellChart?.(col, row) ?? null
   if (!media) {
     node.removeFromParent()
     mediaState.chartCellNodes.delete(key)

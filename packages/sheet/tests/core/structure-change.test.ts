@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { parseRange } from '../../src/core/address'
 import { FormulaEngine } from '../../src/core/formula-engine'
 import { Sheet } from '../../src/core/sheet'
+import { Workbook } from '../../src/core/workbook'
 
 function createSheet(name = 'Sheet1'): Sheet {
   return new Sheet(name)
@@ -326,5 +327,168 @@ describe('视图声明尺寸（ensureTableSize）', () => {
     expect(restored.rows).toBe(31)
     restored.ensureTableSize(30, 10) // 视图挂载兜底
     expect(restored.rows).toBe(31)
+  })
+})
+
+describe('跨表公式隔离与依赖图原子迁移/清理', () => {
+  it('跨表公式平移隔离：insertRows/deleteRows/insertCols/deleteCols 只平移目标表引用', () => {
+    const engine = new FormulaEngine()
+    const s1 = new Sheet('Sheet1', engine)
+    const s2 = new Sheet('Sheet2', engine)
+
+    // Sheet2 上的公式同时含裸引用 A5、Sheet1!A5、Sheet2!A5
+    s2.setCellFormula({ row: 0, col: 0 }, '=A5+Sheet1!A5+Sheet2!A5')
+    // Sheet1 上的公式同时含裸引用 A5 与跨表 Sheet2!A5
+    s1.setCellFormula({ row: 0, col: 1 }, '=A5+Sheet2!A5')
+
+    s1.insertRows(2, 2)
+    expect(s2.getCellData({ row: 0, col: 0 })?.f).toBe('A5+Sheet1!A7+Sheet2!A5')
+    expect(s1.getCellData({ row: 0, col: 1 })?.f).toBe('A7+Sheet2!A5')
+
+    s1.undo()
+    expect(s2.getCellData({ row: 0, col: 0 })?.f).toBe('A5+Sheet1!A5+Sheet2!A5')
+    expect(s1.getCellData({ row: 0, col: 1 })?.f).toBe('A5+Sheet2!A5')
+
+    // deleteRows 只影响指向目标表的引用
+    s1.deleteRows(2, 1)
+    expect(s2.getCellData({ row: 0, col: 0 })?.f).toBe('A5+Sheet1!A4+Sheet2!A5')
+    expect(s1.getCellData({ row: 0, col: 1 })?.f).toBe('A4+Sheet2!A5')
+    s1.undo()
+
+    // insertCols / deleteCols 隔离验证
+    s2.setCellFormula({ row: 1, col: 0 }, '=C5+Sheet1!C5+Sheet2!C5')
+    s1.insertCols(1, 2)
+    expect(s2.getCellData({ row: 1, col: 0 })?.f).toBe('C5+Sheet1!E5+Sheet2!C5')
+
+    s1.deleteCols(1, 1)
+    expect(s2.getCellData({ row: 1, col: 0 })?.f).toBe('C5+Sheet1!D5+Sheet2!C5')
+  })
+
+  it('表改名后跨表旧名引用随目标表结构变更平移（裸引用不动）', () => {
+    const wb = new Workbook()
+    const s1 = wb.activeSheet
+    const s2 = wb.addSheet('Sheet2')
+    s1.setCellValue({ row: 4, col: 0 }, 100) // Sheet1!A5
+    s2.setCellValue({ row: 4, col: 0 }, 7) // Sheet2!A5
+    s2.setCellFormula({ row: 0, col: 0 }, '=Sheet1!A5+A5')
+    expect(s2.getCellData({ row: 0, col: 0 })?.v).toBe(107)
+
+    expect(wb.renameSheet('Sheet1', 'Data')).toBe(true)
+    s1.insertRows(2, 1) // Data 第 2 行插入 1 行 → 原 A5 移至 A6
+    expect(s2.getCellData({ row: 0, col: 0 })?.f).toBe('Sheet1!A6+A5')
+    expect(s2.getCellData({ row: 0, col: 0 })?.v).toBe(107)
+
+    // 确认依赖图仍指向改名后的 Data!A6
+    s1.setCellValue({ row: 5, col: 0 }, 200)
+    expect(s2.getCellData({ row: 0, col: 0 })?.v).toBe(207)
+  })
+
+  it('公式文本未变但坐标平移（如 =Sheet2!A1 从 A5 移至 A6）：依赖图节点坐标同步更新', () => {
+    const engine = new FormulaEngine()
+    const s1 = new Sheet('Sheet1', engine)
+    const s2 = new Sheet('Sheet2', engine)
+
+    s2.setCellValue({ row: 0, col: 0 }, 10)
+    s1.setCellFormula({ row: 4, col: 0 }, '=Sheet2!A1') // Sheet1!A5
+    expect(s1.getCellData({ row: 4, col: 0 })?.v).toBe(10)
+
+    // 行插入：A5 → A6，文本仍为 Sheet2!A1
+    s1.insertRows(2, 1)
+    expect(s1.getCellData({ row: 4, col: 0 })).toBeUndefined()
+    expect(s1.getCellData({ row: 5, col: 0 })).toMatchObject({ f: 'Sheet2!A1', v: 10 })
+
+    // 改动 Sheet2!A1 只更新 A6，不在旧坐标 A5 产生幽灵数据
+    s2.setCellValue({ row: 0, col: 0 }, 99)
+    expect(s1.getCellData({ row: 5, col: 0 })?.v).toBe(99)
+    expect(s1.getCellData({ row: 4, col: 0 })).toBeUndefined()
+
+    // 行删除：A6 → A5
+    s1.deleteRows(2, 1)
+    s2.setCellValue({ row: 0, col: 0 }, 42)
+    expect(s1.getCellData({ row: 4, col: 0 })?.v).toBe(42)
+    expect(s1.getCellData({ row: 5, col: 0 })).toBeUndefined()
+
+    // 列插入/删除：C5 → D5 → C5
+    s1.setCellFormula({ row: 4, col: 2 }, '=Sheet2!A1') // Sheet1!C5
+    s1.insertCols(1, 1)
+    s2.setCellValue({ row: 0, col: 0 }, 77)
+    expect(s1.getCellData({ row: 4, col: 3 })?.v).toBe(77) // D5
+    expect(s1.getCellData({ row: 4, col: 2 })).toBeUndefined()
+    s1.deleteCols(1, 1)
+    s2.setCellValue({ row: 0, col: 0 }, 88)
+    expect(s1.getCellData({ row: 4, col: 2 })?.v).toBe(88)
+  })
+
+  it('删除含公式的行：formulaGraph 节点彻底移除，undo 恢复，redo 再次移除', () => {
+    const sheet = createSheet()
+    sheet.setCellValue({ row: 0, col: 0 }, 5) // A1
+    sheet.setCellFormula({ row: 2, col: 0 }, '=A1*2') // A3
+    expect(sheet.formulaGraph.nodeCount).toBe(1)
+    expect(sheet.getCellData({ row: 2, col: 0 })?.v).toBe(10)
+
+    sheet.deleteRows(2, 1)
+    expect(sheet.getCellData({ row: 2, col: 0 })).toBeUndefined()
+    expect(sheet.formulaGraph.nodeCount).toBe(0)
+
+    // 撤销删除：恢复公式且图节点回归
+    expect(sheet.undo()).toBe(true)
+    expect(sheet.formulaGraph.nodeCount).toBe(1)
+    expect(sheet.getCellData({ row: 2, col: 0 })).toMatchObject({ f: 'A1*2', v: 10 })
+
+    // 重做删除：节点再次移除
+    expect(sheet.redo()).toBe(true)
+    expect(sheet.formulaGraph.nodeCount).toBe(0)
+    expect(sheet.getCellData({ row: 2, col: 0 })).toBeUndefined()
+
+    // 再次撤销并修改源格验证依赖边完好
+    expect(sheet.undo()).toBe(true)
+    sheet.setCellValue({ row: 0, col: 0 }, 20)
+    expect(sheet.getCellData({ row: 2, col: 0 })?.v).toBe(40)
+  })
+
+  it('SUM(A1:A5) 与跨表 =SUM(Sheet1!A1:A5) 及绝对引用 =A$5 在插删行后重算且 undo/redo 一致', () => {
+    const engine = new FormulaEngine()
+    const s1 = new Sheet('Sheet1', engine)
+    const s2 = new Sheet('Sheet2', engine)
+
+    for (let r = 0; r < 5; r++) {
+      s1.setCellValue({ row: r, col: 0 }, r + 1) // A1..A5 = 1,2,3,4,5
+    }
+    s1.setCellFormula({ row: 0, col: 1 }, '=SUM(A1:A5)') // B1 = 15
+    s1.setCellFormula({ row: 0, col: 2 }, '=A$5') // C1 = 5（绝对行引用，插删后文本不变但目标格值变）
+    s2.setCellFormula({ row: 0, col: 1 }, '=SUM(Sheet1!A1:A5)') // 15
+    s2.setCellFormula({ row: 0, col: 2 }, '=SUM(Sheet1!A$1:A$5)') // 15（绝对区域，文本不变）
+
+    // 删除第 2 行（A3 = 3）
+    s1.deleteRows(2, 1)
+    expect(s1.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(A1:A4)', v: 12 })
+    expect(s2.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(Sheet1!A1:A4)', v: 12 })
+    // C1 (=A$5) 现指向原 A6(空) → 0；Sheet2!C1 (=SUM(Sheet1!A$1:A$5)) → 1+2+4+5 = 12
+    expect(s1.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'A$5', v: 0 })
+    expect(s2.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'SUM(Sheet1!A$1:A$5)', v: 12 })
+
+    expect(s1.undo()).toBe(true)
+    expect(s1.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(A1:A5)', v: 15 })
+    expect(s2.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(Sheet1!A1:A5)', v: 15 })
+    expect(s1.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'A$5', v: 5 })
+    expect(s2.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'SUM(Sheet1!A$1:A$5)', v: 15 })
+
+    expect(s1.redo()).toBe(true)
+    expect(s1.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(A1:A4)', v: 12 })
+    expect(s2.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(Sheet1!A1:A4)', v: 12 })
+    expect(s1.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'A$5', v: 0 })
+    expect(s2.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'SUM(Sheet1!A$1:A$5)', v: 12 })
+
+    // 回到初始状态再测 insertRows(2, 1)：A4(4) 移入 A5，A5(5) 移入 A6
+    expect(s1.undo()).toBe(true)
+    s1.insertRows(2, 1)
+    expect(s1.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(A1:A6)', v: 15 })
+    expect(s2.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'SUM(Sheet1!A1:A6)', v: 15 })
+    expect(s1.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'A$5', v: 4 })
+    expect(s2.getCellData({ row: 0, col: 2 })).toMatchObject({ f: 'SUM(Sheet1!A$1:A$5)', v: 10 })
+
+    expect(s1.undo()).toBe(true)
+    expect(s1.getCellData({ row: 0, col: 2 })?.v).toBe(5)
+    expect(s2.getCellData({ row: 0, col: 2 })?.v).toBe(15)
   })
 })

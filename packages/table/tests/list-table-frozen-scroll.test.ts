@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { ListTable } from '../src/list-table'
 import type { ListTableOptions } from '../src/types'
 import { findCellNode } from './testing/find-cell-node'
+import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 
 const BASE_OPTIONS = {
@@ -159,5 +160,139 @@ describe('ListTable 冻结带 + overscan 窗口边界（@infinitable/sheet 缺�
     for (const node of overlapping) {
       expect(paintOrderIndex(root, frozen)).toBeGreaterThan(paintOrderIndex(root, node))
     }
+  })
+})
+
+describe('ListTable 冻结带滚动下选区 / 高亮 / fillPreview 裁剪不消失', () => {
+  class SkyRecordingContext extends RecordingContext {
+    readonly styledRects: Array<{
+      x: number
+      y: number
+      width: number
+      height: number
+      fill: unknown
+    }> = []
+
+    override fillRect(x: number, y: number, width: number, height: number): void {
+      super.fillRect(x, y, width, height)
+      this.styledRects.push({ x, y, width, height, fill: this.fillStyle })
+    }
+  }
+
+  function paintSky(host: StubHost) {
+    const sky = host.layers.get('sky')!
+    const ctx = new SkyRecordingContext()
+    sky.root.children[0]!.paint(ctx)
+    return ctx
+  }
+
+  it('垂直滚动出首段滚动行后，冻结行选区、跨空隙选区与高亮框不消失，且滚动区不侵占冻结带', () => {
+    const { host, table } = createTable({
+      records: records100(),
+      frozenRowCount: 1,
+      frozenColCount: 1,
+    })
+    // 滚动到 rows=[6,..), cols=[3,..)（1..5 行、1..2 列已滚出）
+    table.scrollTo(200, 160)
+    const range = table.getVisibleRange()
+    expect(range.rows.start).toBeGreaterThanOrEqual(5)
+    expect(range.cols.start).toBeGreaterThanOrEqual(2)
+
+    // 1. 纯冻结格 (0,0) 选区：不因 rows.start 远大于 0 或混入空隙而消失
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 0, row: 0 }, end: { col: 0, row: 0 } }],
+      focus: { col: 0, row: 0 },
+    })
+    let rects = paintSky(host)
+      .callsOf('fillRect')
+      .map((c) => c.args)
+    expect(rects).toContainEqual([48, 36, 100, 32])
+
+    // 2. 跨冻结带与已滚出空隙的选区 (0,0)~(0,2)：冻结部分 (0,0) 仍保持绘制
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 0, row: 0 }, end: { col: 0, row: 2 } }],
+      focus: { col: 0, row: 0 },
+    })
+    rects = paintSky(host)
+      .callsOf('fillRect')
+      .map((c) => c.args)
+    expect(rects).toContainEqual([48, 36, 100, 32])
+
+    // 3. 跨冻结带与空隙直达可见滚动格 (0,0)~(3,7)
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 0, row: 0 }, end: { col: 3, row: 7 } }],
+      focus: { col: 3, row: 7 },
+    })
+    rects = paintSky(host)
+      .callsOf('fillRect')
+      .map((c) => c.args)
+    const bottomRight = table.getCellRelativeRect(3, 7)!
+    expect(rects).toContainEqual([
+      48,
+      36,
+      bottomRight.x + bottomRight.width - 48,
+      bottomRight.y + bottomRight.height - 36,
+    ])
+
+    // 4. 仅滚动区高亮 (2,2)~(3,8)：起点在空隙中，裁剪后从冻结分隔线起步、不侵入冻结带
+    table.clearSelection()
+    table.setHighlightRanges([
+      { bounds: { minCol: 2, minRow: 2, maxCol: 3, maxRow: 8 }, color: '#ff0000' },
+    ])
+    const hlCtx = paintSky(host)
+    const redRects = hlCtx.styledRects.filter((r) => r.fill === '#ff0000')
+    expect(redRects).toHaveLength(4)
+    // 顶部横边 y 必 >= freezeDividerY (36 + 32 = 68)，左竖边 x 必 >= freezeDividerX (48 + 100 = 148)
+    expect(Math.min(...redRects.map((r) => r.y))).toBeGreaterThanOrEqual(68)
+    expect(Math.min(...redRects.map((r) => r.x))).toBeGreaterThanOrEqual(148)
+  })
+
+  it('部分滚动进冻结分隔线下方的滚动格：选区顶边夹紧到 freezeDividers.y，不盖冻结行', () => {
+    const { host, table } = createTable({
+      records: records100(),
+      frozenRowCount: 1,
+    })
+    // scrollTop = 16：row 1 的完整 y = 36 + 32 - 16 = 52（一半压在 row 0 下方）
+    table.scrollTo(0, 16)
+    table.applyExternalSelection({
+      ranges: [{ start: { col: 1, row: 1 }, end: { col: 1, row: 2 } }],
+      focus: { col: 1, row: 1 },
+    })
+    const rects = paintSky(host)
+      .callsOf('fillRect')
+      .map((c) => c.args)
+    // row 1 底部 = 52 + 32 = 84，row 2 底部 = 116；顶边夹紧到 freezeDividerY = 68，高度 = 116 - 68 = 48
+    expect(rects).toContainEqual([148, 68, 100, 48])
+  })
+
+  it('fillPreview 跨冻结与滚动带时正常绘制不消失', () => {
+    const { host, table } = createTable({
+      records: records100(),
+      frozenRowCount: 1,
+    })
+    table.scrollTo(0, 160)
+    const overlay = table.interactionState.overlay
+    const has = overlay.update({
+      selection: { ranges: [], focus: null },
+      resizeLine: null,
+      fillHandleRange: null,
+      fillPreview: { minCol: 0, minRow: 0, maxCol: 1, maxRow: 7 },
+      selectionAnchor: null,
+      highlightRanges: [],
+      freezeDividers: { x: null, y: 68 },
+      scrollbars: { vertical: null, horizontal: null },
+      scrollbarGutter: { width: 0, height: 0 },
+      window: {
+        frozenRowCount: 1,
+        frozenColCount: 0,
+        rows: table.geometryState.rows,
+        cols: table.geometryState.cols,
+      },
+    })
+    expect(has).toBe(true)
+    const ctx = paintSky(host)
+    expect(ctx.styledRects.some((r) => r.fill === table.theme.interaction.selectionBorder)).toBe(
+      true,
+    )
   })
 })

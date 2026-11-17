@@ -46,7 +46,10 @@ export function getSheetEditValue(sheet: Sheet, col: number, row: number): CellV
  * - `onCellChange` 转发 Sheet 的 cell-change（引擎 ModelBinding 据此局部刷新，
  *   引擎回写路径的 echo 由 ModelBinding 吞掉防回环）。
  */
-export function createSheetTableModel(sheet: Sheet): TableModel {
+export function createSheetTableModel(
+  sheet: Sheet,
+  subscribeCellChange?: TableModel['onCellChange'],
+): TableModel {
   return {
     get rowCount(): number {
       return sheet.rows
@@ -56,6 +59,7 @@ export function createSheetTableModel(sheet: Sheet): TableModel {
       sheet.setCellValue({ row, col }, value as CellValue)
     },
     onCellChange(listener): () => void {
+      if (subscribeCellChange) return subscribeCellChange(listener)
       return sheet.on('cell-change', ({ addr }) =>
         listener({ col: addr.col, row: addr.row, oldValue: undefined, newValue: undefined }),
       )

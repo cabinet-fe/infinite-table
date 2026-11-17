@@ -21,6 +21,12 @@ export class GridRowHeightEngine {
     this.cols = cols
   }
 
+  /** 结构变更后同步表格行列尺寸上限 */
+  resize(rows: number, cols: number): void {
+    this.rows = rows
+    this.cols = cols
+  }
+
   /**
    * 构造前把 wrap 估算写入模型（不进 undo）。
    * 短路：样式池不含 wrap 对齐时零全格遍历直接返回——十万级数据首帧挂载的

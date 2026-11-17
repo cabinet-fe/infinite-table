@@ -134,6 +134,9 @@ export interface TableSceneState {
   readonly textAdvances: TextAdvanceTable
   batchDepth: number
   readonly batchRegions: Region[]
+  colOffsetsDirty: boolean
+  rowOffsetsDirty: boolean
+  geometryDirty: boolean
 }
 
 /** 媒体状态：cell 级位图 LRU、窗口内图片/图表格节点、出图单飞、宿主 DPR */

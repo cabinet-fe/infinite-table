@@ -178,6 +178,25 @@ describe('场景接线：共享边裁决落生效边框', () => {
     expect(findNode(1, 1)?.border?.right).toEqual(BLUE3)
   })
 
+  it('refreshCell 非级联：border 值未变时（即使每次返回新对象）不刷新左/上邻居', () => {
+    let bg = '#ffffff'
+    const { host, table } = createTable((col, row) =>
+      col === 2 && row === 1
+        ? { background: bg, border: { left: { width: 2, color: '#00f' } } }
+        : null,
+    )
+    host.submitted.length = 0
+    bg = '#eeeeee'
+    table.refreshCell(2, 1)
+    // 仅提交本格 (2,1) 的 region 失效：x = 48 + 200 = 248, y = 36 + 32 = 68, width = 100, height = 32
+    expect(host.submitted).toEqual([
+      {
+        kind: 'body',
+        inv: { type: 'region', region: { x: 248, y: 68, width: 100, height: 32 } },
+      },
+    ])
+  })
+
   it('合并主格拥有区域右/下缘：生效边 = max(master 边, 区域外邻居逐格对侧边)', () => {
     const { findNode } = createTable(
       (col, row) => {

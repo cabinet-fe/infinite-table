@@ -284,3 +284,91 @@ describe('Sheet 快照列宽与行列样式', () => {
     })
   })
 })
+
+describe('Sheet.restore 公式依赖图重建', () => {
+  it('restore 清除旧公式节点并按快照重建，后续编辑正常触发重算', () => {
+    const src = new Sheet()
+    src.setCellValue({ row: 0, col: 0 }, 10)
+    src.setCellFormula({ row: 0, col: 1 }, '=A1*2')
+    const snap = JSON.parse(JSON.stringify(src.snapshot())) as SheetSnapshot
+
+    const restored = new Sheet()
+    // 预先存在一条旧公式（应被 restore 清理）
+    restored.setCellFormula({ row: 2, col: 2 }, '=1+1')
+    expect(restored.formulaGraph.nodeCount).toBe(1)
+
+    restored.restore(snap)
+    expect(restored.formulaGraph.nodeCount).toBe(1)
+    expect(restored.getCellData({ row: 0, col: 1 })).toMatchObject({ f: 'A1*2', v: 20 })
+
+    // 修改 A1，验证重建后的依赖边驱动 B1 重算
+    restored.setCellValue({ row: 0, col: 0 }, 25)
+    expect(restored.getCellData({ row: 0, col: 1 })?.v).toBe(50)
+  })
+})
+
+describe('Sheet batch-start / batch-end 生命周期事件', () => {
+  it('executeCommand / undo / redo / applyDerivedPatches 成对发出 batch-start 与 batch-end', () => {
+    const sheet = new Sheet()
+    const log: string[] = []
+    sheet.on('batch-start', () => log.push('start'))
+    sheet.on('cell-change', ({ addr }) => log.push(`cell:${addr.row},${addr.col}`))
+    sheet.on('batch-end', () => log.push('end'))
+
+    sheet.setCellFormula({ row: 0, col: 1 }, '=A1+1')
+    // SetCellFormulaCommand 写公式 + recalcAfterCommand 写缓存值，两次 cell-change 共处同一 batch
+    expect(log).toEqual(['start', 'cell:0,1', 'cell:0,1', 'end'])
+
+    log.length = 0
+    sheet.setCellValue({ row: 0, col: 0 }, 5)
+    expect(log).toEqual(['start', 'cell:0,0', 'cell:0,1', 'end'])
+
+    log.length = 0
+    sheet.undo()
+    // undo 逆序回放：先回退派生格 (0,1)，再回退源格 (0,0)
+    expect(log).toEqual(['start', 'cell:0,1', 'cell:0,0', 'end'])
+
+    log.length = 0
+    sheet.redo()
+    expect(log).toEqual(['start', 'cell:0,0', 'cell:0,1', 'end'])
+
+    log.length = 0
+    sheet.applyDerivedPatches([])
+    expect(log).toEqual([])
+    sheet.applyDerivedPatches([
+      {
+        kind: 'cell',
+        addr: { row: 1, col: 0 },
+        before: undefined,
+        after: { v: 9, t: 'n' },
+      },
+    ])
+    expect(log).toEqual(['start', 'cell:1,0', 'end'])
+  })
+
+  it('嵌套 beginTransaction / commit 与 rollback 正确收尾 batch 事件', () => {
+    const sheet = new Sheet()
+    const log: string[] = []
+    sheet.on('batch-start', () => log.push('start'))
+    sheet.on('cell-change', ({ addr }) => log.push(`cell:${addr.row},${addr.col}`))
+    sheet.on('batch-end', () => log.push('end'))
+
+    sheet.beginTransaction()
+    sheet.beginTransaction()
+    sheet.setCellValue({ row: 0, col: 0 }, 1)
+    sheet.setCellValue({ row: 0, col: 1 }, 2)
+    sheet.commit()
+    expect(log).toEqual(['start', 'cell:0,0', 'cell:0,1'])
+    sheet.commit()
+    expect(log).toEqual(['start', 'cell:0,0', 'cell:0,1', 'end'])
+
+    // rollback 应在回放完撤销补丁后再发 batch-end
+    log.length = 0
+    sheet.beginTransaction()
+    sheet.beginTransaction()
+    sheet.setCellValue({ row: 1, col: 0 }, 99)
+    sheet.rollback()
+    expect(log).toEqual(['start', 'cell:1,0', 'cell:1,0', 'end'])
+    expect(sheet.getCellData({ row: 1, col: 0 })).toBeUndefined()
+  })
+})

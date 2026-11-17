@@ -1351,14 +1351,10 @@ export function refreshOverlay(table: ListTable): void {
       height: table.scrollbarGutterHeight,
     },
     window: {
-      rows: {
-        start: geometryState.frozenRowCount > 0 ? 0 : geometryState.rows.start,
-        end: Math.max(geometryState.rows.end, geometryState.frozenRowCount),
-      },
-      cols: {
-        start: geometryState.frozenColCount > 0 ? 0 : geometryState.cols.start,
-        end: Math.max(geometryState.cols.end, geometryState.frozenColCount),
-      },
+      frozenRowCount: geometryState.frozenRowCount,
+      frozenColCount: geometryState.frozenColCount,
+      rows: geometryState.rows,
+      cols: geometryState.cols,
     },
   })
   if (has || interactionState.overlayHadContent) {

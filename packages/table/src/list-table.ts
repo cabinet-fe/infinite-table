@@ -55,7 +55,13 @@ import type {
 import { createRenderHost, type Region, type RenderHost } from '@infinitable/render'
 
 import { TextAdvanceTable, type CellNode } from './cell-node'
-import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
+import {
+  cellStyleFont,
+  projectCellStyle,
+  type CellBorder,
+  type CellBorderEdge,
+  type CellStyle,
+} from './cell-style'
 import { CellValuePipeline } from './cell-value'
 import { EditManager, type EditCommitMove } from './editing/edit-manager'
 import type { TextEditorHost } from './editing/text-editor'
@@ -128,6 +134,59 @@ import type {
 
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
+
+/** 行高/列宽批量入参形态 */
+type IndexSizeMap =
+  | ReadonlyMap<number, number>
+  | Iterable<readonly [number, number]>
+  | Record<number, number>
+
+/** 统一遍历 Map / Iterable<[index, size]> / Record<index, size> */
+function forEachIndexSize(
+  input: IndexSizeMap,
+  visitor: (index: number, size: number) => void,
+): void {
+  if (typeof (input as Iterable<readonly [number, number]>)[Symbol.iterator] === 'function') {
+    for (const entry of input as Iterable<readonly [number, number]>) {
+      visitor(entry[0], entry[1])
+    }
+    return
+  }
+  const record = input as Record<string, number>
+  for (const key of Object.keys(record)) {
+    if (key === '') {
+      continue
+    }
+    const index = Number(key)
+    const size = record[key]
+    if (Number.isInteger(index) && String(index) === key && size !== undefined) {
+      visitor(index, size)
+    }
+  }
+}
+
+function sameBorderEdge(a: CellBorderEdge | undefined, b: CellBorderEdge | undefined): boolean {
+  if (a === b) {
+    return true
+  }
+  if (!a || !b) {
+    return false
+  }
+  return a.width === b.width && a.color === b.color && a.style === b.style && a.grid === b.grid
+}
+
+/** 边框浅值相等判定：避免每次投影新对象时误触发邻格级联刷新 */
+function sameCellBorder(a: CellBorder | undefined, b: CellBorder | undefined): boolean {
+  if (a === b) {
+    return true
+  }
+  return (
+    sameBorderEdge(a?.top, b?.top) &&
+    sameBorderEdge(a?.right, b?.right) &&
+    sameBorderEdge(a?.bottom, b?.bottom) &&
+    sameBorderEdge(a?.left, b?.left)
+  )
+}
 
 /** 宿主环境 dpr 缺省读取 */
 function resolveHostDpr(): number {
@@ -264,6 +323,22 @@ export class ListTable implements TableEngine, GridReadView {
       rowCount: options.rowCount,
     })
     const rowHeights = new Map<number, number>()
+    if (options.rowHeights) {
+      forEachIndexSize(options.rowHeights, (row, height) => {
+        if (!Number.isInteger(row) || row < 0 || row >= this.pipeline.rowCount) {
+          return
+        }
+        if (!Number.isFinite(height) || height <= 0) {
+          return
+        }
+        const next = Math.max(MIN_ROW_HEIGHT, height)
+        if (next === this.rowHeight) {
+          rowHeights.delete(row)
+        } else {
+          rowHeights.set(row, next)
+        }
+      })
+    }
     const rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, rowHeights)
     const frozenColCount = clampFrozenCount(options.frozenColCount ?? 0, this.columns.length)
     const frozenRowCount = clampFrozenCount(options.frozenRowCount ?? 0, this.pipeline.rowCount)
@@ -336,6 +411,9 @@ export class ListTable implements TableEngine, GridReadView {
       textAdvances: new TextAdvanceTable((char, font) => this.host.measure(char, font).width),
       batchDepth: 0,
       batchRegions: [],
+      colOffsetsDirty: false,
+      rowOffsetsDirty: false,
+      geometryDirty: false,
     }
 
     this.imageService = new ImageService(options.imageServiceOptions)
@@ -695,7 +773,7 @@ export class ListTable implements TableEngine, GridReadView {
     }
     const prevBorder = node.style.border
     this.refreshCellNodeContents(node, masterCol, masterRow)
-    if (node.style.border === prevBorder) {
+    if (sameCellBorder(prevBorder, node.style.border)) {
       return
     }
     const range = geometryState.mergeCells.rangeAt(masterCol, masterRow)
@@ -891,19 +969,37 @@ export class ListTable implements TableEngine, GridReadView {
     this.host.submitInvalidation('body', { type: 'region', region })
   }
 
-  /** 批量更新：fn 内的多次变更合并，结束时只提交一次 band 失效 */
+  /** 批量更新：fn 内的多次变更合并，结束时只提交一次几何重建或 band 失效 */
   batchUpdate(fn: () => void): void {
-    const { sceneState } = this
+    const { geometryState, sceneState } = this
     sceneState.batchDepth++
     try {
       fn()
     } finally {
       sceneState.batchDepth--
       if (sceneState.batchDepth === 0) {
-        const region = unionRegions(sceneState.batchRegions)
-        sceneState.batchRegions.length = 0
-        if (region) {
-          this.host.submitInvalidation('body', { type: 'band', region })
+        if (sceneState.colOffsetsDirty) {
+          sceneState.colOffsetsDirty = false
+          geometryState.colOffsets = computeColOffsets(geometryState.colWidths)
+        }
+        if (sceneState.rowOffsetsDirty) {
+          sceneState.rowOffsetsDirty = false
+          geometryState.rowOffsets = computeRowOffsets(
+            this.pipeline.rowCount,
+            this.rowHeight,
+            geometryState.rowHeights,
+          )
+        }
+        if (sceneState.geometryDirty) {
+          sceneState.geometryDirty = false
+          sceneState.batchRegions.length = 0
+          this.applyGeometryChange()
+        } else if (sceneState.batchRegions.length > 0) {
+          const region = unionRegions(sceneState.batchRegions)
+          sceneState.batchRegions.length = 0
+          if (region) {
+            this.host.submitInvalidation('body', { type: 'band', region })
+          }
         }
       }
     }
@@ -1035,26 +1131,70 @@ export class ListTable implements TableEngine, GridReadView {
 
   setColWidth(col: number, width: number): void {
     const { geometryState } = this
-    if (col < 0 || col >= geometryState.colWidths.length) {
+    if (!Number.isInteger(col) || col < 0 || col >= geometryState.colWidths.length) {
       return
     }
-    geometryState.colWidths[col] = Math.max(MIN_COL_WIDTH, width)
-    geometryState.colOffsets = computeColOffsets(geometryState.colWidths)
-    this.applyGeometryChange()
+    if (!Number.isFinite(width)) {
+      return
+    }
+    const next = Math.max(MIN_COL_WIDTH, width)
+    if (geometryState.colWidths[col] === next) {
+      return
+    }
+    geometryState.colWidths[col] = next
+    this.commitColGeometryChange()
+  }
+
+  setColWidths(widths: IndexSizeMap): void {
+    this.batchUpdate(() => {
+      forEachIndexSize(widths, (col, width) => {
+        this.setColWidth(col, width)
+      })
+    })
   }
 
   setRowHeight(row: number, height: number): void {
     const { geometryState } = this
-    if (row < 0 || row >= this.pipeline.rowCount) {
+    if (!Number.isInteger(row) || row < 0 || row >= this.pipeline.rowCount) {
       return
     }
-    geometryState.rowHeights.set(row, Math.max(MIN_ROW_HEIGHT, height))
-    geometryState.rowOffsets = computeRowOffsets(
-      this.pipeline.rowCount,
-      this.rowHeight,
-      geometryState.rowHeights,
-    )
-    this.applyGeometryChange()
+    if (!Number.isFinite(height)) {
+      return
+    }
+    const next = Math.max(MIN_ROW_HEIGHT, height)
+    if (this.rowHeightAt(row) === next) {
+      return
+    }
+    if (next === this.rowHeight) {
+      geometryState.rowHeights.delete(row)
+    } else {
+      geometryState.rowHeights.set(row, next)
+    }
+    this.commitRowGeometryChange()
+  }
+
+  setRowHeights(heights: IndexSizeMap): void {
+    this.batchUpdate(() => {
+      forEachIndexSize(heights, (row, height) => {
+        this.setRowHeight(row, height)
+      })
+    })
+  }
+
+  clearRowHeight(row: number): void {
+    if (!this.geometryState.rowHeights.delete(row)) {
+      return
+    }
+    this.commitRowGeometryChange()
+  }
+
+  resetRowHeights(): void {
+    const { rowHeights } = this.geometryState
+    if (rowHeights.size === 0) {
+      return
+    }
+    rowHeights.clear()
+    this.commitRowGeometryChange()
   }
 
   // ---- 行列数运行时可变 ----
@@ -1068,19 +1208,19 @@ export class ListTable implements TableEngine, GridReadView {
   }
 
   setRowCount(count: number): void {
-    const { geometryState } = this
+    const { geometryState, sceneState } = this
+    const prevPipelineCount = this.pipeline.rowCount
+    const prevOffsetsCount = geometryState.rowOffsets.length - 1
     this.pipeline.setRowCountFloor(count)
-    const prev = geometryState.rowOffsets.length - 1
     const next = this.pipeline.rowCount
-    if (next === prev) {
+    if (!sceneState.rowOffsetsDirty && next === prevOffsetsCount) {
       return
     }
-    geometryState.rowOffsets = computeRowOffsets(next, this.rowHeight, geometryState.rowHeights)
-    if (next < prev) {
+    if (next < prevOffsetsCount || next < prevPipelineCount) {
       geometryState.frozenRowCount = clampFrozenCount(geometryState.frozenRowCount, next)
       this.shrinkToBounds(this.columns.length, next)
     }
-    this.applyGeometryChange()
+    this.commitRowGeometryChange()
   }
 
   setColCount(count: number, template?: ColumnDefine): void {
@@ -1107,8 +1247,7 @@ export class ListTable implements TableEngine, GridReadView {
       geometryState.frozenColCount = clampFrozenCount(geometryState.frozenColCount, next)
       this.shrinkToBounds(next, this.pipeline.rowCount)
     }
-    geometryState.colOffsets = computeColOffsets(geometryState.colWidths)
-    this.applyGeometryChange()
+    this.commitColGeometryChange()
   }
 
   private shrinkToBounds(colCount: number, rowCount: number): void {
@@ -1153,7 +1292,7 @@ export class ListTable implements TableEngine, GridReadView {
     if (this.floatLayer) {
       this.floatLayer.setBodyViewport(this.bodyViewport)
     }
-    this.applyGeometryChange()
+    this.commitGeometryChange()
   }
 
   // ---- 几何/滚动查询 ----
@@ -1264,13 +1403,13 @@ export class ListTable implements TableEngine, GridReadView {
     }
     geometryState.frozenColCount = nextCols
     geometryState.frozenRowCount = nextRows
-    this.applyGeometryChange()
+    this.commitGeometryChange()
   }
 
   private replaceMergeCells(next: MergeCellMap): void {
     assertMergesWithinTable(next.ranges, this.columns.length, this.pipeline.rowCount)
     this.geometryState.mergeCells = next
-    this.applyGeometryChange()
+    this.commitGeometryChange()
   }
 
   // ---- 事件 ----
@@ -1479,8 +1618,10 @@ export class ListTable implements TableEngine, GridReadView {
   }
 
   rowHeightAt(row: number): number {
-    const { rowOffsets } = this.geometryState
-    return (rowOffsets[row + 1] ?? 0) - (rowOffsets[row] ?? 0)
+    if (row < 0 || row >= this.pipeline.rowCount) {
+      return 0
+    }
+    return this.geometryState.rowHeights.get(row) ?? this.rowHeight
   }
 
   resolveStyle(col: number, row: number): CellStyle {
@@ -1590,6 +1731,41 @@ export class ListTable implements TableEngine, GridReadView {
       this.interactionState.selection.selectCell(next.col, next.row)
       ensureCellVisible(this, next.col, next.row)
     }
+  }
+
+  private commitColGeometryChange(): void {
+    const { geometryState, sceneState } = this
+    if (sceneState.batchDepth > 0) {
+      sceneState.colOffsetsDirty = true
+      sceneState.geometryDirty = true
+      return
+    }
+    geometryState.colOffsets = computeColOffsets(geometryState.colWidths)
+    this.applyGeometryChange()
+  }
+
+  private commitRowGeometryChange(): void {
+    const { geometryState, sceneState } = this
+    if (sceneState.batchDepth > 0) {
+      sceneState.rowOffsetsDirty = true
+      sceneState.geometryDirty = true
+      return
+    }
+    geometryState.rowOffsets = computeRowOffsets(
+      this.pipeline.rowCount,
+      this.rowHeight,
+      geometryState.rowHeights,
+    )
+    this.applyGeometryChange()
+  }
+
+  private commitGeometryChange(): void {
+    const { sceneState } = this
+    if (sceneState.batchDepth > 0) {
+      sceneState.geometryDirty = true
+      return
+    }
+    this.applyGeometryChange()
   }
 
   /** @internal 几何变更后：冻结区尺寸/滚动边界重算，全量重建一次 */

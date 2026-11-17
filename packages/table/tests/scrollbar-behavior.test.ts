@@ -166,7 +166,12 @@ function paintViews(scrollbars: OverlayContent['scrollbars']): RectCall[] {
     freezeDividers: { x: null, y: null },
     scrollbars,
     scrollbarGutter: { width: 0, height: 0 },
-    window: { rows: { start: 0, end: 100 }, cols: { start: 0, end: 10 } },
+    window: {
+      frozenRowCount: 0,
+      frozenColCount: 0,
+      rows: { start: 0, end: 100 },
+      cols: { start: 0, end: 10 },
+    },
   })
   const ctx = new FillRecordingContext()
   root.children[0]!.paint(ctx)

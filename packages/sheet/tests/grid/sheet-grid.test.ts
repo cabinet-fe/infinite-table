@@ -163,6 +163,14 @@ describe('SheetGrid 行列尺寸即时同步（菜单写入路径）', () => {
       expect(table.getRowHeight(2)).toBe(28)
       expect(table.getColWidth(2)).toBe(120)
       expect(table.getColWidth(3)).toBe(80)
+
+      // 清除自定义行高/列宽（传 0）：行高回到 clearRowHeight 默认 28，列宽回到 defaultColWidth 80
+      sheet.setRowHeight(0, 0)
+      sheet.setColWidth(2, 0)
+      grid.applyAxisSizes('row', [0])
+      grid.applyAxisSizes('col', [2])
+      expect(table.getRowHeight(0)).toBe(28)
+      expect(table.getColWidth(2)).toBe(80)
     } finally {
       grid.destroy()
     }
@@ -1064,6 +1072,129 @@ describe('SheetGrid 协议面装配（P7 / EngineAssembly）', () => {
     try {
       expect(table.options.resolveColHeaderRenderer?.(2)).toBe(renderer)
       expect(table.options.resolveColHeaderRenderer?.(0)).toBeNull()
+    } finally {
+      grid.destroy()
+    }
+  })
+})
+
+describe('SheetGrid 结构变更全量视图同步与批合并', () => {
+  it('insertRows / deleteRows / insertCols / deleteCols + undo/redo 同步行列数、尺寸、公式与浮动图锚点', () => {
+    const sheet = new Sheet()
+    sheet.setCellValue({ row: 1, col: 1 }, 10)
+    sheet.setCellValue({ row: 2, col: 1 }, '=B2*3')
+    sheet.setRowHeight(1, 48)
+    sheet.setColWidth(1, 130)
+    const imageId = sheet.insertImage({
+      data: new Uint8Array([137, 80, 78, 71]),
+      src: 'https://example.com/float.png',
+      type: 'png',
+      anchor: { from: { row: 1, col: 1 } },
+      width: 40,
+      height: 20,
+    })
+
+    const { grid, table } = createGrid({ sheet, rows: 10, cols: 6 })
+    try {
+      expect(table.rowCount).toBe(10)
+      expect(table.colCount).toBe(6)
+      expect(table.getRowHeight(1)).toBe(48)
+      expect(table.getColWidth(1)).toBe(130)
+      expect(table.getCellText(1, 2)).toBe('30')
+      expect(table.floatObjects.get(imageId)?.anchor.from).toEqual({ row: 1, col: 1 })
+
+      // 插入 2 行到 row 0 之前：原 row 1/2 下移到 3/4
+      sheet.insertRows(0, 2)
+      expect(table.rowCount).toBe(12)
+      expect(table.getRowHeight(1)).toBe(28)
+      expect(table.getRowHeight(3)).toBe(48)
+      expect(table.getCellText(1, 3)).toBe('10')
+      expect(table.getCellText(1, 4)).toBe('30')
+      expect(sheet.getCellData({ row: 4, col: 1 })?.f).toBe('B4*3')
+      expect(table.floatObjects.get(imageId)?.anchor.from).toEqual({ row: 3, col: 1 })
+
+      // 插入 1 列到 col 0 之前：原 col 1 右移到 col 2
+      sheet.insertCols(0, 1)
+      expect(table.colCount).toBe(7)
+      expect(table.getColWidth(1)).toBe(80)
+      expect(table.getColWidth(2)).toBe(130)
+      expect(table.getCellText(2, 3)).toBe('10')
+      expect(table.getCellText(2, 4)).toBe('30')
+      expect(sheet.getCellData({ row: 4, col: 2 })?.f).toBe('C4*3')
+      expect(table.floatObjects.get(imageId)?.anchor.from).toEqual({ row: 3, col: 2 })
+
+      // 删除新增的列与行：尺寸/数据/公式/图片回到原点
+      sheet.deleteCols(0, 1)
+      sheet.deleteRows(0, 2)
+      expect(table.rowCount).toBe(10)
+      expect(table.colCount).toBe(6)
+      expect(table.getRowHeight(1)).toBe(48)
+      expect(table.getRowHeight(3)).toBe(28)
+      expect(table.getColWidth(1)).toBe(130)
+      expect(table.getColWidth(2)).toBe(80)
+      expect(table.getCellText(1, 2)).toBe('30')
+      expect(table.floatObjects.get(imageId)?.anchor.from).toEqual({ row: 1, col: 1 })
+
+      // undo 两次回放反向结构：重新回到插入后形态
+      expect(sheet.undo()).toBe(true)
+      expect(table.rowCount).toBe(12)
+      expect(table.getRowHeight(3)).toBe(48)
+      expect(table.getCellText(1, 4)).toBe('30')
+      expect(table.floatObjects.get(imageId)?.anchor.from).toEqual({ row: 3, col: 1 })
+
+      expect(sheet.undo()).toBe(true)
+      expect(table.colCount).toBe(7)
+      expect(table.getColWidth(2)).toBe(130)
+      expect(table.getCellText(2, 4)).toBe('30')
+      expect(table.floatObjects.get(imageId)?.anchor.from).toEqual({ row: 3, col: 2 })
+
+      // redo 重演删除列：再次收敛到 colCount=6
+      expect(sheet.redo()).toBe(true)
+      expect(table.colCount).toBe(6)
+      expect(table.getColWidth(1)).toBe(130)
+      expect(table.getColWidth(2)).toBe(80)
+    } finally {
+      grid.destroy()
+    }
+  })
+
+  it('批量写入（setCells）与公式级联重算合并为单次 band 失效；单格写入保留 region 失效', () => {
+    const { grid, table, sheet } = createGrid()
+    try {
+      sheet.setCellValue({ row: 0, col: 1 }, '=A1*2')
+      sheet.setCellValue({ row: 0, col: 2 }, '=B1+5')
+
+      const submit = vi.spyOn(table.host, 'submitInvalidation')
+
+      // 1. 单格独立更新（无派生依赖）：保留单格 region 失效，不膨胀为 band
+      sheet.setCellValue({ row: 1, col: 0 }, 'single')
+      const singleBodyCalls = submit.mock.calls.filter(([kind]) => kind === 'body')
+      expect(singleBodyCalls).toHaveLength(1)
+      expect(singleBodyCalls[0]?.[1].type).toBe('region')
+
+      // 2. 公式级联重算（A1 → B1 → C1）：合并为单次 band 失效
+      submit.mockClear()
+      sheet.setCellValue({ row: 0, col: 0 }, 10)
+      expect(table.getCellText(0, 0)).toBe('10')
+      expect(table.getCellText(1, 0)).toBe('20')
+      expect(table.getCellText(2, 0)).toBe('25')
+      const cascadeBodyCalls = submit.mock.calls.filter(([kind]) => kind === 'body')
+      expect(cascadeBodyCalls).toHaveLength(1)
+      expect(cascadeBodyCalls[0]?.[1].type).toBe('band')
+
+      // 3. setCells 多格批量写入：合并为单次 band 失效
+      submit.mockClear()
+      sheet.setCells([
+        { addr: { row: 2, col: 0 }, data: { v: 'r2c0', t: 's' } },
+        { addr: { row: 2, col: 1 }, data: { v: 'r2c1', t: 's' } },
+        { addr: { row: 3, col: 0 }, data: { v: 'r3c0', t: 's' } },
+      ])
+      expect(table.getCellText(0, 2)).toBe('r2c0')
+      expect(table.getCellText(1, 2)).toBe('r2c1')
+      expect(table.getCellText(0, 3)).toBe('r3c0')
+      const batchBodyCalls = submit.mock.calls.filter(([kind]) => kind === 'body')
+      expect(batchBodyCalls).toHaveLength(1)
+      expect(batchBodyCalls[0]?.[1].type).toBe('band')
     } finally {
       grid.destroy()
     }

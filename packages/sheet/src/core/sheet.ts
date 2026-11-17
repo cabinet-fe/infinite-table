@@ -158,6 +158,13 @@ export type SheetEvents = {
    * grid 层据此刷新样式回调。
    */
   'axis-style-change': { axis: 'row' | 'col'; index: number }
+  /**
+   * 批量变更开始（executeCommand / undo / redo / applyDerivedPatches / transaction 最外层进入）。
+   * 视图层可据此合并多格 / 结构 / 公式重算引起的高频刷新；与 batch-end 成对发出。
+   */
+  'batch-start': undefined
+  /** 批量变更结束（与 batch-start 成对发出；异常亦在 finally 中配对收尾） */
+  'batch-end': undefined
 }
 
 export class Sheet {
@@ -200,6 +207,10 @@ export class Sheet {
 
   /** sheet 名（受控：只读 getter，改名必须经 Workbook.renameSheet 校验后调用 setName） */
   private _name: string
+  /** 批量事件嵌套深度（0 → 1 发 batch-start，1 → 0 发 batch-end） */
+  private batchDepth = 0
+  /** 由 beginTransaction 开启的批量层数（供 commit/rollback 精确配对收尾） */
+  private txBatchDepth = 0
 
   private emitter = new TypedEventEmitter<SheetEvents>()
 
@@ -715,43 +726,61 @@ export class Sheet {
 
   /** 经默认注册表执行命令；产生的 mutation 与公式重算派生 mutation 一并推入历史 */
   executeCommand<R = void>(commandId: string, params: unknown): R | undefined {
-    const result = defaultCommandRegistry.execute<R>(
-      { sheet: this, applyPatch: this.boundApplyPatch },
-      commandId,
-      params,
-    )
-    if (result && result.mutations.length > 0) {
-      const mutations = [...result.mutations]
-      const recalcMutation = this.recalcAfterCommand(result.mutations)
-      if (recalcMutation) mutations.push(recalcMutation)
-      this.history.push(mutations)
-    }
-    return result?.result
+    return this.runInBatch(() => {
+      const result = defaultCommandRegistry.execute<R>(
+        { sheet: this, applyPatch: this.boundApplyPatch },
+        commandId,
+        params,
+      )
+      if (result && result.mutations.length > 0) {
+        const mutations = [...result.mutations]
+        const recalcMutation = this.recalcAfterCommand(result.mutations)
+        if (recalcMutation) mutations.push(recalcMutation)
+        this.history.push(mutations)
+      }
+      return result?.result
+    })
   }
 
   /** 开启事务（事务内所有命令合并为一个 undo 单元；可嵌套，拍平到最外层） */
   beginTransaction(): void {
     this.history.beginTransaction()
+    this.txBatchDepth++
+    this.enterBatch()
   }
 
   /** 提交事务 */
   commit(): void {
     this.history.commit()
+    if (this.txBatchDepth > 0) {
+      this.txBatchDepth--
+      this.exitBatch()
+    }
   }
 
   /** 回滚事务：还原缓冲中已应用的变更并放弃事务 */
   rollback(): void {
-    this.history.rollback()
+    const pending = this.txBatchDepth
+    if (pending === 0) {
+      this.history.rollback()
+      return
+    }
+    this.txBatchDepth = 0
+    try {
+      this.history.rollback()
+    } finally {
+      for (let i = 0; i < pending; i++) this.exitBatch()
+    }
   }
 
   /** 撤销一步；无可撤销时返回 false */
   undo(): boolean {
-    return this.history.undo()
+    return this.runInBatch(() => this.history.undo())
   }
 
   /** 重做一步；无可重做时返回 false */
   redo(): boolean {
-    return this.history.redo()
+    return this.runInBatch(() => this.history.redo())
   }
 
   get canUndo(): boolean {
@@ -768,7 +797,10 @@ export class Sheet {
    * @internal
    */
   applyDerivedPatches(patches: CellPatch[]): void {
-    for (const patch of patches) this.boundApplyPatch(patch, 'redo')
+    if (patches.length === 0) return
+    this.runInBatch(() => {
+      for (const patch of patches) this.boundApplyPatch(patch, 'redo')
+    })
   }
 
   // ─── 行列插入/删除（结构变更）────────────────────────────
@@ -855,6 +887,8 @@ export class Sheet {
     this.shiftImages(change)
 
     this.cellMeta.applyStructureChange(change)
+    // 原子重建本表公式依赖图：更新仅坐标平移（公式文本未变）的节点坐标，并彻底清除被删行列内的公式节点
+    this.formulaGraph.rebuildSheetFromStore(this)
     this.emitter.emit('meta-change', {})
     this.emitter.emit('cell-image-change', {})
 
@@ -895,6 +929,7 @@ export class Sheet {
     const { at, count } = change
     const end = at + count
     const patches: CellPatch[] = []
+    const targetNames = this.formulaGraph.getSheetTargetNames(this.name)
 
     for (const [formulaSheet, node] of this.formulaGraph.allNodes()) {
       const before = formulaSheet.store.getCell(node.addr)
@@ -924,7 +959,10 @@ export class Sheet {
       // 删除区间内的公式格由 prepareDeletedCellPatches 捕获（undo 在反向结构之后恢复）；
       // 此处若再发 after:undefined 补丁，redo 会在结构删除后误清上移到该坐标的幸存者。
       if (removed) continue
-      const result = shiftFormulaText(before.f, axis, at, count, isInsert ? 'insert' : 'delete')
+      const result = shiftFormulaText(before.f, axis, at, count, isInsert ? 'insert' : 'delete', {
+        formulaSheet: formulaSheet.name,
+        targetSheet: targetNames,
+      })
       if (!result.broken && result.text === before.f) continue
       const after: CellData = result.broken ? { v: '#REF!', t: 'e' } : { ...before, f: result.text }
       patches.push({ kind: 'cell', sheet: formulaSheet, addr, before, after })
@@ -1150,6 +1188,7 @@ export class Sheet {
     this.restoreAxisStyles(snapshot)
     this.replaceImages(snapshot.images, false)
     this.replaceMeta(snapshot.meta, false)
+    this.formulaGraph.rebuildSheet(this, snapshot.cells)
     this.restoreSelection(snapshot.selection)
   }
 
@@ -1241,6 +1280,27 @@ export class Sheet {
 
   // ─── 内部 ────────────────────────────────────────────────
 
+  private enterBatch(): void {
+    const wasZero = this.batchDepth === 0
+    this.batchDepth++
+    if (wasZero) this.emitter.emit('batch-start', undefined)
+  }
+
+  private exitBatch(): void {
+    if (this.batchDepth === 0) return
+    this.batchDepth--
+    if (this.batchDepth === 0) this.emitter.emit('batch-end', undefined)
+  }
+
+  private runInBatch<T>(fn: () => T): T {
+    this.enterBatch()
+    try {
+      return fn()
+    } finally {
+      this.exitBatch()
+    }
+  }
+
   private readonly boundApplyPatch = (patch: Patch, direction: PatchDirection): void => {
     // 跨表重算的派生补丁路由到目标 sheet（回放经源 sheet 历史时同样按此路由）
     const target = patch.kind === 'cell' ? (patch.sheet ?? this) : this
@@ -1319,6 +1379,7 @@ export class Sheet {
    */
   private recalcAfterCommand(mutations: Mutation[]): Mutation | undefined {
     const changed: { sheet: Sheet; addr: CellAddress }[] = []
+    let hasStructure = false
     for (const mutation of mutations) {
       for (const patch of mutation.redo) {
         if (patch.kind === 'cell') {
@@ -1331,6 +1392,10 @@ export class Sheet {
             continue
           }
           changed.push({ sheet: patch.sheet ?? this, addr: patch.addr })
+          continue
+        }
+        if (patch.kind === 'structure') {
+          hasStructure = true
           continue
         }
         if (patch.kind === 'snapshot') {
@@ -1350,6 +1415,14 @@ export class Sheet {
               }
             }
           }
+        }
+      }
+    }
+    if (hasStructure) {
+      for (const coord of this.formulaGraph.affectedBySheet(this.name)) {
+        const targetSheet = this.formulaGraph.getSheet(coord.sheet)
+        if (targetSheet) {
+          changed.push({ sheet: targetSheet, addr: { row: coord.row, col: coord.col } })
         }
       }
     }

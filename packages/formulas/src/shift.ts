@@ -21,6 +21,24 @@ export interface FormulaShiftResult {
   broken: boolean
 }
 
+/** 公式平移作用域（用于跨表结构变更隔离：仅平移指向目标表的引用） */
+export interface FormulaShiftScope {
+  /** 公式所在表名（用于解析无显式表名前缀的裸引用） */
+  formulaSheet?: string
+  /** 发生结构变更的目标表名（或包含历史别名在内的表名集合） */
+  targetSheet?: string | ReadonlySet<string>
+}
+
+function matchesTargetSheet(
+  effectiveSheet: string | undefined,
+  targetSheet: string | ReadonlySet<string>,
+): boolean {
+  if (effectiveSheet === undefined) return false
+  return typeof targetSheet === 'string'
+    ? effectiveSheet === targetSheet
+    : targetSheet.has(effectiveSheet)
+}
+
 /** 平移后的引用区间（0 基闭区间坐标；broken 时保留原区间） */
 interface ShiftedRange {
   start: CellCoord
@@ -109,7 +127,7 @@ function formatShifted(ref: CellRef, addr: CellCoord): string {
  */
 function rewriteFormulaRefs(
   formula: string,
-  rewrite: (start: CellRef, end: CellRef) => ShiftedRange,
+  rewrite: (start: CellRef, end: CellRef, sheet: string | null) => ShiftedRange,
 ): string | null {
   let tokens: FormulaToken[]
   try {
@@ -158,7 +176,7 @@ function rewriteFormulaRefs(
       endRef = parseCellRef(endTok.name)
       if (endRef) k += 2
     }
-    const shifted = rewrite(startRef, endRef ?? startRef)
+    const shifted = rewrite(startRef, endRef ?? startRef, sheet)
     if (sheet !== null) out.push(formatSheetName(sheet), '!')
     if (shifted.broken) {
       out.push('#REF!')
@@ -171,17 +189,25 @@ function rewriteFormulaRefs(
   return out.join('')
 }
 
-/** 平移公式文本中的全部引用；解析失败时原样返回（broken=false） */
+/** 平移公式文本中的引用（提供 scope.targetSheet 时仅平移指向目标表的引用）；解析失败时原样返回（broken=false） */
 export function shiftFormulaText(
   formula: string,
   axis: 'rows' | 'cols',
   at: number,
   count: number,
   mode: 'insert' | 'delete',
+  scope?: FormulaShiftScope,
 ): FormulaShiftResult {
+  const targetSheet = scope?.targetSheet
   let broken = false
   const text =
-    rewriteFormulaRefs(formula, (start, end) => {
+    rewriteFormulaRefs(formula, (start, end, refSheet) => {
+      if (targetSheet !== undefined) {
+        const effectiveSheet = refSheet ?? scope?.formulaSheet
+        if (!matchesTargetSheet(effectiveSheet, targetSheet)) {
+          return { start, end, broken: false }
+        }
+      }
       const shifted = shiftRange(start, end, axis, at, count, mode, start)
       if (shifted.broken) broken = true
       return shifted
