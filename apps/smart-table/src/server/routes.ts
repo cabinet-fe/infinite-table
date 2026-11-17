@@ -1,21 +1,26 @@
-// REST API 路由：智能表清单、建表、更新元数据、行记录增删改、种子数据重置。
+// REST API 路由：智能表清单、建表（可携带初始行）、删表、同步、更新元数据、行记录增删改、进阶 SQL 物理表导入、种子数据重置。
 import type { Database } from 'bun:sqlite'
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 import type {
   AllTablesResponse,
   CreateRecordRequest,
   CreateTableRequest,
+  ImportCommitRequest,
   UpdateRecordRequest,
   UpdateTableMetaRequest,
 } from '../shared/api-types'
 import {
+  ValidationError,
   createTableRecord,
+  deleteTable,
   deleteTableRecord,
+  getTableBundle,
   insertNormalTable,
   listTableBundles,
   updateTableMeta,
   updateTableRecord,
 } from './db'
+import { commitImport } from './import'
 import { seedSmartTableDemo } from './seed'
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -27,6 +32,12 @@ function isCreateTableBody(body: unknown): body is CreateTableRequest {
   if (typeof body.name !== 'string' || body.name.trim() === '') return false
   if (body.description !== undefined && typeof body.description !== 'string') return false
   if (body.columns !== undefined && !Array.isArray(body.columns)) return false
+  if (
+    body.records !== undefined &&
+    (!Array.isArray(body.records) || !body.records.every((record) => isPlainObject(record)))
+  ) {
+    return false
+  }
   return true
 }
 
@@ -53,6 +64,32 @@ function isUpdateRecordBody(body: unknown): body is UpdateRecordRequest {
   return isPlainObject(body.patch)
 }
 
+function isImportCommitBody(body: unknown): body is ImportCommitRequest {
+  if (!isPlainObject(body)) return false
+  if (body.kind !== 'normal' && body.kind !== 'advanced') return false
+  if (typeof body.tableName !== 'string' || body.tableName.trim() === '') return false
+  return Array.isArray(body.columns) && Array.isArray(body.rows)
+}
+
+function handleRouteError(c: Context, error: unknown, uniquePrefix: string): Response {
+  if (error instanceof ValidationError) {
+    return c.json({ message: error.message }, 400)
+  }
+  const message = (error as Error)?.message ?? ''
+  if (message.includes('UNIQUE constraint')) {
+    return c.json({ message: `${uniquePrefix}：${message}` }, 409)
+  }
+  if (
+    message.includes('NOT NULL constraint') ||
+    message.includes('CHECK constraint') ||
+    message.includes('FOREIGN KEY constraint') ||
+    message.includes('datatype mismatch')
+  ) {
+    return c.json({ message: `数据约束校验失败：${message}` }, 400)
+  }
+  throw error
+}
+
 export function mountSmartTableRoutes(app: Hono, db: Database): void {
   app.get('/api/tables', (c) => {
     const response: AllTablesResponse = { tables: listTableBundles(db) }
@@ -64,8 +101,12 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     if (!isCreateTableBody(body)) {
       return c.json({ message: '请求体不合法：需提供非空表名 name' }, 400)
     }
-    const bundle = insertNormalTable(db, body)
-    return c.json(bundle, 201)
+    try {
+      const bundle = insertNormalTable(db, body, { records: body.records })
+      return c.json(bundle, 201)
+    } catch (error) {
+      return handleRouteError(c, error, '表配置冲突')
+    }
   })
 
   app.put('/api/tables/:id/meta', async (c) => {
@@ -73,11 +114,35 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     if (!isUpdateMetaBody(body)) {
       return c.json({ message: '请求体不合法：需提供完整的 meta 对象' }, 400)
     }
-    const updated = updateTableMeta(db, c.req.param('id'), body.meta)
-    if (!updated) {
+    try {
+      const updated = updateTableMeta(db, c.req.param('id'), body.meta)
+      if (!updated) {
+        return c.json({ message: '数据表不存在' }, 404)
+      }
+      return c.json({ meta: updated })
+    } catch (error) {
+      return handleRouteError(c, error, '表元数据冲突')
+    }
+  })
+
+  app.delete('/api/tables/:id', (c) => {
+    try {
+      const deleted = deleteTable(db, c.req.param('id'))
+      if (!deleted) {
+        return c.json({ message: '数据表不存在' }, 404)
+      }
+      return c.json({ ok: true })
+    } catch (error) {
+      return handleRouteError(c, error, '删除失败')
+    }
+  })
+
+  app.post('/api/tables/:id/sync', (c) => {
+    const bundle = getTableBundle(db, c.req.param('id'))
+    if (!bundle) {
       return c.json({ message: '数据表不存在' }, 404)
     }
-    return c.json({ meta: updated })
+    return c.json(bundle)
   })
 
   app.post('/api/tables/:id/records', async (c) => {
@@ -92,11 +157,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
       }
       return c.json({ record: created }, 201)
     } catch (error) {
-      const message = (error as Error).message ?? ''
-      if (message.includes('UNIQUE constraint')) {
-        return c.json({ message: `主键值已存在，请更换唯一标识：${message}` }, 409)
-      }
-      throw error
+      return handleRouteError(c, error, '主键值已存在，请更换唯一标识')
     }
   })
 
@@ -112,11 +173,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
       }
       return c.json({ record: updated })
     } catch (error) {
-      const message = (error as Error).message ?? ''
-      if (message.includes('UNIQUE constraint')) {
-        return c.json({ message: `主键值冲突：${message}` }, 409)
-      }
-      throw error
+      return handleRouteError(c, error, '主键值冲突')
     }
   })
 
@@ -126,6 +183,21 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
       return c.json({ message: '数据表或记录不存在' }, 404)
     }
     return c.json({ ok: true })
+  })
+
+  // 进阶导入提交：文件解析在前端完成，这里消费列配置与行数据建 SQL 物理表并批量插行
+  // （普通表导入走 POST /api/tables 携带初始 records，不经此端点）
+  app.post('/api/import/commit', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isImportCommitBody(body)) {
+      return c.json({ message: '请求体不合法：需提供 kind、非空 tableName、columns 与 rows' }, 400)
+    }
+    try {
+      const bundle = commitImport(db, body)
+      return c.json(bundle, 201)
+    } catch (error) {
+      return handleRouteError(c, error, '导入建表失败')
+    }
   })
 
   app.post('/api/reset-seed', (c) => {

@@ -3,6 +3,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
+import type { RenderContext } from '@infinitable/render'
+import type { ListTable } from '@infinitable/table'
 
 import { SmartPivotAdapter, columnsToPivotFields } from '../../src/canvas/smart-pivot'
 import type { SmartColumn, SmartPivotConfig, SmartRecord } from '../../src/shared/schema'
@@ -26,7 +28,14 @@ const COLUMNS: SmartColumn[] = [
       rollupAgg: 'sum',
     },
   },
-  { key: 'rate', title: '达成率', type: 'formula', width: 100, formulaExpr: '[paid]/[amount]' },
+  {
+    key: 'rate',
+    title: '达成率',
+    type: 'formula',
+    width: 100,
+    numberFormat: 'percent',
+    formulaExpr: '[paid]/[amount]',
+  },
   { key: 'img', title: '缩略图', type: 'image', width: 100 },
   { key: 'link', title: '文档链接', type: 'link', width: 120 },
 ]
@@ -114,7 +123,7 @@ describe('SmartPivotAdapter', () => {
     expect(container.querySelectorAll('canvas').length).toBe(0)
   })
 
-  it('双击数据格透传 onCellDrill，支持展开/收起、水印与打印插件', () => {
+  it('双击数据格透传 onCellDrill，支持展开/收起与水印插件', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const onDrill = vi.fn<(event: PivotCellDrillEvent) => void>()
@@ -155,9 +164,171 @@ describe('SmartPivotAdapter', () => {
     adapter.setWatermark(true, '透视机密')
     expect(adapter.getWatermarkPlugin().isEnabled()).toBe(true)
     expect(adapter.getWatermarkPlugin().getConfig().text).toBe('透视机密')
-    expect(adapter.getPrintPlugin().paginate().length).toBeGreaterThanOrEqual(1)
 
     unsub()
+    adapter.destroy()
+  })
+
+  it('update 在维度与度量配置未变时保留折叠状态，避免冗余重建', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const config: SmartPivotConfig = {
+      rowDimensions: ['dept', 'status'],
+      columnDimensions: [],
+      measures: [{ key: 'amount', title: '合同金额', field: 'amount', agg: 'sum', width: 120 }],
+    }
+    const adapter = new SmartPivotAdapter({
+      container,
+      columns: COLUMNS,
+      records: RECORDS,
+      config,
+    })
+
+    const pivot = adapter.getPivot()
+    pivot.collapseAll()
+    expect(pivot.getSubtotalRowCount()).toBe(2)
+
+    // 仅刷新记录（配置/列定义结构签名未变），折叠状态应保持
+    adapter.update({
+      columns: COLUMNS.map((c) => ({ ...c })),
+      records: [...RECORDS, { _id: 'r4', dept: '销售部', status: '已交付', amount: 300 }],
+      config: {
+        rowDimensions: ['dept', 'status'],
+        columnDimensions: [],
+        measures: [{ key: 'amount', title: '合同金额', field: 'amount', agg: 'sum', width: 120 }],
+      },
+    })
+    expect(pivot.getSubtotalRowCount()).toBe(2)
+
+    adapter.destroy()
+  })
+
+  it('透视表按 SmartColumn.numberFormat 格式化货币与百分比，count 计数列维持整数', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const adapter = new SmartPivotAdapter({
+      container,
+      columns: COLUMNS,
+      records: RECORDS,
+      config: {
+        rowDimensions: ['dept'],
+        columnDimensions: [],
+        measures: [
+          { key: 'amount', title: '合同金额', field: 'amount', agg: 'sum', width: 120 },
+          { key: 'rate', title: '平均达成率', field: 'rate', agg: 'avg', width: 100 },
+          { key: '__count__', title: '项目数', field: '__count__', agg: 'count', width: 90 },
+        ],
+      },
+    })
+
+    const table = adapter.getPivot().getTable() as ListTable
+    // 第 1 行（研发部）：amount=3000 -> ¥3,000，avg(rate)=0.8 -> 80%，count=2 -> 2
+    expect(table.getCellText(1, 1)).toBe('¥3,000')
+    expect(table.getCellText(2, 1)).toBe('80%')
+    expect(table.getCellText(3, 1)).toBe('2')
+
+    adapter.destroy()
+  })
+
+  it('行头长维度文本裁剪省略不溢出，首行滚出视口上方后仍可点击合并组展开钮折叠', () => {
+    const container = document.createElement('div')
+    Object.defineProperty(container, 'clientWidth', { value: 480 })
+    Object.defineProperty(container, 'clientHeight', { value: 160 })
+    document.body.appendChild(container)
+
+    const longGroupRecords: SmartRecord[] = [
+      {
+        _id: 'g1',
+        dept: 'AAA_这是一个非常非常长的部门名称测试截断效果',
+        status: '阶段1',
+        amount: 100,
+      },
+      {
+        _id: 'g2',
+        dept: 'AAA_这是一个非常非常长的部门名称测试截断效果',
+        status: '阶段2',
+        amount: 200,
+      },
+      {
+        _id: 'g3',
+        dept: 'AAA_这是一个非常非常长的部门名称测试截断效果',
+        status: '阶段3',
+        amount: 300,
+      },
+      {
+        _id: 'g4',
+        dept: 'AAA_这是一个非常非常长的部门名称测试截断效果',
+        status: '阶段4',
+        amount: 400,
+      },
+      { _id: 'g5', dept: '财务部', status: '阶段1', amount: 500 },
+    ]
+    const adapter = new SmartPivotAdapter({
+      container,
+      columns: COLUMNS,
+      records: longGroupRecords,
+      config: {
+        rowDimensions: ['dept', 'status'],
+        columnDimensions: [],
+        measures: [{ key: 'amount', title: '合同金额', field: 'amount', agg: 'sum', width: 120 }],
+      },
+    })
+
+    const pivot = adapter.getPivot()
+    const table = pivot.getTable() as ListTable
+
+    // 验证行头超长文本会裁剪出省略号而不是溢出
+    const drawnTexts: string[] = []
+    const mockCtx: RenderContext = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      font: '12px sans-serif',
+      save: () => {},
+      restore: () => {},
+      setTransform: () => {},
+      translate: () => {},
+      beginPath: () => {},
+      rect: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      bezierCurveTo: () => {},
+      quadraticCurveTo: () => {},
+      arc: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      fill: () => {},
+      clip: () => {},
+      clearRect: () => {},
+      fillRect: () => {},
+      fillText: (text: string) => drawnTexts.push(text),
+      drawImage: () => {},
+      measureText: (text: string) => ({ width: text.length * 10 }),
+    }
+    const treeRenderer = table.options.resolveCellRenderer?.(0, 1)
+    treeRenderer?.({
+      ctx: mockCtx,
+      col: 0,
+      row: 1,
+      width: 90,
+      height: 128,
+      text: '',
+      value: '',
+      style: {},
+    })
+    expect(drawnTexts[0]).toMatch(/…$/)
+
+    // 向下滚动 32px：该组首行（row=1）滚出视口上方（getCellRelativeRect(0, 1) 为 null），
+    // 但该组（rows 1..4，高 128px）竖直中线仍在视口 y = 32 + 64 - 32 = 64 处可见
+    table.scrollBy(0, 32)
+    expect(table.getCellRelativeRect(0, 1)).toBeNull()
+    expect(pivot.getSubtotalRowCount()).toBe(0)
+
+    // 点击展开钮热区（x=9, y=64）应成功折叠该组
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: 9, clientY: 64 }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: 9, clientY: 64 }))
+    expect(pivot.getSubtotalRowCount()).toBe(1)
+
     adapter.destroy()
   })
 })

@@ -137,6 +137,8 @@ export interface SmartTableMeta {
   primaryKeyField?: string
   /** 进阶表绑定的后端 SQL 查询或物理表名 */
   sourceSqlTable?: string
+  /** 系统内置表（种子进阶物理表）：禁止删除；用户自建的 advanced 表可删（连动物理表） */
+  system?: boolean
   columns: SmartColumn[]
   views: SmartView[]
   /** 底部汇总栏配置：columnKey -> SummaryType */

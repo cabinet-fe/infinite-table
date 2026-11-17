@@ -1,17 +1,18 @@
-// 傻瓜式 VLOOKUP 跨表关联引擎：支持多条件索引匹配、重名冲突检测、消歧锁定与一对多聚合
+// 傻瓜式 VLOOKUP 跨表关联引擎：支持多条件索引匹配、跨表递归求值、拓扑排序、重名冲突检测与一对多聚合
 
 import type { TableBundle } from '../shared/api-types'
 import type {
+  LookupConfig,
   LookupConflictInfo,
   LookupMatchRule,
   LookupMode,
   LookupRollupAgg,
   SmartColumn,
-  SmartColumnType,
   SmartRecord,
   SmartTableMeta,
 } from '../shared/schema'
-import { aggregateFiniteNumbers, scalarToText, toFiniteNumber } from './utils'
+import { evaluateFormulaColumns } from './formula-column'
+import { aggregateFiniteNumbers, extractLinkText, scalarToText, toFiniteNumber } from './utils'
 
 /** 整表 VLOOKUP 计算结果 */
 export interface LookupEvaluationResult {
@@ -23,7 +24,16 @@ export interface LookupEvaluationResult {
   unresolvedConflictCount: number
 }
 
-/** 规范化匹配键值：字符串去首尾空白，空值返回 null（不参与匹配） */
+type LookupColumnWithConfig = SmartColumn & {
+  lookupConfig: NonNullable<SmartColumn['lookupConfig']>
+}
+
+interface LookupEvalContext {
+  visitingTables: Set<string>
+  evaluatedCache: Map<string, TableBundle>
+}
+
+/** 规范化匹配键值：字符串去首尾空白，支持链接对象，空值返回 null（不参与匹配） */
 function normalizeMatchKey(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null
@@ -37,6 +47,10 @@ function normalizeMatchKey(value: unknown): string | null {
   }
   if (typeof value === 'boolean') {
     return value ? 'true' : 'false'
+  }
+  const linkText = extractLinkText(value)
+  if (linkText !== null) {
+    return linkText === '' ? null : linkText
   }
   return null
 }
@@ -133,13 +147,76 @@ function evaluateRollup(
   return aggregateFiniteNumbers(numbers, rollupAgg)
 }
 
-/**
- * 批量计算整张表的所有 `type === 'lookup'` 列，并收集一对一重名冲突状态。
- */
-export function evaluateTableLookups(
+/** 对本表多个 lookup 列按 sourceField 依赖做拓扑排序，同时分离成环列 */
+function topoSortLookupColumns(lookupColumns: readonly LookupColumnWithConfig[]): {
+  ordered: LookupColumnWithConfig[]
+  cyclicKeys: Set<string>
+} {
+  const byKey = new Map<string, LookupColumnWithConfig>()
+  const inDegree = new Map<string, number>()
+  const dependents = new Map<string, string[]>()
+
+  for (const col of lookupColumns) {
+    byKey.set(col.key, col)
+    inDegree.set(col.key, 0)
+    dependents.set(col.key, [])
+  }
+
+  for (const col of lookupColumns) {
+    const seenDeps = new Set<string>()
+    for (const rule of col.lookupConfig.matchRules) {
+      const depKey = rule.sourceField
+      if (!byKey.has(depKey) || seenDeps.has(depKey)) {
+        continue
+      }
+      seenDeps.add(depKey)
+      inDegree.set(col.key, (inDegree.get(col.key) ?? 0) + 1)
+      dependents.get(depKey)!.push(col.key)
+    }
+  }
+
+  const queue: string[] = []
+  for (const col of lookupColumns) {
+    if ((inDegree.get(col.key) ?? 0) === 0) {
+      queue.push(col.key)
+    }
+  }
+
+  const ordered: LookupColumnWithConfig[] = []
+  while (queue.length > 0) {
+    const currKey = queue.shift()!
+    ordered.push(byKey.get(currKey)!)
+    for (const nextKey of dependents.get(currKey) ?? []) {
+      const nextDeg = (inDegree.get(nextKey) ?? 0) - 1
+      inDegree.set(nextKey, nextDeg)
+      if (nextDeg === 0) {
+        queue.push(nextKey)
+      }
+    }
+  }
+
+  const cyclicKeys = new Set<string>()
+  for (const col of lookupColumns) {
+    if ((inDegree.get(col.key) ?? 0) > 0) {
+      cyclicKeys.add(col.key)
+    }
+  }
+
+  return { ordered, cyclicKeys }
+}
+
+function buildGroupRuleSignature(config: LookupConfig): string {
+  return JSON.stringify([
+    config.targetTableId,
+    config.matchRules.map((rule) => [rule.sourceField, rule.targetField]),
+  ])
+}
+
+function evaluateTableLookupsInternal(
   meta: SmartTableMeta,
   records: readonly SmartRecord[],
   tablesById: ReadonlyMap<string, TableBundle>,
+  context: LookupEvalContext,
 ): LookupEvaluationResult {
   const nextRecords: SmartRecord[] = records.map((record) =>
     record._lookupOverrides
@@ -149,89 +226,150 @@ export function evaluateTableLookups(
   const conflictsByRow = new Map<string, Map<string, LookupConflictInfo>>()
 
   const lookupColumns = meta.columns.filter(
-    (col): col is SmartColumn & { lookupConfig: NonNullable<SmartColumn['lookupConfig']> } =>
-      col.type === 'lookup' && col.lookupConfig !== undefined,
+    (col): col is LookupColumnWithConfig => col.type === 'lookup' && col.lookupConfig !== undefined,
   )
 
   if (lookupColumns.length === 0) {
     return { records: nextRecords, conflictsByRow, unresolvedConflictCount: 0 }
   }
 
-  // 按 targetTableId + targetFields 缓存索引，避免同组多列或同表规则重复扫描目标表
-  const indexCache = new Map<string, Map<string, SmartRecord[]>>()
+  context.visitingTables.add(meta.id)
+  try {
+    // 递归求值并缓存目标表（含目标表自身的 lookup 与 formula 列），带循环引用保护
+    const resolveTargetRecords = (targetTableId: string): readonly SmartRecord[] => {
+      if (context.visitingTables.has(targetTableId)) {
+        return tablesById.get(targetTableId)?.records ?? []
+      }
+      const cached = context.evaluatedCache.get(targetTableId)
+      if (cached) {
+        return cached.records
+      }
+      const targetBundle = tablesById.get(targetTableId)
+      if (!targetBundle) {
+        return []
+      }
 
-  const getOrBuildIndex = (
-    targetTableId: string,
-    matchRules: readonly LookupMatchRule[],
-  ): Map<string, SmartRecord[]> => {
-    const targetFields = matchRules.map((rule) => rule.targetField)
-    const cacheKey = JSON.stringify([targetTableId, targetFields])
-    const cached = indexCache.get(cacheKey)
-    if (cached) {
-      return cached
+      const targetLookupRes = evaluateTableLookupsInternal(
+        targetBundle.meta,
+        targetBundle.records,
+        tablesById,
+        context,
+      )
+      const computedTargetRecords = evaluateFormulaColumns(
+        targetBundle.meta.columns,
+        targetLookupRes.records,
+      )
+      context.evaluatedCache.set(targetTableId, {
+        meta: targetBundle.meta,
+        records: computedTargetRecords,
+      })
+      return computedTargetRecords
     }
-    const targetBundle = tablesById.get(targetTableId)
-    const index = targetBundle
-      ? buildTargetIndex(targetBundle.records, targetFields)
-      : new Map<string, SmartRecord[]>()
-    indexCache.set(cacheKey, index)
-    return index
-  }
 
-  for (const col of lookupColumns) {
-    const config = col.lookupConfig
-    const targetIndex = getOrBuildIndex(config.targetTableId, config.matchRules)
+    // 按 targetTableId + targetFields 缓存索引，避免同组多列或同表规则重复扫描目标表
+    const indexCache = new Map<string, Map<string, SmartRecord[]>>()
 
-    for (const record of nextRecords) {
-      const candidates = findCandidates(record, config.matchRules, targetIndex)
+    const getOrBuildIndex = (
+      targetTableId: string,
+      matchRules: readonly LookupMatchRule[],
+    ): Map<string, SmartRecord[]> => {
+      const targetFields = matchRules.map((rule) => rule.targetField)
+      const cacheKey = JSON.stringify([targetTableId, targetFields])
+      const cached = indexCache.get(cacheKey)
+      if (cached) {
+        return cached
+      }
+      const targetRecords = resolveTargetRecords(targetTableId)
+      const index = buildTargetIndex(targetRecords, targetFields)
+      indexCache.set(cacheKey, index)
+      return index
+    }
 
-      if (config.mode === 'rollup') {
-        const agg = config.rollupAgg ?? 'sum'
-        record[col.key] = evaluateRollup(candidates, config.targetReturnField, agg)
-        continue
+    const { ordered, cyclicKeys } = topoSortLookupColumns(lookupColumns)
+    for (const cyclicKey of cyclicKeys) {
+      for (const record of nextRecords) {
+        record[cyclicKey] = null
+      }
+    }
+
+    // 校验同 groupId 共享冲突对象时的 targetTableId 与 matchRules 一致性
+    const groupPrimarySignature = new Map<string, string>()
+
+    for (const col of ordered) {
+      const config = col.lookupConfig
+      const targetIndex = getOrBuildIndex(config.targetTableId, config.matchRules)
+      const signature = config.mode === 'one' ? buildGroupRuleSignature(config) : ''
+      let isGroupRuleConsistent = true
+      if (config.mode === 'one') {
+        const expected = groupPrimarySignature.get(config.groupId)
+        if (expected === undefined) {
+          groupPrimarySignature.set(config.groupId, signature)
+        } else if (expected !== signature) {
+          isGroupRuleConsistent = false
+        }
       }
 
-      // mode === 'one'
-      if (candidates.length === 0) {
-        record[col.key] = null
-        continue
-      }
+      for (const record of nextRecords) {
+        const candidates = findCandidates(record, config.matchRules, targetIndex)
 
-      if (candidates.length === 1) {
-        const val = candidates[0]![config.targetReturnField]
-        record[col.key] = val === undefined ? null : val
-        continue
-      }
+        if (config.mode === 'rollup') {
+          const agg = config.rollupAgg ?? 'sum'
+          record[col.key] = evaluateRollup(candidates, config.targetReturnField, agg)
+          continue
+        }
 
-      // candidates.length > 1：检查或登记同一行同 groupId 的冲突消歧信息
-      let rowConflicts = conflictsByRow.get(record._id)
-      let conflictInfo = rowConflicts?.get(config.groupId)
+        // mode === 'one'
+        if (candidates.length === 0) {
+          record[col.key] = null
+          continue
+        }
 
-      if (!conflictInfo) {
+        if (candidates.length === 1) {
+          const val = candidates[0]![config.targetReturnField]
+          record[col.key] = val === undefined ? null : val
+          continue
+        }
+
         const overrideId = record._lookupOverrides?.[config.groupId]
         const matchedOverride =
           overrideId !== undefined ? candidates.find((c) => c._id === overrideId) : undefined
 
-        conflictInfo = {
-          groupId: config.groupId,
-          targetTableId: config.targetTableId,
-          candidates,
-          isResolved: matchedOverride !== undefined,
-          selectedRecordId: matchedOverride ? matchedOverride._id : candidates[0]!._id,
+        // 同 groupId 配置一致时共享同一 LookupConflictInfo；若同 groupId 下配置分裂则独立选值不污染主冲突对象
+        if (!isGroupRuleConsistent) {
+          const selected = matchedOverride ?? candidates[0]!
+          const val = selected[config.targetReturnField]
+          record[col.key] = val === undefined ? null : val
+          continue
         }
 
-        if (!rowConflicts) {
-          rowConflicts = new Map<string, LookupConflictInfo>()
-          conflictsByRow.set(record._id, rowConflicts)
+        // candidates.length > 1：检查或登记同一行同 groupId 的冲突消歧信息
+        let rowConflicts = conflictsByRow.get(record._id)
+        let conflictInfo = rowConflicts?.get(config.groupId)
+
+        if (!conflictInfo) {
+          conflictInfo = {
+            groupId: config.groupId,
+            targetTableId: config.targetTableId,
+            candidates,
+            isResolved: matchedOverride !== undefined,
+            selectedRecordId: matchedOverride ? matchedOverride._id : candidates[0]!._id,
+          }
+
+          if (!rowConflicts) {
+            rowConflicts = new Map<string, LookupConflictInfo>()
+            conflictsByRow.set(record._id, rowConflicts)
+          }
+          rowConflicts.set(config.groupId, conflictInfo)
         }
-        rowConflicts.set(config.groupId, conflictInfo)
+
+        const selectedRecord =
+          candidates.find((c) => c._id === conflictInfo.selectedRecordId) ?? candidates[0]!
+        const val = selectedRecord[config.targetReturnField]
+        record[col.key] = val === undefined ? null : val
       }
-
-      const selectedRecord =
-        candidates.find((c) => c._id === conflictInfo.selectedRecordId) ?? candidates[0]!
-      const val = selectedRecord[config.targetReturnField]
-      record[col.key] = val === undefined ? null : val
     }
+  } finally {
+    context.visitingTables.delete(meta.id)
   }
 
   let unresolvedConflictCount = 0
@@ -251,6 +389,21 @@ export function evaluateTableLookups(
 }
 
 /**
+ * 批量计算整张表的所有 `type === 'lookup'` 列（支持跨表递归求值与本表依赖拓扑排序），并收集一对一重名冲突状态。
+ */
+export function evaluateTableLookups(
+  meta: SmartTableMeta,
+  records: readonly SmartRecord[],
+  tablesById: ReadonlyMap<string, TableBundle>,
+): LookupEvaluationResult {
+  const context: LookupEvalContext = {
+    visitingTables: new Set<string>(),
+    evaluatedCache: new Map<string, TableBundle>(),
+  }
+  return evaluateTableLookupsInternal(meta, records, tablesById, context)
+}
+
+/**
  * 向导批量生成共享同一 `groupId` 的 VLOOKUP 列定义。
  */
 export function createLookupColumnsFromWizard(params: {
@@ -258,10 +411,10 @@ export function createLookupColumnsFromWizard(params: {
   targetTableId: string
   matchRules: LookupMatchRule[]
   mode: LookupMode
+  existingKeys?: ReadonlySet<string> | readonly string[]
   returnFields: readonly {
     field: string
     title: string
-    type?: SmartColumnType
     numberFormat?: SmartColumn['numberFormat']
     rollupAgg?: LookupRollupAgg
     width?: number
@@ -269,10 +422,27 @@ export function createLookupColumnsFromWizard(params: {
 }): SmartColumn[] {
   const groupId = params.groupId ?? `grp_${crypto.randomUUID().slice(0, 8)}`
   const clonedRules = params.matchRules.map((rule) => ({ ...rule }))
+  const usedKeys = new Set<string>(params.existingKeys ?? [])
+
+  const allocateKey = (field: string, idx: number): string => {
+    const base = `lookup_${groupId}_${field}_${idx}`
+    if (!usedKeys.has(base)) {
+      usedKeys.add(base)
+      return base
+    }
+    let suffix = idx + 1
+    while (usedKeys.has(`lookup_${groupId}_${field}_${suffix}`)) {
+      suffix += 1
+    }
+    const candidate = `lookup_${groupId}_${field}_${suffix}`
+    usedKeys.add(candidate)
+    return candidate
+  }
 
   return params.returnFields.map((item, idx) => {
+    const agg = params.mode === 'rollup' ? (item.rollupAgg ?? 'sum') : undefined
     const col: SmartColumn = {
-      key: `lookup_${groupId}_${item.field}_${idx}`,
+      key: allocateKey(item.field, idx),
       title: item.title,
       type: 'lookup',
       width: item.width ?? 140,
@@ -282,26 +452,44 @@ export function createLookupColumnsFromWizard(params: {
         matchRules: clonedRules.map((rule) => ({ ...rule })),
         targetReturnField: item.field,
         mode: params.mode,
-        ...(params.mode === 'rollup' ? { rollupAgg: item.rollupAgg ?? 'sum' } : {}),
+        ...(agg !== undefined ? { rollupAgg: agg } : {}),
       },
     }
-    if (item.numberFormat !== undefined) {
+
+    if (params.mode === 'rollup') {
+      if (agg === 'count') {
+        col.numberFormat = 'integer'
+      } else if (agg !== 'join' && item.numberFormat !== undefined) {
+        col.numberFormat = item.numberFormat
+      }
+    } else if (item.numberFormat !== undefined) {
       col.numberFormat = item.numberFormat
     }
+
     return col
   })
 }
 
 /**
- * 为同 `groupId` 的所有 lookup 列追加联合匹配条件（已存在相同 sourceField + targetField 时跳过）。
+ * 为同 `groupId` 的所有 lookup 列追加联合匹配条件（已存在相同 sourceField + targetField 时跳过，且保持同组 targetTableId 一致）。
  */
 export function appendMatchRuleToLookupGroup(
   columns: readonly SmartColumn[],
   groupId: string,
   rule: LookupMatchRule,
 ): SmartColumn[] {
+  const firstMatch = columns.find(
+    (col) => col.type === 'lookup' && col.lookupConfig?.groupId === groupId,
+  )
+  const expectedTargetTableId = firstMatch?.lookupConfig?.targetTableId
+
   return columns.map((col) => {
-    if (col.type !== 'lookup' || !col.lookupConfig || col.lookupConfig.groupId !== groupId) {
+    if (
+      col.type !== 'lookup' ||
+      !col.lookupConfig ||
+      col.lookupConfig.groupId !== groupId ||
+      col.lookupConfig.targetTableId !== expectedTargetTableId
+    ) {
       return col
     }
     const exists = col.lookupConfig.matchRules.some(
@@ -319,6 +507,46 @@ export function appendMatchRuleToLookupGroup(
       },
     }
   })
+}
+
+/** 关联管理弹窗的单列编辑项：改标题、数值格式或整体替换 lookupConfig（携带编辑后的 matchRules / rollupAgg） */
+export interface LookupColumnUpdate {
+  key: string
+  title?: string
+  lookupConfig?: LookupConfig
+  /** 数值格式调整（null 表示清除，聚合切文本拼接时用） */
+  numberFormat?: SmartColumn['numberFormat'] | null
+}
+
+/** 关联管理弹窗的一次性保存载荷：删列、改列与追加新带出列 */
+export interface LookupManageChanges {
+  deletedKeys: readonly string[]
+  updates: readonly LookupColumnUpdate[]
+  addedColumns: readonly SmartColumn[]
+}
+
+/** 关联管理编辑结果应用到表列：先删、再改（标题/数值格式/lookupConfig）、最后追加新列 */
+export function applyLookupManageChanges(
+  columns: readonly SmartColumn[],
+  changes: LookupManageChanges,
+): SmartColumn[] {
+  const deleted = new Set(changes.deletedKeys)
+  const updatesByKey = new Map(changes.updates.map((update) => [update.key, update]))
+  const edited = columns
+    .filter((col) => !deleted.has(col.key))
+    .map((col) => {
+      const update = updatesByKey.get(col.key)
+      if (!update) return col
+      return {
+        ...col,
+        ...(update.title !== undefined ? { title: update.title } : {}),
+        ...(update.numberFormat !== undefined
+          ? { numberFormat: update.numberFormat ?? undefined }
+          : {}),
+        ...(update.lookupConfig !== undefined ? { lookupConfig: update.lookupConfig } : {}),
+      }
+    })
+  return [...edited, ...changes.addedColumns]
 }
 
 /**

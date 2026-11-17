@@ -1,5 +1,5 @@
 // 智能表格画布适配层：封装 @infinitable/table 的 ListTable，提供富媒体列渲染、
-// 数字格式化、checkbox 点击切换、VLOOKUP 冲突角标与消歧触发、水印/打印插件挂载与容器自适应。
+// 数字格式化、checkbox 点击切换、VLOOKUP 冲突角标与消歧触发、水印插件挂载与容器自适应。
 
 import {
   EditorRegistry,
@@ -11,23 +11,46 @@ import {
   type ColumnDefine,
   type TableModel,
 } from '@infinitable/table'
-import {
-  createPrintPlugin,
-  createWatermarkPlugin,
-  type PrintConfig,
-  type PrintPluginHandle,
-  type WatermarkHandle,
-} from '@infinitable/plugins'
+import { createWatermarkPlugin, type WatermarkHandle } from '@infinitable/plugins'
 import { roundRectPath, type Region, type RenderContext } from '@infinitable/render'
 
-import type { LookupConflictInfo, SelectOption, SmartColumn, SmartRecord } from '../shared/schema'
+import type {
+  LookupConflictInfo,
+  SelectOption,
+  SmartColumn,
+  SmartRecord,
+  SortRule,
+} from '../shared/schema'
 
-/** 冲突角标点击回调入参 */
+/** 冲突角标点击回调入参（rect 为视口坐标） */
 export interface SmartGridConflictClickInfo {
   record: SmartRecord
   column: SmartColumn
   conflict: LookupConflictInfo
   rect: Region
+}
+
+/** 富交互列（select / date）双击编辑回调入参（rect 为视口坐标） */
+export interface SmartGridRichEditInfo {
+  record: SmartRecord
+  column: SmartColumn
+  rect: Region
+  value: unknown
+}
+
+/** 汇总栏单个列的几何镜像（left 为画布内容坐标，滚动由消费方自行扣除） */
+export interface FooterColumnLayout {
+  field: string
+  left: number
+  width: number
+}
+
+/** 汇总栏布局快照：行表头宽、列几何、滚动条预留厚与内容总宽（全部取自引擎布局） */
+export interface FooterLayout {
+  rowHeaderWidth: number
+  scrollbarSize: number
+  contentWidth: number
+  columns: FooterColumnLayout[]
 }
 
 /** SmartGridAdapter 构造配置 */
@@ -38,27 +61,37 @@ export interface SmartGridOptions {
   conflictsByRow?: Map<string, Map<string, LookupConflictInfo>>
   readonly?: boolean
   dpr?: number
+  sortRules?: readonly SortRule[]
   onCellValueChange?: (recordId: string, fieldKey: string, newValue: unknown) => void
   onConflictClick?: (info: SmartGridConflictClickInfo) => void
+  onRichCellEdit?: (info: SmartGridRichEditInfo) => void
+  onValidationError?: (message: string) => void
+  onScrollChange?: (scrollLeft: number, scrollTop: number) => void
   onRowSelectionChange?: (recordIds: string[]) => void
+  onHeaderColumnClick?: (field: string, meta: { additive: boolean }) => void
+  onFooterLayoutChange?: (layout: FooterLayout) => void
 }
 
 /** 点击判定位移阈值（与引擎链接单击/透视表组格单击同口径） */
 const CLICK_SLOP = 10
+/** 列边界列宽拖拽热区半宽（与引擎 resize 命中阈值同口径，热区内点击不触发排序） */
+const RESIZE_HOT_PX = 4
 const DEFAULT_WIDTH = 800
 const DEFAULT_HEIGHT = 500
+const DEFAULT_ROW_HEIGHT = 38
+const DEFAULT_HEADER_HEIGHT = 38
 const DEFAULT_WATERMARK_TEXT = '智能表格 · 内部数据'
 const AVATAR_PALETTE = ['#3370ff', '#00b42a', '#ff7d00', '#722ed1', '#eb2f96', '#0fc6c2'] as const
 
-/** 自定义表格数据模型：支持记录数组原地替换与单元格回写 */
+/** 自定义表格数据模型：内部持有记录浅拷贝防原地变异，支持静默回滚与快照读取 */
 class SmartTableModel implements TableModel {
   private columns: readonly SmartColumn[]
-  private records: readonly SmartRecord[]
+  private records: SmartRecord[]
   private readonly changeListeners = new Set<(change: CellChangeEvent) => void>()
 
   constructor(columns: readonly SmartColumn[], records: readonly SmartRecord[]) {
     this.columns = columns
-    this.records = records
+    this.records = records.map((record) => ({ ...record }))
   }
 
   get rowCount(): number {
@@ -67,7 +100,16 @@ class SmartTableModel implements TableModel {
 
   setData(columns: readonly SmartColumn[], records: readonly SmartRecord[]): void {
     this.columns = columns
-    this.records = records
+    this.records = records.map((record) => ({ ...record }))
+  }
+
+  getRecordsSnapshot(): SmartRecord[] {
+    return this.records.map((record) => ({ ...record }))
+  }
+
+  getRecordSnapshot(row: number): SmartRecord | undefined {
+    const record = this.records[row]
+    return record ? { ...record } : undefined
   }
 
   getCellValue(col: number, row: number): unknown {
@@ -96,6 +138,16 @@ class SmartTableModel implements TableModel {
     }
   }
 
+  /** 静默回写/回滚单元格内部拷贝值（不触发 onCellChange，避免回调重入） */
+  revertCell(col: number, row: number, value: unknown): void {
+    const colDef = this.columns[col]
+    const record = this.records[row]
+    if (!colDef || !record) {
+      return
+    }
+    record[colDef.key] = value
+  }
+
   onCellChange(listener: (change: CellChangeEvent) => void): () => void {
     this.changeListeners.add(listener)
     return () => this.changeListeners.delete(listener)
@@ -114,6 +166,16 @@ export function formatSmartColumnTitle(col: SmartColumn): string {
     return `ƒx ${col.title}`
   }
   return col.title
+}
+
+/** 按当前排序规则取列头方向指示：首规则实心箭头、次级规则空心箭头 */
+function sortIndicatorFor(sortRules: readonly SortRule[], field: string): string {
+  const index = sortRules.findIndex((rule) => rule.field === field)
+  if (index < 0) {
+    return ''
+  }
+  const asc = sortRules[index]!.direction === 'asc'
+  return index === 0 ? (asc ? ' ▲' : ' ▼') : asc ? ' △' : ' ▽'
 }
 
 /** 任意基础值安全转文本（避免对象退化为 [object Object]） */
@@ -229,9 +291,12 @@ function parseCellImage(col: SmartColumn | undefined, value: unknown): string | 
   return url ? url : null
 }
 
-/** 判断列是否为可编辑列 */
-function isColumnEditable(col: SmartColumn | undefined): boolean {
+/** 判断列是否为可文本编辑列（挂载 onRichCellEdit 时，select/date 交由富交互浮层处理） */
+function isColumnEditable(col: SmartColumn | undefined, hasRichCellEdit: boolean): boolean {
   if (!col) {
+    return false
+  }
+  if (hasRichCellEdit && (col.type === 'select' || col.type === 'date')) {
     return false
   }
   return (
@@ -242,12 +307,16 @@ function isColumnEditable(col: SmartColumn | undefined): boolean {
   )
 }
 
-/** 生成 ListTable 列定义 */
-function toColumnDefine(col: SmartColumn): ColumnDefine {
+/** 生成 ListTable 列定义（标题按当前排序规则追加方向指示） */
+function toColumnDefine(
+  col: SmartColumn,
+  hasRichCellEdit: boolean,
+  sortRules: readonly SortRule[],
+): ColumnDefine {
   const isNumeric = col.type === 'number' || col.numberFormat !== undefined
   const base: ColumnDefine = {
     field: col.key,
-    title: formatSmartColumnTitle(col),
+    title: formatSmartColumnTitle(col) + sortIndicatorFor(sortRules, col.key),
     width: col.width,
   }
   if (col.type === 'checkbox') {
@@ -256,10 +325,22 @@ function toColumnDefine(col: SmartColumn): ColumnDefine {
   } else if (isNumeric) {
     base.style = { textAlign: 'right' }
   }
-  if (isColumnEditable(col)) {
+  if (isColumnEditable(col, hasRichCellEdit)) {
     base.editor = 'text'
   }
   return base
+}
+
+/** 判断两组排序规则是否一致（不一致时列头箭头需重建列定义刷新） */
+function sortRulesEqual(a: readonly SortRule[], b: readonly SortRule[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.field !== b[i]!.field || a[i]!.direction !== b[i]!.direction) {
+      return false
+    }
+  }
+  return true
 }
 
 /** 判断两组列定义是否在结构或展示配置上完全一致（一致时可原地刷新行数据而不重建实例） */
@@ -469,10 +550,17 @@ const renderProgressCell: CellRenderer = ({ ctx, width, height, value }) => {
   ctx.fillText(label, width - 8 - labelW, height / 2 + 4)
 }
 
-/** 绘制带重名冲突/已锁定角标的 lookup 单元格 */
+/** 绘制带重名冲突/已锁定角标的 lookup 单元格（窄列自动切换紧凑文案与最大宽度限制） */
 function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRenderer {
   return ({ ctx, width, height, text, style, font }) => {
-    const badgeText = conflict.isResolved ? '✅ 已锁定' : `⚠️ ${conflict.candidates.length}条重名`
+    const isCompact = width < 155
+    const badgeText = isCompact
+      ? conflict.isResolved
+        ? '✓ 锁定'
+        : `⚠️ ${conflict.candidates.length}`
+      : conflict.isResolved
+        ? '✅ 已锁定'
+        : `⚠️ ${conflict.candidates.length}条重名`
     const badgeBg = conflict.isResolved ? '#dcfce7' : '#fef3c7'
     const badgeFg = conflict.isResolved ? '#15803d' : '#b45309'
 
@@ -480,7 +568,8 @@ function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRendere
     const badgeTextW = ctx.measureText(badgeText).width
     const badgePadX = 6
     const badgeH = Math.min(20, Math.max(14, height - 10))
-    const badgeW = Math.min(Math.max(40, width * 0.62), badgeTextW + badgePadX * 2)
+    const maxBadgeW = Math.min(76, width * 0.45)
+    const badgeW = Math.min(maxBadgeW, badgeTextW + badgePadX * 2)
     const badgeX = Math.max(8, width - 8 - badgeW)
     const badgeY = (height - badgeH) / 2
 
@@ -490,6 +579,10 @@ function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRendere
       ctx.font = font ?? `${fontSize}px sans-serif`
       ctx.fillStyle = style.color ?? '#1f2329'
       drawClippedText(ctx, text, 8, height / 2 + Math.round(fontSize / 3), textMaxW)
+    }
+
+    if (badgeW < 12) {
+      return
     }
 
     roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2)
@@ -512,23 +605,45 @@ function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRendere
   }
 }
 
-/** 将编辑器文本按列类型归一化回写类型 */
-function coerceEditedValue(col: SmartColumn, value: unknown): unknown {
+type CoerceEditResult = { valid: true; value: unknown } | { valid: false; message: string }
+
+/** 将编辑器文本按列类型校验并归一化回写类型（number/progress 校验失败不写入脏值） */
+function coerceEditedValue(col: SmartColumn, value: unknown): CoerceEditResult {
   if (col.type !== 'number' && col.type !== 'progress') {
-    return value
+    return { valid: true, value }
   }
+  if (value === null || value === undefined) {
+    return { valid: true, value: null }
+  }
+  let parsed: number
   if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null
-  }
-  if (typeof value === 'string') {
+    parsed = value
+  } else if (typeof value === 'string') {
     const trimmed = value.trim()
     if (trimmed === '') {
-      return null
+      return { valid: true, value: null }
     }
-    const parsed = Number(trimmed)
-    return Number.isFinite(parsed) ? parsed : value
+    parsed = Number(trimmed)
+  } else {
+    return { valid: false, message: '请输入有效数值' }
   }
-  return value
+  if (!Number.isFinite(parsed)) {
+    return { valid: false, message: '请输入有效数值' }
+  }
+  const normalized = col.type === 'progress' ? Math.max(0, Math.min(100, parsed)) : parsed
+  return { valid: true, value: normalized }
+}
+
+/** 判断 DOM 事件目标是否处于单元格文本编辑控件内 */
+function isEditingDomTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== 'object') {
+    return false
+  }
+  const el = target as { tagName?: unknown; isContentEditable?: unknown }
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+    return true
+  }
+  return el.isContentEditable === true
 }
 
 /** 智能表格画布适配器：持有 ListTable 与自定义 TableModel，支持原地数据刷新与交互桥接 */
@@ -538,20 +653,27 @@ export class SmartGridAdapter {
   private readonly readonlyMode: boolean
   private readonly onCellValueChange: SmartGridOptions['onCellValueChange']
   private readonly onConflictClick: SmartGridOptions['onConflictClick']
+  private readonly onRichCellEdit: SmartGridOptions['onRichCellEdit']
+  private readonly onValidationError: SmartGridOptions['onValidationError']
+  private readonly onScrollChange: SmartGridOptions['onScrollChange']
   private readonly onRowSelectionChange: SmartGridOptions['onRowSelectionChange']
+  private readonly onHeaderColumnClick: SmartGridOptions['onHeaderColumnClick']
+  private readonly onFooterLayoutChange: SmartGridOptions['onFooterLayoutChange']
 
   private columns: readonly SmartColumn[]
   private records: readonly SmartRecord[]
+  private sortRules: readonly SortRule[]
   private conflictsByRow: Map<string, Map<string, LookupConflictInfo>> | undefined
 
   private readonly editorRegistry: EditorRegistry
   private readonly model: SmartTableModel
   private readonly watermarkPlugin: WatermarkHandle
-  private readonly printPlugin: PrintPluginHandle
   private table: ListTable
   private tableUnsubscribers: Array<() => void> = []
   private readonly containerDisposers: Array<() => void> = []
   private resizeObserver: ResizeObserver | null = null
+  private lastScrollLeft = 0
+  private lastScrollTop = 0
   private destroyed = false
 
   constructor(options: SmartGridOptions) {
@@ -560,10 +682,16 @@ export class SmartGridAdapter {
     this.readonlyMode = options.readonly ?? false
     this.onCellValueChange = options.onCellValueChange
     this.onConflictClick = options.onConflictClick
+    this.onRichCellEdit = options.onRichCellEdit
+    this.onValidationError = options.onValidationError
+    this.onScrollChange = options.onScrollChange
     this.onRowSelectionChange = options.onRowSelectionChange
+    this.onHeaderColumnClick = options.onHeaderColumnClick
+    this.onFooterLayoutChange = options.onFooterLayoutChange
 
     this.columns = options.columns
     this.records = options.records
+    this.sortRules = options.sortRules ?? []
     this.conflictsByRow = options.conflictsByRow
 
     this.editorRegistry = new EditorRegistry()
@@ -574,35 +702,40 @@ export class SmartGridAdapter {
       enabled: false,
       text: DEFAULT_WATERMARK_TEXT,
     })
-    this.printPlugin = createPrintPlugin({})
 
     this.table = this.createListTable()
     this.bindContainerEvents()
     this.bindResizeObserver()
   }
 
-  /** 原地更新列结构与行数据：列定义未变时走 TableModel + setRowCount/refreshCell 不重建画布 */
+  /** 原地更新列结构与行数据：列定义/排序指示未变时走 TableModel + setRowCount/refreshCell 不重建画布 */
   setData(
     columns: readonly SmartColumn[],
     records: readonly SmartRecord[],
     conflictsByRow?: Map<string, Map<string, LookupConflictInfo>>,
+    sortRules?: readonly SortRule[],
   ): void {
     if (this.destroyed) {
       return
     }
+    // 必须在覆写 this.records / this.model.setData 之前读取旧行数：
+    // ListTable.rowCount 在模型形态下实时代理 model.rowCount，模型先改再读会导致 prevRowCount === nextRowCount
+    const prevRowCount = this.records.length
+    const nextRowCount = records.length
     const schemaChanged = !columnsEqual(this.columns, columns)
+    const nextSortRules = sortRules ?? this.sortRules
+    const sortChanged = !sortRulesEqual(this.sortRules, nextSortRules)
     this.columns = columns
     this.records = records
+    this.sortRules = nextSortRules
     this.conflictsByRow = conflictsByRow
     this.model.setData(columns, records)
 
-    if (schemaChanged) {
+    if (schemaChanged || sortChanged) {
       this.rebuildListTable()
       return
     }
 
-    const prevRowCount = this.table.rowCount
-    const nextRowCount = records.length
     this.table.batchUpdate(() => {
       if (prevRowCount !== nextRowCount) {
         this.table.setRowCount(nextRowCount)
@@ -618,6 +751,60 @@ export class SmartGridAdapter {
     })
   }
 
+  /** 获取内部数据记录快照（浅拷贝，避免外部引用污染模型） */
+  getRecordsSnapshot(): SmartRecord[] {
+    return this.model.getRecordsSnapshot()
+  }
+
+  /** 将指定记录的单元格恢复为给定值并刷新画布（供外部保存失败回滚） */
+  revertCell(recordId: string, fieldKey: string, value: unknown): void {
+    if (this.destroyed) {
+      return
+    }
+    const row = this.records.findIndex((record) => record._id === recordId)
+    const col = this.columns.findIndex((column) => column.key === fieldKey)
+    if (row < 0 || col < 0) {
+      return
+    }
+    this.model.revertCell(col, row, value)
+    this.table.refreshCell(col, row)
+  }
+
+  /** 获取指定记录单元格在浏览器视口中的矩形（不可见或不存在返回 null） */
+  getCellViewportRect(recordId: string, fieldKey: string): Region | null {
+    if (this.destroyed) {
+      return null
+    }
+    const row = this.records.findIndex((record) => record._id === recordId)
+    const col = this.columns.findIndex((column) => column.key === fieldKey)
+    if (row < 0 || col < 0) {
+      return null
+    }
+    const cellRect = this.table.getCellRelativeRect(col, row)
+    return cellRect ? this.toViewportRect(cellRect) : null
+  }
+
+  /** 滚动使目标记录行（可选指定列）完整进入可视区 */
+  scrollToRecord(recordId: string, fieldKey?: string): void {
+    if (this.destroyed || this.columns.length === 0) {
+      return
+    }
+    const row = this.records.findIndex((record) => record._id === recordId)
+    if (row < 0) {
+      return
+    }
+    let col = this.table.getBodyVisibleCellRange().cols.start
+    if (fieldKey !== undefined) {
+      const targetCol = this.columns.findIndex((column) => column.key === fieldKey)
+      if (targetCol >= 0) {
+        col = targetCol
+      }
+    }
+    col = Math.max(0, Math.min(this.columns.length - 1, col))
+    this.table.scrollToCell({ col, row })
+    this.emitScrollChange(this.table.getScrollLeft(), this.table.getScrollTop())
+  }
+
   /** 开关或更新平铺水印 */
   setWatermark(enabled: boolean, text?: string): void {
     if (this.destroyed) {
@@ -629,23 +816,28 @@ export class SmartGridAdapter {
     })
   }
 
-  /** 调起打印（支持传标题串或完整 PrintConfig） */
-  print(titleOrConfig?: string | PrintConfig): Promise<void> {
-    const config: PrintConfig | undefined =
-      typeof titleOrConfig === 'string'
-        ? { headerFooter: { header: { center: titleOrConfig } } }
-        : titleOrConfig
-    return this.printPlugin.print(config)
+  /** 汇总栏布局快照：行表头宽、列内容坐标几何、滚动条预留厚与内容总宽（引擎布局直读，不自行累加列宽） */
+  getFooterLayout(): FooterLayout {
+    return this.buildFooterLayout(this.table)
   }
 
-  /** 打开打印预览弹层 */
-  openPrintPreview(config?: PrintConfig) {
-    return this.printPlugin.openPreview(config)
+  private buildFooterLayout(table: ListTable): FooterLayout {
+    const offsets = table.geometryState.colOffsets
+    return {
+      rowHeaderWidth: table.rowHeaderWidth,
+      scrollbarSize: table.theme.interaction.scrollbarSize,
+      contentWidth: table.contentWidth,
+      columns: this.columns.map((col, i) => ({
+        field: col.key,
+        left: offsets[i] ?? 0,
+        width: table.getColWidth(i),
+      })),
+    }
   }
 
-  /** 获取打印插件句柄 */
-  getPrintPlugin(): PrintPluginHandle {
-    return this.printPlugin
+  /** 构造/重建期间 this.table 尚未赋值，传入正在装配的 table 实例 */
+  private emitFooterLayout(table: ListTable = this.table): void {
+    this.onFooterLayoutChange?.(this.buildFooterLayout(table))
   }
 
   /** 获取水印插件句柄 */
@@ -676,14 +868,55 @@ export class SmartGridAdapter {
   private createListTable(): ListTable {
     const width = this.container.clientWidth || DEFAULT_WIDTH
     const height = this.container.clientHeight || DEFAULT_HEIGHT
+    const hasRichCellEdit = Boolean(this.onRichCellEdit)
     const table = new ListTable({
       width,
       height,
-      columns: this.columns.map(toColumnDefine),
+      rowHeight: DEFAULT_ROW_HEIGHT,
+      headerHeight: DEFAULT_HEADER_HEIGHT,
+      columns: this.columns.map((col) => toColumnDefine(col, hasRichCellEdit, this.sortRules)),
       model: this.model,
       editorRegistry: this.editorRegistry,
       editCellOnEnter: true,
-      plugins: [this.watermarkPlugin, this.printPlugin],
+      // 关闭选区右下角填充柄（柄绘制/命中/十字光标随引擎联动关闭），选区交互保持
+      fillHandle: false,
+      plugins: [this.watermarkPlugin],
+      theme: {
+        rowHeight: DEFAULT_ROW_HEIGHT,
+        headerHeight: DEFAULT_HEADER_HEIGHT,
+        body: {
+          font: '13px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
+          fontSize: 13,
+          color: '#1f2329',
+          background: '#ffffff',
+          borderColor: '#ebedf0',
+        },
+        header: {
+          font: '600 12px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
+          fontSize: 12,
+          fontWeight: 600,
+          color: '#4e5969',
+          background: '#f7f8fa',
+          borderColor: '#ebedf0',
+        },
+        rowHeader: {
+          color: '#86909c',
+          background: '#f7f8fa',
+          borderColor: '#ebedf0',
+        },
+        corner: {
+          background: '#f7f8fa',
+          borderColor: '#ebedf0',
+        },
+        interaction: {
+          selectionFill: 'rgba(51, 112, 255, 0.08)',
+          selectionBorder: '#3370ff',
+          selectionBorderWidth: 1.5,
+          resizeLine: '#3370ff',
+          headerHighlight: '#ebf1ff',
+          freezeDividerColor: '#dcdfe6',
+        },
+      },
       hostOptions: {
         container: this.container,
         ...(this.dpr !== undefined ? { dpr: this.dpr } : {}),
@@ -695,11 +928,15 @@ export class SmartGridAdapter {
         parseCellImage(this.columns[col], this.model.getCellValue(col, row)),
       resolveCellLink: (col, row) =>
         parseCellLink(this.columns[col], this.model.getCellValue(col, row)),
-      resolveEditable: (col) => !this.readonlyMode && isColumnEditable(this.columns[col]),
+      resolveEditable: (col) =>
+        !this.readonlyMode && isColumnEditable(this.columns[col], hasRichCellEdit),
     })
 
     this.tableUnsubscribers.push(
       table.onCellChange((change) => this.handleTableCellChange(change)),
+      table.onScrollFrame((state) => this.emitScrollChange(state.left, state.top)),
+      // 列宽拖拽结束即刻推送新布局，保持汇总栏与画布列对齐
+      table.onColResizeEnd(() => this.emitFooterLayout()),
       table.onSelectionChange((snapshot) => {
         if (!this.onRowSelectionChange) {
           return
@@ -718,6 +955,9 @@ export class SmartGridAdapter {
         this.onRowSelectionChange(Array.from(ids))
       }),
     )
+
+    // 建表即推送一次布局快照（构造与重建路径共用），汇总栏随列定义就位
+    this.emitFooterLayout(table)
 
     return table
   }
@@ -778,12 +1018,77 @@ export class SmartGridAdapter {
     if (!colDef || !record) {
       return
     }
-    const coerced = coerceEditedValue(colDef, change.newValue)
-    if (coerced !== change.newValue) {
-      this.model.setCellValue(change.col, change.row, coerced)
+    const result = coerceEditedValue(colDef, change.newValue)
+    if (!result.valid) {
+      this.model.revertCell(change.col, change.row, change.oldValue)
+      this.table.refreshCell(change.col, change.row)
+      this.onValidationError?.(result.message)
+      return
+    }
+    if (result.value !== change.newValue) {
+      this.model.revertCell(change.col, change.row, result.value)
       this.table.refreshCell(change.col, change.row)
     }
-    this.onCellValueChange?.(record._id, colDef.key, coerced)
+    this.onCellValueChange?.(record._id, colDef.key, result.value)
+  }
+
+  private toViewportRect(cellRect: Region): Region {
+    const containerRect = this.container.getBoundingClientRect()
+    return {
+      x: containerRect.left + cellRect.x,
+      y: containerRect.top + cellRect.y,
+      width: cellRect.width,
+      height: cellRect.height,
+    }
+  }
+
+  private emitScrollChange(scrollLeft: number, scrollTop: number): void {
+    if (scrollLeft === this.lastScrollLeft && scrollTop === this.lastScrollTop) {
+      return
+    }
+    this.lastScrollLeft = scrollLeft
+    this.lastScrollTop = scrollTop
+    this.onScrollChange?.(scrollLeft, scrollTop)
+  }
+
+  private isInsideBodyDrawRange(x: number, y: number): boolean {
+    const drawRange = this.table.getDrawRange()
+    return (
+      x >= drawRange.x &&
+      y >= drawRange.y &&
+      x < drawRange.x + drawRange.width &&
+      y < drawRange.y + drawRange.height
+    )
+  }
+
+  /**
+   * 列头单击命中：行表头/角格、checkbox 列与列边界拖拽热区（±RESIZE_HOT_PX，与引擎
+   * resize 命中同口径）不触发；命中数据列时按 shiftKey 抛 additive 点击排序回调。
+   */
+  private handleHeaderColumnClick(x: number, additive: boolean): void {
+    if (!this.onHeaderColumnClick || x < this.table.rowHeaderWidth) {
+      return
+    }
+    const table = this.table
+    const rel = x - table.rowHeaderWidth
+    const contentX = rel < table.geometryState.frozenColsWidth ? rel : rel + table.getScrollLeft()
+    const offsets = table.geometryState.colOffsets
+    for (let i = 0; i < offsets.length - 1; i++) {
+      if (contentX < offsets[i]! || contentX >= offsets[i + 1]!) {
+        continue
+      }
+      const colDef = this.columns[i]
+      if (!colDef || colDef.type === 'checkbox') {
+        return
+      }
+      // 落在列边界热区（列宽拖拽把手）让位给 resize，不触发排序
+      const distToEdges = Math.min(contentX - offsets[i]!, offsets[i + 1]! - contentX)
+      if (distToEdges <= RESIZE_HOT_PX) {
+        return
+      }
+      this.onHeaderColumnClick(colDef.key, { additive })
+      return
+    }
   }
 
   private bindContainerEvents(): void {
@@ -794,18 +1099,29 @@ export class SmartGridAdapter {
     const onClick = (event: MouseEvent): void => {
       const down = downAt
       downAt = null
+      if (isEditingDomTarget(event.target)) {
+        return
+      }
       if (down && Math.hypot(event.clientX - down.x, event.clientY - down.y) > CLICK_SLOP) {
         return
       }
       const rect = this.container.getBoundingClientRect()
       const x = event.clientX - rect.left
       const y = event.clientY - rect.top
+      // 列头带优先路由：未拖拽的单击经引擎几何换算列 field 抛给宿主做点击排序
+      if (y < this.table.headerHeight) {
+        this.handleHeaderColumnClick(x, event.shiftKey)
+        return
+      }
+      if (!this.isInsideBodyDrawRange(x, y)) {
+        return
+      }
       const cell = this.table.getCellAtRelativePosition(x, y)
       if (!cell) {
         return
       }
       const colDef = this.columns[cell.col]
-      const record = this.records[cell.row]
+      const record = this.model.getRecordSnapshot(cell.row) ?? this.records[cell.row]
       if (!colDef || !record) {
         return
       }
@@ -827,16 +1143,49 @@ export class SmartGridAdapter {
             x,
             y,
             width: colDef.width,
-            height: 32,
+            height: DEFAULT_ROW_HEIGHT,
           }
           this.onConflictClick?.({
             record,
             column: colDef,
             conflict,
-            rect: cellRect,
+            rect: this.toViewportRect(cellRect),
           })
         }
       }
+    }
+
+    const onDblClick = (event: MouseEvent): void => {
+      if (this.readonlyMode || !this.onRichCellEdit || isEditingDomTarget(event.target)) {
+        return
+      }
+      const rect = this.container.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      if (!this.isInsideBodyDrawRange(x, y)) {
+        return
+      }
+      const cell = this.table.getCellAtRelativePosition(x, y)
+      if (!cell) {
+        return
+      }
+      const colDef = this.columns[cell.col]
+      const record = this.model.getRecordSnapshot(cell.row) ?? this.records[cell.row]
+      if (!colDef || !record || (colDef.type !== 'select' && colDef.type !== 'date')) {
+        return
+      }
+      const cellRect = this.table.getCellRelativeRect(cell.col, cell.row) ?? {
+        x,
+        y,
+        width: colDef.width,
+        height: DEFAULT_ROW_HEIGHT,
+      }
+      this.onRichCellEdit({
+        record,
+        column: colDef,
+        rect: this.toViewportRect(cellRect),
+        value: this.model.getCellValue(cell.col, cell.row),
+      })
     }
 
     const onWheel = (event: WheelEvent): void => {
@@ -855,19 +1204,25 @@ export class SmartGridAdapter {
       const beforeLeft = this.table.getScrollLeft()
       const beforeTop = this.table.getScrollTop()
       this.table.scrollBy(deltaX, deltaY)
-      const consumed =
-        this.table.getScrollLeft() !== beforeLeft || this.table.getScrollTop() !== beforeTop
-      if (consumed && event.cancelable) {
-        event.preventDefault()
+      const afterLeft = this.table.getScrollLeft()
+      const afterTop = this.table.getScrollTop()
+      const consumed = afterLeft !== beforeLeft || afterTop !== beforeTop
+      if (consumed) {
+        this.emitScrollChange(afterLeft, afterTop)
+        if (event.cancelable) {
+          event.preventDefault()
+        }
       }
     }
 
     this.container.addEventListener('pointerdown', onPointerDown)
     this.container.addEventListener('click', onClick)
+    this.container.addEventListener('dblclick', onDblClick)
     this.container.addEventListener('wheel', onWheel, { passive: false })
     this.containerDisposers.push(() => {
       this.container.removeEventListener('pointerdown', onPointerDown)
       this.container.removeEventListener('click', onClick)
+      this.container.removeEventListener('dblclick', onDblClick)
       this.container.removeEventListener('wheel', onWheel)
     })
   }

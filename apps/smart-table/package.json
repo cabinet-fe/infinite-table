@@ -19,6 +19,7 @@
     "@infinitable/render": "workspace:*",
     "@infinitable/table": "workspace:*",
     "hono": "^4.0.0",
+    "hucre": "^1.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

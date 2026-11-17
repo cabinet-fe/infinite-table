@@ -1,6 +1,5 @@
-// 透视表配置栏：管理行维度、列维度、指标与聚合方式（求和/计数/均值/最大/最小），以及展开/收起/折叠开关
+// 透视表配置栏：管理行/列维度（互斥防重复+保留至少1个行维度）、指标与聚合方式（锁定记录数）及总计/折叠开关
 
-import { useState } from 'react'
 import { columnsToPivotFields } from '../canvas/smart-pivot'
 import type {
   SmartColumn,
@@ -8,6 +7,8 @@ import type {
   SmartPivotConfig,
   SmartPivotMeasureConfig,
 } from '../shared/schema'
+import { CustomSelect, type CustomSelectOption } from './CustomSelect'
+import { LightbulbIcon, LockIcon, XIcon } from './Icons'
 
 export interface PivotConfigBarProps {
   columns: readonly SmartColumn[]
@@ -25,6 +26,24 @@ const AGG_LABELS: Record<SmartPivotAgg, string> = {
   max: '最大',
 }
 
+const AGG_OPTIONS: CustomSelectOption<SmartPivotAgg>[] = (
+  Object.keys(AGG_LABELS) as SmartPivotAgg[]
+).map((agg) => ({
+  value: agg,
+  label: AGG_LABELS[agg],
+}))
+
+function isCountRecordMeasure(fieldKey: string): boolean {
+  return fieldKey === '' || fieldKey === '__count__'
+}
+
+function colTitleOf(columns: readonly SmartColumn[], fieldKey: string): string {
+  if (isCountRecordMeasure(fieldKey)) {
+    return '记录数'
+  }
+  return columns.find((c) => c.key === fieldKey)?.title ?? fieldKey
+}
+
 export function PivotConfigBar({
   columns,
   config,
@@ -32,24 +51,30 @@ export function PivotConfigBar({
   onExpandAll,
   onCollapseAll,
 }: PivotConfigBarProps) {
-  const [addingTarget, setAddingTarget] = useState<'row' | 'col' | 'measure' | null>(null)
   const { dimensions, measures } = columnsToPivotFields(columns)
 
   const usedDims = new Set([...config.rowDimensions, ...config.columnDimensions])
-  const availableDims = dimensions.filter((d) => !usedDims.has(d.key))
+  const availableDimOptions: CustomSelectOption<string>[] = dimensions
+    .filter((d) => !usedDims.has(d.key))
+    .map((d) => ({ value: d.key, label: d.title }))
+
+  const measureOptions: CustomSelectOption<string>[] = measures.map((m) => ({
+    value: m.key,
+    label: m.title,
+  }))
 
   function addDimension(target: 'row' | 'col', key: string) {
-    if (!key) return
+    if (!key || usedDims.has(key)) return
     if (target === 'row') {
       onChangeConfig({ ...config, rowDimensions: [...config.rowDimensions, key] })
     } else {
       onChangeConfig({ ...config, columnDimensions: [...config.columnDimensions, key] })
     }
-    setAddingTarget(null)
   }
 
   function removeDimension(target: 'row' | 'col', key: string) {
     if (target === 'row') {
+      if (config.rowDimensions.length <= 1) return
       onChangeConfig({
         ...config,
         rowDimensions: config.rowDimensions.filter((k) => k !== key),
@@ -69,40 +94,40 @@ export function PivotConfigBar({
       key: `${candidate.field}_${Date.now().toString(36).slice(-4)}`,
       title: candidate.title,
       field: candidate.field,
-      agg: candidate.agg,
+      agg: isCountRecordMeasure(candidate.field) ? 'count' : candidate.agg,
       width: candidate.width,
     }
     onChangeConfig({
       ...config,
       measures: [...config.measures, nextMeasure],
     })
-    setAddingTarget(null)
   }
 
   function updateMeasureAgg(measureKey: string, agg: SmartPivotAgg) {
     onChangeConfig({
       ...config,
-      measures: config.measures.map((m) =>
-        m.key === measureKey
-          ? {
-              ...m,
-              agg,
-              title: `${colTitleOf(columns, m.field)}(${AGG_LABELS[agg]})`,
-            }
-          : m,
-      ),
+      measures: config.measures.map((m) => {
+        if (m.key !== measureKey || isCountRecordMeasure(m.field)) {
+          return m
+        }
+        return {
+          ...m,
+          agg,
+          title: `${colTitleOf(columns, m.field)}(${AGG_LABELS[agg]})`,
+        }
+      }),
     })
   }
 
   function removeMeasure(measureKey: string) {
-    if (config.measures.length <= 1) {
-      return
-    }
+    if (config.measures.length <= 1) return
     onChangeConfig({
       ...config,
       measures: config.measures.filter((m) => m.key !== measureKey),
     })
   }
+
+  const rowDimLocked = config.rowDimensions.length <= 1
 
   return (
     <section className="st-pivot-config" aria-label="透视表维度与指标配置">
@@ -110,44 +135,33 @@ export function PivotConfigBar({
         <div className="st-pivot-slot">
           <span className="st-slot-label">行维度</span>
           <div className="st-pill-list">
-            {config.rowDimensions.map((key) => (
-              <span key={key} className="st-pill st-pill-dim">
-                <span>{colTitleOf(columns, key)}</span>
-                <button
-                  type="button"
-                  className="st-pill-x"
-                  onClick={() => removeDimension('row', key)}
-                  aria-label={`移除行维度 ${colTitleOf(columns, key)}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {availableDims.length > 0 && (
-              <button
-                type="button"
-                className="st-btn st-btn-xs"
-                onClick={() => setAddingTarget(addingTarget === 'row' ? null : 'row')}
-              >
-                + 添加
-              </button>
-            )}
-            {addingTarget === 'row' && (
-              <select
-                className="st-select st-select-xs"
-                defaultValue=""
-                onChange={(e) => addDimension('row', e.target.value)}
-                autoFocus
-              >
-                <option value="" disabled>
-                  选择行维度...
-                </option>
-                {availableDims.map((d) => (
-                  <option key={d.key} value={d.key}>
-                    {d.title}
-                  </option>
-                ))}
-              </select>
+            {config.rowDimensions.map((key) => {
+              const label = colTitleOf(columns, key)
+              return (
+                <span key={key} className="st-pill st-pill-dim">
+                  <span>{label}</span>
+                  <button
+                    type="button"
+                    className="st-pill-x"
+                    disabled={rowDimLocked}
+                    title={rowDimLocked ? '至少保留 1 个行维度' : `移除行维度 ${label}`}
+                    aria-label={`移除行维度 ${label}`}
+                    onClick={() => removeDimension('row', key)}
+                  >
+                    <XIcon size={11} />
+                  </button>
+                </span>
+              )
+            })}
+            {availableDimOptions.length > 0 && (
+              <CustomSelect
+                size="xs"
+                value=""
+                triggerLabel="+ 添加"
+                ariaLabel="添加行维度"
+                options={availableDimOptions}
+                onChange={(key) => addDimension('row', key)}
+              />
             )}
           </div>
         </div>
@@ -155,44 +169,31 @@ export function PivotConfigBar({
         <div className="st-pivot-slot">
           <span className="st-slot-label">列维度</span>
           <div className="st-pill-list">
-            {config.columnDimensions.map((key) => (
-              <span key={key} className="st-pill st-pill-dim">
-                <span>{colTitleOf(columns, key)}</span>
-                <button
-                  type="button"
-                  className="st-pill-x"
-                  onClick={() => removeDimension('col', key)}
-                  aria-label={`移除列维度 ${colTitleOf(columns, key)}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {availableDims.length > 0 && (
-              <button
-                type="button"
-                className="st-btn st-btn-xs"
-                onClick={() => setAddingTarget(addingTarget === 'col' ? null : 'col')}
-              >
-                + 添加
-              </button>
-            )}
-            {addingTarget === 'col' && (
-              <select
-                className="st-select st-select-xs"
-                defaultValue=""
-                onChange={(e) => addDimension('col', e.target.value)}
-                autoFocus
-              >
-                <option value="" disabled>
-                  选择列维度...
-                </option>
-                {availableDims.map((d) => (
-                  <option key={d.key} value={d.key}>
-                    {d.title}
-                  </option>
-                ))}
-              </select>
+            {config.columnDimensions.map((key) => {
+              const label = colTitleOf(columns, key)
+              return (
+                <span key={key} className="st-pill st-pill-dim">
+                  <span>{label}</span>
+                  <button
+                    type="button"
+                    className="st-pill-x"
+                    aria-label={`移除列维度 ${label}`}
+                    onClick={() => removeDimension('col', key)}
+                  >
+                    <XIcon size={11} />
+                  </button>
+                </span>
+              )
+            })}
+            {availableDimOptions.length > 0 && (
+              <CustomSelect
+                size="xs"
+                value=""
+                triggerLabel="+ 添加"
+                ariaLabel="添加列维度"
+                options={availableDimOptions}
+                onChange={(key) => addDimension('col', key)}
+              />
             )}
           </div>
         </div>
@@ -202,57 +203,48 @@ export function PivotConfigBar({
         <div className="st-pivot-slot st-pivot-slot-grow">
           <span className="st-slot-label">指标</span>
           <div className="st-pill-list">
-            {config.measures.map((m) => (
-              <span key={m.key} className="st-pill st-pill-measure">
-                <span>{colTitleOf(columns, m.field)}</span>
-                <select
-                  className="st-pill-agg-select"
-                  value={m.agg}
-                  aria-label={`${m.title} 聚合方式`}
-                  onChange={(e) => updateMeasureAgg(m.key, e.target.value as SmartPivotAgg)}
-                >
-                  {(Object.keys(AGG_LABELS) as SmartPivotAgg[]).map((agg) => (
-                    <option key={agg} value={agg}>
-                      {AGG_LABELS[agg]}
-                    </option>
-                  ))}
-                </select>
-                {config.measures.length > 1 && (
-                  <button
-                    type="button"
-                    className="st-pill-x"
-                    onClick={() => removeMeasure(m.key)}
-                    aria-label={`移除指标 ${m.title}`}
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            ))}
-            <button
-              type="button"
-              className="st-btn st-btn-xs"
-              onClick={() => setAddingTarget(addingTarget === 'measure' ? null : 'measure')}
-            >
-              + 添加指标
-            </button>
-            {addingTarget === 'measure' && (
-              <select
-                className="st-select st-select-xs"
-                defaultValue=""
-                onChange={(e) => addMeasure(e.target.value)}
-                autoFocus
-              >
-                <option value="" disabled>
-                  选择汇总列...
-                </option>
-                {measures.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.title}
-                  </option>
-                ))}
-              </select>
-            )}
+            {config.measures.map((m) => {
+              const isCount = isCountRecordMeasure(m.field)
+              const displayName = colTitleOf(columns, m.field)
+              return (
+                <span key={m.key} className="st-pill st-pill-measure">
+                  <span>{displayName}</span>
+                  {isCount ? (
+                    <span className="st-pill-agg-locked" title="记录数仅支持计数">
+                      <LockIcon size={10} />
+                      <span>计数</span>
+                    </span>
+                  ) : (
+                    <CustomSelect
+                      size="xs"
+                      variant="pill"
+                      value={m.agg}
+                      options={AGG_OPTIONS}
+                      ariaLabel={`${displayName} 聚合方式`}
+                      onChange={(agg) => updateMeasureAgg(m.key, agg)}
+                    />
+                  )}
+                  {config.measures.length > 1 && (
+                    <button
+                      type="button"
+                      className="st-pill-x"
+                      onClick={() => removeMeasure(m.key)}
+                      aria-label={`移除指标 ${displayName}`}
+                    >
+                      <XIcon size={11} />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
+            <CustomSelect
+              size="xs"
+              value=""
+              triggerLabel="+ 添加指标"
+              ariaLabel="添加汇总指标"
+              options={measureOptions}
+              onChange={addMeasure}
+            />
           </div>
         </div>
 
@@ -260,6 +252,16 @@ export function PivotConfigBar({
           <label className="st-checkbox-label">
             <input
               type="checkbox"
+              className="st-checkbox"
+              checked={config.showGrandTotal ?? true}
+              onChange={(e) => onChangeConfig({ ...config, showGrandTotal: e.target.checked })}
+            />
+            <span>显示总计</span>
+          </label>
+          <label className="st-checkbox-label">
+            <input
+              type="checkbox"
+              className="st-checkbox"
               checked={config.collapsible ?? true}
               onChange={(e) => onChangeConfig({ ...config, collapsible: e.target.checked })}
             />
@@ -271,16 +273,12 @@ export function PivotConfigBar({
           <button type="button" className="st-btn st-btn-xs" onClick={onCollapseAll}>
             全部收起
           </button>
-          <span className="st-hint-text">💡 双击数据格可查看明细或继续下钻</span>
+          <span className="st-hint-text">
+            <LightbulbIcon size={13} />
+            <span>双击数据格下钻明细</span>
+          </span>
         </div>
       </div>
     </section>
   )
-}
-
-function colTitleOf(columns: readonly SmartColumn[], fieldKey: string): string {
-  if (fieldKey === '__count__') {
-    return '记录数'
-  }
-  return columns.find((c) => c.key === fieldKey)?.title ?? fieldKey
 }

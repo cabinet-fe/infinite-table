@@ -85,4 +85,92 @@ describe('formula-column', () => {
     expect(validateFormulaExpr('[paid] + foo', COLUMNS).valid).toBe(false)
     expect(validateFormulaExpr('UNKNOWN_FN([paid])', COLUMNS).valid).toBe(false)
   })
+
+  it('空字符串单元格按 0 参与算术、支持列顺序无关拓扑求值与清空公式清理旧值', () => {
+    const cols: SmartColumn[] = [
+      // 引用排在后面的公式列 [total]
+      {
+        key: 'double_total',
+        title: '双倍合计',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '[total] * 2',
+      },
+      { key: 'a', title: 'A', type: 'number', width: 100 },
+      { key: 'b', title: 'B', type: 'text', width: 100 },
+      {
+        key: 'total',
+        title: '合计',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '[a] + [b]',
+      },
+      {
+        key: 'cleared',
+        title: '已清空公式',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '',
+      },
+    ]
+
+    const res = evaluateFormulaColumns(cols, [{ _id: '1', a: 10, b: '', cleared: 999 }])
+    expect(res[0]!['total']).toBe(10)
+    expect(res[0]!['double_total']).toBe(20)
+    expect(res[0]!['cleared']).toBeNull()
+  })
+
+  it('拒绝单元格/区域坐标引用、检测循环依赖并安全处理含 ] 及重名列标题', () => {
+    const cols: SmartColumn[] = [
+      { key: 'price_a', title: '单价[元]', type: 'number', width: 100 },
+      { key: 'dup_1', title: '金额', type: 'number', width: 100 },
+      { key: 'dup_2', title: '金额', type: 'number', width: 100 },
+      { key: 'f1', title: 'F1', type: 'formula', width: 100, formulaExpr: '[f2] + 1' },
+      { key: 'f2', title: 'F2', type: 'formula', width: 100, formulaExpr: '[f1] + 1' },
+      {
+        key: 'calc_bracket',
+        title: '含括号计算',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '[单价[元]] * 2',
+      },
+    ]
+
+    // 拒绝手写 A1 / A1:B2 / [a]:[b]
+    const cellRef = validateFormulaExpr('A1 + 1', cols)
+    expect(cellRef.valid).toBe(false)
+    expect(cellRef.error).toContain('暂不支持区域/单元格坐标引用')
+
+    const rangeRef = validateFormulaExpr('SUM(A1:B2)', cols)
+    expect(rangeRef.valid).toBe(false)
+    expect(rangeRef.error).toContain('暂不支持区域/单元格坐标引用')
+
+    const mappedRange = validateFormulaExpr('SUM([price_a]:[dup_1])', cols)
+    expect(mappedRange.valid).toBe(false)
+    expect(mappedRange.error).toContain('暂不支持区域/单元格坐标引用')
+
+    // 重名标题提示使用唯一字段名，使用 key 则合法
+    const dupRes = validateFormulaExpr('[金额] + 1', cols)
+    expect(dupRes.valid).toBe(false)
+    expect(dupRes.error).toContain('重名')
+    expect(validateFormulaExpr('[dup_1] + 1', cols)).toEqual({ valid: true })
+
+    // 含 ']' 的标题安全引用
+    expect(validateFormulaExpr('[单价[元]] * 2', cols)).toEqual({ valid: true })
+
+    // 直接与间接循环检测
+    const selfCycle = validateFormulaExpr('[f1] + 1', cols, 'f1')
+    expect(selfCycle.valid).toBe(false)
+    expect(selfCycle.error).toContain('循环引用')
+
+    const indirectCycle = validateFormulaExpr('[f2] + 1', cols, 'f1')
+    expect(indirectCycle.valid).toBe(false)
+    expect(indirectCycle.error).toContain('循环引用')
+
+    // 运行时成环列收敛为 null，含 ']' 列正常计算
+    const evalRes = evaluateFormulaColumns(cols, [{ _id: '1', price_a: 15, f1: 100, f2: 200 }])
+    expect(evalRes[0]!['f1']).toBeNull()
+    expect(evalRes[0]!['f2']).toBeNull()
+    expect(evalRes[0]!['calc_bracket']).toBe(30)
+  })
 })

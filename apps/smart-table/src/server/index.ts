@@ -3,7 +3,7 @@ import type { Database } from 'bun:sqlite'
 import { Hono } from 'hono'
 import { openDatabase, resolveDbPath } from './db'
 import { mountSmartTableRoutes } from './routes'
-import { seedSmartTableDemo } from './seed'
+import { ensureSeeded } from './seed'
 
 export function createApp(db: Database): Hono {
   const app = new Hono()
@@ -16,9 +16,10 @@ if (import.meta.main) {
   const port = Number(process.env.PORT ?? 8788)
   const dbPath = resolveDbPath()
   const db = openDatabase(dbPath)
-  seedSmartTableDemo(db)
+  // 空库播种 / 旧种子自愈重种（有用户自建表时不动，见 ensureSeeded）
+  ensureSeeded(db)
   Bun.serve({ port, fetch: createApp(db).fetch })
   console.log(
-    `smart-table 后端已启动 http://localhost:${port}（数据库：${dbPath}，已内置三表联动演练数据）`,
+    `smart-table 后端已启动 http://localhost:${port}（数据库：${dbPath}，已内置六表联动演示数据）`,
   )
 }

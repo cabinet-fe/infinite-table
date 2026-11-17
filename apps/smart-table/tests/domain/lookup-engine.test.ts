@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   appendMatchRuleToLookupGroup,
+  applyLookupManageChanges,
   createLookupColumnsFromWizard,
   evaluateTableLookups,
   previewLookupStats,
@@ -258,5 +259,288 @@ describe('lookup-engine', () => {
 
     const emptyRules = previewLookupStats(sourceRecords, empRecords, [])
     expect(emptyRules).toEqual({ matchedRows: 0, conflictRows: 0, unmatchedRows: 5 })
+  })
+
+  it('支持目标表自身 lookup/formula 递归求值、本表拓扑排序与循环保护', () => {
+    const suppliersBundle: TableBundle = {
+      meta: {
+        id: 'tbl_sup',
+        name: '供应商',
+        kind: 'normal',
+        columns: [
+          { key: 'sup_id', title: '编号', type: 'text', width: 100 },
+          { key: 'sup_name', title: '名称', type: 'text', width: 120 },
+          { key: 'base_days', title: '基础交期', type: 'number', width: 80 },
+          {
+            key: 'total_days',
+            title: '总交期',
+            type: 'formula',
+            width: 80,
+            formulaExpr: '[base_days] + 2',
+          },
+        ],
+        views: [],
+        summaries: {},
+      },
+      records: [{ _id: 's1', sup_id: 'SUP-1', sup_name: '精工科技', base_days: 5 }],
+    }
+
+    const partsBundle: TableBundle = {
+      meta: {
+        id: 'tbl_parts',
+        name: '零件表',
+        kind: 'normal',
+        columns: [
+          { key: 'part_id', title: '零件', type: 'text', width: 100 },
+          { key: 'sup_code', title: '供应商编码', type: 'text', width: 100 },
+          {
+            key: 'sup_total_days',
+            title: '供应商总交期',
+            type: 'lookup',
+            width: 100,
+            lookupConfig: {
+              groupId: 'grp_sup',
+              targetTableId: 'tbl_sup',
+              matchRules: [{ sourceField: 'sup_code', targetField: 'sup_id' }],
+              targetReturnField: 'total_days',
+              mode: 'one',
+            },
+          },
+        ],
+        views: [],
+        summaries: {},
+      },
+      records: [{ _id: 'pt1', part_id: 'P-1', sup_code: 'SUP-1' }],
+    }
+
+    // 本表：后置 lookup 排在前面（依赖排在后面的 lookup_part_sup），应经拓扑排序正确求值
+    const ordersMeta: SmartTableMeta = {
+      id: 'tbl_orders',
+      name: '采购单',
+      kind: 'normal',
+      columns: [
+        { key: 'part_ref', title: '零件链接', type: 'link', width: 120 },
+        {
+          key: 'lookup_lead_days',
+          title: '交期',
+          type: 'lookup',
+          width: 100,
+          lookupConfig: {
+            groupId: 'grp_o2',
+            targetTableId: 'tbl_parts',
+            matchRules: [{ sourceField: 'lookup_part_id', targetField: 'part_id' }],
+            targetReturnField: 'sup_total_days',
+            mode: 'one',
+          },
+        },
+        {
+          key: 'lookup_part_id',
+          title: '标准零件号',
+          type: 'lookup',
+          width: 100,
+          lookupConfig: {
+            groupId: 'grp_o1',
+            targetTableId: 'tbl_parts',
+            matchRules: [{ sourceField: 'part_ref', targetField: 'part_id' }],
+            targetReturnField: 'part_id',
+            mode: 'one',
+          },
+        },
+        // 本表循环 lookup（自己依赖自己）应安全收敛为 null
+        {
+          key: 'lookup_cycle',
+          title: '循环列',
+          type: 'lookup',
+          width: 100,
+          lookupConfig: {
+            groupId: 'grp_cyc',
+            targetTableId: 'tbl_parts',
+            matchRules: [{ sourceField: 'lookup_cycle', targetField: 'part_id' }],
+            targetReturnField: 'part_id',
+            mode: 'one',
+          },
+        },
+      ],
+      views: [],
+      summaries: {},
+    }
+
+    const tablesById = new Map<string, TableBundle>([
+      ['tbl_sup', suppliersBundle],
+      ['tbl_parts', partsBundle],
+    ])
+
+    const res = evaluateTableLookups(
+      ordersMeta,
+      [{ _id: 'o1', part_ref: { url: 'https://example.com/p1', text: 'P-1' } }],
+      tablesById,
+    )
+    expect(res.records[0]!['lookup_part_id']).toBe('P-1')
+    expect(res.records[0]!['lookup_lead_days']).toBe(7)
+    expect(res.records[0]!['lookup_cycle']).toBeNull()
+
+    // 跨表相互循环（A <-> B）不应栈溢出
+    const cycleA: TableBundle = {
+      meta: {
+        id: 'tbl_a',
+        name: 'A',
+        kind: 'normal',
+        columns: [
+          { key: 'id', title: 'ID', type: 'text', width: 80 },
+          {
+            key: 'from_b',
+            title: 'B值',
+            type: 'lookup',
+            width: 80,
+            lookupConfig: {
+              groupId: 'g1',
+              targetTableId: 'tbl_b',
+              matchRules: [{ sourceField: 'id', targetField: 'id' }],
+              targetReturnField: 'from_a',
+              mode: 'one',
+            },
+          },
+        ],
+        views: [],
+        summaries: {},
+      },
+      records: [{ _id: 'a1', id: '1' }],
+    }
+    const cycleB: TableBundle = {
+      meta: {
+        id: 'tbl_b',
+        name: 'B',
+        kind: 'normal',
+        columns: [
+          { key: 'id', title: 'ID', type: 'text', width: 80 },
+          {
+            key: 'from_a',
+            title: 'A值',
+            type: 'lookup',
+            width: 80,
+            lookupConfig: {
+              groupId: 'g2',
+              targetTableId: 'tbl_a',
+              matchRules: [{ sourceField: 'id', targetField: 'id' }],
+              targetReturnField: 'from_b',
+              mode: 'one',
+            },
+          },
+        ],
+        views: [],
+        summaries: {},
+      },
+      records: [{ _id: 'b1', id: '1' }],
+    }
+    const cycleRes = evaluateTableLookups(
+      cycleA.meta,
+      cycleA.records,
+      new Map([
+        ['tbl_a', cycleA],
+        ['tbl_b', cycleB],
+      ]),
+    )
+    expect(cycleRes.records[0]!['from_b']).toBeNull()
+  })
+
+  it('createLookupColumnsFromWizard 防止 key 冲突且 count 强制使用 integer 格式', () => {
+    const first = createLookupColumnsFromWizard({
+      groupId: 'grp_pay',
+      targetTableId: 'tbl_pay',
+      matchRules: [{ sourceField: 'code', targetField: 'project_code' }],
+      mode: 'rollup',
+      returnFields: [
+        { field: 'amount', title: '笔数', rollupAgg: 'count', numberFormat: 'currency' },
+      ],
+    })
+    expect(first[0]?.numberFormat).toBe('integer')
+
+    const second = createLookupColumnsFromWizard({
+      groupId: 'grp_pay',
+      targetTableId: 'tbl_pay',
+      matchRules: [{ sourceField: 'code', targetField: 'project_code' }],
+      mode: 'rollup',
+      existingKeys: first.map((c) => c.key),
+      returnFields: [{ field: 'amount', title: '二次笔数', rollupAgg: 'count' }],
+    })
+    expect(second[0]?.key).not.toBe(first[0]?.key)
+    expect(second[0]?.numberFormat).toBe('integer')
+  })
+
+  it('applyLookupManageChanges：删列、改标题/格式/lookupConfig、追加新列一次应用', () => {
+    const [deptCol, levelCol] = createLookupColumnsFromWizard({
+      groupId: 'grp_emp',
+      targetTableId: 'tbl_emp',
+      matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+      mode: 'one',
+      returnFields: [
+        { field: 'dept', title: '部门' },
+        { field: 'level', title: '职级' },
+      ],
+    })
+    const columns = [
+      { key: 'owner', title: '负责人', type: 'text' as const, width: 100 },
+      deptCol!,
+      levelCol!,
+    ]
+
+    const next = applyLookupManageChanges(columns, {
+      deletedKeys: [levelCol!.key],
+      updates: [
+        {
+          key: deptCol!.key,
+          title: '所属部门',
+          lookupConfig: {
+            ...deptCol!.lookupConfig!,
+            matchRules: [
+              { sourceField: 'owner', targetField: 'name' },
+              { sourceField: 'region', targetField: 'dept' },
+            ],
+          },
+        },
+      ],
+      addedColumns: createLookupColumnsFromWizard({
+        groupId: 'grp_emp',
+        targetTableId: 'tbl_emp',
+        matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+        mode: 'one',
+        existingKeys: columns.map((c) => c.key),
+        returnFields: [{ field: 'emp_id', title: '工号' }],
+      }),
+    })
+
+    expect(next.map((c) => c.key)).toEqual(['owner', deptCol!.key, 'lookup_grp_emp_emp_id_0'])
+    const updatedDept = next.find((c) => c.key === deptCol!.key)!
+    expect(updatedDept.title).toBe('所属部门')
+    expect(updatedDept.lookupConfig?.matchRules).toHaveLength(2)
+    const appended = next.at(-1)!
+    expect(appended.lookupConfig?.groupId).toBe('grp_emp')
+    expect(appended.lookupConfig?.targetReturnField).toBe('emp_id')
+  })
+
+  it('applyLookupManageChanges：numberFormat 传 null 清除该属性', () => {
+    const [countCol] = createLookupColumnsFromWizard({
+      groupId: 'grp_pay',
+      targetTableId: 'tbl_pay',
+      matchRules: [{ sourceField: 'code', targetField: 'project_code' }],
+      mode: 'rollup',
+      returnFields: [{ field: 'amount', title: '回款笔数', rollupAgg: 'count' }],
+    })
+    const next = applyLookupManageChanges([countCol!], {
+      deletedKeys: [],
+      updates: [
+        {
+          key: countCol!.key,
+          lookupConfig: {
+            ...countCol!.lookupConfig!,
+            rollupAgg: 'join',
+          },
+          numberFormat: null,
+        },
+      ],
+      addedColumns: [],
+    })
+    expect(next[0]!.numberFormat).toBeUndefined()
+    expect(next[0]!.lookupConfig?.rollupAgg).toBe('join')
   })
 })

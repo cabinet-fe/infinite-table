@@ -91,4 +91,65 @@ describe('drill-engine', () => {
     expect(noMeasureItems[0]!.value).toBe('Y')
     expect(noMeasureItems[0]!.ratio).toBeCloseTo(2 / 3)
   })
+
+  it('getAvailableDrillDimensions 排除 rollup lookup 列，非可加聚合与负值不扭曲 ratio', () => {
+    const colsWithLookup: SmartColumn[] = [
+      ...COLUMNS,
+      {
+        key: 'lookup_one',
+        title: '一对一部门',
+        type: 'lookup',
+        width: 100,
+        lookupConfig: {
+          groupId: 'g1',
+          targetTableId: 't2',
+          matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+          targetReturnField: 'dept',
+          mode: 'one',
+        },
+      },
+      {
+        key: 'lookup_rollup',
+        title: '回款汇总',
+        type: 'lookup',
+        width: 100,
+        lookupConfig: {
+          groupId: 'g2',
+          targetTableId: 't3',
+          matchRules: [{ sourceField: 'code', targetField: 'code' }],
+          targetReturnField: 'amount',
+          mode: 'rollup',
+          rollupAgg: 'sum',
+        },
+      },
+    ]
+    const dims = getAvailableDrillDimensions(colsWithLookup, [], [])
+    expect(dims.some((c) => c.key === 'lookup_one')).toBe(true)
+    expect(dims.some((c) => c.key === 'lookup_rollup')).toBe(false)
+
+    // 非可加主指标（avg）返回 ratio: 0
+    const avgItems = computeDimensionBreakdown(
+      [
+        { _id: '1', dept: 'A', score: 90 },
+        { _id: '2', dept: 'B', score: 60 },
+      ],
+      'dept',
+      [{ key: 'm_avg', title: '均分', field: 'score', agg: 'avg' }],
+    )
+    expect(avgItems.map((item) => item.ratio)).toEqual([0, 0])
+
+    // 负值与正值混合 sum：负值组 ratio 为 0 且不冲减正值分母
+    const mixedItems = computeDimensionBreakdown(
+      [
+        { _id: '1', dept: 'A', amount: 300 },
+        { _id: '2', dept: 'B', amount: 100 },
+        { _id: '3', dept: 'C', amount: -200 },
+      ],
+      'dept',
+      [{ key: 'm_sum', title: '金额', field: 'amount', agg: 'sum' }],
+    )
+    expect(mixedItems[0]!.ratio).toBe(0.75)
+    expect(mixedItems[1]!.ratio).toBe(0.25)
+    expect(mixedItems[2]!.ratio).toBe(0)
+  })
 })

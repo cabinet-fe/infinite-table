@@ -8,9 +8,11 @@ import {
   SmartGridAdapter,
   formatSmartCellDisplayValue,
   formatSmartColumnTitle,
+  type FooterLayout,
+  type SmartGridConflictClickInfo,
+  type SmartGridRichEditInfo,
 } from '../../src/canvas/smart-grid'
 import type { LookupConflictInfo, SmartColumn, SmartRecord } from '../../src/shared/schema'
-import type { SmartGridConflictClickInfo } from '../../src/canvas/smart-grid'
 
 function createMockRenderContext(): {
   ctx: RenderContext
@@ -428,7 +430,7 @@ describe('SmartGridAdapter', () => {
     adapter.destroy()
   })
 
-  it('支持行选区回调、水印开关与打印插件挂载', () => {
+  it('支持行选区回调与水印开关', () => {
     const onRowSelectionChange = vi.fn<(recordIds: string[]) => void>()
     const { adapter } = mountGrid({ onRowSelectionChange })
     const table = adapter.getTable()
@@ -443,8 +445,347 @@ describe('SmartGridAdapter', () => {
     adapter.setWatermark(false)
     expect(adapter.getWatermarkPlugin().isEnabled()).toBe(false)
 
-    expect(adapter.getPrintPlugin().paginate().length).toBeGreaterThanOrEqual(1)
+    adapter.destroy()
+  })
+
+  it('应用现代浅灰表头/细边框主题与 38px 舒适行高，窄列冲突角标使用紧凑文案', () => {
+    const { adapter } = mountGrid()
+    const table = adapter.getTable()
+    const theme = table.getTheme()
+
+    expect(theme.rowHeight).toBe(38)
+    expect(theme.headerHeight).toBe(38)
+    expect(theme.header.background).toBe('#f7f8fa')
+    expect(theme.body.borderColor).toBe('#ebedf0')
+    expect(theme.interaction.selectionBorder).toBe('#3370ff')
+    expect(theme.interaction.headerHighlight).toBe('#ebf1ff')
+    // 填充柄关闭：不画柄也不命中，选区交互保持
+    expect(table.options.fillHandle).toBe(false)
+
+    const narrowLookupRenderer = table.options.resolveCellRenderer?.(9, 0)
+    const narrowSpy = createMockRenderContext()
+    narrowLookupRenderer?.({
+      ctx: narrowSpy.ctx,
+      col: 9,
+      row: 0,
+      width: 110,
+      height: 38,
+      text: '研发部',
+      value: '研发部',
+      style: {},
+    })
+    expect(narrowSpy.texts).toContain('研发部')
+    expect(narrowSpy.texts).toContain('⚠️ 2')
 
     adapter.destroy()
+  })
+
+  it('onConflictClick 与 getCellViewportRect 返回视口坐标，scrollToRecord 可定位到越屏行', () => {
+    const onConflictClick = vi.fn<(info: SmartGridConflictClickInfo) => void>()
+    const manyRecords: SmartRecord[] = Array.from({ length: 30 }, (_, i) => ({
+      ...BASE_RECORDS[0]!,
+      _id: `rec-${i + 1}`,
+      code: `PRJ-${i + 1}`,
+    }))
+    const { container, adapter } = mountGrid({
+      records: manyRecords,
+      onConflictClick,
+    })
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      left: 240,
+      top: 80,
+      right: 1040,
+      bottom: 580,
+      width: 800,
+      height: 500,
+      x: 240,
+      y: 80,
+      toJSON: () => ({}),
+    })
+
+    const table = adapter.getTable()
+    table.scrollToCell({ col: 9, row: 0 })
+    const relRect = table.getCellRelativeRect(9, 0)!
+    expect(relRect).not.toBeNull()
+
+    const clientX = 240 + relRect.x + relRect.width / 2
+    const clientY = 80 + relRect.y + relRect.height / 2
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX, clientY }))
+    container.dispatchEvent(new MouseEvent('click', { clientX, clientY }))
+
+    expect(onConflictClick).toHaveBeenCalledTimes(1)
+    expect(onConflictClick.mock.calls[0]?.[0].rect).toEqual({
+      x: 240 + relRect.x,
+      y: 80 + relRect.y,
+      width: relRect.width,
+      height: relRect.height,
+    })
+    expect(adapter.getCellViewportRect('rec-1', 'dept')).toEqual({
+      x: 240 + relRect.x,
+      y: 80 + relRect.y,
+      width: relRect.width,
+      height: relRect.height,
+    })
+
+    // 末行初始不在视口内，scrollToRecord 后可取到视口坐标
+    expect(adapter.getCellViewportRect('rec-30', 'dept')).toBeNull()
+    adapter.scrollToRecord('rec-30', 'dept')
+    const lastRect = adapter.getCellViewportRect('rec-30', 'dept')
+    expect(lastRect).not.toBeNull()
+    expect(lastRect!.x).toBeGreaterThanOrEqual(240)
+    expect(lastRect!.y).toBeGreaterThanOrEqual(80)
+
+    adapter.destroy()
+  })
+
+  it('防原地变异、number/progress 校验失败回滚并触发 onValidationError，progress 夹取 [0, 100]', () => {
+    const onCellValueChange =
+      vi.fn<(recordId: string, fieldKey: string, newValue: unknown) => void>()
+    const onValidationError = vi.fn<(message: string) => void>()
+    const rawRecords = BASE_RECORDS.map((r) => ({ ...r }))
+    const { container, adapter } = mountGrid({
+      records: rawRecords,
+      onCellValueChange,
+      onValidationError,
+    })
+    const table = adapter.getTable()
+
+    // number 列输入非法数字字符串：拒绝修改、恢复旧值并提示错误
+    expect(table.startEdit(5, 0)).toBe(true)
+    const numInput = container.querySelector('input, textarea') as HTMLInputElement
+    numInput.value = 'abc'
+    expect(table.commitEdit()).toBe(true)
+    expect(onValidationError).toHaveBeenCalledWith('请输入有效数值')
+    expect(onCellValueChange).not.toHaveBeenCalled()
+    expect(table.getCellValue(5, 0)).toBe(1234.56)
+    expect(rawRecords[0]?.amount).toBe(1234.56)
+
+    // progress 列输入超界数值：自动夹取到 [0, 100]，且不原地变异 rawRecords
+    expect(table.startEdit(4, 0)).toBe(true)
+    const progInput = container.querySelector('input, textarea') as HTMLInputElement
+    progInput.value = '150'
+    expect(table.commitEdit()).toBe(true)
+    expect(table.getCellValue(4, 0)).toBe(100)
+    expect(onCellValueChange).toHaveBeenCalledWith('rec-1', 'progress', 100)
+    expect(rawRecords[0]?.progress).toBe(75)
+    expect(adapter.getRecordsSnapshot()[0]?.progress).toBe(100)
+
+    // revertCell 可静默回滚并刷新画布
+    adapter.revertCell('rec-1', 'progress', 75)
+    expect(table.getCellValue(4, 0)).toBe(75)
+    expect(table.getCellText(4, 0)).toBe('75%')
+
+    adapter.destroy()
+  })
+
+  it('挂载 onRichCellEdit 时，select/date 不弹文本 input，双击触发富交互编辑回调', () => {
+    const onRichCellEdit = vi.fn<(info: SmartGridRichEditInfo) => void>()
+    const columnsWithDate: SmartColumn[] = [
+      ...BASE_COLUMNS,
+      { key: 'dueDate', title: '截止日期', type: 'date', width: 120 },
+    ]
+    const recordsWithDate = BASE_RECORDS.map((r) => ({ ...r, dueDate: '2026-11-13' }))
+    const { container, adapter } = mountGrid({
+      columns: columnsWithDate,
+      records: recordsWithDate,
+      onRichCellEdit,
+    })
+    const table = adapter.getTable()
+
+    expect(table.startEdit(3, 0)).toBe(false) // select
+    expect(table.startEdit(11, 0)).toBe(false) // date
+
+    table.scrollToCell({ col: 11, row: 0 })
+    const dateRect = table.getCellRelativeRect(11, 0)!
+    container.dispatchEvent(
+      new MouseEvent('dblclick', {
+        clientX: dateRect.x + dateRect.width / 2,
+        clientY: dateRect.y + dateRect.height / 2,
+      }),
+    )
+    expect(onRichCellEdit).toHaveBeenCalledTimes(1)
+    expect(onRichCellEdit.mock.calls[0]?.[0]).toMatchObject({
+      column: expect.objectContaining({ key: 'dueDate' }),
+      value: '2026-11-13',
+      rect: dateRect,
+    })
+
+    adapter.destroy()
+  })
+
+  it('支持 onScrollChange 同步横向滚动，点击编辑器 input 或视口外区域不误触发业务交互', () => {
+    const onScrollChange = vi.fn<(scrollLeft: number, scrollTop: number) => void>()
+    const onCellValueChange =
+      vi.fn<(recordId: string, fieldKey: string, newValue: unknown) => void>()
+    const { container, adapter } = mountGrid({ onScrollChange, onCellValueChange })
+    const table = adapter.getTable()
+
+    container.dispatchEvent(new WheelEvent('wheel', { deltaX: 120, deltaY: 0, cancelable: true }))
+    expect(table.getScrollLeft()).toBeGreaterThan(0)
+    expect(onScrollChange).toHaveBeenCalledWith(table.getScrollLeft(), table.getScrollTop())
+
+    // 点击表头区（drawRange 之外）不触发 checkbox 切换
+    const cbRect = table.getCellRelativeRect(6, 0)!
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: cbRect.x + 10, clientY: 10 }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: cbRect.x + 10, clientY: 10 }))
+    expect(onCellValueChange).not.toHaveBeenCalled()
+
+    // 来自输入框冒泡的 click 不触发 checkbox 切换
+    const fakeInput = document.createElement('input')
+    container.appendChild(fakeInput)
+    fakeInput.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        clientX: cbRect.x + cbRect.width / 2,
+        clientY: cbRect.y + cbRect.height / 2,
+      }),
+    )
+    expect(onCellValueChange).not.toHaveBeenCalled()
+
+    adapter.destroy()
+  })
+
+  it('getFooterLayout 返回画布几何镜像（行表头宽、列内容坐标、滚动条预留与内容总宽）', () => {
+    const { adapter } = mountGrid()
+    const table = adapter.getTable()
+    const layout = adapter.getFooterLayout()
+
+    expect(layout.rowHeaderWidth).toBe(table.rowHeaderWidth)
+    expect(layout.scrollbarSize).toBe(table.theme.interaction.scrollbarSize)
+    expect(layout.contentWidth).toBe(1250)
+    expect(layout.columns).toHaveLength(BASE_COLUMNS.length)
+    expect(layout.columns[0]).toEqual({ field: 'code', left: 0, width: 100 })
+    expect(layout.columns[1]).toEqual({ field: 'name', left: 100, width: 140 })
+    expect(layout.columns.map((c) => c.field)).toEqual(BASE_COLUMNS.map((c) => c.key))
+
+    adapter.destroy()
+  })
+
+  it('建表与列宽拖拽结束推送 onFooterLayoutChange 布局快照', () => {
+    const onFooterLayoutChange = vi.fn<(layout: FooterLayout) => void>()
+    const { adapter } = mountGrid({ onFooterLayoutChange })
+    expect(onFooterLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onFooterLayoutChange.mock.calls[0]?.[0].contentWidth).toBe(1250)
+
+    adapter.destroy()
+  })
+
+  it('sortRules 变化重建列定义并追加方向指示：首规则实心、次级空心', () => {
+    const { adapter } = mountGrid()
+    const table = adapter.getTable()
+    expect(table.columns[1]?.title).toBe('项目名称')
+
+    adapter.setData(
+      BASE_COLUMNS,
+      BASE_RECORDS.map((r) => ({ ...r })),
+      undefined,
+      [{ field: 'name', direction: 'asc' }],
+    )
+    const rebuilt = adapter.getTable()
+    expect(rebuilt).not.toBe(table)
+    expect(rebuilt.columns[1]?.title).toBe('项目名称 ▲')
+
+    adapter.setData(
+      BASE_COLUMNS,
+      BASE_RECORDS.map((r) => ({ ...r })),
+      undefined,
+      [
+        { field: 'name', direction: 'desc' },
+        { field: 'code', direction: 'asc' },
+      ],
+    )
+    expect(adapter.getTable().columns[1]?.title).toBe('项目名称 ▼')
+    expect(adapter.getTable().columns[0]?.title).toBe('🔑 项目编号 △')
+
+    // 排序规则未变化时不重建实例
+    const stable = adapter.getTable()
+    adapter.setData(
+      BASE_COLUMNS,
+      BASE_RECORDS.map((r) => ({ ...r })),
+      undefined,
+      [
+        { field: 'name', direction: 'desc' },
+        { field: 'code', direction: 'asc' },
+      ],
+    )
+    expect(adapter.getTable()).toBe(stable)
+
+    adapter.destroy()
+  })
+
+  it('点击列头触发 onHeaderColumnClick（shift 附加排序），行号带/checkbox 列/列边界热区/拖拽不触发', () => {
+    const onHeaderColumnClick = vi.fn<(field: string, meta: { additive: boolean }) => void>()
+    const { container, adapter } = mountGrid({ onHeaderColumnClick })
+    const table = adapter.getTable()
+    const headerY = table.headerHeight / 2
+    // name 列（col=1）视口中心：行表头宽 + 内容坐标 left + 半宽
+    const nameX = table.rowHeaderWidth + 100 + 70
+
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: nameX, clientY: headerY }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: nameX, clientY: headerY }))
+    expect(onHeaderColumnClick).toHaveBeenCalledTimes(1)
+    expect(onHeaderColumnClick).toHaveBeenLastCalledWith('name', { additive: false })
+
+    // shift+点击 → additive
+    container.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: nameX, clientY: headerY, shiftKey: true }),
+    )
+    container.dispatchEvent(
+      new MouseEvent('click', { clientX: nameX, clientY: headerY, shiftKey: true }),
+    )
+    expect(onHeaderColumnClick).toHaveBeenLastCalledWith('name', { additive: true })
+    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
+
+    // 行表头/角格带不触发
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: 10, clientY: headerY }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: 10, clientY: headerY }))
+    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
+
+    // checkbox 列（col=6，left=690）不参与点击排序
+    const checkboxX = table.rowHeaderWidth + 690 + 40
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: checkboxX, clientY: headerY }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: checkboxX, clientY: headerY }))
+    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
+
+    // 列边界拖拽热区（±4px）让位给列宽调整
+    const boundaryX = table.rowHeaderWidth + 100 + 2
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: boundaryX, clientY: headerY }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: boundaryX, clientY: headerY }))
+    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
+
+    // 拖拽位移超过阈值不触发
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: nameX, clientY: headerY }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: nameX + 30, clientY: headerY }))
+    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
+
+    adapter.destroy()
+  })
+
+  it('双击可编辑 link 单元格进入编辑时只触发一次链接打开，不打开两次新标签页', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    try {
+      const { container, adapter } = mountGrid()
+      const table = adapter.getTable()
+      table.scrollToCell({ col: 8, row: 0 })
+      const linkRect = table.getCellRelativeRect(8, 0)!
+      const cx = linkRect.x + linkRect.width / 2
+      const cy = linkRect.y + linkRect.height / 2
+
+      // 连续两次单击模拟双击：第一击打开链接，第二击触发编辑并跳过第二次打开
+      container.dispatchEvent(
+        new MouseEvent('pointerdown', { clientX: cx, clientY: cy, button: 0 }),
+      )
+      container.dispatchEvent(new MouseEvent('pointerup', { clientX: cx, clientY: cy, button: 0 }))
+      container.dispatchEvent(
+        new MouseEvent('pointerdown', { clientX: cx, clientY: cy, button: 0 }),
+      )
+      container.dispatchEvent(new MouseEvent('pointerup', { clientX: cx, clientY: cy, button: 0 }))
+
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(container.querySelector('input, textarea')).not.toBeNull()
+      adapter.destroy()
+    } finally {
+      openSpy.mockRestore()
+    }
   })
 })

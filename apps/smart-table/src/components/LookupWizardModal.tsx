@@ -1,6 +1,6 @@
-// 傻瓜式跨表查找（VLOOKUP）三步向导弹窗：选表与模式 -> 联合匹配条件与实时预览 -> 勾选带出列或汇总指标
+// 傻瓜式跨表查找（VLOOKUP）三步向导弹窗：选表与模式 -> 联合匹配条件与实时预览 -> 勾选全量带出列或汇总指标
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createLookupColumnsFromWizard, previewLookupStats } from '../domain/lookup-engine'
 import type { TableBundle } from '../shared/api-types'
 import type {
@@ -8,8 +8,19 @@ import type {
   LookupMode,
   LookupRollupAgg,
   SmartColumn,
+  SmartColumnType,
   SmartRecord,
 } from '../shared/schema'
+import { CustomSelect } from './CustomSelect'
+import {
+  AlertTriangleIcon,
+  CheckCircleIcon,
+  CircleIcon,
+  PlusIcon,
+  SparklesIcon,
+  TrashIcon,
+  XIcon,
+} from './Icons'
 
 export interface LookupWizardModalProps {
   sourceTable: TableBundle
@@ -21,6 +32,7 @@ export interface LookupWizardModalProps {
 
 interface ReturnSelection {
   field: string
+  originalTitle: string
   title: string
   checked: boolean
 }
@@ -33,6 +45,20 @@ const ROLLUP_AGG_OPTIONS: { value: LookupRollupAgg; label: string }[] = [
   { value: 'min', label: '最小值 (MIN)' },
   { value: 'join', label: '文本拼接 (JOIN)' },
 ]
+
+const TYPE_TAG_MAP: Record<SmartColumnType, string> = {
+  text: '文本',
+  number: '数值',
+  select: '单选',
+  date: '日期',
+  checkbox: '勾选',
+  person: '人员',
+  progress: '进度',
+  image: '图片',
+  link: '链接',
+  lookup: '关联列',
+  formula: '计算列',
+}
 
 export function LookupWizardModal({
   sourceTable,
@@ -49,7 +75,7 @@ export function LookupWizardModal({
   const targetBundle = targetCandidates.find((t) => t.meta.id === targetTableId)
 
   const [matchRules, setMatchRules] = useState<LookupMatchRule[]>(() => {
-    const sCol = sourceTable.meta.columns.find((c) => c.type !== 'formula')?.key ?? ''
+    const sCol = sourceTable.meta.columns[0]?.key ?? ''
     const tCol = targetCandidates[0]?.meta.columns[0]?.key ?? ''
     return sCol && tCol ? [{ sourceField: sCol, targetField: tCol }] : []
   })
@@ -60,11 +86,21 @@ export function LookupWizardModal({
   const [rollupTitle, setRollupTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  // 切换目标表时重置规则和带出候选
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [submitting, onClose])
+
   function handleSelectTargetTable(nextId: string) {
     setTargetTableId(nextId)
     const nextBundle = targetCandidates.find((t) => t.meta.id === nextId)
-    const sCol = sourceTable.meta.columns.find((c) => c.type !== 'formula')?.key ?? ''
+    const sCol = sourceTable.meta.columns[0]?.key ?? ''
     const tCol = nextBundle?.meta.columns[0]?.key ?? ''
     setMatchRules(sCol && tCol ? [{ sourceField: sCol, targetField: tCol }] : [])
     setReturnSelections([])
@@ -77,15 +113,18 @@ export function LookupWizardModal({
     const cols = targetBundle.meta.columns.filter((c) => c.key !== '_id')
     if (returnSelections.length === 0) {
       setReturnSelections(
-        cols.slice(0, 6).map((c, idx) => ({
+        cols.map((c, idx) => ({
           field: c.key,
+          originalTitle: c.title,
           title: c.title,
           checked: idx === 0,
         })),
       )
     }
     if (!rollupField) {
-      const numericCol = cols.find((c) => c.type === 'number' || c.type === 'progress') ?? cols[0]
+      const numericCol =
+        cols.find((c) => c.type === 'number' || c.type === 'progress' || c.type === 'formula') ??
+        cols[0]
       if (numericCol) {
         setRollupField(numericCol.key)
         setRollupTitle(`${numericCol.title}汇总`)
@@ -105,7 +144,7 @@ export function LookupWizardModal({
   }
 
   function addRule() {
-    const sCol = sourceTable.meta.columns.find((c) => c.type !== 'formula')?.key ?? ''
+    const sCol = sourceTable.meta.columns[0]?.key ?? ''
     const tCol = targetBundle?.meta.columns[0]?.key ?? ''
     if (!sCol || !tCol) return
     setMatchRules((prev) => [...prev, { sourceField: sCol, targetField: tCol }])
@@ -118,57 +157,96 @@ export function LookupWizardModal({
 
   async function handleFinish() {
     if (!targetBundle || matchRules.length === 0) return
+    const cols = targetBundle.meta.columns
+
+    let newColumns: SmartColumn[] = []
+    if (mode === 'one') {
+      const checkedItems = returnSelections.filter((s) => s.checked)
+      if (checkedItems.length === 0 || checkedItems.some((s) => s.title.trim() === '')) {
+        return
+      }
+      newColumns = createLookupColumnsFromWizard({
+        targetTableId: targetBundle.meta.id,
+        matchRules,
+        mode: 'one',
+        returnFields: checkedItems.map((s) => {
+          const metaCol = cols.find((c) => c.key === s.field)
+          return {
+            field: s.field,
+            title: s.title.trim(),
+            numberFormat: metaCol?.numberFormat,
+            width: metaCol?.width,
+          }
+        }),
+      })
+    } else {
+      const trimmedTitle = rollupTitle.trim()
+      if (!rollupField || !trimmedTitle) {
+        return
+      }
+      const numberFormat =
+        rollupAgg === 'count'
+          ? 'integer'
+          : rollupAgg === 'join'
+            ? undefined
+            : (cols.find((c) => c.key === rollupField)?.numberFormat ?? 'decimal')
+
+      newColumns = createLookupColumnsFromWizard({
+        targetTableId: targetBundle.meta.id,
+        matchRules,
+        mode: 'rollup',
+        returnFields: [
+          {
+            field: rollupField,
+            title: trimmedTitle,
+            rollupAgg,
+            numberFormat,
+          },
+        ],
+      })
+    }
+
+    if (newColumns.length === 0) return
     setSubmitting(true)
     try {
-      const cols = targetBundle.meta.columns
-      const newColumns =
-        mode === 'one'
-          ? createLookupColumnsFromWizard({
-              targetTableId: targetBundle.meta.id,
-              matchRules,
-              mode: 'one',
-              returnFields: returnSelections
-                .filter((s) => s.checked)
-                .map((s) => {
-                  const metaCol = cols.find((c) => c.key === s.field)
-                  return {
-                    field: s.field,
-                    title: s.title.trim() || metaCol?.title || s.field,
-                    numberFormat: metaCol?.numberFormat,
-                    width: metaCol?.width,
-                  }
-                }),
-            })
-          : createLookupColumnsFromWizard({
-              targetTableId: targetBundle.meta.id,
-              matchRules,
-              mode: 'rollup',
-              returnFields: [
-                {
-                  field: rollupField,
-                  title: rollupTitle.trim() || '关联汇总',
-                  rollupAgg,
-                  numberFormat:
-                    rollupAgg === 'join'
-                      ? undefined
-                      : (cols.find((c) => c.key === rollupField)?.numberFormat ?? 'decimal'),
-                },
-              ],
-            })
-
-      if (newColumns.length === 0) return
       await onSubmitColumns(newColumns)
       onClose()
+    } catch {
+      // 提交失败留在向导内，错误由 Toast 展现
     } finally {
       setSubmitting(false)
     }
   }
 
+  const checkedCount = returnSelections.filter((s) => s.checked).length
+  const hasEmptyCheckedTitle = returnSelections.some((s) => s.checked && s.title.trim() === '')
   const canSubmit =
-    mode === 'one' ? returnSelections.some((s) => s.checked) : Boolean(rollupField && rollupTitle)
+    mode === 'one'
+      ? checkedCount > 0 && !hasEmptyCheckedTitle
+      : Boolean(rollupField && rollupTitle.trim())
+
+  const sourceColOptions = sourceTable.meta.columns.map((c) => ({
+    value: c.key,
+    label: `本表 · ${c.title}`,
+    hint: TYPE_TAG_MAP[c.type],
+  }))
+
+  const targetColOptions = (targetBundle?.meta.columns ?? []).map((c) => ({
+    value: c.key,
+    label: `${targetBundle?.meta.name ?? '目标'} · ${c.title}`,
+    hint: TYPE_TAG_MAP[c.type],
+  }))
+
+  const rollupFieldOptions = (targetBundle?.meta.columns ?? [])
+    .filter((c) => c.key !== '_id')
+    .map((c) => ({
+      value: c.key,
+      label: c.title,
+      hint: TYPE_TAG_MAP[c.type],
+    }))
 
   return (
-    <div className="st-modal-backdrop" onClick={onClose}>
+    <div className="st-modal-backdrop" onClick={() => !submitting && onClose()}>
       <div
         className="st-modal st-modal-lg"
         onClick={(e) => e.stopPropagation()}
@@ -177,11 +255,20 @@ export function LookupWizardModal({
       >
         <div className="st-modal-header">
           <div>
-            <h2 className="st-modal-title">✨ 跨表关联查找（VLOOKUP 向导）</h2>
+            <h2 className="st-modal-title st-title-with-icon">
+              <SparklesIcon size={16} className="st-primary-icon" />
+              <span>跨表关联查找（VLOOKUP 向导）</span>
+            </h2>
             <p className="st-modal-sub">无需手写公式，3 步完成跨表信息带出或流水汇总</p>
           </div>
-          <button type="button" className="st-icon-btn" onClick={onClose} aria-label="关闭">
-            ×
+          <button
+            type="button"
+            className="st-icon-btn"
+            disabled={submitting}
+            onClick={onClose}
+            aria-label="关闭"
+          >
+            <XIcon size={14} />
           </button>
         </div>
 
@@ -214,7 +301,9 @@ export function LookupWizardModal({
                     >
                       <div className="st-choice-title">
                         <span>{t.meta.name}</span>
-                        <span className="st-tag">
+                        <span
+                          className={`st-tag ${t.meta.kind === 'advanced' ? 'st-tag-sql' : ''}`}
+                        >
                           {t.meta.kind === 'advanced' ? 'SQL 主数据' : '普通表'}
                         </span>
                       </div>
@@ -259,44 +348,42 @@ export function LookupWizardModal({
                 <div className="st-field-head">
                   <label className="st-label">匹配条件（多条件按 AND 联合匹配）</label>
                   <button type="button" className="st-btn st-btn-xs" onClick={addRule}>
-                    + 追加联合条件
+                    <PlusIcon size={12} />
+                    <span>追加联合条件</span>
                   </button>
                 </div>
                 <div className="st-rule-list">
                   {matchRules.map((rule, idx) => (
-                    <div key={idx} className="st-match-rule-row">
-                      <select
-                        className="st-select"
+                    <div
+                      key={`${rule.sourceField}-${rule.targetField}-${idx}`}
+                      className="st-match-rule-row"
+                    >
+                      <CustomSelect
+                        size="sm"
+                        className="st-flex-1"
                         value={rule.sourceField}
-                        onChange={(e) => updateRule(idx, { sourceField: e.target.value })}
-                      >
-                        {sourceTable.meta.columns
-                          .filter((c) => c.type !== 'formula')
-                          .map((c) => (
-                            <option key={c.key} value={c.key}>
-                              本表 · {c.title}
-                            </option>
-                          ))}
-                      </select>
+                        ariaLabel="本表匹配字段"
+                        options={sourceColOptions}
+                        onChange={(val) => updateRule(idx, { sourceField: val })}
+                      />
                       <span className="st-eq-sign">=</span>
-                      <select
-                        className="st-select"
+                      <CustomSelect
+                        size="sm"
+                        className="st-flex-1"
                         value={rule.targetField}
-                        onChange={(e) => updateRule(idx, { targetField: e.target.value })}
-                      >
-                        {(targetBundle?.meta.columns ?? []).map((c) => (
-                          <option key={c.key} value={c.key}>
-                            {targetBundle?.meta.name} · {c.title}
-                          </option>
-                        ))}
-                      </select>
+                        ariaLabel="目标表匹配字段"
+                        options={targetColOptions}
+                        onChange={(val) => updateRule(idx, { targetField: val })}
+                      />
                       {matchRules.length > 1 && (
                         <button
                           type="button"
-                          className="st-btn st-btn-xs"
+                          className="st-icon-btn st-icon-danger"
                           onClick={() => removeRule(idx)}
+                          aria-label="删除此匹配条件"
+                          title="删除"
                         >
-                          删除
+                          <TrashIcon size={13} />
                         </button>
                       )}
                     </div>
@@ -306,13 +393,22 @@ export function LookupWizardModal({
 
               <div className="st-preview-stats">
                 <div className="st-stat-item is-ok">
-                  ✅ 唯一命中 <strong>{stats.matchedRows}</strong> 行
+                  <CheckCircleIcon size={14} />
+                  <span>
+                    唯一命中 <strong>{stats.matchedRows}</strong> 行
+                  </span>
                 </div>
                 <div className={`st-stat-item ${stats.conflictRows > 0 ? 'is-warn' : ''}`}>
-                  ⚠️ 存在重名/多候选 <strong>{stats.conflictRows}</strong> 行
+                  <AlertTriangleIcon size={14} />
+                  <span>
+                    存在重名/多候选 <strong>{stats.conflictRows}</strong> 行
+                  </span>
                 </div>
                 <div className="st-stat-item">
-                  ⬜ 未命中 <strong>{stats.unmatchedRows}</strong> 行
+                  <CircleIcon size={14} />
+                  <span>
+                    未命中 <strong>{stats.unmatchedRows}</strong> 行
+                  </span>
                 </div>
               </div>
 
@@ -325,15 +421,39 @@ export function LookupWizardModal({
             </div>
           ) : mode === 'one' ? (
             <div className="st-form-stack">
-              <label className="st-label">
-                勾选要从「{targetBundle?.meta.name}」带出的列（同一批次共享消歧锁）
-              </label>
+              <div className="st-field-head">
+                <label className="st-label">
+                  勾选从「{targetBundle?.meta.name}」带出的列（已选 {checkedCount} /{' '}
+                  {returnSelections.length} 列）
+                </label>
+                <div className="st-row-actions">
+                  <button
+                    type="button"
+                    className="st-btn-link"
+                    onClick={() =>
+                      setReturnSelections((prev) => prev.map((r) => ({ ...r, checked: true })))
+                    }
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    className="st-btn-link"
+                    onClick={() =>
+                      setReturnSelections((prev) => prev.map((r) => ({ ...r, checked: false })))
+                    }
+                  >
+                    清空
+                  </button>
+                </div>
+              </div>
               <div className="st-return-list">
                 {returnSelections.map((item, idx) => (
                   <div key={item.field} className="st-return-item">
-                    <label className="st-checkbox-label">
+                    <label className="st-checkbox-label st-return-check">
                       <input
                         type="checkbox"
+                        className="st-checkbox"
                         checked={item.checked}
                         onChange={(e) =>
                           setReturnSelections((prev) =>
@@ -343,14 +463,17 @@ export function LookupWizardModal({
                           )
                         }
                       />
-                      <span>{item.field}</span>
+                      <span className="st-return-col-meta">
+                        <span className="st-return-col-title">{item.originalTitle}</span>
+                        <span className="st-key-hint">{item.field}</span>
+                      </span>
                     </label>
                     <input
                       type="text"
-                      className="st-input st-input-sm"
+                      className={`st-input st-input-sm ${item.checked && !item.title.trim() ? 'is-invalid' : ''}`}
                       value={item.title}
                       disabled={!item.checked}
-                      placeholder="新列显示名称"
+                      placeholder="新列显示名称（必填）"
                       onChange={(e) =>
                         setReturnSelections((prev) =>
                           prev.map((row, i) =>
@@ -362,45 +485,35 @@ export function LookupWizardModal({
                   </div>
                 ))}
               </div>
+              <div className={`st-fixed-msg ${hasEmptyCheckedTitle ? 'is-err' : ''}`}>
+                {hasEmptyCheckedTitle ? '已勾选项的新列显示名称不能为空' : ''}
+              </div>
             </div>
           ) : (
             <div className="st-form-stack">
               <div className="st-field">
                 <label className="st-label">目标表汇总字段</label>
-                <select
-                  className="st-select"
+                <CustomSelect
                   value={rollupField}
-                  onChange={(e) => {
-                    const nextField = e.target.value
+                  ariaLabel="选择目标表汇总字段"
+                  options={rollupFieldOptions}
+                  onChange={(nextField) => {
                     setRollupField(nextField)
                     const col = targetBundle?.meta.columns.find((c) => c.key === nextField)
                     if (col) {
                       setRollupTitle(`${col.title}汇总`)
                     }
                   }}
-                >
-                  {(targetBundle?.meta.columns ?? [])
-                    .filter((c) => c.key !== '_id')
-                    .map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.title}
-                      </option>
-                    ))}
-                </select>
+                />
               </div>
               <div className="st-field">
                 <label className="st-label">聚合方式</label>
-                <select
-                  className="st-select"
+                <CustomSelect
                   value={rollupAgg}
-                  onChange={(e) => setRollupAgg(e.target.value as LookupRollupAgg)}
-                >
-                  {ROLLUP_AGG_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="选择聚合方式"
+                  options={ROLLUP_AGG_OPTIONS}
+                  onChange={(val) => setRollupAgg(val)}
+                />
               </div>
               <div className="st-field">
                 <label className="st-label">生成列标题</label>
@@ -417,7 +530,7 @@ export function LookupWizardModal({
         </div>
 
         <div className="st-modal-footer">
-          <button type="button" className="st-btn" onClick={onClose}>
+          <button type="button" className="st-btn" disabled={submitting} onClick={onClose}>
             取消
           </button>
           <div className="st-row-actions">
@@ -425,6 +538,7 @@ export function LookupWizardModal({
               <button
                 type="button"
                 className="st-btn"
+                disabled={submitting}
                 onClick={() => setStep((s) => (s === 3 ? 2 : 1))}
               >
                 上一步

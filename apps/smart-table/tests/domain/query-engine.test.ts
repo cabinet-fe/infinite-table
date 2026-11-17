@@ -210,4 +210,83 @@ describe('query-engine', () => {
     expect(result.summaries['paid']).toEqual({ type: 'sum', value: 70, text: '¥70' })
     expect(result.summaries['rate']?.text).toBe('35%')
   })
+
+  it('修复数值/日期比较非数字文本、链接对象/空白筛选、checkbox 视同 false 与全空 sum/格式对齐', () => {
+    const cols: SmartColumn[] = [
+      { key: 'amount', title: '金额', type: 'number', width: 100, numberFormat: 'currency' },
+      { key: 'score', title: '小数', type: 'number', width: 100, numberFormat: 'decimal' },
+      { key: 'date', title: '日期', type: 'date', width: 110 },
+      { key: 'verified', title: '核验', type: 'checkbox', width: 80 },
+      { key: 'site', title: '链接', type: 'link', width: 140 },
+    ]
+    const recs: SmartRecord[] = [
+      {
+        _id: '1',
+        amount: 200,
+        score: null,
+        date: '2025-03-01',
+        verified: null,
+        site: { url: 'https://a.com', text: ' 官网A ' },
+      },
+      {
+        _id: '2',
+        amount: 'abc',
+        score: null,
+        date: 'invalid-date',
+        verified: 1,
+        site: { url: '', text: '' },
+      },
+      {
+        _id: '3',
+        amount: 50,
+        score: null,
+        date: '2025-01-15',
+        verified: 'true',
+        site: { url: 'https://b.com', text: '' },
+      },
+    ]
+
+    // 数值列与日期列遇到非数字/非法日期时，gt/gte/lt/lte 返回 false（绝不回退字符串比较）
+    const gtNonNum = filterRecords(recs, cols, {
+      conjunction: 'and',
+      conditions: [{ id: 'c1', field: 'amount', operator: 'gt', value: 'not_a_number' }],
+    })
+    expect(gtNonNum).toEqual([])
+
+    const ltBadDate = filterRecords(recs, cols, {
+      conjunction: 'and',
+      conditions: [{ id: 'c1', field: 'date', operator: 'lt', value: '2025-04-01' }],
+    })
+    // invalid-date 不参与大小比较，仅 2025-03-01 和 2025-01-15 命中
+    expect(ltBadDate.map((r) => r._id)).toEqual(['1', '3'])
+
+    // checkbox null 视同 false
+    const unverified = filterRecords(recs, cols, {
+      conjunction: 'and',
+      conditions: [{ id: 'c1', field: 'verified', operator: 'eq', value: false }],
+    })
+    expect(unverified.map((r) => r._id)).toEqual(['1'])
+
+    // 快捷筛选对 link 对象支持 { url, text } trim 后匹配及空链接匹配 '(空)'
+    const emptyGroup: FilterGroup = { conjunction: 'and', conditions: [] }
+    expect(
+      filterRecords(recs, cols, emptyGroup, { site: ['官网A', 'https://b.com'] }).map((r) => r._id),
+    ).toEqual(['1', '3'])
+    expect(filterRecords(recs, cols, emptyGroup, { site: ['(空)'] }).map((r) => r._id)).toEqual([
+      '2',
+    ])
+
+    // checkbox filled_rate 识别 true / 'true' / 1，全空列 sum 返回 null 显示 '-'
+    const sums = computeSummaries(recs, cols, {
+      verified: 'filled_rate',
+      score: 'sum',
+    })
+    expect(sums['verified']?.value).toBeCloseTo(2 / 3)
+    expect(sums['score']).toEqual({ type: 'sum', value: null, text: '-' })
+
+    // formatSummaryValue 小数位与千分位对齐画布
+    expect(formatSummaryValue(12.3, 'avg', 'decimal')).toBe('12.30')
+    expect(formatSummaryValue(1234.5, 'sum', 'currency')).toBe('¥1,234.50')
+    expect(formatSummaryValue(-1234, 'sum', 'currency')).toBe('-¥1,234')
+  })
 })

@@ -54,7 +54,59 @@ function toBooleanOrNull(value: unknown): boolean | null {
   return null
 }
 
+function toDateTimestamp(value: unknown): number | null {
+  if (value instanceof Date) {
+    const ts = value.getTime()
+    return Number.isFinite(ts) ? ts : null
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+  if (typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  if (trimmed === '') {
+    return null
+  }
+
+  // 严格校验 YYYY-MM-DD / YYYY/MM/DD 避免如 2025-02-30 自动进位
+  const dateOnlyMatch = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(trimmed)
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1])
+    const month = Number(dateOnlyMatch[2])
+    const day = Number(dateOnlyMatch[3])
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      return null
+    }
+    const utcDate = new Date(Date.UTC(year, month - 1, day))
+    if (
+      utcDate.getUTCFullYear() !== year ||
+      utcDate.getUTCMonth() !== month - 1 ||
+      utcDate.getUTCDate() !== day
+    ) {
+      return null
+    }
+    return utcDate.getTime()
+  }
+
+  // 仅当包含完整日期结构时才允许 Date.parse，避免纯文本如 "12" 被误解析
+  if (!/^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[T\s].*)?$/.test(trimmed)) {
+    return null
+  }
+  const parsed = Date.parse(trimmed)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function valuesEqual(raw: unknown, target: unknown, col?: SmartColumn): boolean {
+  if (col?.type === 'checkbox') {
+    const b1 = isEmptyCellValue(raw) ? false : toBooleanOrNull(raw)
+    const b2 = isEmptyCellValue(target) ? false : toBooleanOrNull(target)
+    if (b1 !== null && b2 !== null) {
+      return b1 === b2
+    }
+  }
+
   const rawEmpty = isEmptyCellValue(raw)
   const targetEmpty = isEmptyCellValue(target)
   if (rawEmpty && targetEmpty) {
@@ -64,7 +116,7 @@ function valuesEqual(raw: unknown, target: unknown, col?: SmartColumn): boolean 
     return false
   }
 
-  if (col?.type === 'checkbox' || typeof raw === 'boolean' || typeof target === 'boolean') {
+  if (typeof raw === 'boolean' || typeof target === 'boolean') {
     const b1 = toBooleanOrNull(raw)
     const b2 = toBooleanOrNull(target)
     if (b1 !== null && b2 !== null) {
@@ -75,6 +127,7 @@ function valuesEqual(raw: unknown, target: unknown, col?: SmartColumn): boolean 
   if (
     col?.type === 'number' ||
     col?.type === 'progress' ||
+    col?.numberFormat !== undefined ||
     typeof raw === 'number' ||
     typeof target === 'number'
   ) {
@@ -92,19 +145,21 @@ function compareForFilter(raw: unknown, target: unknown, col?: SmartColumn): num
   if (isEmptyCellValue(raw) || isEmptyCellValue(target)) {
     return null
   }
-  if (col?.type !== 'date' && col?.type !== 'text') {
+  if (col?.type === 'date') {
+    const d1 = toDateTimestamp(raw)
+    const d2 = toDateTimestamp(target)
+    return d1 !== null && d2 !== null ? d1 - d2 : null
+  }
+  if (col?.type === 'number' || col?.type === 'progress' || col?.numberFormat !== undefined) {
     const n1 = toFiniteNumber(raw)
     const n2 = toFiniteNumber(target)
-    if (n1 !== null && n2 !== null) {
-      return n1 - n2
-    }
-  } else {
-    // 文本/日期列若双方本身都是数字或纯数字串也支持数值大小比较（日期 '2025-01-01' 不满足 isFiniteNumber）
-    const n1 = toFiniteNumber(raw)
-    const n2 = toFiniteNumber(target)
-    if (n1 !== null && n2 !== null) {
-      return n1 - n2
-    }
+    return n1 !== null && n2 !== null ? n1 - n2 : null
+  }
+
+  const n1 = toFiniteNumber(raw)
+  const n2 = toFiniteNumber(target)
+  if (n1 !== null && n2 !== null) {
+    return n1 - n2
   }
   return scalarToText(raw).localeCompare(scalarToText(target), 'zh-CN', { numeric: true })
 }
@@ -211,7 +266,8 @@ export function filterRecords(
   return records.filter((record) => {
     for (const [field, allowed] of activeQuickFilters) {
       const raw = record[field]
-      const token = isEmptyCellValue(raw) ? '(空)' : scalarToText(raw)
+      const trimmed = scalarToText(raw).trim()
+      const token = isEmptyCellValue(raw) || trimmed === '' ? '(空)' : trimmed
       if (!allowed.has(token)) {
         return false
       }
@@ -304,7 +360,7 @@ function formatPercent(ratio: number): string {
 }
 
 /**
- * 格式化底部汇总指标显示文本。
+ * 格式化底部汇总指标显示文本（与画布千分位/小数位规格对齐）。
  */
 export function formatSummaryValue(
   value: number | null,
@@ -321,21 +377,27 @@ export function formatSummaryValue(
     return formatPercent(value)
   }
   if (type === 'count') {
-    return Math.round(value).toLocaleString('zh-CN')
+    return Math.round(value).toLocaleString('en-US')
   }
 
   switch (numberFormat) {
     case 'integer':
-      return Math.round(value).toLocaleString('zh-CN')
+      return Math.round(value).toLocaleString('en-US')
     case 'currency': {
-      const formatted = Math.abs(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+      const abs = Math.abs(value)
+      const formatted = Number.isInteger(abs)
+        ? abs.toLocaleString('en-US')
+        : abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       return value < 0 ? `-¥${formatted}` : `¥${formatted}`
     }
     case 'percent':
       return formatPercent(value)
     case 'decimal':
+      return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     default:
-      return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+      return Number.isInteger(value)
+        ? value.toLocaleString('en-US')
+        : value.toLocaleString('en-US', { maximumFractionDigits: 2 })
   }
 }
 
@@ -378,7 +440,7 @@ export function computeSummaries(
         for (const record of records) {
           const raw = record[field]
           if (col?.type === 'checkbox') {
-            if (raw === true || raw === 'true') {
+            if (toBooleanOrNull(raw) === true) {
               filled += 1
             }
           } else if (!isEmptyCellValue(raw)) {
@@ -395,7 +457,7 @@ export function computeSummaries(
           numbers.push(num)
         }
       }
-      value = aggregateFiniteNumbers(numbers, summaryType)
+      value = numbers.length === 0 ? null : aggregateFiniteNumbers(numbers, summaryType)
     }
 
     result[field] = {

@@ -1,8 +1,8 @@
-// 透视表双向「下钻」抽屉：Tab1 嵌入式明细网格可编辑同步回写；Tab2 按下一维度逐层拆解下钻
+// 透视表双向「下钻」抽屉：Tab1 嵌入式明细网格支持消歧/富编辑/回滚；Tab2 按下一维度逐层拆解下钻
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
-import { SmartGridAdapter } from '../canvas/smart-grid'
+import { SmartGridAdapter, type SmartGridConflictClickInfo } from '../canvas/smart-grid'
 import { computeDimensionBreakdown, getAvailableDrillDimensions } from '../domain/drill-engine'
 import { scalarToText } from '../domain/utils'
 import type {
@@ -11,6 +11,8 @@ import type {
   SmartPivotConfig,
   SmartRecord,
 } from '../shared/schema'
+import type { RichCellEditInfo } from './CellEditorPopover'
+import { XIcon } from './Icons'
 
 export interface DrillLevel {
   label: string
@@ -24,8 +26,12 @@ export interface DrillDownDrawerProps {
   allComputedRecords: readonly SmartRecord[]
   conflictsByRow: Map<string, Map<string, LookupConflictInfo>>
   pivotConfig: SmartPivotConfig
+  hasActiveOverlay?: boolean
   onClose: () => void
   onUpdateRecord: (recordId: string, patch: Record<string, unknown>) => Promise<void>
+  onConflictClick?: (info: SmartGridConflictClickInfo) => void
+  onRichCellEdit?: (info: RichCellEditInfo) => void
+  onValidationError?: (message: string) => void
 }
 
 export function DrillDownDrawer({
@@ -34,8 +40,12 @@ export function DrillDownDrawer({
   allComputedRecords,
   conflictsByRow,
   pivotConfig,
+  hasActiveOverlay = false,
   onClose,
   onUpdateRecord,
+  onConflictClick,
+  onRichCellEdit,
+  onValidationError,
 }: DrillDownDrawerProps) {
   const [activeTab, setActiveTab] = useState<'detail' | 'dimension'>('detail')
   const [levels, setLevels] = useState<DrillLevel[]>(() => [
@@ -45,7 +55,6 @@ export function DrillDownDrawer({
     },
   ])
 
-  // 当重新双击新透视格时重置下钻栈
   useEffect(() => {
     setLevels([
       {
@@ -54,6 +63,16 @@ export function DrillDownDrawer({
       },
     ])
   }, [drillEvent])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !hasActiveOverlay) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [hasActiveOverlay, onClose])
 
   const currentLevel = levels[levels.length - 1]!
   const recordById = useMemo(() => {
@@ -98,11 +117,20 @@ export function DrillDownDrawer({
     return computeDimensionBreakdown(currentRecords, selectedDimKey, pivotConfig.measures)
   }, [currentRecords, selectedDimKey, pivotConfig.measures])
 
-  // Tab1: 挂载只读+可编辑嵌套 SmartGridAdapter
   const gridContainerRef = useRef<HTMLDivElement | null>(null)
   const gridAdapterRef = useRef<SmartGridAdapter | null>(null)
-  const onUpdateRef = useRef(onUpdateRecord)
-  onUpdateRef.current = onUpdateRecord
+  const handlersRef = useRef({
+    onUpdateRecord,
+    onConflictClick,
+    onRichCellEdit,
+    onValidationError,
+  })
+  handlersRef.current = {
+    onUpdateRecord,
+    onConflictClick,
+    onRichCellEdit,
+    onValidationError,
+  }
 
   useEffect(() => {
     if (activeTab !== 'detail' || !gridContainerRef.current) {
@@ -114,8 +142,11 @@ export function DrillDownDrawer({
       records: currentRecords,
       conflictsByRow,
       onCellValueChange: (recordId, fieldKey, newValue) => {
-        void onUpdateRef.current(recordId, { [fieldKey]: newValue })
+        void handlersRef.current.onUpdateRecord(recordId, { [fieldKey]: newValue }).catch(() => {})
       },
+      onConflictClick: (info) => handlersRef.current.onConflictClick?.(info),
+      onRichCellEdit: (info) => handlersRef.current.onRichCellEdit?.(info),
+      onValidationError: (msg) => handlersRef.current.onValidationError?.(msg),
     })
     gridAdapterRef.current = adapter
     return () => {
@@ -155,7 +186,7 @@ export function DrillDownDrawer({
             <h2 className="st-modal-title">透视下钻分析</h2>
             <div className="st-breadcrumb">
               {levels.map((lvl, idx) => (
-                <span key={idx} className="st-breadcrumb-item">
+                <span key={`${lvl.label}-${idx}`} className="st-breadcrumb-item">
                   {idx > 0 && <span className="st-breadcrumb-sep">/</span>}
                   <button
                     type="button"
@@ -169,7 +200,7 @@ export function DrillDownDrawer({
             </div>
           </div>
           <button type="button" className="st-icon-btn" onClick={onClose} aria-label="关闭下钻抽屉">
-            ×
+            <XIcon size={15} />
           </button>
         </div>
 
@@ -194,7 +225,7 @@ export function DrillDownDrawer({
           {activeTab === 'detail' ? (
             <div className="st-drawer-grid-wrap">
               <div className="st-drawer-tip">
-                支持直接在明细网格内编辑单元格，保存后主透视表将自动重新聚合刷新。
+                支持直接在明细网格内编辑单元格或处理消歧，保存后主透视表将自动重新聚合刷新。
               </div>
               <div ref={gridContainerRef} className="st-drawer-grid-canvas" />
             </div>

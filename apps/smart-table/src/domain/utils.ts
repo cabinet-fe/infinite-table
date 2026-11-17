@@ -1,8 +1,36 @@
 // 领域计算管线共享的基础值规范化与安全数值聚合工具
 
-/** 判断单元格值是否为空（null / undefined / 纯空白字符串） */
+/** 提取 `{ url, text }` 链接对象的展示文本；非链接对象返回 null */
+export function extractLinkText(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null
+  }
+  if (!('url' in value) && !('text' in value)) {
+    return null
+  }
+  const obj = value as { url?: unknown; text?: unknown }
+  if (typeof obj.text === 'string' && obj.text.trim() !== '') {
+    return obj.text.trim()
+  }
+  if (typeof obj.url === 'string' && obj.url.trim() !== '') {
+    return obj.url.trim()
+  }
+  return ''
+}
+
+/** 判断单元格值是否为空（null / undefined / 纯空白字符串 / 空链接对象） */
 export function isEmptyCellValue(value: unknown): boolean {
-  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '')
+  if (value === null || value === undefined) {
+    return true
+  }
+  if (typeof value === 'string') {
+    return value.trim() === ''
+  }
+  const linkText = extractLinkText(value)
+  if (linkText !== null) {
+    return linkText === ''
+  }
+  return false
 }
 
 /** 将单元格值提取为有限数字；非数字或 NaN/Infinity 返回 null */
@@ -21,7 +49,7 @@ export function toFiniteNumber(value: unknown): number | null {
   return null
 }
 
-/** 标量安全转字符串（避免对对象隐式 [object Object]） */
+/** 标量安全转字符串（支持 `{ url, text }` 链接对象，避免退化为 [object Object]） */
 export function scalarToText(value: unknown): string {
   if (value === null || value === undefined) {
     return ''
@@ -34,6 +62,10 @@ export function scalarToText(value: unknown): string {
   }
   if (typeof value === 'boolean') {
     return value ? 'true' : 'false'
+  }
+  const linkText = extractLinkText(value)
+  if (linkText !== null) {
+    return linkText
   }
   return ''
 }

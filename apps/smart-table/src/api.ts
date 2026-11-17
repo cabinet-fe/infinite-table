@@ -4,6 +4,7 @@ import type {
   AllTablesResponse,
   CreateRecordRequest,
   CreateTableRequest,
+  ImportCommitRequest,
   TableBundle,
   UpdateTableMetaRequest,
 } from './shared/api-types'
@@ -19,6 +20,12 @@ export class ApiError extends Error {
   }
 }
 
+/** 非 2xx 响应统一映射 ApiError（优先取后端 {message}） */
+async function toApiError(response: Response): Promise<ApiError> {
+  const body = (await response.json().catch(() => null)) as { message?: string } | null
+  return new ApiError(response.status, body?.message ?? `请求失败 (${response.status})`)
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!headers.has('Content-Type')) {
@@ -30,8 +37,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null
-    throw new ApiError(response.status, body?.message ?? `请求失败 (${response.status})`)
+    throw await toApiError(response)
   }
 
   return (await response.json()) as T
@@ -62,6 +68,18 @@ export async function updateTableMeta(
     },
   )
   return data.meta
+}
+
+export async function deleteTable(tableId: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/tables/${encodeURIComponent(tableId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function syncTable(tableId: string): Promise<TableBundle> {
+  return requestJson<TableBundle>(`/api/tables/${encodeURIComponent(tableId)}/sync`, {
+    method: 'POST',
+  })
 }
 
 export async function createRecord(
@@ -107,4 +125,12 @@ export async function resetDemoSeed(): Promise<TableBundle[]> {
     method: 'POST',
   })
   return data.tables
+}
+
+/** 进阶导入提交（SQL 物理表）：文件解析在前端完成，这里只提交列配置与行数据 */
+export async function importCommit(payload: ImportCommitRequest): Promise<TableBundle> {
+  return requestJson<TableBundle>('/api/import/commit', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }

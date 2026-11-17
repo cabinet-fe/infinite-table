@@ -20,7 +20,7 @@ export interface DrillDimensionBreakdownItem {
   count: number
   records: SmartRecord[]
   metrics: Record<string, number | null>
-  /** 主指标占比 0~1；若主指标总和为 0 或无数值则回退按记录数占比 */
+  /** 主指标占比 0~1；仅可加聚合（sum/count）按正值总和计算（总和<=0 回退计数占比），非可加聚合返回 0 */
   ratio: number
 }
 
@@ -34,7 +34,7 @@ const DRILL_DIMENSION_TYPES: ReadonlySet<SmartColumnType> = new Set([
 ])
 
 /**
- * 列出尚未放入行/列维度且适合作为逐层下钻分组维度的列。
+ * 列出尚未放入行/列维度且适合作为逐层下钻分组维度的列（排除一对多 Rollup 汇总列）。
  */
 export function getAvailableDrillDimensions(
   columns: readonly SmartColumn[],
@@ -42,7 +42,15 @@ export function getAvailableDrillDimensions(
   columnDimensions: readonly string[],
 ): SmartColumn[] {
   const used = new Set<string>([...rowDimensions, ...columnDimensions])
-  return columns.filter((col) => !used.has(col.key) && DRILL_DIMENSION_TYPES.has(col.type))
+  return columns.filter((col) => {
+    if (used.has(col.key) || !DRILL_DIMENSION_TYPES.has(col.type)) {
+      return false
+    }
+    if (col.type === 'lookup' && col.lookupConfig?.mode === 'rollup') {
+      return false
+    }
+    return true
+  })
 }
 
 function toDimensionLabel(raw: unknown): string {
@@ -127,6 +135,11 @@ export function computeDimensionBreakdown(
       }
       return b.count - a.count
     })
+
+    if (primaryMeasure.agg !== 'sum' && primaryMeasure.agg !== 'count') {
+      // 非可加聚合（avg/min/max）不按伪总和计算占比，避免失真
+      return items
+    }
 
     const positiveValues: number[] = []
     for (const item of items) {
