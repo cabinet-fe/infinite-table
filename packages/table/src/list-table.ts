@@ -1,85 +1,88 @@
 // ListTable 主类：布局计算、虚拟滚动窗口、冻结区域划分、合并单元格、行列头渲染，
-// 经 RenderHost 窄接口提交渲染。
-// 场景内容只建在可视窗口内（窗口外行列不进入场景树，合并区主格按可见性补建）；
-// 滚动由 ScrollManager 唯一状态源驱动，滚动 → 窗口增量更新 → 按滚动方向分层 band 失效
-// （冻结区不随滚动重绘）。
-// 交互（P5）：选区/resize 指示线绘制在 sky 浮层（不触发 body 重绘），
-// 键盘导航、触控惯性滚动、contextmenu 事件、onScrollFrame 帧级同步、批量更新合并失效。
-// 多选区与填充柄（P0-5/P0-6）：selectCells 多段选中、ctrlMultiSelect 开关（Ctrl/Cmd 加选），
-// 填充柄挂焦点段右下角（按下/拖拽结束两个公开事件，填充生成不在内核）。
-// 图片（P7）：格内图片在 L2 media 层渲染（ImageService 窗口化加载 + cell 级位图 LRU +
-// 无闪协议），浮动对象层挂 sky 层最顶、随滚动帧级跟随。
-// 编辑（P2/P3）：双击（含触控双击）进入编辑，EditManager 为编辑状态唯一源，
-// DOM 浮层文本编辑器挂表格容器内、随锚定格视口矩形定位；
-// 编辑中滚动浮层逐帧跟随锚定格，锚定格滚出视口按 Enter 语义自动提交。
-// 容器 resize 原地自适应：构造后经 resize() 调整视口尺寸，滚动位置与选区保留、不重建实例。
-// 运行时可变（P8）：冻结列数/行数与合并区开放运行时修改（合并区模型越界构造期
-// 校验延伸到运行时；跨冻结边界合并区合法，主格按冻结带钉固绘制），resize 拖拽
-// 会话补结束事件，editCellOnEnter 键位开关。
-// ground 预留位（univer P6）：ground 层（L0）在首个 underlay painter 写入时惰性创建，
-// 水印等插件经 setUnderlayPainter 挂整层绘制（锚定视口，不随滚动带失效/平移）。
-// overlay 预留位（univer P6 返工 B2）：顶层整层绘制挂点与 underlay 完全对称——
-// setOverlayPainter 的承载节点挂 sky 层（四层最上）最顶，不新增 canvas 层、四层
-// 叠放不变；水印等内容之上覆盖绘制，默认主题 body 不透明底色下仍可见（零宿主配置）。
+// 经 RenderHost 窄接口提交渲染，实现 TableEngine（EngineAssembly + 表格领域面）与 GridReadView。
 //
-// 按职责拆分的协作模块（6.6，纯移动不改行为，均为包内实现细节、不进公共入口）：
-// - list-table-scene.ts：场景全量重建与滚动帧增量窗口、分带建格、行列头装配、溢出右界支撑
-// - list-table-media.ts：media 层与 ImageService 接线（图片格装配/局部刷新/窗口化调度、
-//   图表格出图路由：插件离屏出图位图经 cell 级缓存 blit，无闪协议同图片）
-// - list-table-interaction.ts：指针/触摸/键盘/contextmenu 事件接线与 sky 浮层刷新
+// 按职责拆分的协作模块（包内实现细节，不进公共入口）：
+// - internal/table-states.ts：4 个内聚状态容器（几何/场景/媒体/交互）与 slot painter 承载节点
+// - list-table-scene.ts：场景全量重建与滚动帧增量窗口、固定容器组装配、行列头装配、溢出走廊支撑
+// - list-table-media.ts：media 层与 ImageService 接线、图表格出图路由
+// - list-table-interaction.ts：指针/触摸/键盘/contextmenu/列头点击事件接线与 sky 浮层刷新
 // - list-table-internal.ts：共享常量与纯辅助（cellKey/HEADER_COORD/合并区越界校验）
-// 协作模块以 ListTable 实例为参数，只触碰标注 @internal 的内部成员；
-// @internal 成员不构成公共 API（公共 API 以 src/index.ts 显式导出为准）。
-//
-// 引擎装配协议（P7）：本类实现 TableEngine（中立本体 EngineAssembly 的 table 引擎
-// 实现——渲染宿主 / 数据面 / 主题 / painter 槽位 / 插件槽位 / 生命周期，中立契约
-// 定义见 @infinitable/protocol）。协议成员全部复用既有公共方法，仅新增导出读取面
-// 入口（read getter，组合 getCellText / getCellValue / getCellStyle / getMergeRanges
-// 与行列几何读取）。
 
-import {
-  createRenderHost,
-  SceneNode,
-  type LayerHandle,
-  type Region,
-  type RenderContext,
-  type RenderHost,
-} from '@infinitable/render'
-
-import { TextAdvanceTable, type CellNode } from './cell-node'
-import {
-  MergeCellMap,
-  normalizeCellRange,
-  sanitizeMerges,
-  warnMergeConflicts,
-} from '@infinitable/grid'
-import type { CellRange } from '@infinitable/grid'
-import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
-import { CellValuePipeline } from './cell-value'
-import { ChartCellNode } from './media/chart-cell-node'
-import { EditManager, type EditCommitMove } from './editing/edit-manager'
-import type { TextEditorHost } from './editing/text-editor'
-import { EditorRegistry } from './editor-registry'
 import {
   clampFrozenCount,
   computeColOffsets,
   computeRowOffsets,
+  extendsTheme,
+  ImageService,
+  InertiaScroller,
+  MergeCellMap,
+  MIN_COL_WIDTH,
+  MIN_ROW_HEIGHT,
+  NativeScrollbarHost,
+  normalizeCellRange,
+  PainterRegistry,
+  PluginHost,
   resolveCellX,
   resolveCellYFromOffsets,
+  resolveScrollbarConfig,
+  sanitizeMerges,
+  ScrollManager,
+  SelectionState,
+  themeCellBase,
+  TouchScrollTracker,
   unionRegions,
+  warnMergeConflicts,
+  type CellRange,
+  type ColResizeEndEvent,
+  type LoadedImage,
+  type RowResizeEndEvent,
+  type ScrollDelta,
+  type ScrollState,
+  type SelectionListener,
+  type SelectionRange,
+  type SelectionSnapshot,
+  type TableTheme,
+  type ThemeOverride,
   type WindowRange,
 } from '@infinitable/grid'
-import type { FillDragState } from './fill-handle'
-import { FloatObjectLayer } from '@infinitable/grid'
-import { InteractionOverlay, type HighlightRange, type ResizeLine } from './interaction-overlay'
+import type {
+  EngineCapabilities,
+  EnginePlugin,
+  GridReadView,
+  PainterRegistration,
+  PainterSlot,
+} from '@infinitable/protocol'
+import { createRenderHost, type Region, type RenderHost } from '@infinitable/render'
+
+import { TextAdvanceTable, type CellNode } from './cell-node'
+import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
+import { CellValuePipeline } from './cell-value'
+import { EditManager, type EditCommitMove } from './editing/edit-manager'
+import type { TextEditorHost } from './editing/text-editor'
+import { EditorRegistry } from './editor-registry'
+import type { TableEngine } from './engine'
+import type {
+  FillDragEndListener,
+  FillHandleDoubleClickListener,
+  FillHandleDownListener,
+} from './fill-handle'
+import { FloatObjectLayer } from './float/float-object-layer'
+import { InteractionOverlay, type HighlightRange } from './interaction-overlay'
+import {
+  GroundPaintersNode,
+  OverlayPaintersNode,
+  type TableGeometryState,
+  type TableInteractionState,
+  type TableMediaState,
+  type TableSceneState,
+} from './internal/table-states'
 import { nextActiveCell } from './keyboard-navigation'
 import {
   bindInteractionEvents,
   cellAt,
   cellRectInViewport,
-  type HeaderDragState,
-  ensureCellVisible,
   editorCellRect,
+  ensureCellVisible,
   refreshOverlay,
 } from './list-table-interaction'
 import { assertMergesWithinTable, cellKey, HEADER_COORD } from './list-table-internal'
@@ -99,44 +102,14 @@ import {
   overflowSourceCol,
   overflowSourceColRight,
   rebuildScene,
+  resizeSceneGroups,
   resolveOffWindowOverflowSource,
+  syncCellGroupAndOverflowOrder,
   textOverflowLimits,
   updateSceneWindow,
 } from './list-table-scene'
-import type { ImageCellNode } from './media/image-cell-node'
-import type { TableEngine } from './engine'
-import type {
-  EnginePlugin,
-  EngineReadView,
-  OverlayPainter,
-  UnderlayPainter,
-} from '@infinitable/protocol'
-import { ImageService, type LoadedImage } from '@infinitable/grid'
 import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
-import { NativeScrollbarHost } from '@infinitable/grid'
-import {
-  MIN_COL_WIDTH,
-  MIN_ROW_HEIGHT,
-  type ColResizeEndEvent,
-  type ResizeSession,
-  type RowResizeEndEvent,
-} from './resize'
-import { ScrollManager, type ScrollDelta, type ScrollState } from '@infinitable/grid'
-import {
-  resolveScrollbarConfig,
-  type ScrollbarConfig,
-  type ScrollbarDragSession,
-} from '@infinitable/grid'
-import {
-  SelectionState,
-  type RangeBounds,
-  type SelectionListener,
-  type SelectionRange,
-  type SelectionSnapshot,
-} from '@infinitable/grid'
-import { extendsTheme, themeCellBase, type TableTheme, type ThemeOverride } from '@infinitable/grid'
-import { InertiaScroller, TouchScrollTracker } from '@infinitable/grid'
 import type {
   CanvasDocSource,
   CellChangeEvent,
@@ -144,78 +117,25 @@ import type {
   CellLinkHoverListener,
   CellLinkLeaveListener,
   CellRef,
+  ColHeaderClickListener,
   ColumnDefine,
   ContextMenuListener,
   EditEndEvent,
   EditStartEvent,
   ImageLinkClickListener,
   ListTableOptions,
-  ResolveCellChart,
 } from './types'
-import type {
-  FillDragEndListener,
-  FillHandleDoubleClickListener,
-  FillHandleDownListener,
-} from './fill-handle'
 
 /** onScrollFrame 帧级同步回调：滚动帧上带最新滚动位置触发（同帧多次滚动只触发一次） */
 export type ScrollFrameListener = (state: ScrollState) => void
 
-// UnderlayPainter / OverlayPainter（ground / sky 整层绘制槽位类型）与
-// EngineReadView 等协议契约同住在 @infinitable/protocol；本文件按 table 引擎的
-// 分层落地实现两个槽位（ground 承载节点与 sky 承载节点见下）。
-
-/**
- * ground 层 painter 承载节点：整层尺寸、不可命中，paint 委托注入的 painter
- * （层坐标即视口坐标；paintedBounds 缺省取整节点包围盒，与整层平铺内容一致）。
- */
-class GroundPainterNode extends SceneNode {
-  /** 当前生效 painter（setUnderlayPainter 原位换写，节点与树结构复用） */
-  painter: UnderlayPainter
-
-  constructor(painter: UnderlayPainter) {
-    super({ pickable: false })
-    this.painter = painter
-  }
-
-  override paint(ctx: RenderContext): void {
-    this.painter(ctx, { width: this.width, height: this.height })
-  }
-}
-
-/**
- * overlay painter 承载节点（与 GroundPainterNode 同构，挂点与语义不同）：挂 sky
- * 层最顶（选区浮层/浮动对象之上）、整层尺寸、不可命中——pointer 事件透传，sky 层
- * 既有事件语义不受拦截；paint 委托注入的 painter（层坐标即视口坐标）。
- */
-class OverlayPainterNode extends SceneNode {
-  /** 当前生效 painter（setOverlayPainter 原位换写，节点与树结构复用） */
-  painter: OverlayPainter
-
-  constructor(painter: OverlayPainter) {
-    super({ pickable: false })
-    this.painter = painter
-  }
-
-  override paint(ctx: RenderContext): void {
-    this.painter(ctx, { width: this.width, height: this.height })
-  }
-}
-
-/**
- * 宿主环境 dpr 缺省读取（注入缺省值实现处）：存在全局 window 时取运行环境
- * devicePixelRatio，无 window 环境（headless/离屏测试）回落 1；经
- * options.resolveDevicePixelRatio 注入替换。
- */
+/** 宿主环境 dpr 缺省读取 */
 function resolveHostDpr(): number {
   const win = (globalThis as { window?: { devicePixelRatio?: number } | undefined }).window
   return win?.devicePixelRatio || 1
 }
 
-/**
- * 溢出源节点的全局失效矩形：覆盖本格与双向溢出走廊（minX ≤ 0 为左溢伸出的负向段）。
- * 场景树节点 x/y 即层坐标（body root 在层原点），与 getGlobalBounds 一致。
- */
+/** 溢出源节点的全局失效矩形：覆盖本格与双向溢出走廊 */
 function overflowExtentRegion(node: CellNode, minX: number, maxX: number): Region {
   const left = Math.min(0, minX)
   return {
@@ -226,144 +146,65 @@ function overflowExtentRegion(node: CellNode, minX: number, maxX: number): Regio
   }
 }
 
-export class ListTable implements TableEngine {
-  /** @internal 渲染宿主（注入或缺省创建） */
+export class ListTable implements TableEngine, GridReadView {
+  /** 渲染宿主（注入或缺省创建） */
   readonly host: RenderHost
   private readonly ownHost: boolean
-  /** @internal body 层句柄（数据格场景树） */
-  readonly body: LayerHandle
-  /** @internal sky 层句柄（交互浮层与浮动对象） */
-  readonly sky: LayerHandle
   /** @internal 取值管线 */
   readonly pipeline: CellValuePipeline
   /** @internal 唯一滚动状态源 */
   readonly scroll = new ScrollManager()
   private readonly binding: ModelBinding | null = null
-  /** @internal 列宽前缀和 */
-  colOffsets: number[]
-  colWidths: number[]
-  /**
-   * @internal 列定义集合（与 options.columns 同一数组引用，运行时可变）：
-   * setColCount 增删列在此数组原地 push/截断（pipeline/编辑路由持同一引用即见新列）。
-   */
+  /** 列定义集合（与 options.columns 同一数组引用，运行时可变） */
   readonly columns: ColumnDefine[]
-  /** @internal 滚动缓冲行/列数（options.overscanRows/Cols 构造期归一化，缺省 0） */
+  /** @internal 滚动缓冲行/列数 */
   readonly overscanRows: number
   readonly overscanCols: number
-  /** 视口尺寸（构造后经 resize 原地调整；width/height 只读透出） */
   private tableWidth: number
   private tableHeight: number
-  /** 表视口宽（CSS 像素） */
   get width(): number {
     return this.tableWidth
   }
-  /** 表视口高（CSS 像素） */
   get height(): number {
     return this.tableHeight
   }
-  /** @internal 生效主题（构造时 extends 派生；updateTheme 运行时深覆盖写回） */
+  /** @internal 生效主题 */
   theme: TableTheme
   readonly rowHeight: number
-  /** @internal 列头带高 */
+  /** 列头带高 */
   readonly headerHeight: number
   /** @internal 行号列宽 */
   readonly rowHeaderWidth: number
-  /** @internal 冻结列数/行数与冻结区尺寸（运行时可变） */
-  frozenColCount: number
-  frozenRowCount: number
-  frozenColsWidth: number
-  frozenRowsHeight: number
-  /** @internal 合并区集合 */
-  mergeCells: MergeCellMap
-  /** 图片资源服务：窗口化加载 + 位图 LRU + 无闪协议状态源（public 供宿主配置/订阅事件） */
+  /** 图片资源服务 */
   readonly imageService: ImageService
-  /** @internal cell 级位图 LRU：按格缓存已就绪位图引用，滚动重建时命中即首帧无闪 */
-  readonly mediaCache = new MediaCache<LoadedImage>()
-  /** @internal L2 media 层：首个图片/图表格出现时惰性创建 */
-  media: LayerHandle | null = null
-  /** @internal ground 层句柄（L0）：首个 underlay painter 写入时惰性创建（此前零开销） */
-  ground: LayerHandle | null = null
-  /** @internal ground 层 painter 承载节点（setUnderlayPainter 维护；null 即无 underlay 内容） */
-  private underlayPainterNode: GroundPainterNode | null = null
-  /** @internal overlay painter 承载节点（setOverlayPainter 维护；null 即无顶层 overlay 内容） */
-  private overlayPainterNode: OverlayPainterNode | null = null
-  /** @internal 当前窗口内的图片格节点，key 见 cellKey（随窗口重建） */
-  readonly imageCellNodes = new Map<number, ImageCellNode>()
-  /** @internal 当前窗口内的图表格节点，key 见 cellKey（随窗口重建；位图经 cell 级缓存直贴） */
-  readonly chartCellNodes = new Map<number, ChartCellNode>()
-  /** @internal 图表媒体解析器（chart 插件 mount 注入；null=无图表格能力，table 不含图表语义） */
-  chartMediaResolver: ResolveCellChart | null = null
-  /** @internal 出图单飞：同缓存 key 的并发出图收敛为一次 produce */
-  readonly chartRenderTasks = new Map<string, Promise<LoadedImage | null>>()
-  /** @internal 出图设备像素比（构造/resize 随宿主刷新；出图物理分辨率与显示层一致） */
-  hostDpr: number
-  /** 构造期显式注入的 hostOptions.dpr（resize 沿用不随环境刷新；undefined=随宿主环境） */
   private readonly explicitHostDpr: number | undefined
-  /**
-   * @internal 宿主环境 dpr 读取链：options.resolveDevicePixelRatio 注入优先，缺省
-   * 浏览器实现（resolveHostDpr，无 window 回落 1）；显式 hostOptions.dpr 仍最优先
-   */
   private readonly resolveDpr: () => number
-  /**
-   * @internal 浮动对象层（首次访问 floatObjects 时惰性建承载容器，挂在已用的 sky 层最顶）。
-   * 原始字段供交互路由读写（未挂载为 null 时不强建层）；宿主面走 floatObjects getter。
-   */
+  /** @internal 浮动对象层（首次访问 floatObjects 时惰性创建） */
   floatLayer: FloatObjectLayer | null = null
-  /** 已注册插件（销毁时逆序卸载） */
-  private readonly plugins: EnginePlugin[] = []
-  /** @internal 当前窗口内的数据格节点，key 见 cellKey（合并区只登记主格，随窗口重建） */
-  readonly cellNodes = new Map<number, CellNode>()
-  /** @internal 当前窗口内的列头节点，key 为列号（滚动帧增量维护） */
-  readonly colHeaderNodes = new Map<number, CellNode>()
-  /** @internal 当前窗口内的行号列节点，key 为行号（滚动帧增量维护） */
-  readonly rowHeaderNodes = new Map<number, CellNode>()
-  /** @internal 左上角占位节点（几何固定，首次建后复用） */
-  cornerNode: CellNode | null = null
-  /** @internal 表格外框节点（body root 末子节点；滚动帧增量补建后重挂保持最上） */
-  frameNode: SceneNode | null = null
-  /**
-   * @internal body 表头容器（R2-5）：恒为 body root 末子节点，表头整体在全部数据格之上；
-   * 滚动帧有新建数据格时仅重挂此单节点，替代原先逐表头 removeChild+appendChild
-   */
-  headerGroup: SceneNode | null = null
-  /** @internal 当前滚动窗口（[start, end) 行列区间，不含冻结区） */
-  rows: WindowRange = { start: 0, end: 0 }
-  cols: WindowRange = { start: 0, end: 0 }
-  /** 逐行高度覆盖（行 resize 产物）；缺省用 rowHeight */
-  private readonly rowHeights = new Map<number, number>()
-  /** @internal 行高前缀和 */
-  rowOffsets: number[]
-  /** @internal 选区状态机 */
-  readonly selection = new SelectionState()
-  /** @internal sky 交互浮层 */
-  readonly overlay: InteractionOverlay
-  /** @internal 触控滚动采样 */
-  readonly touchTracker = new TouchScrollTracker()
-  /** @internal 惯性滚动 */
-  readonly inertia: InertiaScroller
-  /** @internal resize 拖拽会话与指示线 */
-  resizeSession: ResizeSession | null = null
-  resizeLine: ResizeLine | null = null
-  /** @internal 内建滚动条拖拽会话 */
-  scrollbarDrag: ScrollbarDragSession | null = null
-  /** @internal 滚动条开关与显隐策略（options.scrollbar 构造期归一化） */
-  readonly scrollbarConfig: ScrollbarConfig
-  /** @internal 原生滚动条装配（scrollbar.mode === 'native' 时非 null；canvas 档不创建） */
-  readonly nativeScrollbar: NativeScrollbarHost | null
-  /** @internal 滚动条当前可见（'always' 档恒 true；'scrolling'/'hover' 档由活动状态机维护） */
-  scrollbarVisible: boolean
-  /** @internal 滚动条 hover 轴（非拖拽指针悬停滑块；null 无 hover） */
-  scrollbarHover: 'vertical' | 'horizontal' | null = null
-  /** @internal 'scrolling'/'hover' 档静止隐藏定时器 */
-  private scrollbarHideTimer: ReturnType<typeof setTimeout> | null = null
-  /** @internal 画布外指针接续的解绑器（滚动条拖拽 / 行列 resize；会话结束/销毁时调用） */
-  pointerSessionRelease: (() => void) | null = null
-  /**
-   * @internal 滚动条拖拽提交任务（稳定引用供帧调度去重）：同帧多次 pointermove 的
-   * 待提交目标收敛为一次 setScroll；会话结束时同步冲刷末次目标。
-   */
+  /** 协议能力声明面 */
+  readonly capabilities: EngineCapabilities
+  /** @internal 几何状态 */
+  readonly geometryState: TableGeometryState
+  /** @internal 场景状态 */
+  readonly sceneState: TableSceneState
+  /** @internal 媒体状态 */
+  readonly mediaState: TableMediaState
+  /** @internal 交互状态 */
+  readonly interactionState: TableInteractionState
+  /** @internal 插件宿主 */
+  private readonly pluginHost: PluginHost
+  /** @internal 已销毁守卫 */
+  destroyed = false
+  /** 编辑状态唯一源 */
+  readonly editManager: EditManager
+  /** 编辑器注册表 */
+  readonly editorRegistry: EditorRegistry
+  private readonly container: HTMLElement | undefined
+  private readonly cursorContainer: HTMLElement | undefined
+
+  /** @internal 滚动条拖拽提交任务（稳定引用供帧调度去重） */
   readonly scrollbarCommitTask = () => {
-    const session = this.scrollbarDrag
+    const session = this.interactionState.scrollbarDrag
     if (!session) {
       return
     }
@@ -378,112 +219,14 @@ export class ListTable implements TableEngine {
       this.setScrollLeft(target)
     }
   }
-  /** @internal 拖选进行中 */
-  selecting = false
-  /**
-   * @internal 拖选锚点格（按下格，合并区为包围盒起点）：拖选会话期间恒定。
-   * 扩展段若以「上一帧段的 start」为锚，反向拖越锚点后 start 已被改写为 min 角，
-   * 继续扩展按错误锚点计算导致选区塌缩；按下时定格，抬起清空。
-   */
-  dragAnchor: CellRef | null = null
-  /** @internal 表头拖选会话：pointerdown 命中列头/行头后开启（锚定列/行），抬起重算后结束 */
-  headerDrag: HeaderDragState | null = null
-  /** @internal 表头高亮选区签名（refreshHeaderHighlight 的变化守卫） */
-  headerHighlightSignature = ''
-  /** @internal 浮层曾有内容（清空补一次 full 防残影） */
-  overlayHadContent = false
-  /** @internal 宿主高亮区域（公式引用染色框等）：sky 浮层内容源之一，setHighlightRanges 写入 */
-  highlightRanges: readonly HighlightRange[] = []
-  /** @internal 选区锚点（编辑拾取会话中被编辑格保持的选区绘制）：sky 浮层内容源之一，setSelectionAnchor 写入 */
-  selectionAnchor: RangeBounds | null = null
-  private batchDepth = 0
-  private readonly batchRegions: Region[] = []
-  /** @internal 首次场景重建已完成；此后挂载的插件（table.use）由 mount 自行触发全量重建 */
-  sceneInitialized = false
-  /** @internal 已销毁（迟到结算的异步回写守卫；出图完成回写等） */
-  destroyed = false
-  /** @internal contextmenu 事件订阅 */
-  readonly contextMenuListeners = new Set<ContextMenuListener>()
-  /** @internal 链接悬停事件订阅（onCellLinkHover 注册） */
-  readonly cellLinkHoverListeners = new Set<CellLinkHoverListener>()
-  /** @internal 链接离开事件订阅（onCellLinkLeave 注册） */
-  readonly cellLinkLeaveListeners = new Set<CellLinkLeaveListener>()
-  /** @internal 链接单击事件订阅（onCellLinkClick 注册） */
-  readonly cellLinkClickListeners = new Set<CellLinkClickListener>()
-  /** @internal 图片链接单击事件订阅（onImageLinkClick 注册） */
-  readonly imageLinkClickListeners = new Set<ImageLinkClickListener>()
-  /**
-   * @internal 当前链接悬停格（pointer 光标与 hover/leave 事件的状态源）：
-   * 指针悬停命中的链接格坐标；null 未悬停链接。由交互层的悬停状态机维护。
-   */
-  linkHover: CellRef | null = null
-  /**
-   * @internal 按下命中的数据格（链接单击判定的 down 侧锚点）：正文数据格命中时定格，
-   * 早退路径（浮动对象/滚动条/越界/表头/手柄/填充柄）为 null；抬起侧同格且位移在
-   * 阈值内才派发链接点击（框选拖拽/键盘选中不触发）。
-   */
-  pointerDownCell: CellRef | null = null
-  private readonly scrollFrameListeners = new Set<ScrollFrameListener>()
-  /** 编辑提交事件订阅（col/row/oldValue/newValue） */
-  private readonly cellChangeListeners = new Set<(change: CellChangeEvent) => void>()
-  /** 编辑会话开始/结束事件订阅（编辑生命周期通知） */
-  private readonly editStartListeners = new Set<(event: EditStartEvent) => void>()
-  private readonly editEndListeners = new Set<(event: EditEndEvent) => void>()
-  /** @internal 列宽拖拽会话结束事件订阅（col/width） */
-  readonly colResizeEndListeners = new Set<(event: ColResizeEndEvent) => void>()
-  /** @internal 行高拖拽会话结束事件订阅（row/height） */
-  readonly rowResizeEndListeners = new Set<(event: RowResizeEndEvent) => void>()
-  /** @internal 填充柄按下事件订阅（携带柄所在选区段） */
-  readonly fillHandleDownListeners = new Set<FillHandleDownListener>()
-  /** @internal 填充柄拖拽结束事件订阅（锚定段范围 + 拖拽目标格范围） */
-  readonly fillDragEndListeners = new Set<FillDragEndListener>()
-  /** @internal 填充柄双击事件订阅（柄所在选区段；与拖拽结束互斥） */
-  readonly fillHandleDoubleClickListeners = new Set<FillHandleDoubleClickListener>()
-  /** @internal 填充柄拖拽会话：柄所在选区段 + 起点终点格（轴锁定）+ 边缘自动滚动状态（填充生成不在内核） */
-  fillDrag: FillDragState | null = null
-  /** @internal 上一次「点按柄」（无拖拽扩展的按下-抬起）的锚定段签名与时间（双击窗口判定用；拖拽扩展/双击成交即清零） */
-  lastFillHandleTap: { key: string; time: number } | null = null
-  /** @internal 本次按柄是否命中双击窗口（按下时判定，抬起时消费） */
-  fillHandleDoubleTap = false
-  /** 编辑状态唯一源：进入/提交/取消生命周期 */
-  readonly editManager: EditManager
-  /**
-   * 编辑拾取模式（宿主驱动，公式引用拾取用）：编辑中指针点选/拖选其它格不提交当前会话，
-   * 选区照常流动（宿主经 onSelectionChange 消费拾取段）；双击进编辑与填充柄在此模式下让位。
-   * 点在行列头带/空白仍遵循既有选区行为；置回 false 恢复「点别处即提交」的缺省语义。
-   */
-  editPickMode = false
-  /** 编辑器注册表（可编第一级判定与格级路由），可注入或事后注册 */
-  readonly editorRegistry: EditorRegistry
-  /** 编辑器浮层挂载容器（hostOptions.container）；缺省离屏不落 DOM */
-  private readonly container: HTMLElement | undefined
-  /**
-   * 光标写入容器：native 档 this.container 是 sticky 视口，spacer 的
-   * pointer-events:none 使其永不成为命中元素，style.cursor 无效；恒指宿主容器
-   * （真实命中元素的祖先，光标沿 CSS 继承生效）。canvas 档与 this.container 相同。
-   */
-  private readonly cursorContainer: HTMLElement | undefined
-  /** @internal 双击/双触检测：上一次落点（同格、时长与位移阈值内判定连击进编辑） */
-  lastTap: { col: number; row: number; x: number; y: number; time: number } | null = null
-  /** @internal pointerdown 落点（连击位移阈值判定用） */
-  pointerDownAt: { x: number; y: number } | null = null
-  /** @internal 挂在场景根上的事件退订（注入 host 共享场景树时销毁必须解绑） */
-  readonly eventUnsubscribers: Array<() => void> = []
-  /** 稳定引用：同帧内多次滚动只收敛出一次 onScrollFrame 广播 */
+
+  /** @internal 同帧多次滚动只收敛出一次 onScrollFrame 广播 */
   private readonly scrollFrameTask = () => {
     const state = this.scroll.state
-    for (const listener of this.scrollFrameListeners) {
+    for (const listener of this.interactionState.scrollFrameListeners) {
       listener(state)
     }
   }
-  /** 列级样式投影缓存：主题 token + 列级样式的合成按列缓存（updateTheme 换主题时整体清空） */
-  private readonly columnStyles = new Map<number, CellStyle>()
-  /**
-   * @internal 文本宽上界快路径的字符推进宽表（走廊判定免 measureText，P2）：
-   * 按 font 串缓存逐字符推进宽（测量经宿主测量画布，同精测口径），滚动帧建格/
-   * 走廊重标对已见字符零测量；随表实例生命周期，font 串为键无需失效。
-   */
-  readonly textAdvances: TextAdvanceTable
 
   constructor(public readonly options: ListTableOptions) {
     this.tableWidth = options.width
@@ -491,15 +234,11 @@ export class ListTable implements TableEngine {
     this.columns = options.columns
     this.overscanRows = Math.max(0, Math.floor(options.overscanRows ?? 0))
     this.overscanCols = Math.max(0, Math.floor(options.overscanCols ?? 0))
-    // 主题接入样式管线：几何与格样式默认取自主题，显式 options 优先
     this.theme = extendsTheme(options.theme)
-    // 滚动条配置归一化：'always' 档常驻可见，'scrolling'/'hover' 档初始静止隐藏（滚动/悬停显示）
-    this.scrollbarConfig = resolveScrollbarConfig(options.scrollbar)
-    this.scrollbarVisible = this.scrollbarConfig.visibility === 'always'
-    // 原生滚动条装配（mode 'native'）：宿主容器内建真实 DOM 滚动容器，滚动状态与
-    // ScrollManager 双向同步；注入 host 时层挂载自管（RenderHost 接口不变），不装配
-    this.nativeScrollbar =
-      this.scrollbarConfig.mode === 'native'
+
+    const scrollbarConfig = resolveScrollbarConfig(options.scrollbar)
+    const nativeScrollbar =
+      scrollbarConfig.mode === 'native'
         ? new NativeScrollbarHost({
             parent: options.host ? undefined : options.hostOptions?.container,
             width: this.width,
@@ -507,17 +246,16 @@ export class ListTable implements TableEngine {
             scroll: this.scroll,
           })
         : null
+
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
-    // 行列头开关（showRowHeader/showColHeader）构造期归一化为零宽/零高：
-    // 几何（视口/内容原点/冻结偏移/命中/编辑浮层定位）全部经既有 headerHeight/
-    // rowHeaderWidth 路径取值，归一化后关闭侧自动退化为表体原点，无需分支扩散
     this.headerHeight =
       options.showColHeader === false ? 0 : (options.headerHeight ?? this.theme.headerHeight)
     this.rowHeaderWidth =
       options.showRowHeader === false ? 0 : (options.rowHeaderWidth ?? this.theme.rowHeaderWidth)
+
     const defaultColWidth = options.defaultColWidth ?? this.theme.defaultColWidth
-    this.colWidths = this.columns.map((col) => col.width ?? defaultColWidth)
-    this.colOffsets = computeColOffsets(this.colWidths)
+    const colWidths = this.columns.map((col) => col.width ?? defaultColWidth)
+    const colOffsets = computeColOffsets(colWidths)
     this.pipeline = new CellValuePipeline({
       columns: options.columns,
       records: options.records,
@@ -525,19 +263,31 @@ export class ListTable implements TableEngine {
       resolveDisplayValue: options.resolveDisplayValue,
       rowCount: options.rowCount,
     })
-    this.rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, this.rowHeights)
-    // 冻结区域划分：冻结列固定于行号列右侧，冻结行固定于列头下侧
-    this.frozenColCount = clampFrozenCount(options.frozenColCount ?? 0, this.columns.length)
-    this.frozenRowCount = clampFrozenCount(options.frozenRowCount ?? 0, this.pipeline.rowCount)
-    this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
-    this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
-    // 批量数据入口宽容：重叠项保留先声明、丢弃冲突项并 console 提示（脏数据不打断构造）
+    const rowHeights = new Map<number, number>()
+    const rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, rowHeights)
+    const frozenColCount = clampFrozenCount(options.frozenColCount ?? 0, this.columns.length)
+    const frozenRowCount = clampFrozenCount(options.frozenRowCount ?? 0, this.pipeline.rowCount)
     const sanitizedMerges = sanitizeMerges(options.mergeCells)
     warnMergeConflicts(sanitizedMerges.conflicts, 'ListTable constructor')
-    this.mergeCells = new MergeCellMap(sanitizedMerges.ranges)
-    assertMergesWithinTable(this.mergeCells.ranges, this.columns.length, this.pipeline.rowCount)
+    const mergeCells = new MergeCellMap(sanitizedMerges.ranges)
+    assertMergesWithinTable(mergeCells.ranges, this.columns.length, this.pipeline.rowCount)
+
+    this.geometryState = {
+      colOffsets,
+      colWidths,
+      rowHeights,
+      rowOffsets,
+      frozenColCount,
+      frozenRowCount,
+      frozenColsWidth: colOffsets[frozenColCount] ?? 0,
+      frozenRowsHeight: rowOffsets[frozenRowCount] ?? 0,
+      mergeCells,
+      rows: { start: 0, end: 0 },
+      cols: { start: 0, end: 0 },
+      columnStyles: new Map<number, CellStyle>(),
+    }
+
     this.resolveDpr = options.resolveDevicePixelRatio ?? resolveHostDpr
-    // 文档源（无 DOM 环境注入缝）：options.doc 注入优先，缺省回落运行环境 globalThis.document
     const hostDoc =
       options.doc ?? (globalThis as { document?: CanvasDocSource | undefined }).document ?? null
     this.host =
@@ -545,42 +295,65 @@ export class ListTable implements TableEngine {
       createRenderHost({
         width: this.width,
         height: this.height,
-        // 缺省透传宿主环境 dpr（hostOptions.dpr 显式注入优先）：Retina 下不再 1× 被放大上屏
         dpr: this.resolveDpr(),
         ...options.hostOptions,
-        // canvas 创建经文档源（真实 Document 或无 DOM 替身）；hostOptions.createCanvas
-        // 显式注入仍优先（上面 spread 已写入，?? 不覆盖），两者都缺省回落宿主缺省实现
         createCanvas:
           options.hostOptions?.createCanvas ??
           (hostDoc ? () => hostDoc.createElement('canvas') : undefined),
-        // 原生模式层 canvas（与编辑浮层挂载点）挂滚动容器的 sticky 视口：坐标口径与画布层对齐
-        container: this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container,
-        // 原生模式事件源改绑宿主容器：spacer 关闭 pointer-events 后真实 hit-test 命中的
-        // 是 wrapper（viewport 的祖先而非自身），宿主焦点契约元素（tabIndex=-1 + 聚焦）
-        // 也是宿主容器自身——监听绑 sticky 视口两路都不可达（缺陷根因），上提到宿主容器
-        // 即真实传播路径（论证见 NativeScrollbarHost.eventsTarget）；坐标换算基准仍贴
-        // sticky 视口。canvas 档不注入（nativeScrollbar 为 null → 回落 hostOptions
-        // 透传值，与展开缺省取 container 的既有行为一致，零变化）
-        eventsTarget: this.nativeScrollbar?.eventsTarget ?? options.hostOptions?.eventsTarget,
+        container: nativeScrollbar?.viewportElement ?? options.hostOptions?.container,
+        eventsTarget: nativeScrollbar?.eventsTarget ?? options.hostOptions?.eventsTarget,
       })
-    // 出图 DPR 与显示层一致：显式 hostOptions.dpr 优先（resize 沿用，确定性场景锁 dpr
-    // 不被环境值覆盖），缺省取宿主环境值（resize 随宿主刷新）
     this.explicitHostDpr = options.hostOptions?.dpr
-    this.hostDpr = this.explicitHostDpr ?? this.resolveDpr()
+    const hostDpr = this.explicitHostDpr ?? this.resolveDpr()
     this.ownHost = !options.host
-    // 快路径字符推进宽经宿主测量画布逐字符首见测量（与精测同源），此后整表命中
-    this.textAdvances = new TextAdvanceTable((char, font) => this.host.measure(char, font).width)
-    this.body = this.host.createLayer({ kind: 'body', consumption: 'regions' })
-    this.sky = this.host.createLayer({ kind: 'sky', consumption: 'always-full' })
+
+    const body = this.host.createLayer({ kind: 'body', consumption: 'regions' })
+    body.root.hitTestChildren = false
+    body.root.pickable = true
+    body.root.width = this.width
+    body.root.height = this.height
+    const sky = this.host.createLayer({ kind: 'sky', consumption: 'always-full' })
+    sky.root.hitTestChildren = false
+
+    this.sceneState = {
+      body,
+      sky,
+      ground: null,
+      media: null,
+      groups: null,
+      mediaGroups: null,
+      cellNodes: new Map(),
+      colHeaderNodes: new Map(),
+      rowHeaderNodes: new Map(),
+      cornerNode: null,
+      frameNode: null,
+      headerGroup: null,
+      underlayNode: null,
+      painters: new PainterRegistry(),
+      underlayPaintersNode: null,
+      overlayPaintersNode: null,
+      sceneInitialized: false,
+      textAdvances: new TextAdvanceTable((char, font) => this.host.measure(char, font).width),
+      batchDepth: 0,
+      batchRegions: [],
+    }
+
     this.imageService = new ImageService(options.imageServiceOptions)
-    // 图片加载完成 → 引用它的可见格定向失效（替代整层重绘，同帧多图由失效队列收敛合并）
     this.imageService.onImageLoad((e) => onImageServiceLoad(this, e))
-    this.inertia = new InertiaScroller(
+    this.mediaState = {
+      mediaCache: new MediaCache<LoadedImage>(),
+      imageCellNodes: new Map(),
+      chartCellNodes: new Map(),
+      chartRenderTasks: new Map(),
+      hostDpr,
+    }
+
+    const inertia = new InertiaScroller(
       (dx, dy) => this.scroll.scrollBy(dx, dy),
       (task) => this.host.requestFrame(task),
     )
-    this.overlay = new InteractionOverlay(
-      this.sky.root,
+    const overlay = new InteractionOverlay(
+      sky.root,
       {
         cellRect: (col, row) => cellRectInViewport(this, col, row),
         bodyViewport: () => this.bodyViewport,
@@ -588,19 +361,72 @@ export class ListTable implements TableEngine {
       },
       this.theme.interaction,
     )
-    // 滚动位置定义在可滚动内容（总内容扣除冻结区）上
+
+    this.interactionState = {
+      selection: new SelectionState(),
+      overlay,
+      touchTracker: new TouchScrollTracker(),
+      inertia,
+      resizeSession: null,
+      resizeLine: null,
+      scrollbarDrag: null,
+      scrollbarConfig,
+      nativeScrollbar,
+      scrollbarVisible: scrollbarConfig.visibility === 'always',
+      scrollbarHover: null,
+      scrollbarHideTimer: null,
+      pointerSessionRelease: null,
+      selecting: false,
+      dragAnchor: null,
+      headerDrag: null,
+      headerHighlightSignature: '',
+      overlayHadContent: false,
+      highlightRanges: [],
+      selectionAnchor: null,
+      fillDrag: null,
+      lastFillHandleTap: null,
+      fillHandleDoubleTap: false,
+      linkHover: null,
+      pointerDownCell: null,
+      pointerDownColHeader: null,
+      lastTap: null,
+      pointerDownAt: null,
+      editPickMode: false,
+      eventUnsubscribers: [],
+      contextMenuListeners: new Set(),
+      cellLinkHoverListeners: new Set(),
+      cellLinkLeaveListeners: new Set(),
+      cellLinkClickListeners: new Set(),
+      imageLinkClickListeners: new Set(),
+      scrollFrameListeners: new Set(),
+      cellChangeListeners: new Set(),
+      editStartListeners: new Set(),
+      editEndListeners: new Set(),
+      colResizeEndListeners: new Set(),
+      rowResizeEndListeners: new Set(),
+      fillHandleDownListeners: new Set(),
+      fillDragEndListeners: new Set(),
+      fillHandleDoubleClickListeners: new Set(),
+      colHeaderClickListeners: new Set(),
+    }
+
+    this.capabilities = {
+      gridRead: this,
+      gridData: this,
+      writableGridData: this,
+    }
+    this.pluginHost = new PluginHost(this)
+
     this.scroll.setViewportSize(
-      this.viewportWidth - this.frozenColsWidth,
-      this.viewportHeight - this.frozenRowsHeight,
+      this.viewportWidth - this.geometryState.frozenColsWidth,
+      this.viewportHeight - this.geometryState.frozenRowsHeight,
     )
     this.scroll.setContentSize(
-      this.contentWidth - this.frozenColsWidth,
-      this.contentHeight - this.frozenRowsHeight,
+      this.contentWidth - this.geometryState.frozenColsWidth,
+      this.contentHeight - this.geometryState.frozenRowsHeight,
     )
-    // 原生容器滚动范围与初始滚动边界对齐（spacer 撑出 maxLeft/maxTop 同构范围）
-    this.nativeScrollbar?.updateScrollRange()
+    nativeScrollbar?.updateScrollRange()
     this.scroll.onScroll((_state, delta) => this.onScroll(delta))
-    // 图片加载窗口先就位：首帧窗口外请求不发起
     updateImageWindow(this)
     if (options.model) {
       this.binding = new ModelBinding(options.model, (change) =>
@@ -608,18 +434,10 @@ export class ListTable implements TableEngine {
       )
       this.binding.attach()
     }
-    // 原生模式编辑浮层/光标/指针换算容器随层挂载点（sticky 视口，坐标与画布层对齐）
-    this.container = this.nativeScrollbar?.viewportElement ?? options.hostOptions?.container
-    // 光标写入恒指宿主容器（native 档 sticky 视口不命中光标）；canvas 档与
-    // this.container 相同（此时两者同为 hostOptions.container），行为零变化
+
+    this.container = nativeScrollbar?.viewportElement ?? options.hostOptions?.container
     this.cursorContainer = options.hostOptions?.container ?? this.container
-    // 焦点回落目标：原生档为宿主容器——宿主焦点契约元素（tabIndex=-1 + 聚焦，见
-    // packages/sheet/src/grid/sheet-grid.ts 的 bindFocus）即事件源监听元素自身，编辑
-    // 提交/取消后键盘续可达；sticky 视口无 tabIndex 不可聚焦，回落它 focus() 静默
-    // 无效。canvas 档回落 this.container（即宿主容器），与既有行为一致零变化。
-    const restoreFocusTarget = this.nativeScrollbar
-      ? options.hostOptions?.container
-      : this.container
+    const restoreFocusTarget = nativeScrollbar ? options.hostOptions?.container : this.container
     this.editorRegistry = options.editorRegistry ?? new EditorRegistry()
     this.editManager = new EditManager({
       columns: options.columns,
@@ -632,198 +450,170 @@ export class ListTable implements TableEngine {
       },
       resolveValue: (col, row) => this.pipeline.resolveValue(col, row),
       cellFont: (col, row) => cellStyleFont(this.resolveStyle(col, row)),
-      // 合并感知锚定 + opt-in 边框内缩：编辑合并区（主格）时浮层跨满整块包围盒，
-      // editorInsideBorder 开启后浮层落在四周可视边框内侧（格边框编辑期可见）
       cellRect: (col, row) => editorCellRect(this, col, row),
       refreshCell: (col, row) => this.refreshCell(col, row),
       emitChange: (change) => {
-        for (const listener of this.cellChangeListeners) {
+        for (const listener of this.interactionState.cellChangeListeners) {
           listener(change)
         }
       },
       emitStart: (event) => {
-        // 编辑中锚定格内容隐藏（DOM 浮层取代内容渲染，溢出部分一并隐去）
         this.setCellContentHidden(event.col, event.row, true)
-        for (const listener of this.editStartListeners) {
+        for (const listener of this.interactionState.editStartListeners) {
           listener(event)
         }
       },
       emitEnd: (event) => {
-        // 会话结束恢复内容渲染（提交路径的 refreshCell 与本次失效同帧收敛）
         this.setCellContentHidden(event.col, event.row, false)
-        for (const listener of this.editEndListeners) {
+        for (const listener of this.interactionState.editEndListeners) {
           listener(event)
         }
       },
       moveSelection: (col, row, move) => this.moveSelectionAfterCommit(col, row, move),
       restoreFocus: () => restoreFocusTarget?.focus(),
-      // 失焦终止策略按当前拾取模式动态判定：公式引用拾取会话失焦不终止（宿主互锁），
-      // 其余情况焦点移出画布即按提交语义结束会话（emitEnd 接线恢复 contentHidden）
-      resolveEditorBlur: () => (this.editPickMode ? 'ignore' : 'commit'),
-      // 真实容器运行时满足最小宿主结构（编辑器元素本就是真 Node）
+      resolveEditorBlur: () => (this.interactionState.editPickMode ? 'ignore' : 'commit'),
+      container: this.container,
       host: this.container as TextEditorHost | undefined,
-      // 滚动帧驱动编辑跟随：浮层逐帧对齐锚定格，滚出视口自动提交
       subscribeScrollFrame: (listener) => this.onScrollFrame(listener),
     })
+
     bindInteractionEvents(this)
-    // 插件先于首次场景重建挂载：图表格路由等渲染接线参与首帧（构造期注册经此路径生效）
     for (const plugin of options.plugins ?? []) {
       this.use(plugin)
     }
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
-    this.sceneInitialized = true
-    // 首帧浮层内容装配（预留轨道条带等构造期即有内容；空浮层零失效提交）
+    this.sceneState.sceneInitialized = true
     refreshOverlay(this)
   }
 
-  /** 当前生效主题（基于默认主题 extends 派生） */
+  /** 当前生效主题 */
   getTheme(): TableTheme {
     return this.theme
   }
 
-  /**
-   * 运行时更新主题：以当前生效主题为 base 按 extendsTheme 深覆盖合并（未给的键
-   * 继承现值，可多次调用累积覆盖），随后重建场景、提交 body 层 full 失效并刷新
-   * 交互浮层——宿主无需再调任何刷新 API。不触碰滚动位置、选区、冻结等运行时状态；
-   * rowHeight/headerHeight/rowHeaderWidth/defaultColWidth 等几何 token 的已生效值
-   * 不重算（运行时改行列尺寸走 setRowHeight/setColWidth 专用路径）。
-   */
+  /** 运行时深覆盖更新主题 */
   updateTheme(override: ThemeOverride): void {
     this.theme = extendsTheme(override, this.theme)
-    // 主题 token 变化使列级样式投影缓存全部失效（缓存按旧主题 token 合成），整体清空重建
-    this.columnStyles.clear()
-    // 浮层换读新 interaction token（不残留构造期旧对象引用），sky 重绘随 refreshOverlay 提交
-    this.overlay.updateTheme(this.theme.interaction)
-    // 滚动条轨道 token（scrollbarSize）影响预留条带与视口口径：滚动边界随新 token 重算
+    this.geometryState.columnStyles.clear()
+    this.interactionState.overlay.updateTheme(this.theme.interaction)
     this.scroll.setViewportSize(
-      this.viewportWidth - this.frozenColsWidth,
-      this.viewportHeight - this.frozenRowsHeight,
+      this.viewportWidth - this.geometryState.frozenColsWidth,
+      this.viewportHeight - this.geometryState.frozenRowsHeight,
     )
     this.scroll.setContentSize(
-      this.contentWidth - this.frozenColsWidth,
-      this.contentHeight - this.frozenRowsHeight,
+      this.contentWidth - this.geometryState.frozenColsWidth,
+      this.contentHeight - this.geometryState.frozenRowsHeight,
     )
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
     refreshOverlay(this)
   }
 
-  /** 插件统一注册路径：注册即挂载生效，销毁时逆序卸载 */
-  use(plugin: EnginePlugin): void {
-    this.plugins.push(plugin)
-    plugin.mount(this)
-  }
-
-  /**
-   * ground 层（L0）绘制预留位（水印等 underlay 内容的引擎挂点，chart 插件
-   * chartMediaResolver 同风格的「写引擎预留位」先例）：写入 painter 后层惰性创建、
-   * painter 委托绘制；传 null 移除承载节点并清空绘制面（还原空置预留层）。
-   * painter 变更触发 ground 整层失效，下一帧重绘生效。四层叠放语义不变：ground
-   * 恒在最底（建层按层序插入 DOM），滚动 band 失效与位图 blit 均不波及本层，
-   * painter 以视口尺寸绘制、内容锚定视口不随滚动平移。
-   */
-  setUnderlayPainter(painter: UnderlayPainter | null): void {
-    if (painter) {
-      this.ground ??= this.host.createLayer({ kind: 'ground', consumption: 'band-full-only' })
-      if (this.underlayPainterNode) {
-        this.underlayPainterNode.painter = painter
-      } else {
-        this.underlayPainterNode = new GroundPainterNode(painter)
-        this.underlayPainterNode.width = this.width
-        this.underlayPainterNode.height = this.height
-        this.ground.root.appendChild(this.underlayPainterNode)
+  /** 注册整层绘制器（underlay / overlay 槽位）；返回幂等注销函数 */
+  registerPainter(registration: PainterRegistration): () => void {
+    const { painters } = this.sceneState
+    const unregister = painters.register(registration)
+    this.syncPainterSlot(registration.slot)
+    let disposed = false
+    return () => {
+      if (disposed) {
+        return
       }
-    } else if (this.underlayPainterNode) {
-      // 还原：摘除承载节点 + 整层失效清屏（层句柄幂等留存，后续写入复用）
-      this.underlayPainterNode.removeFromParent()
-      this.underlayPainterNode = null
-    }
-    if (this.ground) {
-      this.host.submitInvalidation('ground', { type: 'full' })
-    }
-  }
-
-  /**
-   * 顶层 overlay 绘制预留位（与 setUnderlayPainter 完全对称的引擎挂点，水印等
-   * 覆盖在表格内容之上的绘制方使用）：写入 painter 后承载节点挂 sky 层（现有
-   * canvas 层结构最上层）最顶——不新增 canvas 层、四层叠放结构不变，任意主题
-   * body 底色（含不透明缺省白）都不遮挡 overlay 内容。painter 变更触发 sky 整层
-   * 失效，下一帧重绘生效；传 null 移除承载节点并清空绘制面（还原空置预留位），
-   * 状态未变的空写不提交失效。节点不可命中（pointer 事件透传，sky 层事件语义
-   * 不受影响）；滚动 band 失效不波及（只落 body/media），painter 以视口尺寸绘制、
-   * 内容锚定视口不随滚动平移，resize 时视口尺寸同步。内容之下的水印等场景用
-   * setUnderlayPainter（ground 层恒在最底，被 body 底色遮挡需宿主透明底配合，
-   * 两者用途差异见 docs/plugin-interface-map.md）。
-   */
-  setOverlayPainter(painter: OverlayPainter | null): void {
-    let changed = false
-    if (painter) {
-      if (this.overlayPainterNode) {
-        this.overlayPainterNode.painter = painter
-      } else {
-        this.overlayPainterNode = new OverlayPainterNode(painter)
-        this.overlayPainterNode.width = this.width
-        this.overlayPainterNode.height = this.height
-        // 层内挂最顶：sky root 末子节点（选区浮层/浮动对象之上）
-        this.sky.root.appendChild(this.overlayPainterNode)
-        // 滚动条重新置顶：水印在选区/浮动对象之上，滚动条在水印之上
-        this.overlay.raiseToTop()
+      disposed = true
+      const before = painters.getPainters(registration.slot)
+      unregister()
+      if (painters.getPainters(registration.slot) === before) {
+        return
       }
-      changed = true
-    } else if (this.overlayPainterNode) {
-      // 还原：摘除承载节点 + 整层失效清屏（层句柄常在，后续写入方重建节点复用）
-      this.overlayPainterNode.removeFromParent()
-      this.overlayPainterNode = null
-      changed = true
-    }
-    if (changed) {
-      this.host.submitInvalidation('sky', { type: 'full' })
+      this.syncPainterSlot(registration.slot)
     }
   }
 
-  /**
-   * 浮动对象层（格上图片/图表）：承载容器挂在 sky 层最顶（在选区浮层之上）。
-   * 锚点经 resolveCellX/resolveCellYFromOffsets 换算层坐标（含冻结与滚动偏移），
-   * 滚动时 syncPositions 帧级跟随；行高/列宽 resize 提交后 recalcGeometry 随新行列尺寸重算。
-   * 绘制裁剪在 body 视口内（视口随容器 resize 经 setBodyViewport 更新）：滚动跟随平移进
-   * 表头带的部分不画，行列头保持在浮动对象之上不被盖住。
-   * 交互：命中由指针路由优先接管（list-table-interaction），点选选中、拖拽结束经
-   * onDragEnd 抛落点换算的新锚点，宿主写回模型；只读（isReadonly）不启用拖拽。
-   * 变换（univer Transformer 思路）：选中对象画 8 缩放手柄 + 顶部旋转手柄（随
-   * rotation 旋转），拖拽缩放/旋转只改渲染态，结束经 onTransformEnd 抛
-   * { id, anchor, size, rotation } 由宿主写回；FloatObject.rotation 控制渲染旋转角。
-   */
+  private syncPainterSlot(slot: PainterSlot): void {
+    const { sceneState, interactionState } = this
+    const { painters } = sceneState
+    const hasPainters = painters.has(slot)
+    if (slot === 'underlay') {
+      if (hasPainters) {
+        const ground = (sceneState.ground ??= this.host.createLayer({
+          kind: 'ground',
+          consumption: 'band-full-only',
+        }))
+        ground.root.hitTestChildren = false
+        if (!sceneState.underlayPaintersNode) {
+          const node = new GroundPaintersNode(painters)
+          node.width = this.width
+          node.height = this.height
+          ground.root.appendChild(node)
+          sceneState.underlayPaintersNode = node
+        }
+      } else if (sceneState.underlayPaintersNode) {
+        sceneState.underlayPaintersNode.removeFromParent()
+        sceneState.underlayPaintersNode = null
+      }
+      if (sceneState.ground) {
+        this.host.submitInvalidation('ground', { type: 'full' })
+      }
+      return
+    }
+
+    if (hasPainters) {
+      if (!sceneState.overlayPaintersNode) {
+        const node = new OverlayPaintersNode(painters)
+        node.width = this.width
+        node.height = this.height
+        sceneState.sky.root.appendChild(node)
+        interactionState.overlay.raiseToTop()
+        sceneState.overlayPaintersNode = node
+      }
+    } else if (sceneState.overlayPaintersNode) {
+      sceneState.overlayPaintersNode.removeFromParent()
+      sceneState.overlayPaintersNode = null
+    }
+    this.host.submitInvalidation('sky', { type: 'full' })
+  }
+
+  /** 注册插件并立即挂载；返回卸载函数 */
+  use(plugin: EnginePlugin): () => void {
+    return this.pluginHost.use(plugin)
+  }
+
+  /** 卸载已注册插件（按实例或插件名） */
+  unuse(plugin: EnginePlugin | string): void {
+    this.pluginHost.unuse(plugin)
+  }
+
+  /** 浮动对象层（格上图片/图表；惰性创建） */
   get floatObjects(): FloatObjectLayer {
     if (!this.floatLayer) {
+      const { geometryState, interactionState, sceneState } = this
       this.floatLayer = new FloatObjectLayer({
-        layer: this.sky,
+        layer: sceneState.sky,
         geometry: {
           cellOrigin: (col, row) => ({
             x: resolveCellX(
               col,
               this.scroll.state.left,
-              this.colOffsets,
-              this.frozenColCount,
+              geometryState.colOffsets,
+              geometryState.frozenColCount,
               this.rowHeaderWidth,
             ),
             y: resolveCellYFromOffsets(
               row,
               this.scroll.state.top,
-              this.rowOffsets,
-              this.frozenRowCount,
+              geometryState.rowOffsets,
+              geometryState.frozenRowCount,
               this.headerHeight,
             ),
           }),
           cellSize: (col, row) => ({ width: this.getColWidth(col), height: this.rowHeightAt(row) }),
-          // 拖拽落点换算：视口点 → 数据格（行列头带/空白 null → 回弹），与选区命中同一口径
           cellAtPoint: (x, y) => cellAt(this, x, y),
         },
         imageService: this.imageService,
         bodyViewport: this.bodyViewport,
       })
-      // 滚动条重新置顶：浮动对象层构造时后挂容器（层内绘制最顶），不得盖住滚动条
-      this.overlay.raiseToTop()
+      interactionState.overlay.raiseToTop()
     }
     return this.floatLayer
   }
@@ -832,19 +622,12 @@ export class ListTable implements TableEngine {
     return this.scroll.state
   }
 
-  /**
-   * 当前滚动条是否为原生模式（options.scrollbar 配置 mode: 'native' 启用，只读判定）。
-   * 宿主既有滚轮接线（playground attachWheel、SheetGrid bindWheel 等自行把 wheel
-   * 转 scrollBy 的路径）据此跳过：原生模式下滚轮/触控板由滚动容器原生处理，
-   * 双接线会造成双滚。
-   */
   get usesNativeScrollbar(): boolean {
-    return this.nativeScrollbar !== null
+    return this.interactionState.nativeScrollbar !== null
   }
 
-  /** 当前可视窗口（[start, end) 行列区间，不含冻结区——冻结行列始终可见） */
   getVisibleRange(): { rows: WindowRange; cols: WindowRange } {
-    return { rows: this.rows, cols: this.cols }
+    return { rows: this.geometryState.rows, cols: this.geometryState.cols }
   }
 
   scrollTo(left: number, top: number): void {
@@ -855,88 +638,67 @@ export class ListTable implements TableEngine {
     this.scroll.scrollBy(dx, dy)
   }
 
-  /** 单元格最终显示文本（经取值管线，同步 O(1)）；被合并覆盖的格取主格文本 */
+  /** 单元格最终显示文本（合并区路由主格） */
   getCellText(col: number, row: number): string {
-    const master = this.mergeCells.masterOf(col, row)
+    const master = this.geometryState.mergeCells.masterOf(col, row)
     return this.pipeline.resolveText(master?.col ?? col, master?.row ?? row)
   }
 
-  /**
-   * 单元格原始值（数据面口径，未经显示链；协议数据面与导出读取面共用）：
-   * 合并区路由主格，与 getCellText 同一取值口径。
-   */
+  /** 单元格原始值（合并区路由主格） */
   getCellValue(col: number, row: number): unknown {
-    const master = this.mergeCells.masterOf(col, row)
+    const master = this.geometryState.mergeCells.masterOf(col, row)
     return this.pipeline.resolveValue(master?.col ?? col, master?.row ?? row)
   }
 
-  /**
-   * 有效格样式（主题分区 token → 列级 → 链接默认外观 → 按格 hook 的投影链产物，
-   * G7/G9：样式解析链经公共面可达）；合并区路由主格。
-   */
+  /** 有效格样式（合并区路由主格） */
   getCellStyle(col: number, row: number): CellStyle {
-    const master = this.mergeCells.masterOf(col, row)
+    const master = this.geometryState.mergeCells.masterOf(col, row)
     return this.resolveStyle(master?.col ?? col, master?.row ?? row)
   }
 
-  /** 合并区集合（闭区间几何语言；导出读取面 G12-G15 供数，返回当前集合引用） */
-  getMergeRanges(): readonly CellRange[] {
-    return this.mergeCells.ranges
+  /** 单元格图片资源引用（合并区路由主格） */
+  getCellImage(col: number, row: number): string | null | undefined {
+    const master = this.geometryState.mergeCells.masterOf(col, row)
+    return this.options.resolveCellImage?.(master?.col ?? col, master?.row ?? row)
   }
 
-  /**
-   * 引擎导出读取面（协议可选能力，table 引擎恒提供）：组合本类公共读取方法，
-   * 导出类插件（print 等）经 `engine.read` 读取有效数据 / 样式 / 几何 / 合并区，
-   * 不触碰引擎具体类型。
-   */
-  get read(): EngineReadView {
+  /** 合并区集合 */
+  getMergeRanges(): readonly CellRange[] {
+    return this.geometryState.mergeCells.ranges
+  }
+
+  /** 引擎只读视图（与 capabilities.gridRead 同源） */
+  get read(): GridReadView {
     return this
   }
 
-  /**
-   * 表格回驱模型：回环窗口内模型同步 echo 的变更格（含同步重算的派生格）
-   * 收集去重后统一逐格局部刷新；被编辑格的显式刷新与收集结果合并去重，每格恰好刷一次。
-   */
+  /** 表格回驱模型 */
   updateCell(col: number, row: number, value: unknown): void {
     if (!this.binding) {
       return
     }
     const echoed = this.binding.writeBack(col, row, value)
-    // 先刷收集的派生格，再显式刷被编辑格：走廊计算读到的是已更新的邻居节点
     this.refreshEchoedCells(echoed, col, row)
     this.refreshCell(col, row)
   }
 
-  /**
-   * 局部刷新单格：被合并覆盖的坐标路由到主格节点；窗口内则更新节点内容、
-   * 重投影样式并登记 cell 失效（合并区失效为主格包围盒），窗外走窗缘反查联动
-   * （补建/收敛窗外溢出源，见 refreshOffWindowOverflowSource）；
-   * 失效区并入溢出走廊：旧走廊防文字变短残影、新走廊补画；本格变空时向两侧扩到
-   * 最近溢出来源格（左邻右溢/居中源、右邻左溢/居中源），让它们的走廊收敛或延伸；
-   * 节点获得溢出能力时重挂树尾（z 序不变量：溢出源后画于同条带走廊节点）；
-   * 批量更新（batchUpdate）期间失效区域改为收集，批末合并为一次 band 提交
-   */
+  /** 局部刷新单格 */
   refreshCell(col: number, row: number): void {
-    const master = this.mergeCells.masterOf(col, row)
+    const { geometryState, sceneState } = this
+    const master = geometryState.mergeCells.masterOf(col, row)
     const masterCol = master?.col ?? col
     const masterRow = master?.row ?? row
-    const node = this.cellNodes.get(cellKey(masterCol, masterRow))
+    const node = sceneState.cellNodes.get(cellKey(masterCol, masterRow))
     if (!node) {
-      // 窗外溢出源联动（P1 窗缘反查）：修改的格是窗外活跃溢出源（走廊伸入窗内）时
-      // 补建节点，新文本的窗内走廊段即时上屏；其余窗外格无场景节点可刷
-      // （批量写的绝大多数落在窗口外，反查一次即收束）。
       this.refreshOffWindowOverflowSource(masterCol, masterRow)
       return
     }
     const prevBorder = node.style.border
     this.refreshCellNodeContents(node, masterCol, masterRow)
-    // 共享边联动（shared-edges.ts）：本格 left/top 边改变左/上邻居（共享边所有者）的生效边。
-    // 样式按不可变约定使用，边框引用未变则邻居生效边不变、跳过联动；
-    // 联动刷新自身不再级联（各邻居生效边只依赖其自身样式与本格对侧边），无循环。
     if (node.style.border === prevBorder) {
       return
     }
-    const range = this.mergeCells.rangeAt(masterCol, masterRow)
+    const range = geometryState.mergeCells.rangeAt(masterCol, masterRow)
     const startCol = range?.startCol ?? masterCol
     const startRow = range?.startRow ?? masterRow
     if (startCol > 0) {
@@ -947,40 +709,34 @@ export class ListTable implements TableEngine {
     }
   }
 
-  /** refreshCell 的单格实现（不级联邻居；共享边联动的邻居刷新也走这里） */
   private refreshCellNode(col: number, row: number): void {
-    const master = this.mergeCells.masterOf(col, row)
+    const master = this.geometryState.mergeCells.masterOf(col, row)
     const masterCol = master?.col ?? col
     const masterRow = master?.row ?? row
-    const node = this.cellNodes.get(cellKey(masterCol, masterRow))
+    const node = this.sceneState.cellNodes.get(cellKey(masterCol, masterRow))
     if (!node) {
       return
     }
     this.refreshCellNodeContents(node, masterCol, masterRow)
   }
 
-  /**
-   * 节点内容刷新主体（节点已解析出）：图片格联动、内容/样式/生效边框重投影、
-   * 溢出走廊重算与两侧来源联动、失效区提交（批量更新期间改为收集）。
-   */
   private refreshCellNodeContents(node: CellNode, masterCol: number, masterRow: number): void {
+    const { sceneState, geometryState } = this
     refreshImageCell(this, masterCol, masterRow)
     refreshChartCell(this, masterCol, masterRow)
     const prevMaxX = node.textMaxX
     const prevMinX = node.textMinX
     const prevHasText = node.text !== ''
-    // 图片/图表格：body 节点只画背景/边框（文本留空），与 appendCell 装配口径一致
-    // （同格双声明时图片优先，图表让位——两通道互斥，宿主不应同时声明）
     const imageUrl = this.options.resolveCellImage?.(masterCol, masterRow)
-    const chartMedia = imageUrl ? null : (this.chartMediaResolver?.(masterCol, masterRow) ?? null)
+    const chartMedia = imageUrl
+      ? null
+      : (this.options.resolveCellChart?.(masterCol, masterRow) ?? null)
     node.setContent(
       imageUrl || chartMedia ? '' : this.pipeline.resolveText(masterCol, masterRow),
       this.pipeline.resolveValue(masterCol, masterRow),
     )
     node.style = this.resolveStyle(masterCol, masterRow)
-    // 生效边框随样式重算（共享边裁决：本格 right/bottom 与右/下邻居对侧边取强）
     node.border = effectiveBorder(this, masterCol, masterRow, node.style)
-    // 边框联动图片格：绘制内缩随新边框同步（media 层画在 body 之上，不内缩盖边框）
     syncImageCellInset(this, masterCol, masterRow)
     node.renderer = this.options.resolveCellRenderer?.(masterCol, masterRow) ?? null
     const limits = textOverflowLimits(
@@ -993,9 +749,6 @@ export class ListTable implements TableEngine {
     )
     node.textMaxX = limits === null ? node.width : limits.maxX - node.x
     node.textMinX = limits === null ? 0 : limits.minX - node.x
-    // 走廊伸缩即竖线跳画范围变化（P3）：本格走廊变化或两侧来源走廊联动变化时，
-    // 整行重标走廊内部标记（先清后标，与全量重建同口径）；标记不随 contentHidden
-    // 变化（走廊扫描只看取值与样式，隐藏/恢复前后标记与全量重建一致）
     let corridorChanged = node.textMaxX !== prevMaxX || node.textMinX !== prevMinX
     let builtOffWindowSource = false
     const regions: Region[] = [node.getGlobalBounds()]
@@ -1004,13 +757,10 @@ export class ListTable implements TableEngine {
     }
     if (node.textMaxX > node.width || node.textMinX < 0) {
       regions.push(overflowExtentRegion(node, node.textMinX, node.textMaxX))
-      // z 序不变量：源格后画于同条带全部走廊节点（左溢走廊在源格左侧，降序建格
-      // 的行内次序会让走廊格画在源文本之上）
-      this.remountOverflowSourceNode(node)
     }
-    // 两侧溢出来源联动：本格变空（左邻右溢/居中源穿过本格、右邻左溢/居中源伸回本格）、
-    // 变非空（来源格走廊收回）、保持为空（本格重绘会擦掉来源格经过本格的文本）时，
-    // 重算来源格走廊并并入其新旧溢出区
+    // 溢出状态变化时在 scrollableGroup <-> scrollableOverflowGroup / frozenGroup <-> frozenOverflowGroup 间迁移并维护行内排序
+    syncCellGroupAndOverflowOrder(this, node, masterCol, masterRow)
+
     if (!node.text || prevHasText !== (node.text !== '')) {
       for (const sourceCol of [
         overflowSourceCol(this, masterCol, masterRow),
@@ -1019,19 +769,15 @@ export class ListTable implements TableEngine {
         if (sourceCol === null) {
           continue
         }
-        let sourceNode = this.cellNodes.get(cellKey(sourceCol, masterRow))
+        let sourceNode = sceneState.cellNodes.get(cellKey(sourceCol, masterRow))
         if (!sourceNode) {
-          // 窗外溢出源联动（P1 窗缘反查）：来源格在窗外且其走廊伸入窗内（本格正是
-          // 其窗内走廊格/阻断格）时补建源节点，窗内走廊段文本与本格变化同帧收敛；
-          // 反查未命中（走廊够不到窗内）维持既有跳过
-          const side = sourceCol < this.cols.start ? 'left' : 'right'
+          const side = sourceCol < geometryState.cols.start ? 'left' : 'right'
           const resolved = resolveOffWindowOverflowSource(this, masterRow, side)
           if (resolved !== null && resolved.col === sourceCol && resolved.node === null) {
             appendCell(this, sourceCol, masterRow, this.scroll.state.left, this.scroll.state.top)
-            sourceNode = this.cellNodes.get(cellKey(sourceCol, masterRow))
+            sourceNode = sceneState.cellNodes.get(cellKey(sourceCol, masterRow))
             if (sourceNode) {
               builtOffWindowSource = true
-              // 补建即上屏：失效区覆盖其窗内走廊段（节点自身包围盒在窗外不产生可见变化）
               regions.push(
                 overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX),
               )
@@ -1059,55 +805,33 @@ export class ListTable implements TableEngine {
           regions.push(overflowExtentRegion(sourceNode, sourceOldMinX, sourceOldMaxX))
           regions.push(overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX))
         }
-        if (sourceNode.textMaxX > sourceNode.width || sourceNode.textMinX < 0) {
-          // 来源格获得/保持溢出：重挂树尾保证其走廊文本画在走廊格之上
-          this.remountOverflowSourceNode(sourceNode)
-        }
+        syncCellGroupAndOverflowOrder(this, sourceNode, sourceCol, masterRow)
       }
     }
     if (corridorChanged || builtOffWindowSource) {
       markRowCorridorInterior(this, masterRow, dataColBands(this))
     }
     const region = unionRegions(regions) ?? regions[0]!
-    if (this.batchDepth > 0) {
-      this.batchRegions.push(region)
+    if (sceneState.batchDepth > 0) {
+      sceneState.batchRegions.push(region)
       return
     }
     this.host.submitInvalidation('body', { type: 'region', region })
   }
 
-  /** 溢出源节点重挂树尾（z 序不变量：源格后画于同条带全部走廊节点）；表头容器与外框随后重挂保持最上 */
-  private remountOverflowSourceNode(node: CellNode): void {
-    this.body.root.removeChild(node)
-    this.body.root.appendChild(node)
-    if (this.headerGroup) {
-      this.body.root.appendChild(this.headerGroup)
-    }
-    if (this.frameNode) {
-      this.body.root.appendChild(this.frameNode)
-    }
-  }
-
-  /**
-   * 窗外溢出源的补建刷新（refreshCell 的窗外分支，P1 窗缘反查）：目标格命中窗缘
-   * 反查候选且尚未建节点时按装配路径补建，随新文本提交其窗内走廊段失效并重标走廊
-   * 内部标记；此外写入/清空的窗外格截断或放开已保留窗外源的走廊时（返工 B3），重算
-   * 其走廊并提交新旧溢出区失效。反查未命中（走廊够不到窗内或格本身不溢出）则维持
-   * 「窗外无节点可刷」。
-   */
   private refreshOffWindowOverflowSource(col: number, row: number): void {
+    const { sceneState } = this
     for (const side of ['left', 'right'] as const) {
       const resolved = resolveOffWindowOverflowSource(this, row, side)
       if (resolved === null || resolved.col !== col || resolved.node !== null) {
         continue
       }
       appendCell(this, col, row, this.scroll.state.left, this.scroll.state.top)
-      const built = this.cellNodes.get(cellKey(col, row))
+      const built = sceneState.cellNodes.get(cellKey(col, row))
       if (!built) {
         continue
       }
-      // z 序不变量：源后画于走廊格（表头容器与外框随之重挂树尾）
-      this.remountOverflowSourceNode(built)
+      syncCellGroupAndOverflowOrder(this, built, col, row)
       markRowCorridorInterior(this, row, dataColBands(this))
       this.submitOffWindowRegion(overflowExtentRegion(built, built.textMinX, built.textMaxX))
       break
@@ -1115,23 +839,20 @@ export class ListTable implements TableEngine {
     this.convergeRetainedOffWindowSource(col, row)
   }
 
-  /**
-   * 已保留窗外源的走廊收敛（refreshCell 窗外分支，返工 B3）：写入/清空的窗外格自身
-   * 无节点，但它是两侧最近非空格溢出走廊的覆盖段或阻断格——候选来源格在窗外且带
-   * 保留节点（keep-alive 的窗外源）时重算其走廊，新旧溢出区一并失效，窗内走廊段
-   * 文本与竖线跳画同帧收敛。候选在窗内（有自己的节点刷新路径，伸向窗外的走廊段
-   * 滚入前不可见）或窗外无节点（走廊够不到窗、不可见）时维持既有跳过。
-   */
   private convergeRetainedOffWindowSource(col: number, row: number): void {
+    const { geometryState, sceneState } = this
     const regions: Region[] = []
     for (const sourceCol of [
       overflowSourceCol(this, col, row),
       overflowSourceColRight(this, col, row),
     ]) {
-      if (sourceCol === null || (sourceCol >= this.cols.start && sourceCol < this.cols.end)) {
+      if (
+        sourceCol === null ||
+        (sourceCol >= geometryState.cols.start && sourceCol < geometryState.cols.end)
+      ) {
         continue
       }
-      const sourceNode = this.cellNodes.get(cellKey(sourceCol, row))
+      const sourceNode = sceneState.cellNodes.get(cellKey(sourceCol, row))
       if (!sourceNode) {
         continue
       }
@@ -1152,10 +873,7 @@ export class ListTable implements TableEngine {
       }
       regions.push(overflowExtentRegion(sourceNode, oldMinX, oldMaxX))
       regions.push(overflowExtentRegion(sourceNode, sourceNode.textMinX, sourceNode.textMaxX))
-      if (sourceNode.textMaxX > sourceNode.width || sourceNode.textMinX < 0) {
-        // 来源格保持溢出：重挂树尾维持「源后画于走廊格」不变量
-        this.remountOverflowSourceNode(sourceNode)
-      }
+      syncCellGroupAndOverflowOrder(this, sourceNode, sourceCol, row)
       markRowCorridorInterior(this, row, dataColBands(this))
     }
     if (regions.length === 0) {
@@ -1164,25 +882,26 @@ export class ListTable implements TableEngine {
     this.submitOffWindowRegion(unionRegions(regions) ?? regions[0]!)
   }
 
-  /** 窗外源补建/收敛的失效提交：批量更新期间改为收集（与 refreshCellNodeContents 同口径） */
   private submitOffWindowRegion(region: Region): void {
-    if (this.batchDepth > 0) {
-      this.batchRegions.push(region)
+    const { sceneState } = this
+    if (sceneState.batchDepth > 0) {
+      sceneState.batchRegions.push(region)
       return
     }
     this.host.submitInvalidation('body', { type: 'region', region })
   }
 
-  /** 批量更新：fn 内的多次变更合并，结束时只提交一次 band 失效（一帧收敛一次渲染提交） */
+  /** 批量更新：fn 内的多次变更合并，结束时只提交一次 band 失效 */
   batchUpdate(fn: () => void): void {
-    this.batchDepth++
+    const { sceneState } = this
+    sceneState.batchDepth++
     try {
       fn()
     } finally {
-      this.batchDepth--
-      if (this.batchDepth === 0) {
-        const region = unionRegions(this.batchRegions)
-        this.batchRegions.length = 0
+      sceneState.batchDepth--
+      if (sceneState.batchDepth === 0) {
+        const region = unionRegions(sceneState.batchRegions)
+        sceneState.batchRegions.length = 0
         if (region) {
           this.host.submitInvalidation('body', { type: 'band', region })
         }
@@ -1190,80 +909,68 @@ export class ListTable implements TableEngine {
     }
   }
 
-  // ---- 选区（P5） ----
+  // ---- 选区 ----
 
   getSelection(): SelectionSnapshot {
-    return this.selection.snapshot
+    return this.interactionState.selection.snapshot
   }
 
-  /** 订阅选区变更；返回退订函数 */
   onSelectionChange(listener: SelectionListener): () => void {
-    return this.selection.onChange(listener)
+    return this.interactionState.selection.onChange(listener)
   }
 
   selectCell(col: number, row: number): void {
-    this.selection.selectCell(col, row)
+    this.interactionState.selection.selectCell(col, row)
     ensureCellVisible(this, col, row)
   }
 
-  /** 程序化多段选中：整组替换选区段（快照含多个段，sky 浮层同帧绘制全部段），焦点落在末段焦点格 */
   selectCells(ranges: readonly SelectionRange[]): void {
-    this.selection.selectCells(ranges)
+    this.interactionState.selection.selectCells(ranges)
   }
 
-  /** 当前全部选区段（start 锚点 / end 焦点，可反向；返回副本） */
   getSelectedCellRanges(): SelectionRange[] {
-    return this.selection.snapshot.ranges.map((range) => ({
+    return this.interactionState.selection.snapshot.ranges.map((range) => ({
       start: { ...range.start },
       end: { ...range.end },
     }))
   }
 
   selectRow(row: number): void {
-    this.selection.selectRow(row, this.columns.length)
+    this.interactionState.selection.selectRow(row, this.columns.length)
   }
 
   selectCol(col: number): void {
-    this.selection.selectCol(col, this.pipeline.rowCount)
+    this.interactionState.selection.selectCol(col, this.pipeline.rowCount)
   }
 
   selectAll(): void {
-    this.selection.selectAll(this.columns.length, this.pipeline.rowCount)
+    this.interactionState.selection.selectAll(this.columns.length, this.pipeline.rowCount)
   }
 
   clearSelection(): void {
-    this.selection.clear()
+    this.interactionState.selection.clear()
   }
 
-  /** 外部模型回写选区：段边界与焦点钳制到数据区内（行头/列头带坐标不入库）并刷新浮层但不广播，防回环 */
   applyExternalSelection(snapshot: SelectionSnapshot): void {
-    this.selection.applyExternal(snapshot, {
+    this.interactionState.selection.applyExternal(snapshot, {
       colCount: this.columns.length,
       rowCount: this.pipeline.rowCount,
     })
     refreshOverlay(this)
   }
 
-  /**
-   * 设置宿主高亮区域（公式引用染色框等）：sky 浮层四边细条边框，随滚动/选区同内容源重绘，
-   * 只绘制不拦截事件、与选区语义无关；传空数组清除。
-   */
   setHighlightRanges(ranges: readonly HighlightRange[]): void {
-    this.highlightRanges = ranges
+    this.interactionState.highlightRanges = ranges
     refreshOverlay(this)
   }
 
-  /**
-   * 设置选区锚点（公式拾取等编辑会话用）：锚定格以选区样式（填充 + 边框）持续绘制，
-   * 实际选区照常流动（拾取段消费为引用），被编辑格不丢选中态；合并格按整块包围盒绘制；
-   * 传 null 清除（会话结束恢复常规选区行为）。
-   */
   setSelectionAnchor(anchor: CellRef | null): void {
+    const { interactionState, geometryState } = this
     if (!anchor) {
-      this.selectionAnchor = null
+      interactionState.selectionAnchor = null
     } else {
-      const merge = this.mergeCells.rangeAt(anchor.col, anchor.row)
-      this.selectionAnchor = merge
+      const merge = geometryState.mergeCells.rangeAt(anchor.col, anchor.row)
+      interactionState.selectionAnchor = merge
         ? {
             minCol: merge.startCol,
             minRow: merge.startRow,
@@ -1275,54 +982,51 @@ export class ListTable implements TableEngine {
     refreshOverlay(this)
   }
 
-  /**
-   * @internal 容器光标写入（行列 resize 手柄 col-resize/row-resize、填充柄十字、
-   * 链接格 pointer 等指针光标管理）：直写宿主容器（cursorContainer）的
-   * style.cursor——native 档 sticky 视口不命中光标，须写宿主容器沿 CSS 继承生效；
-   * 未传容器或容器无 style（无 DOM 环境/离屏构造/部分假容器）静默容错不抛错。
-   */
+  /** @internal 容器光标写入 */
   setContainerCursor(cursor: string): void {
     if (this.cursorContainer?.style) {
       this.cursorContainer.style.cursor = cursor
     }
   }
 
-  /** @internal 上屏容器（无 DOM 环境为 undefined；滚动条拖拽画布外指针坐标换算用） */
+  /** @internal 上屏容器 */
   getContainer(): HTMLElement | undefined {
     return this.container
   }
 
-  /**
-   * @internal 滚动条活动脉动（滚轮/触控/键盘/滚动条交互/悬停的每一条路径汇入）：
-   * 'always' 档空操作；'scrolling'/'hover' 档显示滚动条并重置静止隐藏计时——计时到点时
-   * 若正被拖拽或悬停则保持可见（后续状态变化会重新计时）。
-   */
+  /** @internal 滚动条活动脉动 */
   pokeScrollbar(): void {
-    if (this.scrollbarConfig.visibility === 'always') {
+    const { interactionState } = this
+    if (interactionState.scrollbarConfig.visibility === 'always') {
       return
     }
-    if (!this.scrollbarVisible) {
-      this.scrollbarVisible = true
+    if (!interactionState.scrollbarVisible) {
+      interactionState.scrollbarVisible = true
       refreshOverlay(this)
     }
-    if (this.scrollbarHideTimer !== null) {
-      clearTimeout(this.scrollbarHideTimer)
+    if (interactionState.scrollbarHideTimer !== null) {
+      clearTimeout(interactionState.scrollbarHideTimer)
     }
-    const delay = this.scrollbarConfig.hideDelay ?? this.theme.interaction.scrollbarHideDelay
-    this.scrollbarHideTimer = setTimeout(() => {
-      this.scrollbarHideTimer = null
-      if (this.destroyed || this.scrollbarDrag !== null || this.scrollbarHover !== null) {
+    const delay =
+      interactionState.scrollbarConfig.hideDelay ?? this.theme.interaction.scrollbarHideDelay
+    interactionState.scrollbarHideTimer = setTimeout(() => {
+      interactionState.scrollbarHideTimer = null
+      if (
+        this.destroyed ||
+        interactionState.scrollbarDrag !== null ||
+        interactionState.scrollbarHover !== null
+      ) {
         return
       }
-      this.scrollbarVisible = false
+      interactionState.scrollbarVisible = false
       refreshOverlay(this)
     }, delay)
   }
 
-  // ---- 行列 resize（P5，canResizeRow 能力见 ListTableOptions） ----
+  // ---- 行列 resize ----
 
   getColWidth(col: number): number {
-    return this.colWidths[col] ?? 0
+    return this.geometryState.colWidths[col] ?? 0
   }
 
   getRowHeight(row: number): number {
@@ -1330,65 +1034,57 @@ export class ListTable implements TableEngine {
   }
 
   setColWidth(col: number, width: number): void {
-    if (col < 0 || col >= this.colWidths.length) {
+    const { geometryState } = this
+    if (col < 0 || col >= geometryState.colWidths.length) {
       return
     }
-    this.colWidths[col] = Math.max(MIN_COL_WIDTH, width)
-    this.colOffsets = computeColOffsets(this.colWidths)
+    geometryState.colWidths[col] = Math.max(MIN_COL_WIDTH, width)
+    geometryState.colOffsets = computeColOffsets(geometryState.colWidths)
     this.applyGeometryChange()
   }
 
   setRowHeight(row: number, height: number): void {
+    const { geometryState } = this
     if (row < 0 || row >= this.pipeline.rowCount) {
       return
     }
-    this.rowHeights.set(row, Math.max(MIN_ROW_HEIGHT, height))
-    this.rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, this.rowHeights)
+    geometryState.rowHeights.set(row, Math.max(MIN_ROW_HEIGHT, height))
+    geometryState.rowOffsets = computeRowOffsets(
+      this.pipeline.rowCount,
+      this.rowHeight,
+      geometryState.rowHeights,
+    )
     this.applyGeometryChange()
   }
 
-  // ---- 行列数运行时可变（无限滚动 / 动态增长） ----
+  // ---- 行列数运行时可变 ----
 
-  /** 当前数据行数（模型形态动态读取模型 rowCount；setRowCount 后即时反映） */
   get rowCount(): number {
     return this.pipeline.rowCount
   }
 
-  /** 当前数据列数（setColCount 增删列即时反映） */
   get colCount(): number {
     return this.columns.length
   }
 
-  /**
-   * 运行时修改行数：增长重算行高前缀和与滚动边界（滚动余量扩大，滚动条/窗口即时
-   * 反映）；收缩时冻结行数钳到新界、丢弃越界合并区、选区钳制。数据供给为 records
-   * 数组时行数恒等于 records.length（增长无效）；模型形态以模型 rowCount 为准——
-   * 宿主先增长模型再调用本方法触发重算；纯 hook 形态由本方法直接抬高兜底行数。
-   */
   setRowCount(count: number): void {
+    const { geometryState } = this
     this.pipeline.setRowCountFloor(count)
-    // prev 取引擎已物化的行数（rowOffsets 规模）：动态模型的 rowCount 在宿主写模型时
-    // 即生效，与物化值比对才能识别「模型已增长、引擎待重算」的形态
-    const prev = this.rowOffsets.length - 1
+    const prev = geometryState.rowOffsets.length - 1
     const next = this.pipeline.rowCount
     if (next === prev) {
       return
     }
-    this.rowOffsets = computeRowOffsets(next, this.rowHeight, this.rowHeights)
+    geometryState.rowOffsets = computeRowOffsets(next, this.rowHeight, geometryState.rowHeights)
     if (next < prev) {
-      this.frozenRowCount = clampFrozenCount(this.frozenRowCount, next)
+      geometryState.frozenRowCount = clampFrozenCount(geometryState.frozenRowCount, next)
       this.shrinkToBounds(this.columns.length, next)
     }
     this.applyGeometryChange()
   }
 
-  /**
-   * 运行时修改列数：增长按 template（缺省空定义 → defaultColWidth 列宽）追加列定义
-   * 与列宽（列定义数组原地 push，pipeline/编辑路由持同一引用即见新列）；收缩时截断
-   * 并清越界列样式缓存、冻结列数钳到新界、丢弃越界合并区、选区钳制。增出列的列头
-   * 标题回落 options.resolveColTitle（未配置为空串）。
-   */
   setColCount(count: number, template?: ColumnDefine): void {
+    const { geometryState } = this
     const prev = this.columns.length
     const next = Math.max(0, Math.floor(count))
     if (next === prev) {
@@ -1398,40 +1094,37 @@ export class ListTable implements TableEngine {
       const defaultColWidth = this.options.defaultColWidth ?? this.theme.defaultColWidth
       for (let col = prev; col < next; col++) {
         this.columns.push({ ...template })
-        this.colWidths.push(template?.width ?? defaultColWidth)
+        geometryState.colWidths.push(template?.width ?? defaultColWidth)
       }
     } else {
       this.columns.length = next
-      this.colWidths.length = next
-      // Map 迭代中删除已访问键是安全的
-      for (const col of this.columnStyles.keys()) {
+      geometryState.colWidths.length = next
+      for (const col of geometryState.columnStyles.keys()) {
         if (col >= next) {
-          this.columnStyles.delete(col)
+          geometryState.columnStyles.delete(col)
         }
       }
-      this.frozenColCount = clampFrozenCount(this.frozenColCount, next)
+      geometryState.frozenColCount = clampFrozenCount(geometryState.frozenColCount, next)
       this.shrinkToBounds(next, this.pipeline.rowCount)
     }
-    this.colOffsets = computeColOffsets(this.colWidths)
+    geometryState.colOffsets = computeColOffsets(geometryState.colWidths)
     this.applyGeometryChange()
   }
 
-  /** 维度收缩后的越界收敛：丢弃越界合并区、选区钳到新界（不广播；浮层随几何变更刷新） */
   private shrinkToBounds(colCount: number, rowCount: number): void {
-    const bounded = this.mergeCells.ranges.filter(
+    const { geometryState, interactionState } = this
+    const bounded = geometryState.mergeCells.ranges.filter(
       (range) => range.endCol < colCount && range.endRow < rowCount,
     )
-    this.mergeCells = new MergeCellMap(bounded)
-    this.selection.applyExternal(this.selection.snapshot, { colCount, rowCount })
+    geometryState.mergeCells = new MergeCellMap(bounded)
+    interactionState.selection.applyExternal(interactionState.selection.snapshot, {
+      colCount,
+      rowCount,
+    })
   }
 
   // ---- 容器 resize 原地自适应 ----
 
-  /**
-   * 构造后原地调整视口尺寸：宿主画布经 host.resize 重设（不 teardown 重建实例），
-   * 滚动位置与选区保留（滚动边界重算时仅按新视口夹取）；几何变更统一走
-   * applyGeometryChange（滚动边界重算 + 场景全量重建 + 整层失效）。
-   */
   resize(width: number, height: number): void {
     const nextWidth = Math.max(0, width)
     const nextHeight = Math.max(0, height)
@@ -1440,43 +1133,39 @@ export class ListTable implements TableEngine {
     }
     this.tableWidth = nextWidth
     this.tableHeight = nextHeight
-    // 透传当前 dpr：显式注入沿构造值（确定性场景锁 dpr），否则随注入/浏览器读取链刷新
     const dpr = this.explicitHostDpr ?? this.resolveDpr()
-    this.hostDpr = dpr
+    this.mediaState.hostDpr = dpr
     this.host.resize(nextWidth, nextHeight, dpr)
-    // 原生滚动容器 CSS 尺寸随视口原地调整（滚动范围随后的几何变更重算）
-    this.nativeScrollbar?.resize(nextWidth, nextHeight)
-    // sky 交互浮层节点覆盖范围随新视口重设（绘制裁剪闭包实时读取）
-    this.overlay.resize()
-    if (this.underlayPainterNode) {
-      // ground painter 收到的视口尺寸随 resize 跟随（层自身尺寸由 host.resize 逐层落地）
-      this.underlayPainterNode.width = nextWidth
-      this.underlayPainterNode.height = nextHeight
+    const { sceneState, interactionState } = this
+    sceneState.body.root.width = nextWidth
+    sceneState.body.root.height = nextHeight
+    interactionState.nativeScrollbar?.resize(nextWidth, nextHeight)
+    interactionState.overlay.resize()
+    if (sceneState.underlayPaintersNode) {
+      sceneState.underlayPaintersNode.width = nextWidth
+      sceneState.underlayPaintersNode.height = nextHeight
     }
-    if (this.overlayPainterNode) {
-      // overlay painter 同步视口尺寸（sky 层尺寸由 host.resize 逐层落地）
-      this.overlayPainterNode.width = nextWidth
-      this.overlayPainterNode.height = nextHeight
+    if (sceneState.overlayPaintersNode) {
+      sceneState.overlayPaintersNode.width = nextWidth
+      sceneState.overlayPaintersNode.height = nextHeight
     }
+    resizeSceneGroups(this)
     if (this.floatLayer) {
       this.floatLayer.setBodyViewport(this.bodyViewport)
     }
     this.applyGeometryChange()
   }
 
-  // ---- 几何/滚动查询（P0-7） ----
+  // ---- 几何/滚动查询 ----
 
-  /** 数据格在视口中的矩形（CSS 像素）；行/列在可视窗口外返回 null */
   getCellRelativeRect(col: number, row: number): Region | null {
     return cellRectInViewport(this, col, row)
   }
 
-  /** 视口坐标命中的数据格；点在行列头/空白处返回 null */
   getCellAtRelativePosition(x: number, y: number): CellRef | null {
     return cellAt(this, x, y)
   }
 
-  /** 滚动到目标格完整可见（复用键盘导航 revealAxis 语义；冻结轴恒可见，跳过） */
   scrollToCell(cell: CellRef): void {
     ensureCellVisible(this, cell.col, cell.row)
   }
@@ -1489,255 +1178,212 @@ export class ListTable implements TableEngine {
     return this.scroll.state.top
   }
 
-  /** 设置横向滚动位置（自动夹取到 [0, max]，另一轴不变） */
   setScrollLeft(left: number): void {
     this.scroll.scrollTo(left, this.scroll.state.top)
   }
 
-  /** 设置纵向滚动位置（自动夹取到 [0, max]，另一轴不变） */
   setScrollTop(top: number): void {
     this.scroll.scrollTo(this.scroll.state.left, top)
   }
 
-  /** 画布内容区矩形（CSS 像素）：扣除行号列与列头后的数据区可绘制范围 */
   getDrawRange(): Region {
     return this.bodyViewport
   }
 
-  /** 当前可视数据格范围（[start, end)，恒可见的冻结行列并入可视范围） */
   getBodyVisibleCellRange(): { rows: WindowRange; cols: WindowRange } {
+    const { frozenRowCount, frozenColCount, rows, cols } = this.geometryState
     return {
       rows: {
-        start: this.frozenRowCount > 0 ? 0 : this.rows.start,
-        end: Math.max(this.rows.end, this.frozenRowCount),
+        start: frozenRowCount > 0 ? 0 : rows.start,
+        end: Math.max(rows.end, frozenRowCount),
       },
       cols: {
-        start: this.frozenColCount > 0 ? 0 : this.cols.start,
-        end: Math.max(this.cols.end, this.frozenColCount),
+        start: frozenColCount > 0 ? 0 : cols.start,
+        end: Math.max(cols.end, frozenColCount),
       },
     }
   }
 
-  /** (col,row) 是否行号列格 */
   isSeriesNumber(col: number, row: number): boolean {
     return col === HEADER_COORD && row >= 0 && row < this.pipeline.rowCount
   }
 
-  /** 表头层数：本表列头固定 1 层 */
   getHeaderLevelCount(): number {
     return 1
   }
 
-  // ---- 冻结与合并运行时可变（P8） ----
+  // ---- 冻结与合并运行时可变 ----
 
-  /** 当前冻结列数（数据列，不含行号列） */
   getFrozenColCount(): number {
-    return this.frozenColCount
+    return this.geometryState.frozenColCount
   }
 
-  /** 当前冻结行数（数据行，不含列头） */
   getFrozenRowCount(): number {
-    return this.frozenRowCount
+    return this.geometryState.frozenRowCount
   }
 
-  /** 运行时修改冻结列数：夹取到 [0, 列数]；跨冻结边界的既有合并区按新边界重钉主格（合法） */
   setFrozenColCount(count: number): void {
-    this.applyFrozenCounts(count, this.frozenRowCount)
+    this.applyFrozenCounts(count, this.geometryState.frozenRowCount)
   }
 
-  /** 运行时修改冻结行数：夹取到 [0, 行数]；跨冻结边界的既有合并区按新边界重钉主格（合法） */
   setFrozenRowCount(count: number): void {
-    this.applyFrozenCounts(this.frozenColCount, count)
+    this.applyFrozenCounts(this.geometryState.frozenColCount, count)
   }
 
-  /**
-   * 运行时整体替换合并区：重叠项规范化（保留先声明、丢弃冲突项并 console 提示，
-   * 不打断渲染）；模型越界校验不通过仍抛错保持原状。生效即全量重建，合并渲染
-   * 与命中即时反映新集合；跨冻结边界的合并区合法。
-   */
   setMergeCells(ranges: readonly CellRange[]): void {
     const sanitized = sanitizeMerges(ranges)
     warnMergeConflicts(sanitized.conflicts, 'ListTable.setMergeCells')
     this.replaceMergeCells(new MergeCellMap(sanitized.ranges))
   }
 
-  /**
-   * 运行时新增一个合并区：程序化单命令保持 fail-fast——与既有区间重叠抛
-   * MergeOverlapError（含两条冲突区间原文）、越出表格抛错，均保持原状；
-   * 跨冻结边界合法。
-   */
   addMergeCell(range: CellRange): void {
-    this.replaceMergeCells(new MergeCellMap([...this.mergeCells.ranges, range]))
+    this.replaceMergeCells(new MergeCellMap([...this.geometryState.mergeCells.ranges, range]))
   }
 
-  /** 运行时移除一个合并区（按归一化后精确匹配）；未命中为空操作 */
   removeMergeCell(range: CellRange): void {
     const target = normalizeCellRange(range)
-    const next = this.mergeCells.ranges.filter(
+    const next = this.geometryState.mergeCells.ranges.filter(
       (r) =>
         r.startCol !== target.startCol ||
         r.startRow !== target.startRow ||
         r.endCol !== target.endCol ||
         r.endRow !== target.endRow,
     )
-    if (next.length === this.mergeCells.ranges.length) {
+    if (next.length === this.geometryState.mergeCells.ranges.length) {
       return
     }
     this.replaceMergeCells(new MergeCellMap(next))
   }
 
-  /**
-   * 冻结数运行时变更：跨冻结边界的既有合并区合法（主格按新边界重钉、场景全量
-   * 重建），合并区模型不因冻结数变化而越界，无需合并校验，直接走几何变更重建。
-   */
   private applyFrozenCounts(frozenColCount: number, frozenRowCount: number): void {
+    const { geometryState } = this
     const nextCols = clampFrozenCount(frozenColCount, this.columns.length)
     const nextRows = clampFrozenCount(frozenRowCount, this.pipeline.rowCount)
-    if (nextCols === this.frozenColCount && nextRows === this.frozenRowCount) {
+    if (nextCols === geometryState.frozenColCount && nextRows === geometryState.frozenRowCount) {
       return
     }
-    this.frozenColCount = nextCols
-    this.frozenRowCount = nextRows
+    geometryState.frozenColCount = nextCols
+    geometryState.frozenRowCount = nextRows
     this.applyGeometryChange()
   }
 
-  /** 合并区集合运行时替换：先做模型越界校验（失败抛错原状不变），落地后走几何变更全量重建 */
   private replaceMergeCells(next: MergeCellMap): void {
     assertMergesWithinTable(next.ranges, this.columns.length, this.pipeline.rowCount)
-    this.mergeCells = next
+    this.geometryState.mergeCells = next
     this.applyGeometryChange()
   }
 
-  // ---- 事件（P5） ----
+  // ---- 事件 ----
 
-  /** 订阅 contextmenu 事件（右键菜单 UI 为非目标，仅保留事件）；返回退订函数 */
   onContextMenu(listener: ContextMenuListener): () => void {
-    this.contextMenuListeners.add(listener)
-    return () => this.contextMenuListeners.delete(listener)
+    this.interactionState.contextMenuListeners.add(listener)
+    return () => this.interactionState.contextMenuListeners.delete(listener)
   }
 
-  /** 订阅链接悬停事件（URL 与格坐标 + 落点；tooltip 由宿主渲染）；返回退订函数 */
+  onColHeaderClick(listener: ColHeaderClickListener): () => void {
+    this.interactionState.colHeaderClickListeners.add(listener)
+    return () => this.interactionState.colHeaderClickListeners.delete(listener)
+  }
+
   onCellLinkHover(listener: CellLinkHoverListener): () => void {
-    this.cellLinkHoverListeners.add(listener)
-    return () => this.cellLinkHoverListeners.delete(listener)
+    this.interactionState.cellLinkHoverListeners.add(listener)
+    return () => this.interactionState.cellLinkHoverListeners.delete(listener)
   }
 
-  /** 订阅链接离开事件（刚离开的链接格坐标）；返回退订函数 */
   onCellLinkLeave(listener: CellLinkLeaveListener): () => void {
-    this.cellLinkLeaveListeners.add(listener)
-    return () => this.cellLinkLeaveListeners.delete(listener)
+    this.interactionState.cellLinkLeaveListeners.add(listener)
+    return () => this.interactionState.cellLinkLeaveListeners.delete(listener)
   }
 
-  /** 订阅链接单击事件（真实指针单击命中链接格时；框选/键盘选中不触发）；返回退订函数 */
   onCellLinkClick(listener: CellLinkClickListener): () => void {
-    this.cellLinkClickListeners.add(listener)
-    return () => this.cellLinkClickListeners.delete(listener)
+    this.interactionState.cellLinkClickListeners.add(listener)
+    return () => this.interactionState.cellLinkClickListeners.delete(listener)
   }
 
-  /** 订阅图片链接单击事件（带链接浮动图/嵌入图真实指针单击；拖拽不触发）；返回退订函数 */
   onImageLinkClick(listener: ImageLinkClickListener): () => void {
-    this.imageLinkClickListeners.add(listener)
-    return () => this.imageLinkClickListeners.delete(listener)
+    this.interactionState.imageLinkClickListeners.add(listener)
+    return () => this.interactionState.imageLinkClickListeners.delete(listener)
   }
 
-  /** 订阅 onScrollFrame 帧级同步：滚动发生的帧上带最新位置触发一次；返回退订函数 */
   onScrollFrame(listener: ScrollFrameListener): () => void {
-    this.scrollFrameListeners.add(listener)
-    return () => this.scrollFrameListeners.delete(listener)
+    this.interactionState.scrollFrameListeners.add(listener)
+    return () => this.interactionState.scrollFrameListeners.delete(listener)
   }
 
-  /** 订阅列宽拖拽会话结束事件（col/width，width 为夹取后的最终生效值）；返回退订函数 */
   onColResizeEnd(listener: (event: ColResizeEndEvent) => void): () => void {
-    this.colResizeEndListeners.add(listener)
-    return () => this.colResizeEndListeners.delete(listener)
+    this.interactionState.colResizeEndListeners.add(listener)
+    return () => this.interactionState.colResizeEndListeners.delete(listener)
   }
 
-  /** 订阅行高拖拽会话结束事件（row/height，height 为夹取后的最终生效值）；返回退订函数 */
   onRowResizeEnd(listener: (event: RowResizeEndEvent) => void): () => void {
-    this.rowResizeEndListeners.add(listener)
-    return () => this.rowResizeEndListeners.delete(listener)
+    this.interactionState.rowResizeEndListeners.add(listener)
+    return () => this.interactionState.rowResizeEndListeners.delete(listener)
   }
 
-  /** 订阅填充柄按下事件（range 为柄所在选区段）；返回退订函数 */
   onFillHandleDown(listener: FillHandleDownListener): () => void {
-    this.fillHandleDownListeners.add(listener)
-    return () => this.fillHandleDownListeners.delete(listener)
+    this.interactionState.fillHandleDownListeners.add(listener)
+    return () => this.interactionState.fillHandleDownListeners.delete(listener)
   }
 
-  /** 订阅填充柄拖拽结束事件（anchor 锚定段范围 + target 拖拽目标格范围，均为 min/max 序）；返回退订函数 */
   onFillDragEnd(listener: FillDragEndListener): () => void {
-    this.fillDragEndListeners.add(listener)
-    return () => this.fillDragEndListeners.delete(listener)
+    this.interactionState.fillDragEndListeners.add(listener)
+    return () => this.interactionState.fillDragEndListeners.delete(listener)
   }
 
-  /** 订阅填充柄双击事件（range 为柄所在选区段；宿主据此做相邻数据区自动填充）；返回退订函数 */
   onFillHandleDoubleClick(listener: FillHandleDoubleClickListener): () => void {
-    this.fillHandleDoubleClickListeners.add(listener)
-    return () => this.fillHandleDoubleClickListeners.delete(listener)
+    this.interactionState.fillHandleDoubleClickListeners.add(listener)
+    return () => this.interactionState.fillHandleDoubleClickListeners.delete(listener)
   }
 
-  // ---- 编辑（P2） ----
+  // ---- 编辑 ----
 
-  /**
-   * 进入编辑：可编三级判定（editor 声明/路由 ∧ 格级 editable ∧ 有回写目标）全通过才
-   * 打开浮层并返回 true；不可编返回 false 且无浮层。已编辑中同格幂等。
-   */
   startEdit(col: number, row: number): boolean {
     if (!this.editManager.isEditable(col, row)) {
       return false
     }
-    // 锚定格先滚动跟随到完整可见（冻结轴恒可见），再按视口矩形打开浮层
-    this.selection.selectCell(col, row)
+    this.interactionState.selection.selectCell(col, row)
     ensureCellVisible(this, col, row)
     return this.editManager.startEdit(col, row)
   }
 
-  /** 提交当前编辑：值回写数据源、该格 cell 级失效、抛 onCellChange；无会话返回 false */
   commitEdit(): boolean {
     return this.editManager.commitEdit()
   }
 
-  /** 取消当前编辑：不回写不抛事件，焦点交还表格；无会话为空操作 */
   cancelEdit(): void {
     this.editManager.cancelEdit()
   }
 
-  /** 当前是否处于编辑会话中 */
   isEditing(): boolean {
     return this.editManager.isEditing()
   }
 
-  /** @internal 编辑会话锚定格内容隐藏开关：编辑中不画格内容（含溢出走廊一起失效），结束恢复；节点不在窗口内为空操作 */
   private setCellContentHidden(col: number, row: number, hidden: boolean): void {
-    const master = this.mergeCells.masterOf(col, row)
-    const node = this.cellNodes.get(cellKey(master?.col ?? col, master?.row ?? row))
+    const master = this.geometryState.mergeCells.masterOf(col, row)
+    const node = this.sceneState.cellNodes.get(cellKey(master?.col ?? col, master?.row ?? row))
     if (!node || node.contentHidden === hidden) {
       return
     }
     node.contentHidden = hidden
-    // 失效区并入溢出走廊：溢出文本画出本格两侧缘，隐藏/恢复都要覆盖整段
     this.host.submitInvalidation('body', {
       type: 'region',
       region: overflowExtentRegion(node, node.textMinX, node.textMaxX),
     })
   }
 
-  /** 订阅编辑提交事件（col/row/oldValue/newValue，undo 可据此实现）；返回退订函数 */
   onCellChange(listener: (change: CellChangeEvent) => void): () => void {
-    this.cellChangeListeners.add(listener)
-    return () => this.cellChangeListeners.delete(listener)
+    this.interactionState.cellChangeListeners.add(listener)
+    return () => this.interactionState.cellChangeListeners.delete(listener)
   }
 
-  /** 订阅编辑会话开始事件（col/row/初值为基础值口径；可编判定失败不抛）；返回退订函数 */
   onEditStart(listener: (event: EditStartEvent) => void): () => void {
-    this.editStartListeners.add(listener)
-    return () => this.editStartListeners.delete(listener)
+    this.interactionState.editStartListeners.add(listener)
+    return () => this.interactionState.editStartListeners.delete(listener)
   }
 
-  /** 订阅编辑会话结束事件（提交在 onCellChange 后抛且带终值；取消 committed=false）；返回退订函数 */
   onEditEnd(listener: (event: EditEndEvent) => void): () => void {
-    this.editEndListeners.add(listener)
-    return () => this.editEndListeners.delete(listener)
+    this.interactionState.editEndListeners.add(listener)
+    return () => this.interactionState.editEndListeners.delete(listener)
   }
 
   destroy(): void {
@@ -1745,41 +1391,38 @@ export class ListTable implements TableEngine {
       return
     }
     this.destroyed = true
-    this.inertia.stop()
-    this.scrollbarDrag = null
-    this.pointerSessionRelease?.()
-    this.pointerSessionRelease = null
-    if (this.scrollbarHideTimer !== null) {
-      clearTimeout(this.scrollbarHideTimer)
-      this.scrollbarHideTimer = null
+    const { interactionState, sceneState } = this
+    interactionState.inertia.stop()
+    interactionState.scrollbarDrag = null
+    interactionState.pointerSessionRelease?.()
+    interactionState.pointerSessionRelease = null
+    if (interactionState.scrollbarHideTimer !== null) {
+      clearTimeout(interactionState.scrollbarHideTimer)
+      interactionState.scrollbarHideTimer = null
     }
     this.editManager.dispose()
-    for (const unsubscribe of this.eventUnsubscribers) {
+    for (const unsubscribe of interactionState.eventUnsubscribers) {
       unsubscribe()
     }
-    this.eventUnsubscribers.length = 0
-    for (let i = this.plugins.length - 1; i >= 0; i--) {
-      this.plugins[i]?.unmount?.(this)
-    }
-    this.plugins.length = 0
+    interactionState.eventUnsubscribers.length = 0
+    this.pluginHost.unmountAll()
+    sceneState.painters.clear()
     this.binding?.dispose()
     this.floatLayer?.dispose()
     this.imageService.dispose()
     if (this.ownHost) {
       this.host.destroy()
     }
-    // 原生滚动容器解绑与摘除（层 canvas 已由宿主清理，幂等）
-    this.nativeScrollbar?.destroy()
+    interactionState.nativeScrollbar?.destroy()
   }
 
-  /**
-   * @internal 竖轴滚动条预留轨道条带宽（画布右缘，纵向滚动可滚时 scrollbarSize 常驻；
-   * reserve 关闭/滚动条关闭/纵向不可滚为 0）。预留判定用扣预留前视口（内容 >
-   * height − headerHeight 即可滚），不因预留缩小视口反馈地「滚起来」。
-   * 原生模式为 0：gutter 由滚动容器布局（scrollbar-gutter: stable）扣除。
-   */
   get scrollbarGutterWidth(): number {
-    if (this.nativeScrollbar || !this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
+    const { interactionState } = this
+    if (
+      interactionState.nativeScrollbar ||
+      !interactionState.scrollbarConfig.enabled ||
+      !interactionState.scrollbarConfig.reserve
+    ) {
       return 0
     }
     return this.contentHeight > this.height - this.headerHeight
@@ -1787,9 +1430,13 @@ export class ListTable implements TableEngine {
       : 0
   }
 
-  /** @internal 横轴滚动条预留轨道条带高（画布下缘；语义同 scrollbarGutterWidth） */
   get scrollbarGutterHeight(): number {
-    if (this.nativeScrollbar || !this.scrollbarConfig.enabled || !this.scrollbarConfig.reserve) {
+    const { interactionState } = this
+    if (
+      interactionState.nativeScrollbar ||
+      !interactionState.scrollbarConfig.enabled ||
+      !interactionState.scrollbarConfig.reserve
+    ) {
       return 0
     }
     return this.contentWidth > this.width - this.rowHeaderWidth
@@ -1797,26 +1444,22 @@ export class ListTable implements TableEngine {
       : 0
   }
 
-  /**
-   * @internal 视口宽（扣除行号列）。原生模式取滚动容器 clientWidth 口径（已含原生
-   * gutter 扣除；无布局环境回落 CSS 宽），canvas 模式另扣竖轴预留轨道。
-   */
   get viewportWidth(): number {
-    if (this.nativeScrollbar) {
-      return Math.max(0, this.nativeScrollbar.clientWidth - this.rowHeaderWidth)
+    const { nativeScrollbar } = this.interactionState
+    if (nativeScrollbar) {
+      return Math.max(0, nativeScrollbar.clientWidth - this.rowHeaderWidth)
     }
     return Math.max(0, this.width - this.rowHeaderWidth - this.scrollbarGutterWidth)
   }
 
-  /** @internal 视口高（扣除列头；原生/canvas 口径同 viewportWidth） */
   get viewportHeight(): number {
-    if (this.nativeScrollbar) {
-      return Math.max(0, this.nativeScrollbar.clientHeight - this.headerHeight)
+    const { nativeScrollbar } = this.interactionState
+    if (nativeScrollbar) {
+      return Math.max(0, nativeScrollbar.clientHeight - this.headerHeight)
     }
     return Math.max(0, this.height - this.headerHeight - this.scrollbarGutterHeight)
   }
 
-  /** @internal 数据区在层坐标中的可绘制矩形（扣除行号列与列头，CSS 像素） */
   get bodyViewport(): Region {
     return {
       x: this.rowHeaderWidth,
@@ -1827,30 +1470,22 @@ export class ListTable implements TableEngine {
   }
 
   get contentWidth(): number {
-    return this.colOffsets[this.colOffsets.length - 1] ?? 0
+    const { colOffsets } = this.geometryState
+    return colOffsets[colOffsets.length - 1] ?? 0
   }
 
   get contentHeight(): number {
-    return this.rowOffsets[this.pipeline.rowCount] ?? 0
+    return this.geometryState.rowOffsets[this.pipeline.rowCount] ?? 0
   }
 
-  /** @internal 行 r 的高度（含逐行覆盖） */
   rowHeightAt(row: number): number {
-    return (this.rowOffsets[row + 1] ?? 0) - (this.rowOffsets[row] ?? 0)
+    const { rowOffsets } = this.geometryState
+    return (rowOffsets[row + 1] ?? 0) - (rowOffsets[row] ?? 0)
   }
 
-  /**
-   * @internal 数据格样式投影：覆盖链「主题分区 token → 列级样式 → 链接默认外观 → 按格 hook」
-   * 逐字段覆盖——上层给了的字段被下层覆盖、未给的沿用上层，边框逐边独立合并。
-   * 列级 textWrap 旗标并入主题层（先于列级样式片段）；有链接格（resolveCellLink 命中）
-   * 在列级样式之上注入默认链接观感（主题 linkColor 蓝字 + 下划线，WPS 式），仍被按格
-   * resolveCellStyle 显式字段覆盖。
-   * 性能：token+列级的合成结果按列缓存（列定义为构造期快照，缓存与表实例同生命周期，
-   * updateTheme 换主题时整体清空；CellStyle 全仓按不可变约定使用，无就地写入点），
-   * 仅链接格或按格 hook 返回非空时才做第二级投影。
-   */
   resolveStyle(col: number, row: number): CellStyle {
-    let colStyle = this.columnStyles.get(col)
+    const { columnStyles } = this.geometryState
+    let colStyle = columnStyles.get(col)
     if (!colStyle) {
       const column = this.columns[col]
       const base = themeCellBase(this.theme.body)
@@ -1858,9 +1493,8 @@ export class ListTable implements TableEngine {
         column?.textWrap ? { ...base, textWrap: true } : base,
         column?.style,
       )
-      this.columnStyles.set(col, colStyle)
+      columnStyles.set(col, colStyle)
     }
-    // 链接默认外观注入（仅在链接格发生，不进列级缓存）：主题链接色 + 下划线
     const link = this.options.resolveCellLink?.(col, row)
     const linked = link
       ? projectCellStyle(colStyle, { color: this.theme.linkColor, underline: true })
@@ -1869,11 +1503,6 @@ export class ListTable implements TableEngine {
     return cellStyle ? projectCellStyle(linked, cellStyle) : linked
   }
 
-  /**
-   * @internal 统一样式取数（共享边裁决 facing 溯源用，见 shared-edges.ts）：
-   * 数据坐标走 resolveStyle；HEADER_COORD(-1) 路由到表头分区样式
-   * （(-1,-1) 角格 / (col,-1) 列头 / (-1,row) 行号格）。
-   */
   styleAt(col: number, row: number): CellStyle {
     if (col === HEADER_COORD || row === HEADER_COORD) {
       const styles = headerStyles(this)
@@ -1885,46 +1514,38 @@ export class ListTable implements TableEngine {
     return this.resolveStyle(col, row)
   }
 
-  /**
-   * 滚动主循环：状态源广播 → 窗口增量更新 → 按滚动方向分层 band 失效。
-   * 纵向滚动只重绘冻结行以下的横带（含行号列/冻结列/滚动区），
-   * 横向滚动只重绘冻结列以右的纵带（含列头/冻结行/滚动区），冻结角与对侧冻结区不重绘。
-   */
   private onScroll(delta: ScrollDelta): void {
+    const { geometryState, sceneState, interactionState } = this
     updateSceneWindow(this)
-    // 滚动即滚动条活动：'scrolling'/'hover' 档显示并重置静止隐藏计时（滚轮/触控/键盘全走此路径；
-    // 钳制后无实际位移不脉动，静止期不被空转 setScroll 无谓续期）
     if (delta.dx !== 0 || delta.dy !== 0) {
       this.pokeScrollbar()
     }
     if (delta.dy !== 0) {
-      const y = this.headerHeight + this.frozenRowsHeight
+      const y = this.headerHeight + geometryState.frozenRowsHeight
       const band = { x: 0, y, width: this.width, height: Math.max(0, this.height - y) }
       this.host.submitInvalidation('body', { type: 'band', region: band })
-      if (this.media) {
+      if (sceneState.media) {
         this.host.submitInvalidation('media', { type: 'band', region: band })
       }
     }
     if (delta.dx !== 0) {
-      const x = this.rowHeaderWidth + this.frozenColsWidth
+      const x = this.rowHeaderWidth + geometryState.frozenColsWidth
       const band = { x, y: 0, width: Math.max(0, this.width - x), height: this.height }
       this.host.submitInvalidation('body', { type: 'band', region: band })
-      if (this.media) {
+      if (sceneState.media) {
         this.host.submitInvalidation('media', { type: 'band', region: band })
       }
     }
-    // 窗口化加载调度：划入窗口的请求提权、滚出的取消；浮动对象帧级跟随
     updateImageWindow(this)
     if (this.floatLayer && this.floatLayer.size > 0) {
       this.floatLayer.syncPositions()
     }
     refreshOverlay(this)
-    if (this.scrollFrameListeners.size > 0) {
+    if (interactionState.scrollFrameListeners.size > 0) {
       this.host.requestFrame(this.scrollFrameTask)
     }
   }
 
-  /** 该格回写目标判定：model 形态即有回写目标；records 形态需列有 field 且行对象存在 */
   private canWriteCell(col: number, row: number): boolean {
     if (this.binding) {
       return true
@@ -1933,10 +1554,6 @@ export class ListTable implements TableEngine {
     return field !== undefined && this.options.records?.[row] != null
   }
 
-  /**
-   * 写回数据源：model 形态经 ModelBinding（echo 收集去重，派生格统一刷新；
-   * 被编辑格由提交方显式刷新，见 refreshEchoedCells）；records 形态改行对象 field 字段
-   */
   private writeCell(col: number, row: number, value: unknown): void {
     if (this.binding) {
       this.refreshEchoedCells(this.binding.writeBack(col, row, value), col, row)
@@ -1949,7 +1566,6 @@ export class ListTable implements TableEngine {
     }
   }
 
-  /** 回驱收尾：窗口内模型 echo 的变更格统一逐格局部刷新；被编辑格由调用方显式刷新，跳过去重 */
   private refreshEchoedCells(
     changes: readonly CellChangeEvent[],
     editedCol: number,
@@ -1963,7 +1579,6 @@ export class ListTable implements TableEngine {
     }
   }
 
-  /** 提交后选区移动：复用键盘导航求邻格（Enter 下移 / Tab 右移），越界夹取到表缘 */
   private moveSelectionAfterCommit(col: number, row: number, move: EditCommitMove): void {
     const next = nextActiveCell(
       move === 'down' ? 'ArrowDown' : 'Tab',
@@ -1972,37 +1587,32 @@ export class ListTable implements TableEngine {
       this.pipeline.rowCount,
     )
     if (next) {
-      this.selection.selectCell(next.col, next.row)
+      this.interactionState.selection.selectCell(next.col, next.row)
       ensureCellVisible(this, next.col, next.row)
     }
   }
 
-  /**
-   * @internal 几何变更（行列尺寸/冻结数/合并区运行时变更）后：冻结区尺寸/滚动边界重算，
-   * 全量重建一次。官方插件晚挂载（table.use）时由 mount 触发，让渲染接线即时生效。
-   */
+  /** @internal 几何变更后：冻结区尺寸/滚动边界重算，全量重建一次 */
   applyGeometryChange(): void {
-    this.frozenColsWidth = this.colOffsets[this.frozenColCount] ?? 0
-    this.frozenRowsHeight = this.rowOffsets[this.frozenRowCount] ?? 0
+    const { geometryState, sceneState, interactionState } = this
+    geometryState.frozenColsWidth = geometryState.colOffsets[geometryState.frozenColCount] ?? 0
+    geometryState.frozenRowsHeight = geometryState.rowOffsets[geometryState.frozenRowCount] ?? 0
     this.scroll.setViewportSize(
-      this.viewportWidth - this.frozenColsWidth,
-      this.viewportHeight - this.frozenRowsHeight,
+      this.viewportWidth - geometryState.frozenColsWidth,
+      this.viewportHeight - geometryState.frozenRowsHeight,
     )
     this.scroll.setContentSize(
-      this.contentWidth - this.frozenColsWidth,
-      this.contentHeight - this.frozenRowsHeight,
+      this.contentWidth - geometryState.frozenColsWidth,
+      this.contentHeight - geometryState.frozenRowsHeight,
     )
-    // 原生容器滚动范围随新边界同步（spacer 撑出 maxLeft/maxTop 同构范围）
-    this.nativeScrollbar?.updateScrollRange()
+    interactionState.nativeScrollbar?.updateScrollRange()
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
-    if (this.media) {
+    if (sceneState.media) {
       this.host.submitInvalidation('media', { type: 'full' })
     }
     updateImageWindow(this)
     if (this.floatLayer && this.floatLayer.size > 0) {
-      // 行高/列宽 resize 提交路径（setColWidth/setRowHeight/拖拽会话）都收敛到本方法：
-      // 锚定浮动对象随新行列尺寸重算几何（无显式像素尺寸的对象伸缩）
       this.floatLayer.recalcGeometry()
     }
     refreshOverlay(this)

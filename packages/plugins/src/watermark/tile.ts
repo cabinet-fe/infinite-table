@@ -1,12 +1,12 @@
 // 文字平铺水印的几何与绘制（univer watermark util 移植）：双层 for 平铺，
 // 步长 = 内容尺寸 + gap，逐单元 translate（单元中心）+ rotate + fillText。
-// 整层透明度经「颜色 × opacity 预混 rgba」实现——table 转出的 RenderContext
+// 整层透明度经「颜色 × opacity 预混 rgba」实现——@infinitable/render 转出的 RenderContext
 // 窄接口无 globalAlpha，预混等效且零引擎改动；rotate 为可选成员，缺失的最小桩
 // 上下文按未旋转绘制（与浮动对象旋转渲染同容错约定）。
 // 配置消费 P1 打印水印共享的 WatermarkTextConfig：屏幕端（顶层 overlay）与打印端
 // 同一配置模型；本模块纯函数部分（平铺原点/颜色预混）可脱离 canvas 单测。
 
-import type { RenderContext } from '@infinitable/table'
+import type { RenderContext } from '@infinitable/render'
 
 import { WATERMARK_TEXT_DEFAULTS, type WatermarkTextConfig } from '../print/types'
 

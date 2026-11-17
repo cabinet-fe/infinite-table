@@ -19,7 +19,7 @@ describe('选区双向同步', () => {
         end: { row: 4, col: 3 },
       })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -37,7 +37,7 @@ describe('选区双向同步', () => {
         end: { col: 1, row: 2 },
       })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -48,7 +48,7 @@ describe('选区双向同步', () => {
       fire(container, 'pointerup', { clientX: cellX(2), clientY: cellY(2) })
       expect(sheet.getSelection().activeCell).toEqual({ row: 2, col: 2 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -64,7 +64,7 @@ describe('选区双向同步', () => {
         end: { row: 3, col: 3 },
       })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -89,7 +89,7 @@ describe('选区双向同步', () => {
       })
       expect(sheet.getSelection().activeCell?.col).toBe(3)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -105,7 +105,7 @@ describe('选区双向同步', () => {
       expect(sheet.getSelection().ranges).toHaveLength(1)
       expect(sheet.getSelection().activeCell).toEqual({ row: 3, col: 3 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -115,7 +115,7 @@ describe('选区双向同步', () => {
       sheet.selectCell({ row: 80, col: 20 })
       expect(table.getScrollTop()).toBeGreaterThan(0)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -132,7 +132,7 @@ describe('选区双向同步', () => {
       // 引擎外部回写（applyExternalSelection）不广播，无二次模型事件
       expect(calls).toBe(1)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -148,7 +148,7 @@ describe('整行/整列选区', () => {
       })
       expect(sheet.getSelection().activeCell?.col).toBe(2)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -162,7 +162,7 @@ describe('整行/整列选区', () => {
       })
       expect(sheet.getSelection().activeCell?.row).toBe(3)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -184,7 +184,7 @@ describe('引用选择拦截', () => {
       // 模型选区保持 A1（公式目标格高亮语义）
       expect(sheet.getSelection().activeCell).toEqual({ row: 0, col: 0 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -208,7 +208,7 @@ describe('引用选择拦截', () => {
       // 模型选区保持 A1（公式目标格高亮语义）
       expect(sheet.getSelection().activeCell).toEqual({ row: 0, col: 0 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -242,7 +242,7 @@ describe('引用选择拦截', () => {
         { shiftKey: true, extend: true },
       )
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -261,7 +261,7 @@ describe('引用选择拦截', () => {
         { shiftKey: true, extend: false },
       )
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -282,7 +282,7 @@ describe('引用选择拦截', () => {
       fire(container, 'pointerup', { clientX: cellX(2), clientY: cellY(2), shiftKey: true })
       expect(onSelectionIntercept).toHaveBeenCalledTimes(1)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -313,7 +313,7 @@ describe('填充柄生成', () => {
       expect(sheet.undo()).toBe(true)
       expect(sheet.getCellData({ row: 1, col: 0 })).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -330,7 +330,7 @@ describe('填充柄生成', () => {
       expect(sheet.getCellData({ row: 1, col: 0 })).toBeUndefined()
       expect(sheet.getCellData({ row: 2, col: 0 })?.v).toBe(3)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

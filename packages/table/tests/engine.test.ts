@@ -80,18 +80,32 @@ describe('引擎装配协议契约（table 实现）', () => {
     table.destroy()
   })
 
-  it('painter 槽位：overlay 写入触发 sky 整层失效，置 null 清屏（协议槽位语言）', () => {
+  it('painter 槽位：overlay 注册触发 sky 整层失效，注销清屏（协议槽位语言）', () => {
     const { host, table } = createTable()
     host.submitted.length = 0
-    const painter = () => {}
-    table.setOverlayPainter(painter)
+    const unregisterOverlay = table.registerPainter({
+      id: 'test-overlay',
+      slot: 'overlay',
+      paint: () => {},
+    })
     expect(host.submitted).toEqual([{ kind: 'sky', inv: { type: 'full' } }])
     host.submitted.length = 0
-    table.setOverlayPainter(null)
+    unregisterOverlay()
     expect(host.submitted).toEqual([{ kind: 'sky', inv: { type: 'full' } }])
+    // 幂等二次注销不再重复提交失效
+    host.submitted.length = 0
+    unregisterOverlay()
+    expect(host.submitted).toEqual([])
     // underlay 同构（ground 层惰性创建）
     host.submitted.length = 0
-    table.setUnderlayPainter(() => {})
+    const unregisterUnderlay = table.registerPainter({
+      id: 'test-underlay',
+      slot: 'underlay',
+      paint: () => {},
+    })
+    expect(host.submitted).toEqual([{ kind: 'ground', inv: { type: 'full' } }])
+    host.submitted.length = 0
+    unregisterUnderlay()
     expect(host.submitted).toEqual([{ kind: 'ground', inv: { type: 'full' } }])
     table.destroy()
   })
@@ -103,8 +117,8 @@ describe('引擎装配协议契约（table 实现）', () => {
       name: 'contract-probe',
       mount(engine) {
         mounted.push(engine)
-        // 协议面即槽位语言：经协议本体挂 overlay painter 生效
-        engine.setOverlayPainter(() => {})
+        // 协议面即槽位语言：经协议本体注册 overlay painter 生效
+        return engine.registerPainter({ id: 'probe', slot: 'overlay', paint: () => {} })
       },
       unmount(engine) {
         unmounted.push(engine)
@@ -149,6 +163,77 @@ describe('引擎装配协议契约（table 实现）', () => {
     expect(table.rowCount).toBe(5)
     expect(table.getCellText(0, 4)).toBe('hook:0-4')
     expect(table.read!.getCellText(0, 4)).toBe('hook:0-4')
+    table.destroy()
+  })
+
+  it('capabilities / getCellImage / unuse / resolveColHeaderRenderer / O(1) hitTest 根节点标记', () => {
+    let unmounted = 0
+    const plugin: EnginePlugin = {
+      name: 'demo-plugin',
+      mount: () => () => {
+        unmounted++
+      },
+    }
+    const headerDraws: number[] = []
+    const { host, table } = createTable({
+      mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }],
+      resolveCellImage: (col, row) => (col === 0 && row === 0 ? 'https://img/0.png' : null),
+      resolveColHeaderRenderer: (col) => (params) => {
+        headerDraws.push(col)
+        return params.width > 0
+      },
+    })
+
+    // capabilities 与 read 一致
+    expect(table.read).toBe(table)
+    expect(table.capabilities.gridRead).toBe(table)
+    expect(table.capabilities.gridData).toBe(table)
+    expect(table.capabilities.writableGridData).toBe(table)
+
+    // getCellImage 走合并主格路由
+    expect(table.getCellImage(0, 0)).toBe('https://img/0.png')
+    expect(table.getCellImage(1, 0)).toBe('https://img/0.png')
+    expect(table.getCellImage(0, 1)).toBeNull()
+
+    // use / unuse(name) 卸载幂等
+    table.use(plugin)
+    table.unuse('demo-plugin')
+    expect(unmounted).toBe(1)
+    table.unuse(plugin)
+    expect(unmounted).toBe(1)
+
+    // O(1) hitTest：各层根节点 hitTestChildren = false，body.root.pickable = true
+    const body = host.layers.get('body')!
+    const sky = host.layers.get('sky')!
+    expect(body.root.hitTestChildren).toBe(false)
+    expect(body.root.pickable).toBe(true)
+    expect(sky.root.hitTestChildren).toBe(false)
+
+    // resolveColHeaderRenderer 被注入列头节点并随绘制触发
+    const col0Header = table.sceneState.colHeaderNodes.get(0)
+    expect(col0Header).toBeDefined()
+    expect(headerDraws.length).toBe(0)
+    const noopCtx = {
+      save: () => {},
+      restore: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      fillText: () => {},
+      rect: () => {},
+      clip: () => {},
+      measureText: () => ({ width: 20 }),
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      font: '',
+    }
+    col0Header!.paint(noopCtx as never)
+    expect(headerDraws).toEqual([0])
+
     table.destroy()
   })
 })

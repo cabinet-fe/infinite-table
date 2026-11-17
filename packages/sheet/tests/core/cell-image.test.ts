@@ -31,12 +31,16 @@ function findImageNode(
   col: number,
   row: number,
 ): { col: number; row: number; url: string; fit: string } | undefined {
-  return [...table.imageCellNodes.values()].find((node) => node.col === col && node.row === row)
+  return [...table.mediaState.imageCellNodes.values()].find(
+    (node) => node.col === col && node.row === row,
+  )
 }
 
 /** 取 (col, row) 的 ImageCellNode 本体（断言 paint / 几何等实例行为） */
 function imageNodeAt(table: ListTable, col: number, row: number) {
-  return [...table.imageCellNodes.values()].find((node) => node.col === col && node.row === row)
+  return [...table.mediaState.imageCellNodes.values()].find(
+    (node) => node.col === col && node.row === row,
+  )
 }
 
 /** 冲一帧 rAF：让渲染宿主的失效队列消费、层 flush 落地 */
@@ -55,7 +59,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       expect(node?.url).toBe('https://example.com/a.png')
       expect(request).toHaveBeenCalledWith('https://example.com/a.png', { col: 2, row: 1 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -68,7 +72,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       expect(node).toBeDefined()
       expect(node?.url).toBe('https://example.com/init.png')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -82,7 +86,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       expect(node?.url).toMatch(/^blob:/)
       expect(sheet.getCellImage({ row: 0, col: 0 })?.data).toEqual(PNG_BYTES)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -97,7 +101,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       sheet.setCellImage({ row: 0, col: 0 }, { src: 'https://example.com/fit.png', fit: 'contain' })
       expect(findImageNode(table, 0, 0)?.fit).toBe('contain')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -111,7 +115,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       expect(findImageNode(table, 0, 0)).toBeUndefined()
       expect(sheet.hasCellImage({ row: 0, col: 0 })).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -128,7 +132,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       expect(sheet.hasCellImage({ row: 0, col: 0 })).toBe(true)
       expect(findImageNode(table, 0, 0)).toBeDefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -139,7 +143,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       const url = 'https://example.com/readd.png'
       // 首图：惰性建 media 层并留下本格缓存 key 口径（image:col:row:WxH），随后清图
       sheet.setCellImage({ row: 0, col: 0 }, { src: url })
-      expect(table.media).toBeDefined()
+      expect(table.sceneState.media).toBeDefined()
       const first = imageNodeAt(table, 0, 0)
       expect(first).toBeDefined()
       const cacheKey = `image:0:0:${Math.round(first!.width)}x${Math.round(first!.height)}`
@@ -154,7 +158,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
         width: 8,
         height: 8,
       } as unknown as LoadedImage
-      table.mediaCache.put(cacheKey, image, 8 * 8 * 4)
+      table.mediaState.mediaCache.put(cacheKey, image, 8 * 8 * 4)
 
       const submit = vi.spyOn(table.host, 'submitInvalidation')
       sheet.setCellImage({ row: 0, col: 0 }, { src: url })
@@ -171,7 +175,7 @@ describe('按格嵌入图：模型 + SheetGrid 自动接线', () => {
       await flushFrame()
       expect(paint).toHaveBeenCalled()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 

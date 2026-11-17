@@ -2,6 +2,13 @@
 // 派生主题经 ListTableOptions.theme 接入样式管线；显式 options（rowHeight 等）仍优先于主题。
 
 import type {
+  EngineFrameStyle,
+  EngineScrollbarTokens,
+  EngineTheme,
+  EngineThemeOverride,
+} from '@infinitable/protocol'
+
+import type {
   CellBorder,
   CellBorderEdge,
   CellPadding,
@@ -46,7 +53,7 @@ export interface CellStyleTokens {
 }
 
 /** 交互浮层样式 token：选区/填充柄/resize 拖拽线/内建滚动条的唯一颜色与尺寸来源 */
-export interface InteractionTokens {
+export interface InteractionTokens extends EngineScrollbarTokens {
   /** 选区段填充色 */
   selectionFill: string
   /** 选区段边框色 */
@@ -86,7 +93,7 @@ export interface InteractionTokens {
 }
 
 /** 表格外框样式 token */
-export interface FrameStyle {
+export interface FrameStyle extends EngineFrameStyle {
   /** 外框线宽（CSS 像素）；0 不绘制 */
   lineWidth: number
   /** 外框线色 */
@@ -96,7 +103,7 @@ export interface FrameStyle {
 }
 
 /** 表格主题：几何尺寸 + 数据格/行列头样式 + 交互/外框 token */
-export interface TableTheme {
+export interface TableTheme extends EngineTheme {
   rowHeight: number
   headerHeight: number
   rowHeaderWidth: number
@@ -121,7 +128,7 @@ export interface TableTheme {
 }
 
 /** extends 入参：token 全可选，嵌套对象按键深覆盖 */
-export interface ThemeOverride {
+export interface ThemeOverride extends EngineThemeOverride {
   rowHeight?: number
   headerHeight?: number
   rowHeaderWidth?: number

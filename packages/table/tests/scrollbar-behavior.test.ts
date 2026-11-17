@@ -315,39 +315,39 @@ describe("'scrolling'/'hover' 显隐状态机", () => {
         scrollbar: { visibility: 'scrolling', hideDelay: 60 },
       })
       // 初始静止：隐藏
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
       // 无关区域 move 不触发
       fireBody(host, 'pointermove', { x: 400, y: 300 })
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
       // 滚动触发显示
       table.scrollBy(0, 96)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       vi.advanceTimersByTime(59)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       vi.advanceTimersByTime(2)
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
       // 悬停滑块：显示 + hover 态保持（计时到点不隐藏）
       fireBody(host, 'pointermove', { x: 795, y: 50 })
-      expect(table.scrollbarVisible).toBe(true)
-      expect(table.scrollbarHover).toBe('vertical')
+      expect(table.interactionState.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarHover).toBe('vertical')
       vi.advanceTimersByTime(10_000)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       // 离开滑块：清 hover 并重新计时
       fireBody(host, 'pointermove', { x: 400, y: 300 })
-      expect(table.scrollbarHover).toBeNull()
+      expect(table.interactionState.scrollbarHover).toBeNull()
       vi.advanceTimersByTime(59)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       vi.advanceTimersByTime(2)
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
       // 轨道悬停（非滑块）也触发显示（滚动条交互语义）
       fireBody(host, 'pointermove', { x: 795, y: 400 })
-      expect(table.scrollbarVisible).toBe(true)
-      expect(table.scrollbarHover).toBeNull()
+      expect(table.interactionState.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarHover).toBeNull()
       // 销毁清理：隐藏定时器与画布外接续解绑（回调不再翻转可见性）
       table.destroy()
-      expect(table.pointerSessionRelease).toBeNull()
+      expect(table.interactionState.pointerSessionRelease).toBeNull()
       vi.advanceTimersByTime(10_000)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -357,10 +357,10 @@ describe("'scrolling'/'hover' 显隐状态机", () => {
     vi.useFakeTimers()
     try {
       const { table } = createTable({ scrollbar: true })
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       table.scrollBy(0, 96)
       vi.advanceTimersByTime(10_000)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -370,22 +370,22 @@ describe("'scrolling'/'hover' 显隐状态机", () => {
     vi.useFakeTimers()
     try {
       const { host, table } = createTable()
-      expect(table.scrollbarConfig.visibility).toBe('hover')
+      expect(table.interactionState.scrollbarConfig.visibility).toBe('hover')
       // 初始静止：隐藏；表格内任意移动即显示（无需命中滚动条条带/滚动）
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
       fireBody(host, 'pointermove', { x: 400, y: 300 })
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       // 移动持续续期：1.5s 内多次 move 不隐藏
       for (let i = 0; i < 6; i++) {
         vi.advanceTimersByTime(300)
         fireBody(host, 'pointermove', { x: 400 + i, y: 300 })
-        expect(table.scrollbarVisible).toBe(true)
+        expect(table.interactionState.scrollbarVisible).toBe(true)
       }
       // 静止：1499ms 仍可见，1500ms 到点隐藏（主题 scrollbarHideDelay 缺省）
       vi.advanceTimersByTime(1499)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       vi.advanceTimersByTime(2)
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -397,22 +397,22 @@ describe("'scrolling'/'hover' 显隐状态机", () => {
       const { host, table } = createTable({ scrollbar: { visibility: 'hover' } })
       // 滚动触发显示（与悬停同一脉动汇入）
       table.scrollBy(0, 96)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       vi.advanceTimersByTime(10_000)
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
       // 悬停滑块：hover 态保持可见（计时到点不隐藏）
       fireBody(host, 'pointermove', { x: 795, y: 50 })
-      expect(table.scrollbarVisible).toBe(true)
-      expect(table.scrollbarHover).toBe('vertical')
+      expect(table.interactionState.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarHover).toBe('vertical')
       vi.advanceTimersByTime(10_000)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       // 离开滑块：清 hover 并重新计时隐藏
       fireBody(host, 'pointermove', { x: 400, y: 300 })
-      expect(table.scrollbarHover).toBeNull()
+      expect(table.interactionState.scrollbarHover).toBeNull()
       vi.advanceTimersByTime(1499)
-      expect(table.scrollbarVisible).toBe(true)
+      expect(table.interactionState.scrollbarVisible).toBe(true)
       vi.advanceTimersByTime(2)
-      expect(table.scrollbarVisible).toBe(false)
+      expect(table.interactionState.scrollbarVisible).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -438,7 +438,7 @@ describe('拖拽会话指针捕获（画布外接续）', () => {
 
     // 画布外释放：会话必然清除
     fireWindowPointer('pointerup', { clientX: 900, clientY: 320 })
-    expect(table.scrollbarDrag).toBeNull()
+    expect(table.interactionState.scrollbarDrag).toBeNull()
 
     // 结束后画布外/画布内 move 都不再滚动
     fireWindowPointer('pointermove', { clientX: 900, clientY: 520, buttons: 1 })
@@ -459,7 +459,7 @@ describe('拖拽会话指针捕获（画布外接续）', () => {
 
     // 已释放（buttons=0）的 move：会话即时终结，不再按该 move 滚动
     fireWindowPointer('pointermove', { clientX: 900, clientY: 300, buttons: 0 })
-    expect(table.scrollbarDrag).toBeNull()
+    expect(table.interactionState.scrollbarDrag).toBeNull()
 
     // 回画布后未按住不再续滚（原悬挂缺陷消失）
     fireWindowPointer('pointermove', { clientX: 900, clientY: 500, buttons: 1 })
@@ -520,7 +520,7 @@ describe('拖拽会话指针捕获（画布外接续）', () => {
 
     // 画布外 up：会话结束并解绑接续监听
     pointerHost.dispatch('pointerup', { clientX: 900, clientY: 320 })
-    expect(table.scrollbarDrag).toBeNull()
+    expect(table.interactionState.scrollbarDrag).toBeNull()
     expect(pointerHost.count('pointermove')).toBe(0)
     expect(pointerHost.count('pointerup')).toBe(0)
     table.destroy()
@@ -632,7 +632,7 @@ describe('预留轨道区（reserve）', () => {
 
   it('滚动条整体关闭：不预留任何轨道', () => {
     const { table } = createTable({ scrollbar: false })
-    expect(table.scrollbarConfig.reserve).toBe(false)
+    expect(table.interactionState.scrollbarConfig.reserve).toBe(false)
     expect(table.getDrawRange()).toEqual({ x: 48, y: 36, width: 752, height: 564 })
   })
 

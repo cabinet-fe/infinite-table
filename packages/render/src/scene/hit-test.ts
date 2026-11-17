@@ -13,12 +13,14 @@ export function hitTest(node: SceneNode, x: number, y: number): SceneNode | null
   if (lx < 0 || ly < 0 || lx >= node.width || ly >= node.height) {
     return null
   }
-  for (let i = node.children.length - 1; i >= 0; i--) {
-    const child = node.children[i]
-    if (child) {
-      const hit = hitTest(child, lx, ly)
-      if (hit) {
-        return hit
+  if (node.hitTestChildren) {
+    for (let i = node.children.length - 1; i >= 0; i--) {
+      const child = node.children[i]
+      if (child) {
+        const hit = hitTest(child, lx, ly)
+        if (hit) {
+          return hit
+        }
       }
     }
   }

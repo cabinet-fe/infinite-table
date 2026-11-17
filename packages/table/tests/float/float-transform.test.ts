@@ -5,11 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { SceneNode } from '@infinitable/render'
 
-import {
-  FloatObjectLayer,
-  type FloatTransformEndEvent,
-  type FloatTransformHandle,
-} from '../../src/float/float-object-layer'
+import type { FloatTransformHandle } from '@infinitable/grid'
+import { FloatObjectLayer, type FloatTransformEndEvent } from '../../src/float/float-object-layer'
 import { RecordingContext } from '../testing/recording-context'
 import { hitCell, imageObject, stubGeometry, stubLayer } from '../testing/float-fixtures'
 

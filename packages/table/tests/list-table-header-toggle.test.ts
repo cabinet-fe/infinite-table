@@ -61,10 +61,10 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
     expect(table.headerHeight).toBe(36)
     // 内容原点左移到 x=0，数据区占满全宽
     expect(table.getDrawRange()).toEqual({ x: 0, y: 36, width: 800, height: 554 })
-    expect(table.rowHeaderNodes.size).toBe(0)
-    expect(table.cornerNode).toBeNull()
+    expect(table.sceneState.rowHeaderNodes.size).toBe(0)
+    expect(table.sceneState.cornerNode).toBeNull()
     // 列头照常装配（场景只建可视窗口：752 宽可见 8 列）
-    expect(table.colHeaderNodes.size).toBe(8)
+    expect(table.sceneState.colHeaderNodes.size).toBe(8)
     expect(table.getCellRelativeRect(0, 0)).toEqual({ x: 0, y: 36, width: 100, height: 32 })
   })
 
@@ -73,39 +73,39 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
     expect(table.headerHeight).toBe(0)
     expect(table.rowHeaderWidth).toBe(48)
     expect(table.getDrawRange()).toEqual({ x: 48, y: 0, width: 752, height: 590 })
-    expect(table.colHeaderNodes.size).toBe(0)
-    expect(table.cornerNode).toBeNull()
-    expect(table.rowHeaderNodes.size).toBe(3)
+    expect(table.sceneState.colHeaderNodes.size).toBe(0)
+    expect(table.sceneState.cornerNode).toBeNull()
+    expect(table.sceneState.rowHeaderNodes.size).toBe(3)
     expect(table.getCellRelativeRect(0, 0)).toEqual({ x: 48, y: 0, width: 100, height: 32 })
   })
 
   it('双关：两侧表头节点全不建，内容原点为 (0,0)', () => {
     const { table } = createTable({ records: records3, showRowHeader: false, showColHeader: false })
     expect(table.getDrawRange()).toEqual({ x: 0, y: 0, width: 800, height: 590 })
-    expect(table.colHeaderNodes.size).toBe(0)
-    expect(table.rowHeaderNodes.size).toBe(0)
-    expect(table.cornerNode).toBeNull()
+    expect(table.sceneState.colHeaderNodes.size).toBe(0)
+    expect(table.sceneState.rowHeaderNodes.size).toBe(0)
+    expect(table.sceneState.cornerNode).toBeNull()
     expect(table.getCellRelativeRect(0, 0)).toEqual({ x: 0, y: 0, width: 100, height: 32 })
   })
 
   it('等价零宽/零高路径：直接传 rowHeaderWidth: 0 / headerHeight: 0 行为与开关关闭一致', () => {
     const noRow = createTable({ records: records3, rowHeaderWidth: 0 })
     expect(noRow.table.rowHeaderWidth).toBe(0)
-    expect(noRow.table.rowHeaderNodes.size).toBe(0)
-    expect(noRow.table.cornerNode).toBeNull()
+    expect(noRow.table.sceneState.rowHeaderNodes.size).toBe(0)
+    expect(noRow.table.sceneState.cornerNode).toBeNull()
     const noCol = createTable({ records: records3, headerHeight: 0 })
     expect(noCol.table.headerHeight).toBe(0)
-    expect(noCol.table.colHeaderNodes.size).toBe(0)
-    expect(noCol.table.cornerNode).toBeNull()
+    expect(noCol.table.sceneState.colHeaderNodes.size).toBe(0)
+    expect(noCol.table.sceneState.cornerNode).toBeNull()
   })
 
   it('缺省 true 保持现状：两侧表头节点照常装配', () => {
     const { table } = createTable({ records: records3 })
     expect(table.rowHeaderWidth).toBe(48)
     expect(table.headerHeight).toBe(36)
-    expect(table.colHeaderNodes.size).toBe(8)
-    expect(table.rowHeaderNodes.size).toBe(3)
-    expect(table.cornerNode).not.toBeNull()
+    expect(table.sceneState.colHeaderNodes.size).toBe(8)
+    expect(table.sceneState.rowHeaderNodes.size).toBe(3)
+    expect(table.sceneState.cornerNode).not.toBeNull()
   })
 
   it('滚动帧增量维护不复活关闭侧表头节点', () => {
@@ -115,9 +115,9 @@ describe('ListTable 行列头关闭：构造归一化与渲染', () => {
       showColHeader: false,
     })
     table.scrollTo(200, 640)
-    expect(table.colHeaderNodes.size).toBe(0)
-    expect(table.rowHeaderNodes.size).toBe(0)
-    expect(table.cornerNode).toBeNull()
+    expect(table.sceneState.colHeaderNodes.size).toBe(0)
+    expect(table.sceneState.rowHeaderNodes.size).toBe(0)
+    expect(table.sceneState.cornerNode).toBeNull()
   })
 
   it('关闭行头时冻结列偏移不错位：冻结列贴内容原点，滚动区随滚动平移', () => {

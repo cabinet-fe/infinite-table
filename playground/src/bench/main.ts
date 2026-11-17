@@ -110,7 +110,7 @@ function createBrowserEnv(container: HTMLElement): BenchEnv {
       // 图表插件用真实 canvas 离屏出图（Chart.js 经动态 import 按需加载）
       const chartPlugin = createChartPlugin({ resolveCellChart: resolveChartCellDeclaration })
       const t0 = performance.now()
-      const table = new ListTable(chartTableOptions(meter.wrap(host), [chartPlugin]))
+      const table = new ListTable(chartTableOptions(meter.wrap(host), chartPlugin.resolveCellChart))
       const constructorMs = performance.now() - t0
       return browserBenchTable(table, meter, constructorMs, host, container)
     },

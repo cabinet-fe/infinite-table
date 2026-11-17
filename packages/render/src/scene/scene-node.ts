@@ -10,6 +10,7 @@ export interface SceneNodeInit {
   height?: number
   visible?: boolean
   pickable?: boolean
+  hitTestChildren?: boolean
 }
 
 /**
@@ -24,6 +25,8 @@ export class SceneNode {
   visible: boolean
   /** false 时命中测试穿透本节点（子节点仍可被命中） */
   pickable: boolean
+  /** false 时命中测试跳过子节点遍历（仅判定本节点） */
+  hitTestChildren: boolean
   parent: SceneNode | null = null
   readonly children: SceneNode[] = []
   private readonly listeners = new Map<SceneEventType, Set<SceneEventListener>>()
@@ -35,6 +38,7 @@ export class SceneNode {
     this.height = init.height ?? 0
     this.visible = init.visible ?? true
     this.pickable = init.pickable ?? true
+    this.hitTestChildren = init.hitTestChildren ?? true
   }
 
   appendChild(child: SceneNode): void {

@@ -2,6 +2,7 @@
 // 维度池与度量池是勾选候选全集；运行时勾选（行维度序列 / 列维度序列 / 度量序列）决定
 // 聚合矩阵形态——勾选变化 → 结构重算 → 引擎几何原地落地（不重建实例）。
 
+import type { EnginePlugin } from '@infinitable/protocol'
 import type { DataRecord, ThemeOverride } from '@infinitable/table'
 
 /** 聚合器：count 记录数（忽略 field）；sum/avg/min/max 按 field 数值聚合 */
@@ -58,4 +59,6 @@ export interface PivotGridOptions {
    */
   collapsible?: boolean
   theme?: ThemeOverride
+  /** 插件：构造即挂载生效，销毁时逆序卸载 */
+  plugins?: readonly EnginePlugin[]
 }

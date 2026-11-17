@@ -2,8 +2,9 @@
 // （float-object-layer / float-transform 两组测试共用同一口径）
 import { SceneNode, type Invalidation, type LayerHandle } from '@infinitable/render'
 
+import type { FloatGeometry } from '@infinitable/grid'
 import type { CellRef } from '../../src/types'
-import type { FloatGeometry, FloatObject } from '../../src/float/float-object-layer'
+import type { FloatObject } from '../../src/float/float-object-layer'
 
 /** 记录失效的假层 */
 export function stubLayer() {

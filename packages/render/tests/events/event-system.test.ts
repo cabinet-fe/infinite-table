@@ -105,16 +105,13 @@ describe('EventSystem 事件归一化', () => {
     expect(bodyEvents).toHaveLength(0)
   })
 
-  it('滚轮事件带 delta，键盘事件不命中、带 key', () => {
+  it('键盘事件不命中、带 key；不监听 wheel', () => {
     const target = new FakeEventTarget()
     const { roots, sky } = makeLayers()
-    const wheelEvents: SceneEvent[] = []
     const keyEvents: SceneEvent[] = []
-    sky.on('wheel', (e) => wheelEvents.push(e))
     sky.on('keydown', (e) => keyEvents.push(e))
     new EventSystem(target, () => roots)
-    target.emit('wheel', { clientX: 1, clientY: 2, deltaX: 3, deltaY: 120 })
-    expect(wheelEvents[0]).toMatchObject({ deltaX: 3, deltaY: 120, x: 1, y: 2 })
+    expect(target.listenerCount('wheel')).toBe(0)
     target.emit('keydown', { key: 'ArrowDown' })
     expect(keyEvents[0]).toMatchObject({ key: 'ArrowDown', target: null })
   })
@@ -161,7 +158,7 @@ describe('EventSystem 事件归一化', () => {
     const system = new EventSystem(target, () => roots)
     expect(target.listenerCount('pointerdown')).toBe(1)
     system.dispose()
-    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup']) {
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'keydown', 'keyup']) {
       expect(target.listenerCount(type)).toBe(0)
     }
   })

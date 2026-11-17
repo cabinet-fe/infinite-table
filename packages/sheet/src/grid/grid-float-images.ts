@@ -1,5 +1,4 @@
-import type { FloatObject, FloatTransformEndEvent } from '@infinitable/grid'
-import type { TableEngine } from '@infinitable/table'
+import type { FloatObject, FloatTransformEndEvent, TableEngine } from '@infinitable/table'
 
 import { IMAGE_MIME } from '../core/image'
 import type { SheetImage, SheetImageAnchor } from '../core/image'

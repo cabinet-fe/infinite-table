@@ -1,16 +1,15 @@
 // 水印插件（univer watermark 移植，文字平铺形态）：EnginePlugin 契约经引擎装配协议的
-// 顶层 overlay 槽位挂载（P7：挂载参数为协议面 EngineAssembly，不绑定 ListTable 具体类型）
-// ——mount 经协议 setOverlayPainter 写 painter（enabled 时）并触发 sky 整层失效
-// （晚挂载一帧内生效），unmount 置 null 还原槽位（承载节点摘除、绘制面清空）。
+// 顶层 overlay 槽位挂载（P7：挂载参数为协议面 EngineAssembly，不绑定具体引擎类型）
+// ——mount 经协议 registerPainter({ id: 'watermark', slot: 'overlay', paint }) 注册绘制器
+// （enabled 时），unmount 或 disabled 时调用注销函数还原槽位。
 // overlay 挂 sky 层（四层最上）最顶：水印覆盖在表格内容之上，任意主题（含 body 层
 // 不透明缺省白底）都可见，零宿主配置；内容之下的衬底水印场景由宿主改用引擎
-// ground 挂点（协议 setUnderlayPainter，用途差异见 docs/plugin-interface-map.md）。
+// ground 槽位（slot: 'underlay'）。
 // 配置与打印水印共享 P1 的 WatermarkTextConfig（三端同模型）；handle 支持运行时
-// updateConfig（任一项变更经 painter 重写一帧内重绘）与读取当前配置/开关态。
-// 槽位为单写方（同 chartMediaResolver 先例），挂载期由本插件独占写入。import 面
-// 零引擎内部 API：只经 @infinitable/protocol 契约面。
+// updateConfig（任一项变更重新注册一帧内重绘）与读取当前配置/开关态。
+// import 面零引擎内部 API：只经 @infinitable/protocol 契约面。
 
-import type { EngineAssembly, EnginePlugin, OverlayPainter } from '@infinitable/protocol'
+import type { EngineAssembly, EnginePlugin, LayerPainter } from '@infinitable/protocol'
 
 import type { WatermarkTextConfig } from '../print/types'
 import { drawTextWatermark, resolveWatermarkStyle } from './tile'
@@ -46,15 +45,35 @@ function sameWatermarkConfig(a: WatermarkTextConfig, b: WatermarkTextConfig): bo
 export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHandle {
   let current: WatermarkTextConfig = { ...config }
   let engine: EngineAssembly | null = null
+  let unregister: (() => void) | null = null
 
   // painter 捕获配置引用（updateConfig 整体换引用，重绘帧读到的是最新配置）
-  const painter: OverlayPainter = (ctx, viewport) => {
+  const painter: LayerPainter = (ctx, viewport) => {
     drawTextWatermark(ctx, current, viewport)
   }
 
-  /** 按当前配置同步 overlay 槽位：enabled 写 painter，否则置 null 清空（开关即时可见） */
+  /** 注销已注册的 overlay painter 并清空引用（幂等） */
+  const clearPainter = (): void => {
+    unregister?.()
+    unregister = null
+  }
+
+  /** 按当前配置同步 overlay 槽位：enabled 注册（或同 id 覆写）painter，否则注销清空（开关即时可见） */
   const applyPainter = (): void => {
-    engine?.setOverlayPainter(current.enabled ? painter : null)
+    if (!engine) {
+      return
+    }
+    if (current.enabled) {
+      unregister = engine.registerPainter({ id: 'watermark', slot: 'overlay', paint: painter })
+    } else {
+      clearPainter()
+    }
+  }
+
+  /** 卸载清理：注销 painter 并清除引擎引用（幂等） */
+  const dispose = (): void => {
+    clearPainter()
+    engine = null
   }
 
   return {
@@ -63,11 +82,10 @@ export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHan
     mount(target: EngineAssembly) {
       engine = target
       applyPainter()
+      return dispose
     },
-    unmount(target: EngineAssembly) {
-      // 还原 overlay 槽位：清空绘制面，层回到空置状态（后续写入方复用同一层句柄）
-      target.setOverlayPainter(null)
-      engine = null
+    unmount() {
+      dispose()
     },
     updateConfig(patch: Partial<WatermarkTextConfig>) {
       const next = { ...current, ...patch }

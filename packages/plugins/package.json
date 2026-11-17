@@ -17,10 +17,10 @@
   "dependencies": {
     "@infinitable/grid": "workspace:*",
     "@infinitable/protocol": "workspace:*",
-    "@infinitable/table": "workspace:*",
+    "@infinitable/render": "workspace:*",
     "chart.js": "^4.6.1"
   },
   "devDependencies": {
-    "@infinitable/render": "workspace:*"
+    "@infinitable/table": "workspace:*"
   }
 }

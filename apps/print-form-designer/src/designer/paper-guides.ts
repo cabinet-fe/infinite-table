@@ -2,20 +2,16 @@
 // 配置只存在于宿主（DesignerPage React 状态 / overlay 闭包），FormDoc 无任何入口。
 //
 // - 挂载走协议槽位：SheetGrid 协议面 getTable() 即 EngineAssembly，overlay painter
-//   经 setOverlayPainter 写入 sky 层最顶（watermark 插件同款协议路径）；painter
+//   经 registerPainter 写入 sky 层最顶（watermark 插件同款协议路径）；painter
 //   锚定视口（协议语义），设计画布固定行列、内容不超视口时与内容坐标恒对齐。
-// - 分页估算复用 print 插件 paginate（fitpage/origin 口径）：供数经
-//   createEnginePrintSource 从挂载引擎的导出读取面取行列几何——估算与画布渲染
+// - 分页估算复用 print 插件 paginate（fitpage/origin 口径）：供数直接取
+//   table.capabilities?.gridRead / table.read——估算与画布渲染
 //   同源；真实分页以打印弹框预览为准（P8），参考线仅作设计参照。
 // - 纸张几何直接复用 print 内核 derivePrintableArea（@infinitable/plugins 公开）：
 //   参考线与 paginate 走同一推导口径，不再本地复制 mm→px 换算与预设尺寸表。
 
-import type { PrintOrientation, PrintPaperPreset, PrintSource } from '@infinitable/plugins'
-import {
-  createEnginePrintSource,
-  createPrintPlugin,
-  derivePrintableArea,
-} from '@infinitable/plugins'
+import type { GridReadView, PrintOrientation, PrintPaperPreset } from '@infinitable/plugins'
+import { createPrintPlugin, derivePrintableArea } from '@infinitable/plugins'
 import { dashedLine, type DashPattern } from '@infinitable/render'
 import type { SheetGrid } from '@infinitable/sheet'
 
@@ -68,16 +64,16 @@ interface PageGuideDomain {
 }
 
 /** 行带边界 y 偏移：[0, end) 行高累加 */
-function rowOffset(source: PrintSource, endRow: number): number {
+function rowOffset(source: GridReadView, endRow: number): number {
   let offset = 0
-  for (let row = 0; row < endRow; row++) offset += source.rowHeight(row)
+  for (let row = 0; row < endRow; row++) offset += source.getRowHeight(row)
   return offset
 }
 
 /** 列带边界 x 偏移：[0, end) 列宽累加 */
-function colOffset(source: PrintSource, endCol: number): number {
+function colOffset(source: GridReadView, endCol: number): number {
   let offset = 0
-  for (let col = 0; col < endCol; col++) offset += source.colWidth(col)
+  for (let col = 0; col < endCol; col++) offset += source.getColWidth(col)
   return offset
 }
 
@@ -87,7 +83,7 @@ function colOffset(source: PrintSource, endCol: number): number {
  * domain 是必需入参：无限画布引擎的行列数含扩容噪声，只在内容包围盒内分页。
  */
 export function computePageGuides(
-  source: PrintSource,
+  source: GridReadView,
   config: PaperGuidesConfig,
   domain: PageGuideDomain,
 ): PaperGuideGeometry {
@@ -214,7 +210,8 @@ export function createPaperGuidesPainter(
     const grid = getGrid()
     if (!config || !grid) return
     const table = grid.getTable()
-    if (!table.read) return
+    const gridRead = table.capabilities?.gridRead ?? table.read
+    if (!gridRead) return
     const origin = resolveContentOrigin(table)
     if (!origin) return
     const bounds = getContentBounds()
@@ -223,7 +220,7 @@ export function createPaperGuidesPainter(
     drawPageGuides(
       ctx,
       viewport,
-      computePageGuides(createEnginePrintSource(table), config, {
+      computePageGuides(gridRead, config, {
         rowCount: bounds.rows,
         colCount: bounds.cols,
       }),

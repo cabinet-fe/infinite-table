@@ -63,7 +63,7 @@ describe('setRowCount：运行时行数增长', () => {
     table.setScrollTop(Number.MAX_SAFE_INTEGER)
     expect(table.getScrollTop()).toBe(60 * 32 - 564)
     expect(table.getVisibleRange().rows).toEqual({ start: 60 - Math.ceil(564 / 32), end: 60 })
-    expect(table.rowHeaderNodes.has(59)).toBe(true)
+    expect(table.sceneState.rowHeaderNodes.has(59)).toBe(true)
     expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
   })
 
@@ -105,10 +105,10 @@ describe('setRowCount：运行时行数增长', () => {
     // 选区钳制到新界（不广播，快照直接反映）
     expect(table.getSelection().focus).toEqual({ col: 4, row: 4 })
     // 越界合并区（行 1 ≤ 4 未越界，保留）；再造一个越界的
-    expect(table.mergeCells.ranges).toHaveLength(1)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(1)
     table.setRowCount(1)
-    expect(table.mergeCells.ranges).toHaveLength(0)
-    expect(table.frozenRowCount).toBe(1)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(0)
+    expect(table.geometryState.frozenRowCount).toBe(1)
   })
 })
 
@@ -124,12 +124,12 @@ describe('setColCount：运行时列数增减', () => {
     expect(table.getColWidth(7)).toBe(100)
     expect(table.contentWidth).toBe(800)
     // 增出列的列头标题走 resolveColTitle（既有列仍用列定义 title）
-    expect(table.colHeaderNodes.get(4)?.text).toBe('C4')
-    expect(table.colHeaderNodes.get(7)?.text).toBe('L7')
+    expect(table.sceneState.colHeaderNodes.get(4)?.text).toBe('C4')
+    expect(table.sceneState.colHeaderNodes.get(7)?.text).toBe('L7')
     // 滚动到最右：新列进入窗口、列头装配
     table.setScrollLeft(Number.MAX_SAFE_INTEGER)
     expect(table.getVisibleRange().cols.end).toBe(8)
-    expect(table.colHeaderNodes.has(7)).toBe(true)
+    expect(table.sceneState.colHeaderNodes.has(7)).toBe(true)
     expect(host.submitted).toContainEqual({ kind: 'body', inv: { type: 'full' } })
   })
 
@@ -137,7 +137,7 @@ describe('setColCount：运行时列数增减', () => {
     const { table } = createTable()
     table.setColCount(7, { width: 60, title: 'T' })
     expect(table.getColWidth(6)).toBe(60)
-    expect(table.colHeaderNodes.get(6)?.text).toBe('T')
+    expect(table.sceneState.colHeaderNodes.get(6)?.text).toBe('T')
   })
 
   it('收缩：截断列宽/偏移、清越界列样式缓存、选区钳制、越界合并区丢弃', () => {
@@ -151,8 +151,8 @@ describe('setColCount：运行时列数增减', () => {
     expect(table.getColWidth(2)).toBe(0)
     expect(table.contentWidth).toBe(200)
     expect(table.getSelection().focus).toEqual({ col: 1, row: 3 })
-    expect(table.mergeCells.ranges).toHaveLength(0)
-    expect(table.colHeaderNodes.has(4)).toBe(false)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(0)
+    expect(table.sceneState.colHeaderNodes.has(4)).toBe(false)
   })
 })
 
@@ -174,8 +174,8 @@ describe('滚动缓冲（overscan）', () => {
   it('缓冲行预建场景节点（视口外窗口内的行有节点可画）', () => {
     const { table } = createTable({ overscanRows: 4 })
     // 可见行 [0,18)、窗口 [0,20)（钳到行数）：缓冲行 19 不可见但节点/行号头已预建
-    expect(table.cellNodes.has(cellKey(0, 19))).toBe(true)
-    expect(table.rowHeaderNodes.has(19)).toBe(true)
+    expect(table.sceneState.cellNodes.has(cellKey(0, 19))).toBe(true)
+    expect(table.sceneState.rowHeaderNodes.has(19)).toBe(true)
   })
 
   it('窗口夹取：缓冲不越过行列数上界', () => {

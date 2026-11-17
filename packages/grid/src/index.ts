@@ -58,15 +58,48 @@ export { resolveSharedEdges, strongerEdge } from './shared-edges'
 export { defaultTheme, extendsTheme, opaqueHeaderHighlight, themeCellBase } from './theme'
 export type { FrameStyle, InteractionTokens, TableTheme, ThemeOverride } from './theme'
 export type { CellRef, ScrollbarMode, ScrollbarOptions } from './types'
-export { FloatObjectLayer, floatHandleEdge } from './float/float-object-layer'
+export { PluginHost } from './assembly/plugin-host'
+export { PainterRegistry } from './assembly/painter-registry'
+export {
+  computeRotatedDeg,
+  computeScaledBounds,
+  createFloatRotateState,
+  createFloatScaleState,
+  FLOAT_ROTATE_SNAP_DEG,
+  floatHandleEdge,
+  layoutFloatBounds,
+  MIN_FLOAT_TRANSFORM_SIZE,
+  normalizeDeg,
+  resolveAnchorAt,
+  rotatedLocalCover,
+  SCALE_HANDLES,
+  scaleHandleCenter,
+  toLocalFloatPoint,
+  toRad,
+} from './float/float-geometry'
 export type {
-  FloatContextMenuEvent,
-  FloatDragEndEvent,
-  FloatObject,
-  FloatTransformEndEvent,
+  FloatAnchor,
+  FloatGeometry,
+  FloatObjectBase,
+  FloatRotateState,
+  FloatScaleHandleSpec,
+  FloatScaleState,
   FloatTransformHandle,
-} from './float/float-object-layer'
-export { cursorForEdge } from './interaction/resize-geometry'
+} from './float/float-geometry'
+export {
+  hitResizeHandle,
+  MIN_COL_WIDTH,
+  MIN_ROW_HEIGHT,
+  ResizeSession,
+} from './interaction/axis-resize'
+export type {
+  ColResizeEndEvent,
+  ResizeCapability,
+  ResizeGeometry,
+  ResizeTarget,
+  RowResizeEndEvent,
+} from './interaction/axis-resize'
+export { cursorForEdge, hitSquare } from './interaction/resize-geometry'
 export type { ResizeEdge } from './interaction/resize-geometry'
 export {
   REGION_EDGE_HIT_PX,

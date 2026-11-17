@@ -30,7 +30,7 @@ function spyEditor(name: string): GridCellEditor & {
 }
 
 describe('类型化编辑器机制（grid-editors）', () => {
-  it('按格路由：命中自定义编辑器接管会话（open 收到地址/初值/容器/矩形），引擎文本会话不残留', () => {
+  it('按格路由：命中自定义编辑器由引擎原生会话托管（isEditing=true、无内置 input、收到地址/初值/容器/矩形）', () => {
     const editor = spyEditor('pick')
     const { grid, table, container, sheet } = createGrid({
       editors: { editors: [editor], route: (addr) => (addr.col === 1 ? 'pick' : undefined) },
@@ -38,8 +38,9 @@ describe('类型化编辑器机制（grid-editors）', () => {
     try {
       sheet.setCellValue({ row: 0, col: 1 }, 'opt-a')
       expect(table.startEdit(1, 0)).toBe(true)
-      // 接管后引擎无残留文本会话
-      expect(table.isEditing()).toBe(false)
+      // 引擎原生托管自定义会话：isEditing 为 true 且无内置 input 降级元素
+      expect(table.isEditing()).toBe(true)
+      expect(container.querySelector('input')).toBeNull()
       expect(editor.open).toHaveBeenCalledTimes(1)
       const session = editor.sessions[0]!
       expect(session.addr).toEqual({ row: 0, col: 1 })
@@ -52,8 +53,10 @@ describe('类型化编辑器机制（grid-editors）', () => {
         width: 80,
         height: 28,
       })
+      session.cancel()
+      expect(table.isEditing()).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -61,7 +64,7 @@ describe('类型化编辑器机制（grid-editors）', () => {
     const editor = spyEditor('pick')
     const onEditStart = vi.fn<(addr: CellAddress) => void>()
     const onEditEnd = vi.fn<(addr: CellAddress) => void>()
-    const { grid, table, sheet } = createGrid({
+    const { grid, table, container, sheet } = createGrid({
       editors: { editors: [editor], route: () => 'pick' },
       onEditStart,
       onEditEnd,
@@ -69,8 +72,11 @@ describe('类型化编辑器机制（grid-editors）', () => {
     try {
       sheet.setCellValue({ row: 0, col: 1 }, 'opt-a')
       expect(table.startEdit(1, 0)).toBe(true)
+      expect(table.isEditing()).toBe(true)
+      expect(container.querySelector('input')).toBeNull()
       expect(onEditStart).toHaveBeenCalledWith({ row: 0, col: 1 })
       editor.sessions[0]!.commit('opt-b')
+      expect(table.isEditing()).toBe(false)
       expect(sheet.getCellData({ row: 0, col: 1 })?.v).toBe('opt-b')
       expect(table.getCellText(1, 0)).toBe('opt-b')
       expect(editor.close).toHaveBeenCalledTimes(1)
@@ -79,25 +85,28 @@ describe('类型化编辑器机制（grid-editors）', () => {
       expect(sheet.undo()).toBe(true)
       expect(sheet.getCellData({ row: 0, col: 1 })?.v).toBe('opt-a')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
-  it('取消：cancel 不写模型，编辑器回收', () => {
+  it('取消：cancel 不写模型，编辑器回收，isEditing 恢复 false', () => {
     const editor = spyEditor('pick')
-    const { grid, table, sheet } = createGrid({
+    const { grid, table, container, sheet } = createGrid({
       editors: { editors: [editor], route: () => 'pick' },
     })
     try {
       sheet.setCellValue({ row: 0, col: 1 }, 'keep')
       expect(table.startEdit(1, 0)).toBe(true)
+      expect(table.isEditing()).toBe(true)
+      expect(container.querySelector('input')).toBeNull()
       editor.sessions[0]!.cancel()
+      expect(table.isEditing()).toBe(false)
       expect(sheet.getCellData({ row: 0, col: 1 })?.v).toBe('keep')
       expect(editor.close).toHaveBeenCalledTimes(1)
       // 会话已结束：再次 cancel 幂等（无会话）
       expect(() => editor.sessions[0]!.cancel()).not.toThrow()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -126,7 +135,7 @@ describe('类型化编辑器机制（grid-editors）', () => {
       table.cancelEdit()
       expect(table.isEditing()).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -141,22 +150,42 @@ describe('类型化编辑器机制（grid-editors）', () => {
       expect(table.startEdit(0, 0)).toBe(false)
       expect(editor.open).not.toHaveBeenCalled()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
 
 describe('列头机制（grid-header）', () => {
-  it('resolveTitle 覆盖列头标题，未覆盖列保持缺省字母表头', () => {
-    const { grid, table } = createGrid({
+  it('resolveTitle 覆盖列头标题，未覆盖列保持缺省字母表头，且不挂载冗余 DOM 覆盖层', () => {
+    const { grid, table, container } = createGrid({
       header: { resolveTitle: (col) => (col === 0 ? '字段A' : undefined) },
     })
     try {
       expect(table.options.columns[0]?.title).toBe('字段A')
       expect(table.options.columns[1]?.title).toBe('B')
       expect(table.options.columns[5]?.title).toBe('F')
+      expect(table.options.resolveColTitle?.(0)).toBe('字段A')
+      expect(table.options.resolveColTitle?.(26)).toBe('AA')
+      // 未传 resolveHeader 时不创建表头 DOM 覆盖层
+      expect(container.querySelectorAll('div')).toHaveLength(0)
     } finally {
-      grid.release()
+      grid.destroy()
+    }
+  })
+
+  it('resolveHeaderRenderer 直接转发到 ListTableOptions.resolveColHeaderRenderer（不挂 DOM 覆盖层）', () => {
+    const renderer = vi.fn<() => void>()
+    const { grid, table, container } = createGrid({
+      header: {
+        resolveHeaderRenderer: (col) => (col === 0 ? renderer : undefined),
+      },
+    })
+    try {
+      expect(table.options.resolveColHeaderRenderer?.(0)).toBe(renderer)
+      expect(table.options.resolveColHeaderRenderer?.(1)).toBeNull()
+      expect(container.querySelectorAll('div')).toHaveLength(0)
+    } finally {
+      grid.destroy()
     }
   })
 
@@ -166,7 +195,7 @@ describe('列头机制（grid-header）', () => {
       expect(table.options.columns[0]?.title).toBe('A')
       expect(table.options.columns[3]?.title).toBe('D')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -190,7 +219,7 @@ describe('列头机制（grid-header）', () => {
       // 每列至多回调一次（构造期列装配 + 覆盖层同步共用缓存）
       expect(resolveHeader).toHaveBeenCalledTimes(6)
     } finally {
-      grid.release()
+      grid.destroy()
     }
     expect(el.parentElement).toBeNull()
   })
@@ -213,7 +242,7 @@ describe('列头机制与编辑器机制默认共存（新 Sheet 实例直挂）
       editor.sessions[0]!.commit(7)
       expect(sheet.getCellData({ row: 0, col: 0 })?.v).toBe(7)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

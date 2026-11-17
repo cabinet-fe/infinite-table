@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { CellStyle } from '@infinitable/grid'
-import { createPrintPlugin, type PrintSource } from '@infinitable/plugins'
+import { createPrintPlugin, type GridReadView } from '@infinitable/plugins'
 import { useDemoTable } from '../demo/use-demo-table'
 
 const HEIGHT = 300
@@ -34,16 +34,16 @@ function cellStyle(col: number, row: number): CellStyle | undefined {
   return undefined
 }
 
-const source: PrintSource = {
+const source: GridReadView = {
   name: '城市销售明细',
   rowCount: ROW_COUNT,
   colCount: COLUMNS.length,
-  rowHeight: () => 30,
-  colWidth: (col) => COLUMNS[col]?.width ?? 100,
-  merges: () => [],
-  cellValue,
-  cellStyle,
-  displayValue: cellValue,
+  getRowHeight: () => 30,
+  getColWidth: (col) => COLUMNS[col]?.width ?? 100,
+  getMergeRanges: () => [],
+  getCellValue: cellValue,
+  getCellStyle: cellStyle,
+  getCellText: (col, row) => String(cellValue(col, row) ?? ''),
 }
 
 const printer = createPrintPlugin({

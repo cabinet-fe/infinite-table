@@ -1,13 +1,30 @@
-// ListTable 场景重建协作模块（拆自 list-table.ts，纯移动不改行为）：
-// 可视窗口场景树的全量重建与滚动帧增量窗口（6.2：滚入建/滚出摘/存活平移）、
-// 分带建格与行列头装配、Excel 式文本溢出走廊支撑（refreshCell 的溢出联动依赖）。
-// 以 ListTable 实例为参数的协作函数，只触碰表实例上标注 @internal 的内部成员。
+// ListTable 场景重建协作模块：
+// 可视窗口场景树的全量重建与滚动帧增量窗口（滚入建/滚出摘/存活平移）、
+// 固定层级容器组（scrollable → scrollableOverflow → frozen → frozenOverflow → crossMerge → header → frame）、
+// 行列头装配、Excel 式文本溢出走廊支撑（refreshCell 的溢出联动依赖）。
+// 以 ListTable 实例为参数的协作函数，只触碰表实例上的 @internal 状态容器。
 
+import {
+  computeScrollableColWindow,
+  computeScrollableRowWindowFromOffsets,
+  expandWindowRange,
+  opaqueHeaderHighlight,
+  rangeCrossesBoundary,
+  resolveCellX,
+  resolveCellYFromOffsets,
+  resolveSharedEdges,
+  spanHeight,
+  spanWidth,
+  strongerEdge,
+  themeCellBase,
+  unionRegions,
+  type FrameStyle,
+  type WindowRange,
+} from '@infinitable/grid'
 import { SceneNode, type Region, type RenderContext } from '@infinitable/render'
 
 import { CellNode } from './cell-node'
 import { cellTextAnchorX } from './cell-renderer'
-import { rangeCrossesBoundary } from '@infinitable/grid'
 import {
   cellStyleFont,
   type BorderInset,
@@ -15,17 +32,7 @@ import {
   type CellBorderEdge,
   type CellStyle,
 } from './cell-style'
-import {
-  computeScrollableColWindow,
-  computeScrollableRowWindowFromOffsets,
-  expandWindowRange,
-  resolveCellX,
-  resolveCellYFromOffsets,
-  spanHeight,
-  spanWidth,
-  unionRegions,
-  type WindowRange,
-} from '@infinitable/grid'
+import type { TableBodyGroups, TableMediaGroups } from './internal/table-states'
 import type { ListTable } from './list-table'
 import {
   cellKey,
@@ -35,12 +42,19 @@ import {
   type HeaderHighlightInput,
 } from './list-table-internal'
 import { appendChartCell, appendImageCell } from './list-table-media'
-import { resolveSharedEdges, strongerEdge } from '@infinitable/grid'
-import { opaqueHeaderHighlight, themeCellBase } from '@infinitable/grid'
-import type { FrameStyle } from '@infinitable/grid'
 
 /** 外框阴影模糊半径（CSS 像素；frameStyle.shadow 开启时的固定观感） */
 const FRAME_SHADOW_BLUR = 6
+
+/** 创建固定层级容器组（不可拾取、跳过子节点命中遍历） */
+function newContainerGroup(width: number, height: number): SceneNode {
+  return new SceneNode({
+    pickable: false,
+    hitTestChildren: false,
+    width,
+    height,
+  })
+}
 
 /**
  * 纯填充矩形节点：underlay 底色铺设。恒为 body root 首子节点（格背景之下），
@@ -48,7 +62,7 @@ const FRAME_SHADOW_BLUR = 6
  */
 export class UnderlayNode extends SceneNode {
   constructor(private readonly color: string) {
-    super({ pickable: false })
+    super({ pickable: false, hitTestChildren: false })
   }
 
   override paint(ctx: RenderContext): void {
@@ -60,7 +74,7 @@ export class UnderlayNode extends SceneNode {
 /** 表格外框节点：四边细条线框 + 可选阴影（RenderContext 无 stroke，用细条填充）。恒为 body root 末子节点 */
 export class FrameNode extends SceneNode {
   constructor(private readonly frame: FrameStyle) {
-    super({ pickable: false })
+    super({ pickable: false, hitTestChildren: false })
   }
 
   override paint(ctx: RenderContext): void {
@@ -82,39 +96,205 @@ export class FrameNode extends SceneNode {
   }
 }
 
-/** 重建可视窗口场景：数据格在前、行列头在后（同层后画覆盖边缘半格） */
-export function rebuildScene(table: ListTable): void {
-  const root = table.body.root
+/** 确保并挂载 media 层固定容器组（scrollableMediaGroup → frozenMediaGroup → crossMergeMediaGroup） */
+export function ensureMediaGroups(table: ListTable): TableMediaGroups {
+  const existing = table.sceneState.mediaGroups
+  if (existing) {
+    return existing
+  }
+  const mediaRoot = table.sceneState.media!.root
+  const { width, height } = table
+  const mediaGroups: TableMediaGroups = {
+    scrollableMediaGroup: newContainerGroup(width, height),
+    frozenMediaGroup: newContainerGroup(width, height),
+    crossMergeMediaGroup: newContainerGroup(width, height),
+  }
+  mediaRoot.appendChild(mediaGroups.scrollableMediaGroup)
+  mediaRoot.appendChild(mediaGroups.frozenMediaGroup)
+  mediaRoot.appendChild(mediaGroups.crossMergeMediaGroup)
+  table.sceneState.mediaGroups = mediaGroups
+  return mediaGroups
+}
+
+/** 同步容器组尺寸（视口 resize 后更新组包围盒） */
+export function resizeSceneGroups(table: ListTable): void {
+  const { width, height } = table
+  const groups = table.sceneState.groups
+  if (groups) {
+    for (const node of [
+      groups.underlayNode,
+      groups.scrollableGroup,
+      groups.scrollableOverflowGroup,
+      groups.frozenGroup,
+      groups.frozenOverflowGroup,
+      groups.crossMergeGroup,
+      groups.headerGroup,
+      groups.scrollableHeadersGroup,
+      groups.frozenHeadersGroup,
+      groups.frameNode,
+    ]) {
+      node.width = width
+      node.height = height
+    }
+  }
+  const mediaGroups = table.sceneState.mediaGroups
+  if (mediaGroups) {
+    for (const node of [
+      mediaGroups.scrollableMediaGroup,
+      mediaGroups.frozenMediaGroup,
+      mediaGroups.crossMergeMediaGroup,
+    ]) {
+      node.width = width
+      node.height = height
+    }
+  }
+}
+
+/** 根据格归属与溢出状态路由到 body 场景树的固定容器组 */
+export function targetBodyGroup(
+  table: ListTable,
+  col: number,
+  row: number,
+  overflows: boolean,
+): SceneNode {
+  const groups = table.sceneState.groups!
+  const { frozenColCount, frozenRowCount, mergeCells } = table.geometryState
+  const range = mergeCells.rangeAt(col, row)
+  if (range && rangeCrossesBoundary(range, frozenColCount, frozenRowCount)) {
+    return groups.crossMergeGroup
+  }
+  const isFrozen = col < frozenColCount || row < frozenRowCount
+  if (isFrozen) {
+    return overflows ? groups.frozenOverflowGroup : groups.frozenGroup
+  }
+  return overflows ? groups.scrollableOverflowGroup : groups.scrollableGroup
+}
+
+/**
+ * 同步单格所在容器组与溢出排序（局部刷新 / 窗外溢出源收敛共用）：
+ * 节点获得或失去溢出能力时在 scrollableGroup <-> scrollableOverflowGroup 或
+ * frozenGroup <-> frozenOverflowGroup 间迁移，并在溢出组内保持同行列升序。
+ */
+export function syncCellGroupAndOverflowOrder(
+  table: ListTable,
+  node: CellNode,
+  col: number,
+  row: number,
+): void {
+  const overflows = node.textMaxX > node.width || node.textMinX < 0
+  const target = targetBodyGroup(table, col, row, overflows)
+  if (node.parent !== target) {
+    target.appendChild(node)
+  }
+  if (overflows) {
+    const groups = table.sceneState.groups
+    if (
+      groups &&
+      (target === groups.scrollableOverflowGroup || target === groups.frozenOverflowGroup)
+    ) {
+      reorderRowInOverflowGroup(target, row)
+    }
+  }
+}
+
+/** 保持某溢出组内指定行节点按 col 升序（确定性 z 序） */
+function reorderRowInOverflowGroup(group: SceneNode, row: number): void {
+  const rowNodes: CellNode[] = []
+  for (const child of group.children) {
+    if ((child as CellNode).row === row) {
+      rowNodes.push(child as CellNode)
+    }
+  }
+  if (rowNodes.length <= 1) {
+    return
+  }
+  rowNodes.sort((a, b) => a.col - b.col)
+  for (const node of rowNodes) {
+    group.appendChild(node)
+  }
+}
+
+/** 清空场景树根节点全部子节点 */
+function clearRootChildren(root: SceneNode): void {
   while (root.children.length > 0) {
     root.removeChild(root.children[0]!)
   }
-  table.cellNodes.clear()
-  table.colHeaderNodes.clear()
-  table.rowHeaderNodes.clear()
-  table.cornerNode = null
-  table.headerGroup = null
-  table.frameNode = null
-  if (table.media) {
-    const mediaRoot = table.media.root
-    while (mediaRoot.children.length > 0) {
-      mediaRoot.removeChild(mediaRoot.children[0]!)
-    }
+}
+
+/** 重建可视窗口场景：按固定分层顺序建组，数据格/表头/外框直接入对应容器组 */
+export function rebuildScene(table: ListTable): void {
+  const { sceneState, geometryState, mediaState } = table
+  const root = sceneState.body.root
+  clearRootChildren(root)
+  sceneState.cellNodes.clear()
+  sceneState.colHeaderNodes.clear()
+  sceneState.rowHeaderNodes.clear()
+  sceneState.cornerNode = null
+  sceneState.headerGroup = null
+  sceneState.frameNode = null
+  sceneState.underlayNode = null
+  sceneState.groups = null
+
+  mediaState.imageCellNodes.clear()
+  mediaState.chartCellNodes.clear()
+  sceneState.mediaGroups = null
+  if (sceneState.media) {
+    clearRootChildren(sceneState.media.root)
+    ensureMediaGroups(table)
   }
-  table.imageCellNodes.clear()
-  table.chartCellNodes.clear()
-  // underlay 底色最先入树（首子节点）：格背景之下铺设
-  const underlay = new UnderlayNode(table.theme.underlayBackgroundColor)
-  underlay.width = table.width
-  underlay.height = table.height
-  root.appendChild(underlay)
+
+  const { width, height } = table
+  const underlayNode = new UnderlayNode(table.theme.underlayBackgroundColor)
+  underlayNode.width = width
+  underlayNode.height = height
+  const scrollableGroup = newContainerGroup(width, height)
+  const scrollableOverflowGroup = newContainerGroup(width, height)
+  const frozenGroup = newContainerGroup(width, height)
+  const frozenOverflowGroup = newContainerGroup(width, height)
+  const crossMergeGroup = newContainerGroup(width, height)
+  const headerGroup = newContainerGroup(width, height)
+  const scrollableHeadersGroup = newContainerGroup(width, height)
+  const frozenHeadersGroup = newContainerGroup(width, height)
+  const frameNode = new FrameNode(table.theme.frameStyle)
+  frameNode.width = width
+  frameNode.height = height
+
+  headerGroup.appendChild(scrollableHeadersGroup)
+  headerGroup.appendChild(frozenHeadersGroup)
+
+  root.appendChild(underlayNode)
+  root.appendChild(scrollableGroup)
+  root.appendChild(scrollableOverflowGroup)
+  root.appendChild(frozenGroup)
+  root.appendChild(frozenOverflowGroup)
+  root.appendChild(crossMergeGroup)
+  root.appendChild(headerGroup)
+  root.appendChild(frameNode)
+
+  const groups: TableBodyGroups = {
+    underlayNode,
+    scrollableGroup,
+    scrollableOverflowGroup,
+    frozenGroup,
+    frozenOverflowGroup,
+    crossMergeGroup,
+    headerGroup,
+    scrollableHeadersGroup,
+    frozenHeadersGroup,
+    frameNode,
+  }
+  sceneState.groups = groups
+  sceneState.underlayNode = underlayNode
+  sceneState.headerGroup = headerGroup
+  sceneState.frameNode = frameNode
+
   const { left, top } = table.scroll.state
   const { rows: scrollableRows, cols: scrollableCols } = computeAssemblyWindow(table, left, top)
-  table.rows = scrollableRows
-  table.cols = scrollableCols
-  // 分层顺序：滚动区在最下，部分可见合并区同属滚动层，冻结条带居中，冻结角最上
-  // （滚动内容滑到冻结区下方，由后画的冻结区覆盖）
-  const frozenRows: WindowRange = { start: 0, end: table.frozenRowCount }
-  const frozenCols: WindowRange = { start: 0, end: table.frozenColCount }
+  geometryState.rows = scrollableRows
+  geometryState.cols = scrollableCols
+  const frozenRows: WindowRange = { start: 0, end: geometryState.frozenRowCount }
+  const frozenCols: WindowRange = { start: 0, end: geometryState.frozenColCount }
+
   appendCellBand(table, scrollableRows, scrollableCols, left, top)
   appendPartiallyVisibleMerges(
     table,
@@ -126,97 +306,39 @@ export function rebuildScene(table: ListTable): void {
   appendCellBand(table, scrollableRows, frozenCols, left, top)
   appendCellBand(table, frozenRows, scrollableCols, left, top)
   appendCellBand(table, frozenRows, frozenCols, left, top)
-  // 窗外溢出源补建（P1 窗缘反查，取舍 8）：先于 z 序收口，让窗外源与窗内溢出源
-  // 进入同一「行内列升序重挂树尾」规范，走廊标记亦纳入同一扫描口径
   appendOffWindowOverflowSources(table, [frozenRows, scrollableRows], left, top)
-  // 溢出 z 序不变量收口（行内列升序重挂树尾）：列降序建格只保证右溢源（走廊左端）
-  // 后画；左溢/双向源在走廊右端，会被走廊格反盖出「表格线画在溢出文本之上」伪影
   remountOverflowSources(table)
-  // 表头收进单一容器节点（R2-5）：容器恒为 root 末子节点，表头整体在全部数据格之上；
-  // 滚动帧有新建数据格时只需重挂容器单节点（原先逐表头 removeChild+appendChild，
-  // 单节点 removeChild 含 indexOf+splice，整体为 O(表头数×窗口节点数)）。
-  // 容器自带全表包围盒且 pickable:false：paintTree 的 cull 与 hitTest 都按节点自身
-  // 包围盒判定，零尺寸容器会让表头被 cull 剔除或无法命中；pickable:false 使未命中
-  // 表头子节点时穿透到数据格。
-  const headerGroup = newHeaderGroup(table)
-  table.headerGroup = headerGroup
-  root.appendChild(headerGroup)
-  appendHeaders(
-    table,
-    headerGroup,
-    left,
-    top,
-    frozenRows,
-    scrollableRows,
-    frozenCols,
-    scrollableCols,
-  )
-  // 外框最后入树（末子节点）：恒在数据格与表头之上；滚动帧增量补建后由 updateSceneWindow 重挂保持最上
-  const frame = new FrameNode(table.theme.frameStyle)
-  frame.width = table.width
-  frame.height = table.height
-  root.appendChild(frame)
-  table.frameNode = frame
+
+  appendHeaders(table, groups, left, top, frozenRows, scrollableRows, frozenCols, scrollableCols)
 }
 
 /**
  * 滚动帧增量窗口：摘除滚出行列的节点、补建滚入行列，存活节点原地平移（零重建）。
- * 滚动帧的节点分配与样式投影从 O(窗口格数) 降到 O(滚入格数)；场景内容与全量重建
- * （rebuildScene）逐点等价。层内 z 序契约（R2-6 固化，改动步骤 ②③⑤ 前必读）：
- * 1. 滚动区在下、冻结条带居中：两带几何不相交，带间绘制顺序无语义，
- *    「新节点挂树尾」不会破坏带间关系；全量重建带序为
- *    滚动带 → 部分可见合并区 → 冻结列带 → 冻结行带 → 冻结角 → 表头容器。
- * 2. 同行溢出源后画于同条带全部走廊节点（Excel 式溢出文本不被走廊格背景/网格线盖住）：
- *    全量重建 = 带内按列降序建格（右溢源在走廊左端天然后画）+ remountOverflowSources
- *    把全部溢出源按行内列升序重挂树尾（左溢/双向源在走廊右端，降序建格会被走廊格反盖）；
- *    增量侧 = 新滚入行整行降序补建（步骤 ②，含冻结列）+ 滚入列降序补建（步骤 ③ 前半）
- *    + 行内溢出 z 序规范（步骤 ③ 后半，canonicalizeRowOverflowOrder：对新建行与被新建
- *    列触及的行，把行内全部溢出源按列升序重挂树尾）。等价性逐点对照：
- *    - 新建格挂树尾会画在存活溢出源之上（源走廊穿过新列区的典型形态），行内规范把
- *      源重挂回树尾；重挂集合 = 行内全部溢出源，与全量重建 remountOverflowSources
- *      的行内列升序同序（两源对溢共享空段时右溢源先、左溢源后，确定性次序）；
- *    - 向左滚动时滚入列在左缘：滚入格挂树尾即在其右侧存活格之上，与全量重建
- *      「小列号后画」一致；右侧存活格只可能向左溢出（走廊穿新列区），由行内规范覆盖；
- *    - 溢出格同行内被 ≥1 个空格隔开（溢出走廊必然全空，且文本缘止于阻断格边界），
- *      重挂集合内部两两无绘制交叠，唯两源对溢共享空段时例外（接受叠画）。
- *    步骤 ③ 扫描口径的边界：对「新行已在步骤 ② 整行补建」的行不跳过——新建行含
- *    左溢源同样需要行内规范；对冻结带行不跳过——冻结「行」上的滚动区列格仍可溢出
- *    进滚入列（冻结只按「列」带截断溢出，见 textOverflowLimits）。
- *    窗外溢出源（P1 窗缘反查，步骤 ③ 之二）：滚入列/滚入行出现时对窗缘反查补建窗外
- *    源节点，纳入同一行内列升序规范；sweep 保留条件含「走廊仍与可视列窗相交」的窗外
- *    源分支（走廊完全滚出后正常摘除）。纯平移帧（无滚入行列）零新增扫描。
- * 3. 表头最上（合并主格上缘可伸进列头带）：表头收进单一容器节点且恒为 root
- *    末子节点（R2-5，见 rebuildScene）；bodyChanged 时仅把容器重挂树尾一次。
- * 4. 跨冻结边界合并主格钉固在上：主格按其冻结带归属定位（滚动不平移），整块
- *    尺寸盖住滚动区延伸段；增量补建把新滚入格挂树尾会画在主格之上（滚动格盖住
- *    合并区延伸段——错切），故 bodyChanged 时把跨边界主格（body 与 media 两层）
- *    重挂树尾（remountCrossBoundaryMergeMasters），恢复全量重建「冻结带后画于
- *    滚动带」的次序；合并区互不重叠，重挂集合内部无绘制交叠，相互次序无语义。
- * band 失效语义不变（onScroll 维持原横/纵带提交）。
+ * 各带已有固定容器组，新节点直接挂入目标组，不再每帧重挂冻结节点、跨界合并主格、表头容器与外框。
  */
 export function updateSceneWindow(table: ListTable): void {
+  const { geometryState, sceneState, mediaState } = table
   const { left, top } = table.scroll.state
-  const prevRows = table.rows
-  const prevCols = table.cols
+  const prevRows = geometryState.rows
+  const prevCols = geometryState.cols
   const { rows: scrollableRows, cols: scrollableCols } = computeAssemblyWindow(table, left, top)
-  table.rows = scrollableRows
-  table.cols = scrollableCols
-  const frozenRows: WindowRange = { start: 0, end: table.frozenRowCount }
-  const frozenCols: WindowRange = { start: 0, end: table.frozenColCount }
+  geometryState.rows = scrollableRows
+  geometryState.cols = scrollableCols
+  const frozenRows: WindowRange = { start: 0, end: geometryState.frozenRowCount }
+  const frozenCols: WindowRange = { start: 0, end: geometryState.frozenColCount }
   const rowBands = [frozenRows, scrollableRows]
   const colBands = [frozenCols, scrollableCols]
   const inRange = (index: number, range: WindowRange): boolean =>
     index >= range.start && index < range.end
   const partiallyVisible = (start: number, end: number, bands: readonly WindowRange[]): boolean =>
     bands.some((band) => start < band.end && end >= band.start)
-  // 节点保留条件：格在窗口内，或为「主格在窗外但区间仍部分可见」的合并主格，
-  // 或为「走廊仍与可视列窗相交」的窗外溢出源（数据格专属，见 keepDataCell）
+
   const keepDataCell = (col: number, row: number, node: CellNode): boolean => {
     const rowVisible = inRange(row, frozenRows) || inRange(row, scrollableRows)
     if (rowVisible && (inRange(col, frozenCols) || inRange(col, scrollableCols))) {
       return true
     }
-    const range = table.mergeCells.rangeAt(col, row)
+    const range = geometryState.mergeCells.rangeAt(col, row)
     if (
       range !== null &&
       partiallyVisible(range.startRow, range.endRow, rowBands) &&
@@ -224,10 +346,6 @@ export function updateSceneWindow(table: ListTable): void {
     ) {
       return true
     }
-    // 窗外溢出源（P1 窗缘反查）：其走廊（corridorCols，列号口径与滚动无关）仍与
-    // 可视列窗相交期间保留，被保留节点由 sweep 原地平移；走廊完全滚出（窗口滑动
-    // 越过走廊末端）或行滚出后正常摘除。走廊连续且止于首个非空格——窗外侧延伸段
-    // 只可能伸向窗缘，相交判定即走廊区间与滚动列带求交
     if (rowVisible && (node.textMaxX > node.width || node.textMinX < 0)) {
       const corridor = corridorCols(table, col, row, node.style, node)
       if (
@@ -240,39 +358,29 @@ export function updateSceneWindow(table: ListTable): void {
     }
     return false
   }
-  // 图片/图表格不溢出文本：保留条件不含窗外溢出源分支
+
   const keepMediaCell = (col: number, row: number): boolean => {
     if (inRange(row, frozenRows) || inRange(row, scrollableRows)) {
       if (inRange(col, frozenCols) || inRange(col, scrollableCols)) {
         return true
       }
     }
-    const range = table.mergeCells.rangeAt(col, row)
+    const range = geometryState.mergeCells.rangeAt(col, row)
     return (
       range !== null &&
       partiallyVisible(range.startRow, range.endRow, rowBands) &&
       partiallyVisible(range.startCol, range.endCol, colBands)
     )
   }
-  // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移（数据格与图片/图表格同条件）
-  sweepWindowNodes(table, table.cellNodes, table.body.root, keepDataCell, left, top)
-  sweepWindowNodes(
-    table,
-    table.imageCellNodes,
-    table.media?.root ?? null,
-    keepMediaCell,
-    left,
-    top,
-    (node) => {
-      // 引用裁剪接线（R2-7）：滚出窗口的图片格释放 ImageService 格引用，
-      // 无引用条目脱离窗口调度扫描面（重入由 appendImageCell 的 request 重登记）
-      table.imageService.releaseRef(node.url, { col: node.col, row: node.row })
-    },
-  )
-  // 图表格位图不依赖窗口调度（cell 级缓存自持），滚出清扫即摘、滚回重建走缓存命中
-  sweepWindowNodes(table, table.chartCellNodes, table.media?.root ?? null, keepMediaCell, left, top)
-  let bodyChanged = false
-  // 2) 新滚入行整行补建：先滚动区列降序、再冻结列降序（同行左格后画）
+
+  // 1) 摘除滚出窗口的节点，存活节点按新滚动位置原地平移
+  sweepWindowNodes(table, sceneState.cellNodes, keepDataCell, left, top)
+  sweepWindowNodes(table, mediaState.imageCellNodes, keepMediaCell, left, top, (node) => {
+    table.imageService.releaseRef(node.url, { col: node.col, row: node.row })
+  })
+  sweepWindowNodes(table, mediaState.chartCellNodes, keepMediaCell, left, top)
+
+  // 2) 新滚入行整行补建
   const newRows = new Set<number>()
   for (let row = scrollableRows.start; row < scrollableRows.end; row++) {
     if (inRange(row, prevRows)) {
@@ -280,13 +388,14 @@ export function updateSceneWindow(table: ListTable): void {
     }
     newRows.add(row)
     for (let col = scrollableCols.end - 1; col >= scrollableCols.start; col--) {
-      bodyChanged = appendCell(table, col, row, left, top) || bodyChanged
+      appendCell(table, col, row, left, top)
     }
     for (let col = frozenCols.end - 1; col >= frozenCols.start; col--) {
-      bodyChanged = appendCell(table, col, row, left, top) || bodyChanged
+      appendCell(table, col, row, left, top)
     }
   }
-  // 3) 存活行补建滚入列（降序），再做行内溢出 z 序规范（重挂树尾）
+
+  // 3) 存活行补建滚入列
   const enteringCols: number[] = []
   for (let col = scrollableCols.start; col < scrollableCols.end; col++) {
     if (!inRange(col, prevCols)) {
@@ -297,19 +406,16 @@ export function updateSceneWindow(table: ListTable): void {
     for (const band of rowBands) {
       for (let row = band.start; row < band.end; row++) {
         if (inRange(row, scrollableRows) && !inRange(row, prevRows)) {
-          continue // 新行已在步骤 2 整行补建
+          continue
         }
         for (let i = enteringCols.length - 1; i >= 0; i--) {
-          bodyChanged = appendCell(table, enteringCols[i]!, row, left, top) || bodyChanged
+          appendCell(table, enteringCols[i]!, row, left, top)
         }
       }
     }
   }
-  // 3.2) 窗缘反查补建窗外溢出源（P1，取舍 8）：横向滚动列窗移动时全部行、纵向滚动
-  // 有滚入行时仅新滚入行做窗缘溢出源反查（P2 短路：存活行的窗缘邻格与走廊列号口径
-  // 均不随纯纵向滚动变化，其窗外源由 sweep 的走廊相交条件原地保留，重查为无效功；
-  // 列窗移动以 prevCols 对照判定——滚到最右端 end 钉住、仅 start 右移的形态无滚入列
-  // 但左缘邻格已变，仍需全行重查）；先于步骤 3.5，让补建源随行内规范统一重挂
+
+  // 3.2) 窗缘反查补建窗外溢出源
   if (enteringCols.length > 0 || newRows.size > 0) {
     const colsWindowMoved =
       scrollableCols.start !== prevCols.start || scrollableCols.end !== prevCols.end
@@ -318,223 +424,142 @@ export function updateSceneWindow(table: ListTable): void {
         if (!colsWindowMoved && !newRows.has(row)) {
           continue
         }
-        bodyChanged =
-          appendOffWindowOverflowSources(table, [{ start: row, end: row + 1 }], left, top) ||
-          bodyChanged
+        appendOffWindowOverflowSources(table, [{ start: row, end: row + 1 }], left, top)
       }
     }
   }
-  // 3.5) 行内溢出 z 序规范（见 updateSceneWindow 契约 2）：横向滚动有新建列时全部行
-  // 统一规范（新建格挂树尾画在存活溢出源之上）；纯纵向滚动只有新建行需要
-  // （新建行整行降序补建后，行内左溢源仍会被走廊格反盖）
+
+  // 3.5) 行内溢出 z 序规范（仅在溢出容器组内按列升序排序并重标走廊内部标记）
   if (enteringCols.length > 0 || newRows.size > 0) {
     for (const band of rowBands) {
       for (let row = band.start; row < band.end; row++) {
         if (enteringCols.length === 0 && !newRows.has(row)) {
           continue
         }
-        bodyChanged = canonicalizeRowOverflowOrder(table, row, colBands) || bodyChanged
+        canonicalizeRowOverflowOrder(table, row, colBands)
       }
     }
   }
-  // 4) 主格窗外但区间部分可见的合并主格补建（已存在则跳过）
-  bodyChanged = appendPartiallyVisibleMerges(table, left, top, rowBands, colBands) || bodyChanged
-  // 4.5) 冻结带 z 序收口：滚入格挂树尾画在既有冻结带格之上——窗口起点行/列在非对齐
-  // 滚动位置与冻结带几何重叠（局部可见行顶部伸进冻结带），z 序翻转后滚动 band 失效
-  // 不覆盖冻结带区域，任何全量重绘会把「滚动区内容盖住冻结行/列」烙进冻结带像素。
-  // 重挂全部冻结带数据格恢复全量重建「滚动带 → 冻结列带 → 冻结行带」的带间次序；
-  // 带内溢出源最后按行内列升序重挂（保持「源后画于走廊格」不变量，与全量重建
-  // remountOverflowSources 同序）；跨边界合并主格在随后重挂其上。
-  if (bodyChanged) {
-    const frozenSources: CellNode[] = []
-    for (const node of table.cellNodes.values()) {
-      if (node.row >= table.frozenRowCount && node.col >= table.frozenColCount) {
-        continue
-      }
-      if (node.textMaxX > node.width || node.textMinX < 0) {
-        frozenSources.push(node)
-        continue
-      }
-      table.body.root.removeChild(node)
-      table.body.root.appendChild(node)
-    }
-    frozenSources.sort((a, b) => a.row - b.row || a.col - b.col)
-    for (const node of frozenSources) {
-      table.body.root.removeChild(node)
-      table.body.root.appendChild(node)
-    }
-  }
-  // 5) 表头增量维护：存活节点平移、滚出摘除、滚入补建，全部发生在表头容器内
-  //    （容器恒在数据格之上，见 rebuildScene）；有新建数据格时把容器重挂到树尾，
-  //    保持「表头最上」的既有 z 序（合并主格上缘可能伸进列头带）
-  const root = table.body.root
+
+  // 4) 主格窗外但区间部分可见的合并主格补建
+  appendPartiallyVisibleMerges(table, left, top, rowBands, colBands)
+
+  // 5) 表头增量维护：存活节点平移、滚出摘除、滚入直接挂入滚动/冻结表头组
+  const groups = sceneState.groups!
   const styles = headerStyles(table)
-  if (!table.headerGroup) {
-    table.headerGroup = newHeaderGroup(table)
-    root.appendChild(table.headerGroup)
-  }
-  const headerGroup = table.headerGroup
-  for (const [col, node] of table.colHeaderNodes) {
+  for (const [col, node] of sceneState.colHeaderNodes) {
     if (inRange(col, frozenCols) || inRange(col, scrollableCols)) {
-      node.x = resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth)
+      node.x = resolveCellX(
+        col,
+        left,
+        geometryState.colOffsets,
+        geometryState.frozenColCount,
+        table.rowHeaderWidth,
+      )
     } else {
-      headerGroup.removeChild(node)
-      table.colHeaderNodes.delete(col)
+      node.removeFromParent()
+      sceneState.colHeaderNodes.delete(col)
     }
   }
-  for (const [row, node] of table.rowHeaderNodes) {
+  for (const [row, node] of sceneState.rowHeaderNodes) {
     if (inRange(row, frozenRows) || inRange(row, scrollableRows)) {
       node.y = resolveCellYFromOffsets(
         row,
         top,
-        table.rowOffsets,
-        table.frozenRowCount,
+        geometryState.rowOffsets,
+        geometryState.frozenRowCount,
         table.headerHeight,
       )
     } else {
-      headerGroup.removeChild(node)
-      table.rowHeaderNodes.delete(row)
+      node.removeFromParent()
+      sceneState.rowHeaderNodes.delete(row)
     }
   }
-  let headersChanged = false
   if (showsColHeader(table)) {
     for (const cols of [scrollableCols, frozenCols]) {
+      const targetGroup =
+        cols === frozenCols ? groups.frozenHeadersGroup : groups.scrollableHeadersGroup
       for (let col = cols.start; col < cols.end; col++) {
-        if (!table.colHeaderNodes.has(col)) {
+        if (!sceneState.colHeaderNodes.has(col)) {
           const node = newColHeaderNode(table, col, left, styles)
-          headerGroup.appendChild(node)
-          table.colHeaderNodes.set(col, node)
-          headersChanged = true
+          targetGroup.appendChild(node)
+          sceneState.colHeaderNodes.set(col, node)
         }
       }
     }
   }
   if (showsRowHeader(table)) {
     for (const rows of [scrollableRows, frozenRows]) {
+      const targetGroup =
+        rows === frozenRows ? groups.frozenHeadersGroup : groups.scrollableHeadersGroup
       for (let row = rows.start; row < rows.end; row++) {
-        if (!table.rowHeaderNodes.has(row)) {
+        if (!sceneState.rowHeaderNodes.has(row)) {
           const node = newRowHeaderNode(table, row, top, styles)
-          headerGroup.appendChild(node)
-          table.rowHeaderNodes.set(row, node)
-          headersChanged = true
+          targetGroup.appendChild(node)
+          sceneState.rowHeaderNodes.set(row, node)
         }
       }
     }
   }
-  // 冻结带头 z 序收口（与数据格 4.5 同构）：滚入行/列头挂容器树尾会画在既有冻结
-  // 带头之上，重挂冻结带头恢复「滚动带头在下、冻结带头在上」；角块随后重挂保持最上。
-  if (headersChanged) {
-    for (const [row, node] of table.rowHeaderNodes) {
-      if (row < table.frozenRowCount) {
-        headerGroup.appendChild(node)
-      }
-    }
-    for (const [col, node] of table.colHeaderNodes) {
-      if (col < table.frozenColCount) {
-        headerGroup.appendChild(node)
-      }
-    }
-  }
-  if (showsColHeader(table) && showsRowHeader(table)) {
-    if (!table.cornerNode) {
-      table.cornerNode = newCornerNode(table, styles)
-    }
-    // appendChild 自带摘除重挂（O(1)）：增量滚动补建列头挂树尾后，角块重挂树尾
-    // 保持「角块最上」不变量（全量重建路径本就最后建角块，此处同序）
-    headerGroup.appendChild(table.cornerNode)
-  }
-  if (bodyChanged) {
-    // 跨边界合并主格先重挂树尾（滚动补建格之上），表头容器随后重挂保持「表头最上」
-    remountCrossBoundaryMergeMasters(table)
-    // appendChild 自带摘除重挂：单节点定位替代原先逐表头搬移
-    root.appendChild(headerGroup)
-    if (table.frameNode) {
-      // 外框重挂树尾：恒在数据格与表头之上
-      root.appendChild(table.frameNode)
-    }
+  if (showsColHeader(table) && showsRowHeader(table) && !sceneState.cornerNode) {
+    sceneState.cornerNode = newCornerNode(table, styles)
+    groups.headerGroup.appendChild(sceneState.cornerNode)
   }
 }
 
 /**
- * 跨冻结边界合并主格重挂树尾（增量路径专用，见 updateSceneWindow z 序契约 4）：
- * 跨边界合并区的主格恒落在冻结带（跨界即 startCol/startRow 在冻结侧），按冻结带
- * 钉固不动、整块延伸段覆盖滑过的滚动带格；全量重建中主格所在冻结带本就后画于
- * 滚动带，无需处理。body 与 media 两层同序处理（图片主格与滚动带图片格同层）。
- */
-function remountCrossBoundaryMergeMasters(table: ListTable): void {
-  for (const range of table.mergeCells.ranges) {
-    if (!rangeCrossesBoundary(range, table.frozenColCount, table.frozenRowCount)) {
-      continue
-    }
-    const key = cellKey(range.startCol, range.startRow)
-    const cellNode = table.cellNodes.get(key)
-    if (cellNode) {
-      table.body.root.removeChild(cellNode)
-      table.body.root.appendChild(cellNode)
-    }
-    const imageNode = table.imageCellNodes.get(key)
-    if (imageNode && table.media) {
-      table.media.root.removeChild(imageNode)
-      table.media.root.appendChild(imageNode)
-    }
-    const chartNode = table.chartCellNodes.get(key)
-    if (chartNode && table.media) {
-      table.media.root.removeChild(chartNode)
-      table.media.root.appendChild(chartNode)
-    }
-  }
-}
-
-/**
- * 窗口滑动清扫：不满足保留条件的节点从父节点摘除并出索引，
- * 存活节点按新滚动位置原地平移（数据格、图片格通用）；
- * 滚出节点先收集、再按父节点一次批摘（SceneNode.removeChildren 单趟压实，
- * 清扫从 O(滚出 × 窗口子节点数) 降为 O(窗口子节点数)，R3-1）；
- * onSweep 保持「摘除后回调」时序（图片格释放 ImageService 引用的接线点）。
+ * 窗口滑动清扫：不满足保留条件的节点按所属父容器组批量摘除并出索引，
+ * 存活节点按新滚动位置原地平移。
  */
 function sweepWindowNodes<T extends SceneNode & { readonly col: number; readonly row: number }>(
   table: ListTable,
   nodes: Map<number, T>,
-  parent: SceneNode | null,
   keep: (col: number, row: number, node: T) => boolean,
   left: number,
   top: number,
   onSweep?: (node: T) => void,
 ): void {
-  const swept: T[] = []
+  const { geometryState } = table
+  const sweptByParent = new Map<SceneNode, Set<SceneNode>>()
+  const sweptAll: T[] = []
   for (const [key, node] of nodes) {
     if (keep(node.col, node.row, node)) {
       node.x = resolveCellX(
         node.col,
         left,
-        table.colOffsets,
-        table.frozenColCount,
+        geometryState.colOffsets,
+        geometryState.frozenColCount,
         table.rowHeaderWidth,
       )
       node.y = resolveCellYFromOffsets(
         node.row,
         top,
-        table.rowOffsets,
-        table.frozenRowCount,
+        geometryState.rowOffsets,
+        geometryState.frozenRowCount,
         table.headerHeight,
       )
     } else {
       nodes.delete(key)
-      swept.push(node)
+      sweptAll.push(node)
+      if (node.parent) {
+        let set = sweptByParent.get(node.parent)
+        if (!set) {
+          set = new Set<SceneNode>()
+          sweptByParent.set(node.parent, set)
+        }
+        set.add(node)
+      }
     }
   }
-  if (swept.length > 0) {
-    if (parent) {
-      const sweptSet = new Set<SceneNode>(swept)
-      parent.removeChildren((child) => sweptSet.has(child))
-    }
-    for (const node of swept) {
-      onSweep?.(node)
-    }
+  for (const [parent, set] of sweptByParent) {
+    parent.removeChildren((child) => set.has(child))
+  }
+  for (const node of sweptAll) {
+    onSweep?.(node)
   }
 }
 
-/** 建一个行列带内的数据格节点；同行按列降序建（后画在上），右溢源（走廊左端）文本不被走廊格背景盖住；左溢源由 remountOverflowSources 收口 */
+/** 建一个行列带内的数据格节点；同行按列降序建 */
 function appendCellBand(
   table: ListTable,
   rows: WindowRange,
@@ -549,20 +574,14 @@ function appendCellBand(
   }
 }
 
-/**
- * 数据格生效绘制边框（共享边裁决，规则见 shared-edges.ts 头注）：
- * right/bottom 与邻居对侧边取强，left/top 仅模型首列/首行自画（其余由左/上邻居呈现）。
- * 合并主格拥有区域右/下缘：facing 取区域外邻居逐格对侧边的最强者；被覆盖格的边忽略（v1）。
- * 邻居样式经表侧统一 styleAt 溯源：每格至多 2 次额外样式解析（右/下邻居），
- * 合并格按区域右/下缘边长逐格（v1 简化：邻居为被合并覆盖格时取其原始格样式）。
- */
+/** 数据格生效绘制边框（共享边裁决） */
 export function effectiveBorder(
   table: ListTable,
   col: number,
   row: number,
   style: CellStyle,
 ): CellBorder | null {
-  const range = table.mergeCells.rangeAt(col, row)
+  const range = table.geometryState.mergeCells.rangeAt(col, row)
   const endCol = range?.endCol ?? col
   const endRow = range?.endRow ?? row
   let facingRight: CellBorderEdge | undefined
@@ -586,20 +605,14 @@ export function effectiveBorder(
   )
 }
 
-/**
- * 锚定格四周可视边框线宽（编辑浮层内缩口径，配合 options.editorInsideBorder）：
- * right/bottom 本格为共享边所有权格，生效边框（已与右/下邻居对侧边取强）即可视线；
- * left/top 非首列/首行由左/上邻居代画（邻居 right/bottom 与本格对侧边取强，画在邻居
- * 矩形内），按同一条可视线取宽，浮层内缩后整圈边框编辑期保持可见。
- * 合并主格沿区域左/上缘逐格归约（与 effectiveBorder 的右/下缘归约同口径）。
- */
+/** 锚定格四周可视边框线宽（编辑浮层内缩口径，配合 options.editorInsideBorder） */
 export function editorBorderInsets(
   table: ListTable,
   col: number,
   row: number,
   style: CellStyle,
 ): BorderInset {
-  const range = table.mergeCells.rangeAt(col, row)
+  const range = table.geometryState.mergeCells.rangeAt(col, row)
   const endCol = range?.endCol ?? col
   const endRow = range?.endRow ?? row
   let facingLeft: CellBorderEdge | undefined
@@ -614,7 +627,6 @@ export function editorBorderInsets(
       facingTop = strongerEdge(facingTop, table.styleAt(c, row - 1).border?.bottom)
     }
   }
-  // 左/上取强仅用于取宽（同宽平局与显式/网格档位裁决对宽度结果无关）
   const visualLeft = col === 0 ? style.border?.left : strongerEdge(style.border?.left, facingLeft)
   const visualTop = row === 0 ? style.border?.top : strongerEdge(style.border?.top, facingTop)
   const painted = effectiveBorder(table, col, row, style)
@@ -626,11 +638,7 @@ export function editorBorderInsets(
   }
 }
 
-/**
- * 建单格节点：被合并覆盖的格不建节点（由主格统一取值/绘制/命中），主格跨域取完整尺寸；
- * 节点已存在（增量窗口保留的存活格/既有合并主格）时跳过。返回是否新建了节点。
- * 导出给 refreshCell 的窗外溢出源联动复用（P1 窗缘反查：窗外源补建走同一装配路径）。
- */
+/** 建单格节点：直接路由到对应的场景容器组 */
 export function appendCell(
   table: ListTable,
   col: number,
@@ -638,35 +646,38 @@ export function appendCell(
   left: number,
   top: number,
 ): boolean {
-  if (table.cellNodes.has(cellKey(col, row))) {
+  const { geometryState, sceneState } = table
+  if (sceneState.cellNodes.has(cellKey(col, row))) {
     return false
   }
-  const range = table.mergeCells.rangeAt(col, row)
+  const range = geometryState.mergeCells.rangeAt(col, row)
   if (range && (range.startCol !== col || range.startRow !== row)) {
     return false
   }
   const endCol = range?.endCol ?? col
   const endRow = range?.endRow ?? row
-  // 图片/图表格：body 节点只画背景/边框（文本留空），位图内容在 L2 media 层渲染
-  // （同格双声明时图片优先，图表让位——两通道互斥，宿主不应同时声明）
   const imageUrl = table.options.resolveCellImage?.(col, row)
-  const chartMedia = imageUrl ? null : (table.chartMediaResolver?.(col, row) ?? null)
+  const chartMedia = imageUrl ? null : (table.options.resolveCellChart?.(col, row) ?? null)
   const style = table.resolveStyle(col, row)
   const node = new CellNode({
     col,
     row,
-    x: resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth),
+    x: resolveCellX(
+      col,
+      left,
+      geometryState.colOffsets,
+      geometryState.frozenColCount,
+      table.rowHeaderWidth,
+    ),
     y: resolveCellYFromOffsets(
       row,
       top,
-      table.rowOffsets,
-      table.frozenRowCount,
+      geometryState.rowOffsets,
+      geometryState.frozenRowCount,
       table.headerHeight,
     ),
-    // 合并主格取整块跨度（跨冻结边界时主格按冻结带钉固，延伸段盖滚动区，见
-    // remountCrossBoundaryMergeMasters）；普通格跨度即自身格尺寸
-    width: spanWidth(table.colOffsets, col, endCol),
-    height: spanHeight(table.rowOffsets, row, endRow),
+    width: spanWidth(geometryState.colOffsets, col, endCol),
+    height: spanHeight(geometryState.rowOffsets, row, endRow),
     text: imageUrl || chartMedia ? '' : table.pipeline.resolveText(col, row),
     value: table.pipeline.resolveValue(col, row),
     cellType: table.columns[col]?.cellType,
@@ -674,17 +685,15 @@ export function appendCell(
     border: effectiveBorder(table, col, row, style),
     renderer: table.options.resolveCellRenderer?.(col, row) ?? null,
   })
-  // 文本溢出走廊（Excel 式按对齐方向溢出；换行/表头/合并/图片/图表/自定义渲染格不溢出）；
-  // 传节点复用其测量缓存，建格当帧测得一次即与后续绘制同源
   const limits =
     imageUrl || chartMedia ? null : textOverflowLimits(table, col, row, style, left, node)
   node.textMaxX = limits === null ? node.width : limits.maxX - node.x
   node.textMinX = limits === null ? 0 : limits.minX - node.x
-  // 编辑会话锚定格内容隐藏：滚动/几何重建会新建节点，装配时按当前会话重放该状态
   const editing = table.editManager.isEditing() ? table.editManager.editingCell() : null
   node.contentHidden = editing !== null && editing.col === col && editing.row === row
-  table.body.root.appendChild(node)
-  table.cellNodes.set(cellKey(col, row), node)
+  const overflows = node.textMaxX > node.width || node.textMinX < 0
+  targetBodyGroup(table, col, row, overflows).appendChild(node)
+  sceneState.cellNodes.set(cellKey(col, row), node)
   if (imageUrl) {
     appendImageCell(table, col, row, imageUrl, node.x, node.y, node.width, node.height)
   } else if (chartMedia) {
@@ -693,53 +702,43 @@ export function appendCell(
   return true
 }
 
-/**
- * 场景装配窗口（rebuildScene 与 updateSceneWindow 共用）：滚动带窗口两端扩 overscan
- * （滚动缓冲：只扩场景装配窗口，滚动边界不变），扩展后回收冻结带边界
- * （见 clampWindowToScrollableBand）。
- */
+/** 场景装配窗口（rebuildScene 与 updateSceneWindow 共用） */
 function computeAssemblyWindow(
   table: ListTable,
   left: number,
   top: number,
 ): { rows: WindowRange; cols: WindowRange } {
+  const { geometryState } = table
   return {
     rows: clampWindowToScrollableBand(
       expandWindowRange(
         computeScrollableRowWindowFromOffsets(
           top,
-          table.viewportHeight - table.frozenRowsHeight,
-          table.rowOffsets,
-          table.frozenRowCount,
+          table.viewportHeight - geometryState.frozenRowsHeight,
+          geometryState.rowOffsets,
+          geometryState.frozenRowCount,
         ),
         table.overscanRows,
         table.rowCount,
       ),
-      table.frozenRowCount,
+      geometryState.frozenRowCount,
     ),
     cols: clampWindowToScrollableBand(
       expandWindowRange(
         computeScrollableColWindow(
           left,
-          table.viewportWidth - table.frozenColsWidth,
-          table.colOffsets,
-          table.frozenColCount,
+          table.viewportWidth - geometryState.frozenColsWidth,
+          geometryState.colOffsets,
+          geometryState.frozenColCount,
         ),
         table.overscanCols,
         table.colCount,
       ),
-      table.frozenColCount,
+      geometryState.frozenColCount,
     ),
   }
 }
 
-/**
- * overscan 扩展后的滚动带窗口回收冻结带边界：expandWindowRange 的 start 回退会越过
- * computeScrollableRowWindowFromOffsets 的 frozenRowCount 钳制（overscan ≥ 窗口起点
- * 到带缘的距离时窗口重新混入冻结行/列）——冻结行混入滚动带后，重建的冻结带装配趟
- * 因节点已存在而整体跳过，冻结带 z 序落败于同趟后建的窗口行（滑到冻结带位置的行
- * 盖写冻结行内容）；table.rows/cols 的「滚动带」语义同样被破坏。
- */
 function clampWindowToScrollableBand(window: WindowRange, frozenCount: number): WindowRange {
   if (window.start < frozenCount) {
     return { start: frozenCount, end: Math.max(window.end, frozenCount) }
@@ -747,26 +746,20 @@ function clampWindowToScrollableBand(window: WindowRange, frozenCount: number): 
   return window
 }
 
-/** 空文本数据格判定（溢出邻居扫描用）：text 类型、无图片/图表/自定义渲染/合并覆盖、取值文本为空 */
+/** 空文本数据格判定（溢出邻居扫描用） */
 function isEmptyTextCell(table: ListTable, col: number, row: number): boolean {
   return (
     (table.columns[col]?.cellType ?? 'text') === 'text' &&
     !table.options.resolveCellRenderer?.(col, row) &&
     !table.options.resolveCellImage?.(col, row) &&
-    !table.chartMediaResolver?.(col, row) &&
-    !table.mergeCells.rangeAt(col, row) &&
+    !table.options.resolveCellChart?.(col, row) &&
+    !table.geometryState.mergeCells.rangeAt(col, row) &&
     !table.pipeline.resolveText(col, row)
   )
 }
 
-/**
- * 文本溢出允许的层坐标走廊区间；null 表示该格不溢出（裁剪在本格内）。
- * 走廊扫描与阻断判定见 corridorCols（同一实现），此处只做列号 → 层坐标换算。
- */
 interface TextOverflowLimits {
-  /** 走廊左界（层坐标）：无左溢时即本格左缘 */
   minX: number
-  /** 走廊右界（层坐标）：无右溢时即本格右缘 */
   maxX: number
 }
 
@@ -782,26 +775,21 @@ export function textOverflowLimits(
   if (corridor === null) {
     return null
   }
-  const inFrozenBand = col < table.frozenColCount
-  // 列左缘的层坐标（冻结带内不随滚动位移）
+  const { frozenColCount, colOffsets } = table.geometryState
+  const inFrozenBand = col < frozenColCount
   const colLeft = (c: number): number =>
-    table.rowHeaderWidth + (table.colOffsets[c] ?? 0) - (inFrozenBand ? 0 : left)
+    table.rowHeaderWidth + (colOffsets[c] ?? 0) - (inFrozenBand ? 0 : left)
   return {
     minX: colLeft(corridor.leftStart),
     maxX: colLeft(corridor.rightEnd),
   }
 }
 
-/** 溢出走廊的列号区间：[leftStart, rightEnd) 含源格与被覆盖空格 */
 interface CorridorCols {
-  /** 走廊左端列号（含）：无左溢时即源格列号 */
   leftStart: number
-  /** 走廊右端列号（不含）：无右溢时即源格列号 + 1 */
   rightEnd: number
 }
 
-/** 单格文本测量宽（溢出走廊用）：传入节点时复用其测量缓存（text/font 未变零重测，
- *  建格当帧与绘制共用同一次测量）；无节点（直构场景）时经宿主测量画布测一次 */
 function cellTextWidth(table: ListTable, style: CellStyle, text: string, node?: CellNode): number {
   const measure = (t: string, font: string): number => table.host.measure(t, font).width
   return node
@@ -809,21 +797,9 @@ function cellTextWidth(table: ListTable, style: CellStyle, text: string, node?: 
     : table.host.measure(text, cellStyleFont(style)).width
 }
 
-/**
- * 快路径安全余量（P2 走廊测宽短路）：字符推进宽之和相对整串 shaping 宽的保守放大
- * 系数与绝对加成。整串 shaping（字距/合字）通常只收窄，极少数正字距对由余量覆盖；
- * 上界偏大只会回落精测，不产生误判。
- */
 const TEXT_BOUND_SAFETY_SCALE = 1.01
 const TEXT_BOUND_SAFETY_PX = 0.5
 
-/**
- * 文本必不越格判定（走廊测宽快路径，P2）：字符推进宽上界（TextAdvanceTable，已见
- * 字符零 measureText）加安全余量后，经与精测同源的锚点函数（cellTextAnchorX）证明
- * 文本双缘都留在格内。锚点对文本宽单调（left 对齐右缘随宽外移、right 对齐左缘随宽
- * 内移、center 双缘外移），上界宽代入双缘不出格则真实宽必然不出格——可返回 null
- * 走廊而免精测。数字短文本典型全命中；上界证不出（含未缓存字符/真溢出）回落精测。
- */
 function textConfinedToCell(
   table: ListTable,
   style: CellStyle,
@@ -831,7 +807,7 @@ function textConfinedToCell(
   text: string,
   font: string,
 ): boolean {
-  const bound = table.textAdvances.upperBound(text, font)
+  const bound = table.sceneState.textAdvances.upperBound(text, font)
   if (bound === null) {
     return false
   }
@@ -840,22 +816,6 @@ function textConfinedToCell(
   return textLeft >= 0 && textLeft + safeBound <= width
 }
 
-/**
- * 文本溢出走廊的列号扫描（textOverflowLimits 的扫描主体，走廊内部标记共用同一实现）；
- * null 表示该格不溢出（裁剪在本格内）。
- *
- * 走廊 = 文本实际跨越的列边界（Excel / WPS 桌面口径，与 Luckysheet `cellOverflow_trace`
- * 的「剩余需宽」递归、Univer `_getOverflowBound` 的「累计列宽至覆盖文本宽」一致）：先按
- * 内容盒与对齐方向求文本左右缘（锚点取自 renderTextCell 的同源实现 cellTextAnchorX），
- * 再向溢出方向逐格推进——只覆盖「列边界落在文本缘内」的区域，文本缘未越过的列不产生走廊。走廊端点因此同时受文本宽与阻断格约束：文本未越出本格时无走廊（竖线照
- * 常画），文本跨过若干列边界时只跳画被跨过的那些竖线，文本尾所在格的右缘线照常画。
- *
- * 其余口径：溢出方向按对齐——left（缺省）向右溢、right 向左溢、center 向两侧溢
- * （阻断判定按 Univer 语义：left 只看右壁、right 只看左壁、center 两壁皆阻断才算阻断，
- * 单侧空即向空侧溢）；走廊遇首个非空格停（含合并、图片、图表、自定义渲染、checkbox 格，
- * 空白串按非空阻断）；换行、ellipsis/clip、合并、图片、图表、自定义渲染格自身不溢出；
- * 不越冻结列带边界（对齐 Excel 冻结窗格），滚动带止于最后一列。
- */
 export function corridorCols(
   table: ListTable,
   col: number,
@@ -863,43 +823,37 @@ export function corridorCols(
   style: CellStyle,
   node?: CellNode,
 ): CorridorCols | null {
+  const { geometryState } = table
   if (
     style.textOverflow !== undefined ||
     style.textWrap === true ||
     (table.columns[col]?.cellType ?? 'text') !== 'text' ||
     table.options.resolveCellRenderer?.(col, row) ||
     table.options.resolveCellImage?.(col, row) ||
-    table.chartMediaResolver?.(col, row) ||
-    table.mergeCells.rangeAt(col, row)
+    table.options.resolveCellChart?.(col, row) ||
+    geometryState.mergeCells.rangeAt(col, row)
   ) {
     return null
   }
-  // 节点在场时直接复用其显示文本（建格/refreshCell 均与取值管线同步，且与绘制同源），
-  // 免滚动帧走廊重扫的重复取值与字符串重建
   const text = node ? node.text : table.pipeline.resolveText(col, row)
   if (!text) {
     return null
   }
-  const width = table.colWidths[col] ?? 0
-  // 快路径（P2 走廊测宽短路）：字符推进宽上界证明文本双缘不出格时跳过精测，
-  // 数字短文本典型全命中（滚动帧建格/走廊重标零 measureText）；证不出回落精测，
-  // 走廊端点与绘制仍同源
+  const width = geometryState.colWidths[col] ?? 0
   const font = node ? node.fontString() : cellStyleFont(style)
   if (textConfinedToCell(table, style, width, text, font)) {
     return null
   }
   const textWidth = cellTextWidth(table, style, text, node)
-  // 文本左右缘（格内局部坐标）：锚点与 renderTextCell 同源（cellTextAnchorX）
   const textLeft = cellTextAnchorX(style, width, textWidth)
   const textRight = textLeft + textWidth
-  const inFrozenBand = col < table.frozenColCount
-  const bandStart = inFrozenBand ? 0 : table.frozenColCount
-  const bandEnd = inFrozenBand ? table.frozenColCount : table.columns.length
+  const inFrozenBand = col < geometryState.frozenColCount
+  const bandStart = inFrozenBand ? 0 : geometryState.frozenColCount
+  const bandEnd = inFrozenBand ? geometryState.frozenColCount : table.columns.length
   const align = style.textAlign ?? 'left'
-  /** 列左缘的格内局部坐标（相对源格左缘；同带内滚动位移在差中相消） */
-  const colLeft = (c: number): number => (table.colOffsets[c] ?? 0) - (table.colOffsets[col] ?? 0)
-  // 右走廊：left/center 向右扫；仅当文本右缘越出本格右缘时存在——覆盖「列边界仍在文本
-  // 右缘之内」的空格，文本缘到达（或遇首个非空格 / 带边界）即止
+  const colLeft = (c: number): number =>
+    (geometryState.colOffsets[c] ?? 0) - (geometryState.colOffsets[col] ?? 0)
+
   let rightEnd = col + 1
   if (align !== 'right' && textRight > width) {
     while (
@@ -910,7 +864,6 @@ export function corridorCols(
       rightEnd++
     }
   }
-  // 左走廊：right/center 向左扫；仅当文本左缘越出本格左缘时存在，对称口径
   let leftStart = col
   if (align !== 'left' && textLeft < 0) {
     while (
@@ -927,12 +880,9 @@ export function corridorCols(
   return { leftStart, rightEnd }
 }
 
-/**
- * 左侧最近的非空格列号（右溢来源候选）：从左邻向带首扫，中间全空格无文本不可溢出，
- * 再往左被首个非空格挡住。返回后由调用方重算其溢出走廊（不可溢出则收敛回本格宽）
- */
 export function overflowSourceCol(table: ListTable, col: number, row: number): number | null {
-  const bandStart = col < table.frozenColCount ? 0 : table.frozenColCount
+  const bandStart =
+    col < table.geometryState.frozenColCount ? 0 : table.geometryState.frozenColCount
   for (let c = col - 1; c >= bandStart; c--) {
     if (!isEmptyTextCell(table, c, row)) {
       return c
@@ -941,12 +891,11 @@ export function overflowSourceCol(table: ListTable, col: number, row: number): n
   return null
 }
 
-/**
- * 右侧最近的非空格列号（左溢来源候选）：从右邻向带尾扫，中间全空格无文本不可溢出，
- * 再往右被首个非空格挡住。返回后由调用方重算其溢出走廊（不可溢出则收敛回本格）
- */
 export function overflowSourceColRight(table: ListTable, col: number, row: number): number | null {
-  const bandEnd = col < table.frozenColCount ? table.frozenColCount : table.columns.length
+  const bandEnd =
+    col < table.geometryState.frozenColCount
+      ? table.geometryState.frozenColCount
+      : table.columns.length
   for (let c = col + 1; c < bandEnd; c++) {
     if (!isEmptyTextCell(table, c, row)) {
       return c
@@ -955,28 +904,18 @@ export function overflowSourceColRight(table: ListTable, col: number, row: numbe
   return null
 }
 
-/** 窗外溢出源反查命中：源格列号、溢出走廊（伸入窗内）与已建节点（未补建为 null） */
 interface OffWindowOverflowSource {
   col: number
   corridor: CorridorCols
   node: CellNode | null
 }
 
-/**
- * 窗外溢出源反查（P1 窗缘反查，取舍 8）：对指定行的滚动列带窗缘按 overflowSourceCol /
- * overflowSourceColRight 反查最近非空格，其溢出走廊伸入窗内时返回该源。走廊连续且
- * 止于首个非空格——窗外侧的走廊延伸段必经窗缘列，单行单侧至多一个命中候选（更深处
- * 的源被近处非空格阻断，走廊够不到窗内）；未命中返回 null。
- *
- * 命中但 node 为 null 表示该源尚未补建节点（appendOffWindowOverflowSources /
- * refreshCell 的窗外联动负责补建）；走廊与测经 CellNode 缓存，节点已建时零重测。
- */
 export function resolveOffWindowOverflowSource(
   table: ListTable,
   row: number,
   side: 'left' | 'right',
 ): OffWindowOverflowSource | null {
-  const scrollable = table.cols
+  const scrollable = table.geometryState.cols
   if (scrollable.end <= scrollable.start) {
     return null
   }
@@ -988,7 +927,7 @@ export function resolveOffWindowOverflowSource(
   if (sourceCol === null) {
     return null
   }
-  const node = table.cellNodes.get(cellKey(sourceCol, row)) ?? null
+  const node = table.sceneState.cellNodes.get(cellKey(sourceCol, row)) ?? null
   const corridor = corridorCols(
     table,
     sourceCol,
@@ -1007,12 +946,6 @@ export function resolveOffWindowOverflowSource(
   return { col: sourceCol, corridor, node }
 }
 
-/**
- * 窗外溢出源补建（全量重建与滚动增量装配的窗缘反查落地）：对给定行集合逐行做双侧
- * 反查，命中窗外溢出源且尚未建节点时按普通建格路径补建（节点位置在窗外，绘制经
- * CellNode.paintedBounds 纳入文本缘不被脏区剔除；z 序由调用方的行内规范收口）。
- * 返回是否有新建节点。
- */
 function appendOffWindowOverflowSources(
   table: ListTable,
   rows: readonly WindowRange[],
@@ -1034,29 +967,19 @@ function appendOffWindowOverflowSources(
   return created
 }
 
-/** 数据列带（冻结列带 + 滚动列带）：行内走廊内部标记的扫描范围 */
 export function dataColBands(table: ListTable): WindowRange[] {
-  return [{ start: 0, end: table.frozenColCount }, table.cols]
+  return [{ start: 0, end: table.geometryState.frozenColCount }, table.geometryState.cols]
 }
 
-/**
- * 行内溢出走廊内部标记（WPS 口径竖线跳画的场景侧判定，P3）：先清后标——标记只反映
- * 当前扫描结果，全量重建/滚动增量/refreshCell 三路径调同一实现即天然一致。扫描行内
- * 窗口各格的溢出走廊（corridorCols，与 textOverflowLimits 同一扫描与阻断口径），把
- * 溢出源格与被覆盖空格标为走廊内部（CellNode.corridorInterior）；标记值取覆盖本格
- * 各走廊的最大右端列号——两源对溢共享空段时同格被多走廊覆盖，取最大者让更远走廊
- * 主导共享段竖边跳画判定（右端更远的走廊必然也覆盖右侧邻居格）。P1 起扫描口径纳入
- * 窗外源：窗缘反查命中窗外溢出源时其走廊覆盖的窗内格同样标记，走廊内部竖线跳画
- * 与源格在窗内一致。
- */
 export function markRowCorridorInterior(
   table: ListTable,
   row: number,
   colBands: readonly WindowRange[],
 ): void {
+  const { cellNodes } = table.sceneState
   for (const band of colBands) {
     for (let col = band.start; col < band.end; col++) {
-      const node = table.cellNodes.get(cellKey(col, row))
+      const node = cellNodes.get(cellKey(col, row))
       if (node) {
         node.corridorInterior = null
       }
@@ -1064,7 +987,7 @@ export function markRowCorridorInterior(
   }
   const markCorridor = (corridor: CorridorCols): void => {
     for (let c = corridor.leftStart; c < corridor.rightEnd; c++) {
-      const covered = table.cellNodes.get(cellKey(c, row))
+      const covered = cellNodes.get(cellKey(c, row))
       if (
         covered &&
         (covered.corridorInterior === null || covered.corridorInterior < corridor.rightEnd)
@@ -1075,7 +998,7 @@ export function markRowCorridorInterior(
   }
   for (const band of colBands) {
     for (let col = band.start; col < band.end; col++) {
-      const node = table.cellNodes.get(cellKey(col, row))
+      const node = cellNodes.get(cellKey(col, row))
       if (!node) {
         continue
       }
@@ -1086,7 +1009,6 @@ export function markRowCorridorInterior(
       markCorridor(corridor)
     }
   }
-  // 窗外溢出源（窗缘反查候选，单行单侧至多一）：走廊伸入窗内时窗内被覆盖格纳入标记
   for (const side of ['left', 'right'] as const) {
     const resolved = resolveOffWindowOverflowSource(table, row, side)
     if (resolved !== null) {
@@ -1095,72 +1017,43 @@ export function markRowCorridorInterior(
   }
 }
 
-/**
- * 全量重建的溢出 z 序不变量收口：溢出源节点重挂树尾，行内按列升序（与增量路径
- * canonicalizeRowOverflowOrder 同序）。列降序建格只保证右溢源（走廊左端）后画；
- * 左溢/双向源在走廊右端，会被走廊格反盖出「被覆盖单元格的表格线画在溢出文本之上」
- * 类伪影。重挂集合两两无绘制交叠（走廊只含空格、文本缘止于阻断格边界），唯两源
- * 对溢共享空段时叠画（确定性次序：右溢源先、左溢源后）。
- * 重挂后逐行重标走廊内部标记（P3 竖线跳画）：全量重建的标记收口点，与增量路径
- * （canonicalizeRowOverflowOrder）和 refreshCell 路径同口径。
- */
+/** 全量重建的溢出 z 序收口：各自溢出组内按 (row, col) 升序排列，并重标走廊内部标记 */
 function remountOverflowSources(table: ListTable): void {
-  const sources = [...table.cellNodes.values()].filter(
-    (node) => node.textMaxX > node.width || node.textMinX < 0,
-  )
-  sources.sort((a, b) => a.row - b.row || a.col - b.col)
-  for (const node of sources) {
-    table.body.root.removeChild(node)
-    table.body.root.appendChild(node)
+  const groups = table.sceneState.groups!
+  for (const group of [groups.scrollableOverflowGroup, groups.frozenOverflowGroup]) {
+    if (group.children.length > 1) {
+      const sources = [...group.children] as CellNode[]
+      sources.sort((a, b) => a.row - b.row || a.col - b.col)
+      for (const node of sources) {
+        group.appendChild(node)
+      }
+    }
   }
   const colBands = dataColBands(table)
-  for (const rowBand of [{ start: 0, end: table.frozenRowCount }, table.rows]) {
+  for (const rowBand of [
+    { start: 0, end: table.geometryState.frozenRowCount },
+    table.geometryState.rows,
+  ]) {
     for (let row = rowBand.start; row < rowBand.end; row++) {
       markRowCorridorInterior(table, row, colBands)
     }
   }
 }
 
-/**
- * 增量路径的行内溢出 z 序规范（全量重建 remountOverflowSources 的行内同序）：
- * 把该行窗口内的全部溢出源按列升序重挂树尾，后画于本帧新建格与全部走廊节点；
- * P1 起重挂集合纳入窗外源（窗缘反查候选，与窗内源同一列升序次序——两源对溢共享
- * 空段时次序仍确定）。随后整行重标走廊内部标记（P3）：新建格（滚动补建的走廊格/
- * 溢出源格）的标记与全量重建同口径，被走廊覆盖状态随本行当前扫描结果先清后标。
- * 返回是否有重挂发生。
- */
+/** 增量路径的行内溢出 z 序规范：各自溢出组内同行列升序重排 + 走廊内部重标 */
 function canonicalizeRowOverflowOrder(
   table: ListTable,
   row: number,
   colBands: readonly WindowRange[],
-): boolean {
-  const sources: CellNode[] = []
-  for (const band of colBands) {
-    for (let col = band.start; col < band.end; col++) {
-      const node = table.cellNodes.get(cellKey(col, row))
-      if (node && (node.textMaxX > node.width || node.textMinX < 0)) {
-        sources.push(node)
-      }
-    }
-  }
-  for (const side of ['left', 'right'] as const) {
-    const resolved = resolveOffWindowOverflowSource(table, row, side)
-    if (resolved?.node) {
-      sources.push(resolved.node)
-    }
-  }
-  sources.sort((a, b) => a.col - b.col)
-  let moved = false
-  for (const node of sources) {
-    table.body.root.removeChild(node)
-    table.body.root.appendChild(node)
-    moved = true
+): void {
+  const groups = table.sceneState.groups
+  if (groups) {
+    reorderRowInOverflowGroup(groups.scrollableOverflowGroup, row)
+    reorderRowInOverflowGroup(groups.frozenOverflowGroup, row)
   }
   markRowCorridorInterior(table, row, colBands)
-  return moved
 }
 
-/** 合并区主格落在窗口外但区间部分可见时补建主格节点（位置可越出视口，绘制由 cull 裁剪）；返回是否新建 */
 function appendPartiallyVisibleMerges(
   table: ListTable,
   left: number,
@@ -1171,8 +1064,8 @@ function appendPartiallyVisibleMerges(
   let created = false
   const visible = (start: number, end: number, bands: readonly WindowRange[]): boolean =>
     bands.some((band) => start < band.end && end >= band.start)
-  for (const range of table.mergeCells.ranges) {
-    if (table.cellNodes.has(cellKey(range.startCol, range.startRow))) {
+  for (const range of table.geometryState.mergeCells.ranges) {
+    if (table.sceneState.cellNodes.has(cellKey(range.startCol, range.startRow))) {
       continue
     }
     if (
@@ -1185,29 +1078,17 @@ function appendPartiallyVisibleMerges(
   return created
 }
 
-/** 表头容器节点：恒为 body root 末子节点（见 rebuildScene 的 z 序说明） */
-function newHeaderGroup(table: ListTable): SceneNode {
-  return new SceneNode({
-    pickable: false,
-    width: table.width,
-    height: table.height,
-  })
-}
-
-/** 列头是否开放渲染（showColHeader 归一化为 headerHeight = 0 时关闭） */
 function showsColHeader(table: ListTable): boolean {
   return table.headerHeight > 0
 }
 
-/** 行号列是否开放渲染（showRowHeader 归一化为 rowHeaderWidth = 0 时关闭） */
 function showsRowHeader(table: ListTable): boolean {
   return table.rowHeaderWidth > 0
 }
 
-/** 列头（冻结列固定、其余随横向滚动）+ 行号列（冻结行固定、其余随纵向滚动）+ 左上角 */
 function appendHeaders(
   table: ListTable,
-  headerGroup: SceneNode,
+  groups: TableBodyGroups,
   left: number,
   top: number,
   frozenRows: WindowRange,
@@ -1215,35 +1096,36 @@ function appendHeaders(
   frozenCols: WindowRange,
   scrollableCols: WindowRange,
 ): void {
+  const { sceneState } = table
   const styles = headerStyles(table)
-  // 关闭侧不建表头场景节点（场景与命中都不再出现该侧表头）
-  // 滚动条带先画、冻结条带后画：滑动的行/列头被冻结头覆盖
   if (showsColHeader(table)) {
     for (const cols of [scrollableCols, frozenCols]) {
+      const targetGroup =
+        cols === frozenCols ? groups.frozenHeadersGroup : groups.scrollableHeadersGroup
       for (let col = cols.start; col < cols.end; col++) {
         const node = newColHeaderNode(table, col, left, styles)
-        headerGroup.appendChild(node)
-        table.colHeaderNodes.set(col, node)
+        targetGroup.appendChild(node)
+        sceneState.colHeaderNodes.set(col, node)
       }
     }
   }
   if (showsRowHeader(table)) {
     for (const rows of [scrollableRows, frozenRows]) {
+      const targetGroup =
+        rows === frozenRows ? groups.frozenHeadersGroup : groups.scrollableHeadersGroup
       for (let row = rows.start; row < rows.end; row++) {
         const node = newRowHeaderNode(table, row, top, styles)
-        headerGroup.appendChild(node)
-        table.rowHeaderNodes.set(row, node)
+        targetGroup.appendChild(node)
+        sceneState.rowHeaderNodes.set(row, node)
       }
     }
   }
-  // 角点是行号列×列头的交叉区，任一侧关闭即无角点
   if (showsColHeader(table) && showsRowHeader(table)) {
-    table.cornerNode = newCornerNode(table, styles)
-    headerGroup.appendChild(table.cornerNode)
+    sceneState.cornerNode = newCornerNode(table, styles)
+    groups.headerGroup.appendChild(sceneState.cornerNode)
   }
 }
 
-/** 三类表头分区样式：列头用 header、行号列用 rowHeader、左上角用 corner（缺省随 header 派生）；borderColor 同样投影为网格边 */
 export function headerStyles(table: ListTable): HeaderStyles {
   return {
     col: { textOverflow: 'ellipsis', ...themeCellBase(table.theme.header) },
@@ -1252,18 +1134,12 @@ export function headerStyles(table: ListTable): HeaderStyles {
   }
 }
 
-/** 表头三分区样式集合（共享边裁决 facing 溯源与节点装配共用） */
 interface HeaderStyles {
   col: CellStyle
   row: CellStyle
   corner: CellStyle
 }
 
-/**
- * 表头节点生效边框：表头带内同样走共享边裁决（列头横排互裁、行号列竖排互裁、
- * 角格拥有列头 0 的 left 与行号 0 的 top）；表头带与数据带之间不做裁决——
- * 数据带首列/首行的 left/top 由各带自画（带边界两侧边并列，与既有观感一致）。
- */
 function headerBorder(
   table: ListTable,
   kind: keyof HeaderStyles,
@@ -1274,7 +1150,6 @@ function headerBorder(
     return (
       resolveSharedEdges(
         style.border,
-        // 右邻列头的 left 边（列头样式集合各列共享，逐列 facing 相同）
         { right: styles.col.border?.left },
         { firstCol: false, firstRow: true },
       ) ?? null
@@ -1301,13 +1176,12 @@ function headerBorder(
   )
 }
 
-/** 表头高亮判定输入装配：建格与重涂路径传同一来源（选区快照 + 全表尺寸 + 合并区） */
 function headerHighlightInput(table: ListTable): HeaderHighlightInput {
   return {
-    snapshot: table.selection.snapshot,
+    snapshot: table.interactionState.selection.snapshot,
     colCount: table.columns.length,
     rowCount: table.pipeline.rowCount,
-    merges: table.mergeCells,
+    merges: table.geometryState.mergeCells,
   }
 }
 
@@ -1317,20 +1191,25 @@ function newColHeaderNode(
   left: number,
   styles: HeaderStyles,
 ): CellNode {
+  const { geometryState } = table
   const node = new CellNode({
     col,
     row: HEADER_COORD,
-    x: resolveCellX(col, left, table.colOffsets, table.frozenColCount, table.rowHeaderWidth),
+    x: resolveCellX(
+      col,
+      left,
+      geometryState.colOffsets,
+      geometryState.frozenColCount,
+      table.rowHeaderWidth,
+    ),
     y: 0,
-    width: table.colWidths[col] ?? 0,
+    width: geometryState.colWidths[col] ?? 0,
     height: table.headerHeight,
-    // 列定义未给 title 的列（setColCount 增出列等）回落宿主动态标题源
     text: table.columns[col]?.title ?? table.options.resolveColTitle?.(col) ?? '',
     style: styles.col,
     border: headerBorder(table, 'col', styles),
+    renderer: table.options.resolveColHeaderRenderer?.(col) ?? null,
   })
-  // 整列选区覆盖，或焦点格（合并区按主格）所在列 → 列头高亮（建格路径与选区变化路径共用同一判定）；
-  // 高亮背景与列头铬底预混为不透明色，半透明 token 下其下滑入内容不再透出
   if (isColHeaderHighlighted(headerHighlightInput(table), col)) {
     node.style = {
       ...styles.col,
@@ -1349,6 +1228,7 @@ function newRowHeaderNode(
   top: number,
   styles: HeaderStyles,
 ): CellNode {
+  const { geometryState } = table
   const node = new CellNode({
     col: HEADER_COORD,
     row,
@@ -1356,8 +1236,8 @@ function newRowHeaderNode(
     y: resolveCellYFromOffsets(
       row,
       top,
-      table.rowOffsets,
-      table.frozenRowCount,
+      geometryState.rowOffsets,
+      geometryState.frozenRowCount,
       table.headerHeight,
     ),
     width: table.rowHeaderWidth,
@@ -1366,7 +1246,6 @@ function newRowHeaderNode(
     style: styles.row,
     border: headerBorder(table, 'row', styles),
   })
-  // 整行选区覆盖，或焦点格（合并区按主格）所在行 → 行号格高亮（铬底预混同列头）
   if (isRowHeaderHighlighted(headerHighlightInput(table), row)) {
     node.style = {
       ...styles.row,
@@ -1379,24 +1258,18 @@ function newRowHeaderNode(
   return node
 }
 
-/**
- * 表头高亮同步：按当前选区（整轴覆盖 + 焦点格所在行列，合并区按主格）重涂可见
- * 行号/列头节点的高亮背景，返回两个条带上翻转节点的包围并集（行号列条带/列头条带；
- * 无翻转为 null），供调用方只登记表头条带 band 失效（不产生 body band/full）。
- */
 export function applyHeaderHighlight(table: ListTable): {
   rows: Region | null
   cols: Region | null
 } {
   const styles = headerStyles(table)
   const highlight = table.theme.interaction.headerHighlight
-  // 两分区铬底各自预混（建格路径同口径）：合成结果不透明，半透明 token 不再透出其下内容
   const colHighlight = opaqueHeaderHighlight(highlight, styles.col.background)
   const rowHighlight = opaqueHeaderHighlight(highlight, styles.row.background)
   const input = headerHighlightInput(table)
   let rowsRegion: Region | null = null
   let colsRegion: Region | null = null
-  for (const [col, node] of table.colHeaderNodes) {
+  for (const [col, node] of table.sceneState.colHeaderNodes) {
     const highlighted = isColHeaderHighlighted(input, col)
     const background = highlighted ? colHighlight : styles.col.background
     if (node.style.background === background) {
@@ -1406,7 +1279,7 @@ export function applyHeaderHighlight(table: ListTable): {
     const bounds = node.getGlobalBounds()
     colsRegion = colsRegion ? unionRegions([colsRegion, bounds])! : bounds
   }
-  for (const [row, node] of table.rowHeaderNodes) {
+  for (const [row, node] of table.sceneState.rowHeaderNodes) {
     const highlighted = isRowHeaderHighlighted(input, row)
     const background = highlighted ? rowHighlight : styles.row.background
     if (node.style.background === background) {

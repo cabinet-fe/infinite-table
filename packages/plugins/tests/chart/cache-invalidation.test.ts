@@ -48,7 +48,7 @@ function setupChartTable(records: DataRecord[], hostDpr: number | null = 1): Cha
     records,
     host,
     hostOptions: hostDpr === null ? {} : { dpr: hostDpr },
-    plugins: [plugin],
+    resolveCellChart: plugin.resolveCellChart,
   })
   return {
     table,
@@ -65,7 +65,9 @@ function chartRecord(declaration: unknown): DataRecord {
 
 /** 图表格节点按坐标查找（chartCellNodes 以 cellKey 数字为键） */
 function chartNodeAt(table: ListTable, col: number, row: number) {
-  return [...table.chartCellNodes.values()].find((node) => node.col === col && node.row === row)
+  return [...table.mediaState.chartCellNodes.values()].find(
+    (node) => node.col === col && node.row === row,
+  )
 }
 
 function createdCount(): number {
@@ -94,7 +96,7 @@ describe('图表格缓存失效与数据/尺寸变更重绘', () => {
     const rendered = FakeChart.created[1]!
     expect(rendered.config.data.datasets[0]!.data).toEqual([5, 9])
     expect(rebuiltNode.hasBitmap).toBe(true)
-    expect(table.mediaCache.get(rebuiltNode.cacheKey)).toBeDefined()
+    expect(table.mediaState.mediaCache.get(rebuiltNode.cacheKey)).toBeDefined()
     table.destroy()
   })
 
@@ -144,7 +146,7 @@ describe('图表格缓存失效与数据/尺寸变更重绘', () => {
     // 新尺寸重出图：物理位图高 = 新格高 × DPR，缓存按新 key 回填
     expect(createdCount()).toBe(2)
     expect(rebuiltNode.hasBitmap).toBe(true)
-    expect(table.mediaCache.get(rebuiltNode.cacheKey)).toMatchObject({ height: 120 })
+    expect(table.mediaState.mediaCache.get(rebuiltNode.cacheKey)).toMatchObject({ height: 120 })
     table.destroy()
   })
 
@@ -161,7 +163,7 @@ describe('图表格缓存失效与数据/尺寸变更重绘', () => {
     await flushAsync()
     expect(createdCount()).toBe(2)
     expect(rebuiltNode.hasBitmap).toBe(true)
-    expect(table.mediaCache.get(rebuiltNode.cacheKey)).toMatchObject({ width: 240 })
+    expect(table.mediaState.mediaCache.get(rebuiltNode.cacheKey)).toMatchObject({ width: 240 })
     table.destroy()
   })
 
@@ -185,7 +187,7 @@ describe('图表格缓存失效与数据/尺寸变更重绘', () => {
       const rendered = FakeChart.created[1]!
       expect(rendered.config.options.devicePixelRatio).toBe(2)
       // 物理位图 = CSS 尺寸 × 2
-      expect(table.mediaCache.get(rebuiltNode.cacheKey)).toMatchObject({
+      expect(table.mediaState.mediaCache.get(rebuiltNode.cacheKey)).toMatchObject({
         height: table.rowHeightAt(0) * 2,
       })
     } finally {

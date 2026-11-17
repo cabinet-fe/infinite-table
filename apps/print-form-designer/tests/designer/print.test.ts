@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// 打印输出测试（v4）：PrintSource 适配（数据态快照 → print 插件供数）、同一数据集
+// 打印输出测试（v4）：GridReadView 适配（数据态快照 → print 插件供数）、同一数据集
 // 多表达式形态口径、数据块/聚合取数并集、聚合作数据源与函数求值进打印产物、明细跨页
 // 自动分页、弹框配置不落模板、预览与打印同输入同输出（一致性）。打印输出路径
 // （iframe 装载）需要 DOM，由环境注释挂载（打印管线不触 canvas，无需 2d 桩）。
@@ -67,7 +67,7 @@ function groupedDoc(): FormDoc {
   return doc
 }
 
-describe('PrintSource 适配（数据态快照 → print 插件供数）', () => {
+describe('GridReadView 适配（数据态快照 → print 插件供数）', () => {
   test('行列几何：自定义行高列宽生效，未自定义回落内置缺省', () => {
     const doc = detailDoc()
     doc.setRowHeight(0, 40)

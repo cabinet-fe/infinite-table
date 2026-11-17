@@ -53,7 +53,7 @@ describe('浮动图片变换桥接（rotation 映射 + onTransformEnd 写回）'
       await flushMicrotasks()
       expect(table.floatObjects.get(plain)?.rotation).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -87,7 +87,7 @@ describe('浮动图片变换桥接（rotation 映射 + onTransformEnd 写回）'
       // 写回后模型 → 引擎回流量新尺寸
       expect(table.floatObjects.get(id)?.size).toEqual({ width: 150, height: 100 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -128,7 +128,7 @@ describe('浮动图片变换桥接（rotation 映射 + onTransformEnd 写回）'
       expect(restored?.anchor.from).toEqual({ row: 0, col: 0 })
       expect(restored?.anchor.to).toEqual({ row: 1, col: 1 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -153,7 +153,7 @@ describe('浮动图片变换桥接（rotation 映射 + onTransformEnd 写回）'
       await flushMicrotasks()
       expect(sheet.getImage(id)).toEqual(before)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -179,7 +179,7 @@ describe('浮动图片变换桥接（rotation 映射 + onTransformEnd 写回）'
       await flushMicrotasks()
       expect(sheet.getImage(id)?.rotation).toBe(60)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

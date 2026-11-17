@@ -7,11 +7,13 @@
 // （print 钩子透传，宿主可注入桩接管）。分层：headless 内核（P1/P2）不反向依赖本
 // 薄壳，宿主可只用 headless（meta 先例）。
 
+import type { GridReadView } from '@infinitable/protocol'
+
 import { buildPrintDocumentHtml, buildPrintPageHtml } from './page-html'
 import { paginate, type PrintPage } from './paginate'
 import { derivePrintableArea } from './paper'
 import { printPages, type PrintHooks } from './print-output'
-import type { PrintConfig, PrintSource } from './types'
+import type { PrintConfig } from './types'
 
 /** 预览句柄：关闭并清理弹层（幂等）；预览自身交互（缩略切换/打印）走弹层内按钮 */
 export interface PrintPreviewHandle {
@@ -101,7 +103,7 @@ function thumbRowsLabel(page: PrintPage | null): string {
  * 返回句柄供宿主编程关闭；弹层内关闭按钮/ESC/背景点击等效，均幂等清理。
  */
 export function openPrintPreview(
-  source: PrintSource,
+  source: GridReadView,
   config: PrintConfig,
   hooks?: PrintHooks,
 ): PrintPreviewHandle {
@@ -130,7 +132,7 @@ export function openPrintPreview(
 
   const dialog = el('div', 'print-preview-dialog')
   const bar = el('div', 'print-preview-bar')
-  const title = el('span', 'print-preview-title', source.name)
+  const title = el('span', 'print-preview-title', source.name ?? '')
   const indicator = el('span', 'print-preview-indicator')
   const closeButton = el('button', 'print-preview-close', '×')
   closeButton.type = 'button'

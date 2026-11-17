@@ -1,5 +1,5 @@
-// 行列 resize：拖拽手柄命中检测与尺寸计算（纯逻辑，事件接入由 ListTable 完成）。
-// canResizeRow 能力（吸收 vtable 补丁行为）：行高调整与列宽调整对称，默认开启、可按行/列关闭。
+// 行列 resize：拖拽手柄命中检测与尺寸计算（纯逻辑，事件接入由宿主引擎完成）。
+// canResizeRow / canResizeCol 能力：行高调整与列宽调整对称，默认开启、可按行/列关闭。
 
 /** resize 所需的几何快照（视口→内容坐标换算含冻结区与滚动，由调用方注入） */
 export interface ResizeGeometry {

@@ -59,7 +59,7 @@ function setupChartTable(records: DataRecord[], options: SetupOptions = {}): Cha
     records,
     host,
     hostOptions: { dpr: options.hostDpr ?? 1 },
-    plugins: [plugin],
+    resolveCellChart: plugin.resolveCellChart,
   })
   return {
     table,
@@ -83,7 +83,9 @@ function expectedCacheKey(table: ListTable, contentKey: string, dpr: number): st
 
 /** 图表格节点按坐标查找（chartCellNodes 以 cellKey 数字为键） */
 function chartNodeAt(table: ListTable, col: number, row: number) {
-  return [...table.chartCellNodes.values()].find((node) => node.col === col && node.row === row)
+  return [...table.mediaState.chartCellNodes.values()].find(
+    (node) => node.col === col && node.row === row,
+  )
 }
 
 describe('图表格位图缓存（L2 media）', () => {
@@ -92,13 +94,15 @@ describe('图表格位图缓存（L2 media）', () => {
     const node = chartNodeAt(table, 1, 0)
     expect(node).toBeDefined()
     // 图表格：body 格节点文本留空，位图走 media 层（getCellText 是取值管线口径，不管节点）
-    const bodyNode = [...table.cellNodes.values()].find((n) => n.col === 1 && n.row === 0)
+    const bodyNode = [...table.sceneState.cellNodes.values()].find(
+      (n) => n.col === 1 && n.row === 0,
+    )
     expect(bodyNode!.text).toBe('')
     await flushAsync()
     // 出图完成：节点直贴位图，位图进 cell 级缓存（key = 内容 key + 格几何 + DPR）
     expect(node!.hasBitmap).toBe(true)
     expect(node!.cacheKey).toBe(expectedCacheKey(table, BAR_SPEC_KEY, 1))
-    expect(table.mediaCache.get(node!.cacheKey)).toBeDefined()
+    expect(table.mediaState.mediaCache.get(node!.cacheKey)).toBeDefined()
     // 定向失效登记在 media 层 region 档（同图片格）
     expect(
       host.submitted.some((entry) => entry.kind === 'media' && entry.inv.type === 'region'),
@@ -117,7 +121,7 @@ describe('图表格位图缓存（L2 media）', () => {
 
     // 滚出窗口：media 节点摘除，缓存条目保留
     table.scrollTo(0, table.rowHeightAt(0) * 10)
-    expect(table.chartCellNodes.has(0)).toBe(false)
+    expect(table.mediaState.chartCellNodes.has(0)).toBe(false)
     // 滚回：重建场景即命中 cell 级缓存，首帧直贴真实位图（同图片无闪协议，无占位帧）
     table.scrollTo(0, 0)
     const rebuiltNode = chartNodeAt(table, 1, 0)
@@ -143,7 +147,7 @@ describe('图表格位图缓存（L2 media）', () => {
     expect(rebuiltNode.cacheKey).not.toBe(originalNode.cacheKey)
     await flushAsync()
     expect(rebuiltNode.hasBitmap).toBe(true)
-    expect(table.mediaCache.get(rebuiltNode.cacheKey)).toBeDefined()
+    expect(table.mediaState.mediaCache.get(rebuiltNode.cacheKey)).toBeDefined()
     table.destroy()
   })
 
@@ -174,13 +178,13 @@ describe('图表格位图缓存（L2 media）', () => {
       height: 200,
       columns: [{ field: 'name' }, { field: 'chart' }],
       records: [chartRecord(BAR_DECLARATION)],
-      plugins: [plugin],
+      resolveCellChart: plugin.resolveCellChart,
     })
     await new Promise((resolve) => setTimeout(resolve, 20))
     const node = chartNodeAt(table, 1, 0)
     expect(node).toBeDefined()
     expect(node!.hasBitmap).toBe(false)
-    expect(table.mediaCache.get(node!.cacheKey)).toBeUndefined()
+    expect(table.mediaState.mediaCache.get(node!.cacheKey)).toBeUndefined()
     table.destroy()
   })
 
@@ -195,7 +199,7 @@ describe('图表格位图缓存（L2 media）', () => {
 
   it('非法声明容错：图表格降级普通文本格', () => {
     const { table } = setupChartTable([chartRecord({ type: 'radar' })])
-    expect(table.chartCellNodes.size).toBe(0)
+    expect(table.mediaState.chartCellNodes.size).toBe(0)
     // 降级为普通文本格：按取值管线渲染原始值
     expect(table.getCellText(1, 0)).not.toBe('')
     table.destroy()

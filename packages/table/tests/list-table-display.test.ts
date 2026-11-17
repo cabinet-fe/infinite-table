@@ -121,7 +121,7 @@ describe('ListTable 冻结', () => {
       frozenColCount: 1,
       mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }],
     })
-    expect(table.mergeCells.ranges).toHaveLength(1)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(1)
     // 主格钉固冻结列：x=48，整块宽 200；覆盖格不建节点
     expect(findNode(host, 0, 0)).toMatchObject({ x: 48, width: 200 })
     expect(findNode(host, 1, 0)).toBeUndefined()
@@ -266,7 +266,9 @@ describe('ListTable 合并单元格', () => {
         ],
       })
       expect(warn).toHaveBeenCalledTimes(1)
-      expect(table.mergeCells.ranges).toEqual([{ startCol: 1, startRow: 1, endCol: 3, endRow: 2 }])
+      expect(table.geometryState.mergeCells.ranges).toEqual([
+        { startCol: 1, startRow: 1, endCol: 3, endRow: 2 },
+      ])
       expect(findNode(host, 1, 1)).toMatchObject({ width: 300, height: 64, text: 'r1' })
       expect(findNode(host, 2, 1)).toBeUndefined()
 
@@ -277,7 +279,9 @@ describe('ListTable 合并单元格', () => {
         { startCol: 1, startRow: 0, endCol: 2, endRow: 0 },
       ])
       expect(warn).toHaveBeenCalledTimes(1)
-      expect(table.mergeCells.ranges).toEqual([{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }])
+      expect(table.geometryState.mergeCells.ranges).toEqual([
+        { startCol: 0, startRow: 0, endCol: 1, endRow: 0 },
+      ])
       expect(findNode(host, 0, 0)).toMatchObject({ width: 200 })
       expect(findNode(host, 1, 0)).toBeUndefined()
 
@@ -285,7 +289,7 @@ describe('ListTable 合并单元格', () => {
       warn.mockClear()
       table.setMergeCells([{ startCol: 5, startRow: 5, endCol: 6, endRow: 5 }])
       expect(warn).not.toHaveBeenCalled()
-      expect(table.mergeCells.ranges).toHaveLength(1)
+      expect(table.geometryState.mergeCells.ranges).toHaveLength(1)
     } finally {
       warn.mockRestore()
     }
@@ -307,7 +311,7 @@ describe('ListTable 合并单元格', () => {
     expect(() => table.addMergeCell({ startCol: 8, startRow: 5, endCol: 10, endRow: 5 })).toThrow(
       /outside the table bounds/,
     )
-    expect(table.mergeCells.ranges).toHaveLength(1)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(1)
 
     // 跨冻结边界（冻结列 0 与滚动列 1 之间）：合法，主格钉固冻结列整块绘制
     table.addMergeCell({ startCol: 0, startRow: 5, endCol: 1, endRow: 5 })

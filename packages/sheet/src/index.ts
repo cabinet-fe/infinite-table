@@ -29,10 +29,18 @@ export { SHEET_DEFAULT_COL_WIDTH, SHEET_DEFAULT_ROW_HEIGHT } from './core/defaul
 export { formatByNumFmt } from './core/format'
 export { sheetStyleToEngineStyle } from './grid/grid-style-map'
 
-// 快照 → 打印供数适配（显示链投影的打印侧消费者）：PrintSource 是本包的结构化类型，
-// 字段口径与 @infinitable/plugins 的 PrintSource 对齐（sheet 不依赖 plugins，靠结构化
-// 兼容直接供数；互指文档见 core/print-source.ts 与 plugins print/types.ts 头注释）。
-export { createSnapshotPrintSource, type PrintSource } from './core/print-source'
+// 快照 → 网格只读视图适配（显示链投影的打印侧消费者）：直接产出 @infinitable/protocol
+// 统一的 GridReadView，供 @infinitable/plugins 打印/导出插件消费。
+export { createSnapshotPrintSource } from './core/print-source'
+export type {
+  EngineAssembly,
+  EngineCapabilities,
+  EnginePlugin,
+  GridReadView,
+  LayerPainter,
+  PainterRegistration,
+  PainterSlot,
+} from '@infinitable/protocol'
 
 export {
   NUMERIC_TEXT_RE,

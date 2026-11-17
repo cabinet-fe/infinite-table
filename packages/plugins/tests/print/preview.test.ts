@@ -5,22 +5,23 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 
+import type { GridReadView } from '@infinitable/protocol'
+
 import { openPrintPreview } from '../../src/print/preview'
-import type { PrintSource } from '../../src/print/types'
 
 /** 数据行高/表头行高 32px；表头 1 行 + 50 数据行 */
 const ROW_HEIGHT = 32
 const DATA_ROWS = 50
-const SOURCE: PrintSource = {
+const SOURCE: GridReadView = {
   name: '预览测试表',
   rowCount: 1 + DATA_ROWS,
   colCount: 3,
-  rowHeight: () => ROW_HEIGHT,
-  colWidth: () => 120,
-  merges: () => [],
-  cellValue: () => undefined,
-  cellStyle: () => undefined,
-  displayValue: (col, row) => (row === 0 ? `表头${col}` : `r${row}c${col}`),
+  getRowHeight: () => ROW_HEIGHT,
+  getColWidth: () => 120,
+  getMergeRanges: () => [],
+  getCellValue: () => undefined,
+  getCellStyle: () => undefined,
+  getCellText: (col, row) => (row === 0 ? `表头${col}` : `r${row}c${col}`),
 }
 
 // 自定义纸 200×200mm、零边距：可用高 ≈ 755.9 − 页脚 32 − 表头 32 = 691.9px
@@ -32,7 +33,7 @@ const CONFIG = {
   headerFooter: { footer: { center: '第 {page} 页 / 共 {pageCount} 页' } },
 }
 
-const EMPTY_SOURCE: PrintSource = {
+const EMPTY_SOURCE: GridReadView = {
   ...SOURCE,
   rowCount: 0,
 }

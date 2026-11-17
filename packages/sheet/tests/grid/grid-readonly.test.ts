@@ -17,7 +17,7 @@ describe('整表只读模式', () => {
       expect(table.startEdit(0, 0)).toBe(false)
       expect(table.isEditing()).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -42,7 +42,7 @@ describe('整表只读模式', () => {
       sheet.setCellValue({ row: 0, col: 0 }, 'ro')
       expect(sheet.getCellData({ row: 0, col: 0 })?.v).toBe('ro')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -57,7 +57,7 @@ describe('整表只读模式', () => {
       expect(table.getColWidth(0)).toBe(SHEET_DEFAULT_COL_WIDTH)
       expect(sheet.getColWidth(0)).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -77,7 +77,7 @@ describe('整表只读模式', () => {
       expect(sheet.getColWidth(0)).toBe(112)
       expect(events).toEqual([{ col: 0, width: 112 }])
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -93,7 +93,7 @@ describe('整表只读模式', () => {
       expect(table.startEdit(0, 0)).toBe(false)
       expect(table.isEditing()).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -109,7 +109,7 @@ describe('整表只读模式', () => {
       expect(sheet.getCellData({ row: 1, col: 0 })).toBeUndefined()
       expect(sheet.getCellData({ row: 2, col: 0 })).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -128,7 +128,7 @@ describe('整表只读模式', () => {
       )
       expect(sheet.getCellData({ row: 0, col: 0 })?.v).toBe('x')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -146,7 +146,7 @@ describe('单元格级只读（填报场景）', () => {
       expect(table.startEdit(1, 1)).toBe(true)
       table.cancelEdit()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -171,7 +171,7 @@ describe('公式格', () => {
       expect(sheet.getCellData({ row: 0, col: 0 })?.f).toBe('2+3')
       expect(table.getCellText(0, 0)).toBe('5')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -187,7 +187,7 @@ describe('公式格', () => {
       await flushMicrotasks()
       expect(table.getCellText(1, 1)).toBe('14')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -198,7 +198,7 @@ describe('公式格', () => {
       await flushMicrotasks()
       expect(table.getCellText(0, 0)).toBe('#DIV/0!')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -216,7 +216,7 @@ describe('公式格', () => {
       await flushMicrotasks()
       expect(table.getCellText(0, 1)).toBe('42')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -230,7 +230,7 @@ describe('公式格', () => {
       expect((input as HTMLInputElement).value).toBe('plain')
       table.cancelEdit()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -248,7 +248,7 @@ describe('公式格', () => {
       expect(onEditEnd).toHaveBeenCalledTimes(2)
       expect(onEditEnd).toHaveBeenLastCalledWith({ row: 1, col: 1 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

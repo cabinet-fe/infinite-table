@@ -29,7 +29,7 @@ describe('SheetGrid 挂载与几何（happy-dom smoke）', () => {
       expect(table.getColWidth(5)).toBeGreaterThan(0)
       expect(table.getColWidth(6)).toBe(0)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -40,7 +40,7 @@ describe('SheetGrid 挂载与几何（happy-dom smoke）', () => {
       expect(drawRange.x).toBe(0)
       expect(drawRange.y).toBe(0)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -53,7 +53,7 @@ describe('SheetGrid 挂载与几何（happy-dom smoke）', () => {
       expect(table.getColWidth(9)).toBeGreaterThan(0)
       expect(table.getCellText(9, 0)).toBe('J1')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -67,7 +67,7 @@ describe('SheetGrid 数据面（模型直挂）', () => {
       sheet.setCellValue({ row: 1, col: 2 }, '')
       expect(table.getCellText(2, 1)).toBe('')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -79,7 +79,7 @@ describe('SheetGrid 数据面（模型直挂）', () => {
       expect(sheet.undo()).toBe(true)
       expect(sheet.getCellData({ row: 1, col: 1 })).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -94,7 +94,7 @@ describe('SheetGrid 数据面（模型直挂）', () => {
       expect(table.getCellText(0, 0)).toBe('12,345.6')
       expect(sheet.getCellData({ row: 0, col: 0 })?.v).toBe(12345.6)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -112,13 +112,13 @@ describe('SheetGrid 行列尺寸拖拽持久化', () => {
       expect(created.table.getColWidth(0)).toBe(110)
       expect(sheet.getColWidth(0)).toBe(110)
     } finally {
-      created.grid.release()
+      created.grid.destroy()
     }
     const rebuilt = createGrid({ sheet, container })
     try {
       expect(rebuilt.table.getColWidth(0)).toBe(110)
     } finally {
-      rebuilt.grid.release()
+      rebuilt.grid.destroy()
     }
   })
 
@@ -134,13 +134,13 @@ describe('SheetGrid 行列尺寸拖拽持久化', () => {
       expect(created.table.getRowHeight(0)).toBe(58)
       expect(sheet.getRowHeight(0)).toBe(58)
     } finally {
-      created.grid.release()
+      created.grid.destroy()
     }
     const rebuilt = createGrid({ sheet, container })
     try {
       expect(rebuilt.table.getRowHeight(0)).toBe(58)
     } finally {
-      rebuilt.grid.release()
+      rebuilt.grid.destroy()
     }
   })
 })
@@ -164,7 +164,7 @@ describe('SheetGrid 行列尺寸即时同步（菜单写入路径）', () => {
       expect(table.getColWidth(2)).toBe(120)
       expect(table.getColWidth(3)).toBe(80)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -186,7 +186,7 @@ describe('SheetGrid 行列尺寸即时同步（菜单写入路径）', () => {
       expect(sheet.getRowHeight(0)!).toBeGreaterThan(before)
       expect(table.getRowHeight(0)).toBe(sheet.getRowHeight(0)!)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -201,7 +201,7 @@ describe('SheetGrid 行列尺寸即时同步（菜单写入路径）', () => {
       grid.setVisible(true)
       expect(table.getRowHeight(0)).toBe(44)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -226,7 +226,7 @@ describe('SheetGrid 合并与冻结', () => {
       sheet.setCellValue({ row: 1, col: 1 }, 'N')
       expect(table.getCellText(1, 1)).toBe('N')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -242,7 +242,7 @@ describe('SheetGrid 合并与冻结', () => {
       expect(table.getFrozenRowCount()).toBe(0)
       expect(table.getFrozenColCount()).toBe(0)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -254,7 +254,7 @@ describe('SheetGrid 合并与冻结', () => {
       sheet.setCellValue({ row: 2, col: 2 }, 'merged')
       sheet.mergeCells({ start: { row: 2, col: 2 }, end: { row: 3, col: 3 } })
       await flushMicrotasks()
-      first.release()
+      first.destroy()
       const rebuilt = createGrid({ sheet, container })
       try {
         expect(rebuilt.table.getFrozenRowCount()).toBe(1)
@@ -262,10 +262,10 @@ describe('SheetGrid 合并与冻结', () => {
         expect(rebuilt.table.getCellText(0, 0)).toBe('kept')
         expect(rebuilt.table.getCellText(3, 3)).toBe('merged')
       } finally {
-        rebuilt.grid.release()
+        rebuilt.grid.destroy()
       }
     } finally {
-      first.release()
+      first.destroy()
     }
   })
 })
@@ -284,7 +284,7 @@ describe('SheetGrid 右键菜单', () => {
         addr: { row: 3, col: 2 },
       })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -316,7 +316,7 @@ describe('SheetGrid 右键菜单', () => {
       await flushMicrotasks()
       expect(onContextMenu).toHaveBeenLastCalledWith({ x: 10, y: 10, kind: 'body', addr: null })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -347,7 +347,7 @@ describe('SheetGrid 键盘', () => {
       )
       expect(sheet.getCellData({ row: 1, col: 1 })?.v).toBe('x')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -364,7 +364,7 @@ describe('SheetGrid 键盘', () => {
         end: { row: 9, col: 4 },
       })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -377,7 +377,7 @@ describe('SheetGrid 键盘', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
       expect(sheet.getCellData({ row: 1, col: 1 })?.v).toBe('x')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -409,7 +409,7 @@ describe('SheetGrid 宿主滚轮', () => {
       expect(table.getScrollTop()).toBeGreaterThan(0)
       expect(event.defaultPrevented).toBe(true)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -419,7 +419,7 @@ describe('SheetGrid 宿主滚轮', () => {
       const event = fireWheel(container, { deltaY: 100 })
       expect(event.defaultPrevented).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -436,7 +436,7 @@ describe('SheetGrid 宿主滚轮', () => {
       expect(upAtEdge.defaultPrevented).toBe(true)
       expect(table.getScrollTop()).toBeLessThan(maxTop)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -448,7 +448,7 @@ describe('SheetGrid 宿主滚轮', () => {
       expect(table.getScrollTop()).toBe(0)
       expect(event.defaultPrevented).toBe(true)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -460,7 +460,7 @@ describe('SheetGrid 容器焦点', () => {
       expect(container.getAttribute('tabindex')).toBe('-1')
       expect(document.activeElement).toBe(container)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -478,7 +478,7 @@ describe('SheetGrid 容器焦点', () => {
       fire(container, 'pointerdown', { clientX: cellX(1), clientY: cellY(1) })
       expect(document.activeElement).toBe(input)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -496,7 +496,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
       expect(onEditEnd).toHaveBeenCalledWith({ row: 1, col: 1 })
       expect(table.isEditing()).toBe(false)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -509,7 +509,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
       expect(table.getCellText(0, 0)).toBe('占位')
       expect(sheet.getCellData({ row: 0, col: 0 })?.v).toBe(5)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -520,7 +520,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
       expect(resolveCellStyle).toHaveBeenCalled()
       expect(sheet.getCellData({ row: 0, col: 0 })?.s).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -538,7 +538,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
       // hook 命中：动态样式覆盖（无基础样式的格）
       expect(table.resolveStyle(1, 0).background).toBe('#00FF00')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -567,7 +567,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
         expect(covered).toBe(false)
       }
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -584,7 +584,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
         expect(addr.row).toBeGreaterThanOrEqual(0)
       }
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -601,7 +601,7 @@ describe('SheetGrid LRU 可见性', () => {
       sheet.setCellValue({ row: 0, col: 0 }, 'LRU')
       expect(table.getCellText(1, 0)).toBe('LRU')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -614,14 +614,14 @@ describe('SheetGrid 命中与资源释放', () => {
       expect(grid.hitTestSheetAddr(10, cellY(2))).toBeNull()
       expect(grid.hitTestSheetAddr(cellX(1), 10)).toBeNull()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
   it('release 幂等', () => {
     const { grid } = createGrid()
-    grid.release()
-    expect(() => grid.release()).not.toThrow()
+    grid.destroy()
+    expect(() => grid.destroy()).not.toThrow()
   })
 })
 
@@ -635,7 +635,7 @@ describe('SheetGrid 主题（溢出渲染）', () => {
       expect(table.theme.body.textOverflow).toBeUndefined()
       expect(table.theme.header.textOverflow).toBe('ellipsis')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -650,7 +650,7 @@ describe('SheetGrid 构造路径性能', () => {
       // wrap 行高估算短路：构造/挂载路径不做与可视窗口无关的全格扫描
       expect(rowKeysSpy).not.toHaveBeenCalled()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -691,7 +691,7 @@ describe('SheetGrid 容器 resize 自适应', () => {
       expect(table.width).toBe(VIEW_W)
       expect(table.height).toBe(VIEW_H)
     } finally {
-      grid.release()
+      grid.destroy()
       vi.useRealTimers()
       vi.unstubAllGlobals()
     }
@@ -712,7 +712,7 @@ describe('SheetGrid 容器 resize 自适应', () => {
       expect(resize).toHaveBeenCalledTimes(1)
       expect(resize).toHaveBeenCalledWith(940, 520)
     } finally {
-      grid.release()
+      grid.destroy()
       vi.useRealTimers()
       vi.unstubAllGlobals()
     }
@@ -745,7 +745,7 @@ describe('SheetGrid 容器 resize 自适应', () => {
       expect(resize).toHaveBeenCalledTimes(1)
       expect(resize).toHaveBeenCalledWith(1100, 640)
     } finally {
-      grid.release()
+      grid.destroy()
       vi.useRealTimers()
       vi.unstubAllGlobals()
     }
@@ -760,11 +760,11 @@ describe('SheetGrid 容器 resize 自适应', () => {
       Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 520 })
       const resize = vi.spyOn(table, 'resize')
       ResizeObserverStub.lastCallback?.([], {})
-      grid.release()
+      grid.destroy()
       settleResize()
       expect(resize).not.toHaveBeenCalled()
     } finally {
-      grid.release()
+      grid.destroy()
       vi.useRealTimers()
       vi.unstubAllGlobals()
     }
@@ -784,7 +784,7 @@ describe('SheetGrid 容器 resize 自适应', () => {
       expect(table.rowCount).toBe(sheet.rows)
       expect(table.colCount).toBe(sheet.cols)
     } finally {
-      grid.release()
+      grid.destroy()
       vi.useRealTimers()
       vi.unstubAllGlobals()
     }
@@ -808,7 +808,7 @@ describe('SheetGrid 容器 resize 自适应', () => {
       expect(table.rowCount).toBe(100)
       expect(table.colCount).toBe(26)
     } finally {
-      grid.release()
+      grid.destroy()
       vi.useRealTimers()
       vi.unstubAllGlobals()
     }
@@ -850,7 +850,7 @@ describe('SheetGrid 滚动近端动态增长（WPS 式无限表格）', () => {
       await flushFrame()
       expect(sheet.rows).toBeGreaterThan(rowsAfterFirst)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -870,7 +870,7 @@ describe('SheetGrid 滚动近端动态增长（WPS 式无限表格）', () => {
       expect(sheet.cols).toBe(cols)
       expect(table.rowCount).toBe(rows)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -883,7 +883,7 @@ describe('SheetGrid 滚动近端动态增长（WPS 式无限表格）', () => {
       await flushFrame()
       expect(sheet.rows).toBeGreaterThan(30)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -896,79 +896,176 @@ describe('SheetGrid 引用拾取染色框', () => {
         { range: { start: { row: 2, col: 3 }, end: { row: 1, col: 5 } }, color: '#2563eb' },
         { range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } }, color: '#dc2626' },
       ])
-      expect(table.highlightRanges).toEqual([
+      expect(table.interactionState.highlightRanges).toEqual([
         { bounds: { minCol: 3, minRow: 1, maxCol: 5, maxRow: 2 }, color: '#2563eb' },
         { bounds: { minCol: 0, minRow: 0, maxCol: 0, maxRow: 0 }, color: '#dc2626' },
       ])
       grid.setHighlightRanges([])
-      expect(table.highlightRanges).toEqual([])
+      expect(table.interactionState.highlightRanges).toEqual([])
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
   it('release 后调用静默无操作（不抛错）', () => {
     const { grid, table } = createGrid()
-    grid.release()
+    grid.destroy()
     expect(() =>
       grid.setHighlightRanges([
         { range: { start: { row: 0, col: 0 }, end: { row: 0, col: 0 } }, color: '#000' },
       ]),
     ).not.toThrow()
-    expect(table.highlightRanges).toEqual([])
+    expect(table.interactionState.highlightRanges).toEqual([])
   })
 })
 
-describe('SheetGrid 协议面装配（P7）', () => {
-  it('getTable() 为引擎协议面：装配本体（EngineAssembly）可直接承接并消费', async () => {
+describe('SheetGrid 协议面装配（P7 / EngineAssembly）', () => {
+  it('SheetGrid 正式实现 EngineAssembly：capabilities / host / width / height / 主题可用', async () => {
     const { grid, table, sheet } = createGrid()
     try {
-      // 编译期：TableEngine（含装配本体 EngineAssembly）承接；运行期：同一实例
-      const assembly: EngineAssembly = table
-      expect(assembly).toBe(table)
+      const assembly: EngineAssembly = grid
+      expect(assembly).toBe(grid)
       expect(assembly.host).toBe(table.host)
+      expect(assembly.width).toBe(VIEW_W)
+      expect(assembly.height).toBe(VIEW_H)
+      expect(assembly.capabilities?.gridRead).toBe(grid.read)
+      expect(assembly.capabilities?.gridData).toBe(table)
+      expect(assembly.capabilities?.writableGridData).toBe(table)
+
       // 数据面（模型直挂）：rowCount 与取值随 Sheet 模型
       sheet.setCellValue({ row: 0, col: 0 }, 'A1值')
       await flushMicrotasks()
-      expect(assembly.rowCount).toBe(sheet.rows)
-      expect(assembly.getCellValue(0, 0)).toBe('A1值')
-      // 导出读取面：有效数据 / 几何 / 合并区（协议可选能力，table 引擎恒提供）
-      expect(assembly.read!.getCellText(0, 0)).toBe('A1值')
-      expect(assembly.read!.colCount).toBe(sheet.cols)
-      expect(assembly.read!.getColWidth(0)).toBeGreaterThan(0)
+      expect(assembly.capabilities!.gridData!.rowCount).toBe(sheet.rows)
+      expect(assembly.capabilities!.gridData!.getCellValue(0, 0)).toBe('A1值')
+      // 导出读取面：有效数据 / 几何 / 合并区
+      expect(assembly.capabilities!.gridRead!.getCellText(0, 0)).toBe('A1值')
+      expect(assembly.capabilities!.gridRead!.colCount).toBe(sheet.cols)
+      expect(assembly.capabilities!.gridRead!.getColWidth(0)).toBeGreaterThan(0)
       sheet.mergeCells({ start: { row: 1, col: 1 }, end: { row: 2, col: 2 } })
       await flushMicrotasks()
-      expect(assembly.read!.getMergeRanges()).toContainEqual({
+      expect(assembly.capabilities!.gridRead!.getMergeRanges()).toContainEqual({
         startCol: 1,
         startRow: 1,
         endCol: 2,
         endRow: 2,
       })
+
+      assembly.updateTheme({ underlayBackgroundColor: '#fafafa' })
+      expect(assembly.getTheme().underlayBackgroundColor).toBe('#fafafa')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
-  it('插件槽位与 painter 槽位经协议面可用；release 走协议生命周期（destroy 幂等）', async () => {
-    const { grid, table } = createGrid()
-    const mounted: EngineAssembly[] = []
-    const plugin: EnginePlugin = {
-      name: 'assembly-probe',
+  it('plugins 构造项与 use/unuse 向插件传入 SheetGrid 本体，destroy 逆序卸载且幂等', () => {
+    const events: string[] = []
+    const received: EngineAssembly[] = []
+    const p1: EnginePlugin = {
+      name: 'sheet-p1',
       mount(engine) {
-        mounted.push(engine)
-        engine.setOverlayPainter(() => {})
+        received.push(engine)
+        events.push('mount:p1')
+        return () => events.push('cleanup:p1')
       },
       unmount(engine) {
-        mounted.push(engine)
+        received.push(engine)
+        events.push('unmount:p1')
       },
     }
-    table.use(plugin)
-    await flushMicrotasks()
-    expect(mounted[0]).toBe(table)
-    // release 即协议 destroy：逆序卸载插件
-    grid.release()
-    expect(mounted).toEqual([table, table])
-    // destroy 幂等（协议生命周期契约）
-    expect(() => table.destroy()).not.toThrow()
+    const p2: EnginePlugin = {
+      name: 'sheet-p2',
+      mount(engine) {
+        received.push(engine)
+        events.push('mount:p2')
+      },
+      unmount(engine) {
+        received.push(engine)
+        events.push('unmount:p2')
+      },
+    }
+    const p3: EnginePlugin = {
+      name: 'sheet-p3',
+      mount(engine) {
+        received.push(engine)
+        events.push('mount:p3')
+      },
+      unmount(engine) {
+        received.push(engine)
+        events.push('unmount:p3')
+      },
+    }
+
+    const { grid, table } = createGrid({ plugins: [p1, p2] })
+    expect(events).toEqual(['mount:p1', 'mount:p2'])
+
+    const disposeP3 = grid.use(p3)
+    expect(events).toEqual(['mount:p1', 'mount:p2', 'mount:p3'])
+
+    grid.unuse('sheet-p2')
+    expect(events).toEqual(['mount:p1', 'mount:p2', 'mount:p3', 'unmount:p2'])
+
+    grid.use(p2)
+    for (const engine of received) {
+      expect(engine).toBe(grid)
+      expect(engine).not.toBe(table)
+    }
+
+    // destroy 逆序卸载全部插件（p2 -> p3 -> p1）
+    grid.destroy()
+    expect(events).toEqual([
+      'mount:p1',
+      'mount:p2',
+      'mount:p3',
+      'unmount:p2',
+      'mount:p2',
+      'unmount:p2',
+      'unmount:p3',
+      'cleanup:p1',
+      'unmount:p1',
+    ])
+    expect(() => disposeP3()).not.toThrow()
+    expect(() => grid.destroy()).not.toThrow()
+  })
+
+  it('registerPainter 与 resize 转发到底层引擎，resize 在 growOnScroll 下同步扩容', () => {
+    const { grid, table, sheet } = createGrid({
+      rows: 10,
+      cols: 5,
+      growOnScroll: true,
+    })
+    try {
+      const paint = vi.fn<() => void>()
+      const unregister = grid.registerPainter({
+        id: 'sheet-overlay',
+        slot: 'overlay',
+        paint,
+      })
+      expect(typeof unregister).toBe('function')
+      unregister()
+      expect(() => unregister()).not.toThrow()
+
+      grid.resize(1200, 900)
+      expect(grid.width).toBe(1200)
+      expect(grid.height).toBe(900)
+      expect(table.width).toBe(1200)
+      expect(table.height).toBe(900)
+      expect(sheet.rows).toBeGreaterThan(10)
+      expect(sheet.cols).toBeGreaterThan(5)
+    } finally {
+      grid.destroy()
+    }
+  })
+
+  it('header.resolveHeaderRenderer 转发到 ListTableOptions.resolveColHeaderRenderer', () => {
+    const renderer: CellRenderer = vi.fn<() => void>()
+    const { grid, table } = createGrid({
+      header: { resolveHeaderRenderer: (col) => (col === 2 ? renderer : undefined) },
+    })
+    try {
+      expect(table.options.resolveColHeaderRenderer?.(2)).toBe(renderer)
+      expect(table.options.resolveColHeaderRenderer?.(0)).toBeNull()
+    } finally {
+      grid.destroy()
+    }
   })
 })

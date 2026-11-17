@@ -7,25 +7,23 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ListTable } from '@infinitable/table'
-import type { EngineAssembly } from '@infinitable/protocol'
+import type { EngineAssembly, GridReadView } from '@infinitable/protocol'
 
-import { createEnginePrintSource } from '../../src/print/engine-source'
 import { createPrintPlugin } from '../../src/print/print-plugin'
 import { buildPrintDocumentHtml } from '../../src/print/page-html'
 import { paginate } from '../../src/print/paginate'
-import type { PrintSource } from '../../src/print/types'
 import { StubHost } from '../testing/stub-host'
 
-const SOURCE: PrintSource = {
+const SOURCE: GridReadView = {
   name: '打印插件测试',
   rowCount: 3,
   colCount: 2,
-  rowHeight: () => 28,
-  colWidth: () => 100,
-  merges: () => [],
-  cellValue: () => undefined,
-  cellStyle: () => undefined,
-  displayValue: (col, row) => `v${row}-${col}`,
+  getRowHeight: () => 28,
+  getColWidth: () => 100,
+  getMergeRanges: () => [],
+  getCellValue: () => undefined,
+  getCellStyle: () => undefined,
+  getCellText: (col, row) => `v${row}-${col}`,
 }
 
 const CONFIG = { paperSize: { widthMm: 200, heightMm: 200 }, margin: 0 }
@@ -127,30 +125,30 @@ describe('print / openPreview 触 DOM 入口', () => {
   })
 })
 
-describe('引擎协议面供数（装配协议导出读取面，G12-G15）', () => {
-  it('createEnginePrintSource 经 engine.read 适配 PrintSource：字段逐项映射', () => {
+describe('引擎协议面供数（capabilities.gridRead）', () => {
+  it('engine.capabilities.gridRead 提供网格只读视图：字段逐项映射', () => {
     const engine = createEngine()
-    const source = createEnginePrintSource(engine, { name: '引擎供数' })
-    expect(source.name).toBe('引擎供数')
-    expect(source.rowCount).toBe(3)
-    expect(source.colCount).toBe(2)
-    expect(source.rowHeight(0)).toBe(28)
-    expect(source.colWidth(1)).toBe(120)
-    // 有效数据：displayValue 走取值管线、cellValue 为原始值、合并区几何区间
-    expect(source.displayValue(0, 1)).toBe('a1')
-    expect(source.cellValue(0, 1)).toBe('a1')
-    expect(source.merges()).toEqual([{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }])
+    const gridRead = engine.capabilities?.gridRead
+    expect(gridRead).toBeDefined()
+    expect(gridRead!.rowCount).toBe(3)
+    expect(gridRead!.colCount).toBe(2)
+    expect(gridRead!.getRowHeight(0)).toBe(28)
+    expect(gridRead!.getColWidth(1)).toBe(120)
+    // 有效数据：getCellText 走取值管线、getCellValue 为原始值、合并区几何区间
+    expect(gridRead!.getCellText(0, 1)).toBe('a1')
+    expect(gridRead!.getCellValue(0, 1)).toBe('a1')
+    expect(gridRead!.getMergeRanges()).toEqual([{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }])
     // 有效样式：主题投影链产物（table 恒有样式）
-    expect(source.cellStyle(0, 1)?.font).toBeTruthy()
+    expect(gridRead!.getCellStyle(0, 1)?.font).toBeTruthy()
     engine.destroy()
   })
 
-  it('挂载引擎供数：无显式 source 时 handle 方法经挂载引擎的读取面供数', () => {
+  it('挂载引擎供数：无显式 source 时 handle 方法经挂载引擎的 capabilities.gridRead 供数', () => {
     const engine = createEngine()
     const plugin = createPrintPlugin({})
     plugin.mount(engine)
     // 与手工按读取面构造的 source 同产物（分页逐字节一致）
-    const expected = paginate(createEnginePrintSource(engine), CONFIG)
+    const expected = paginate(engine.capabilities!.gridRead!, CONFIG)
     expect(plugin.paginate(CONFIG)).toEqual(expected)
     // 显式 source 优先于挂载引擎
     const explicit = createPrintPlugin({ source: SOURCE })
@@ -170,9 +168,8 @@ describe('引擎协议面供数（装配协议导出读取面，G12-G15）', () 
     engine.destroy()
   })
 
-  it('引擎未提供导出读取面（engine.read 缺失）时适配抛错', () => {
+  it('引擎未提供 capabilities.gridRead 时 buildDocumentHtml 抛错', () => {
     const bare = {} as EngineAssembly
-    expect(() => createEnginePrintSource(bare)).toThrow(/导出读取面/)
     const plugin = createPrintPlugin({})
     plugin.mount(bare)
     expect(() => plugin.buildDocumentHtml(CONFIG)).toThrow(/可供数源/)

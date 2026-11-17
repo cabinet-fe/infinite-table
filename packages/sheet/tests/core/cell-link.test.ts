@@ -126,7 +126,7 @@ describe('单元格超链接：模型 + 命令 + SheetGrid 门面', () => {
       expect(grid.getCellLink({ row: 1, col: 2 })).toBeUndefined()
       expect(sheet.getCellLink({ row: 1, col: 2 })).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

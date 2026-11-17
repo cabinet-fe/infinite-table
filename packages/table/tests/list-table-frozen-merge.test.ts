@@ -59,6 +59,27 @@ function findNodeAt(host: StubHost, x: number, y: number): CellNode | undefined 
   return search(body.root)
 }
 
+/** 计算节点在场景树前序绘制次序中的位置 */
+function paintOrderIndex(root: SceneNode, target: SceneNode): number {
+  let index = 0
+  let found = -1
+  const visit = (node: SceneNode): void => {
+    if (found >= 0) {
+      return
+    }
+    if (node === target) {
+      found = index
+      return
+    }
+    index++
+    for (const child of node.children) {
+      visit(child)
+    }
+  }
+  visit(root)
+  return found
+}
+
 const records100 = () => Array.from({ length: 100 }, (_, i) => ({ name: `r${i}` }))
 
 describe('ListTable 跨冻结边界合并区', () => {
@@ -72,7 +93,7 @@ describe('ListTable 跨冻结边界合并区', () => {
         { startCol: 5, startRow: 0, endCol: 5, endRow: 3 }, // 跨行冻结边界
       ],
     })
-    expect(table.mergeCells.ranges).toHaveLength(2)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(2)
     // 被覆盖格取主格文本（跨冻结边界不改变取值路由）
     expect(table.getCellText(2, 0)).toBe('r0')
     expect(table.getCellText(5, 3)).toBe('r0')
@@ -120,11 +141,11 @@ describe('ListTable 跨冻结边界合并区', () => {
     const master = findNode(host, 0, 0)!
     expect(master).toMatchObject({ x: 48, y: 36, width: 400, height: 64 })
     const root = host.layers.get('body')!.root
-    const order = (node: SceneNode) => root.children.indexOf(node)
+    const order = (node: SceneNode) => paintOrderIndex(root, node)
     // 主格后画于本帧滚入的滚动带格；表头容器仍在主格之上
     const entering = findNode(host, 5, 19)!
     expect(order(master)).toBeGreaterThan(order(entering))
-    expect(order(master)).toBeLessThan(order(table.headerGroup!))
+    expect(order(master)).toBeLessThan(order(table.sceneState.headerGroup!))
   })
 
   it('行向跨边界合并区：主格纵向钉固、滚入行重挂其下（延伸段不被盖写）', () => {
@@ -141,7 +162,7 @@ describe('ListTable 跨冻结边界合并区', () => {
     expect(master).toMatchObject({ x: 548, y: 68, width: 200, height: 128 })
     const root = host.layers.get('body')!.root
     const entering = findNode(host, 5, 5)!
-    expect(root.children.indexOf(master)).toBeGreaterThan(root.children.indexOf(entering))
+    expect(paintOrderIndex(root, master)).toBeGreaterThan(paintOrderIndex(root, entering))
   })
 
   it('冻结计数运行时变化：跨边界合并区主格按新边界重钉，包围盒不错切', () => {
@@ -192,7 +213,7 @@ describe('ListTable 跨冻结边界合并区', () => {
       ]),
     ).toThrow(/outside the table bounds/)
     // 原状：集合未替换、场景未重建（无新失效提交），既有合并区照常
-    expect(table.mergeCells.ranges).toHaveLength(1)
+    expect(table.geometryState.mergeCells.ranges).toHaveLength(1)
     expect(findNode(host, 0, 0)).toMatchObject({ width: 200 })
     expect(host.submitted).toEqual([])
   })

@@ -3,12 +3,12 @@
 // 提交经回写目标落数据源（records 改 field / model 经 ModelBinding.writeBack），
 // 随后局部刷新该格并抛 onCellChange（col/row/oldValue/newValue）；
 // 值与初值相等的提交（无操作编辑）跳过写回与 onCellChange，end/焦点/选区移动照常。
-// 编辑中订阅滚动帧：浮层逐帧对齐锚定格最新视口矩形，锚定格滚出视口按 Enter 语义自动提交。
+// 编辑中订阅滚动帧：浮层逐帧对齐锚定格最新视口矩形，锚定格滚出视口按 Enter 语义自动提交（内置编辑器）或取消（自定义会话编辑器）。
 
+import type { ScrollState } from '@infinitable/grid'
 import type { Region } from '@infinitable/render'
 
-import type { EditorRegistry } from '../editor-registry'
-import type { ScrollState } from '@infinitable/grid'
+import type { CellEditor, CellEditorSession, EditorRegistry } from '../editor-registry'
 import type { CellChangeEvent, CellRef, ColumnDefine, EditEndEvent, EditStartEvent } from '../types'
 import {
   createTextEditor,
@@ -69,6 +69,8 @@ export interface EditManagerInit {
    * （公式引用拾取等宿主自行管理互锁的形态）。EditManager 不感知具体宿主形态。
    */
   resolveEditorBlur?: () => 'commit' | 'ignore'
+  /** 挂载容器（供自定义 CellEditorSession.container 读取） */
+  container?: HTMLElement
   /** 编辑器挂载宿主（表格容器）；缺省离屏（不落 DOM，仅保留会话状态） */
   host?: TextEditorHost
   /** 元素创建源；缺省取 globalThis.document（无 DOM 环境必须注入） */
@@ -83,13 +85,24 @@ const detachedHost: TextEditorHost = {
   removeChild() {},
 }
 
-/** 单个编辑会话：锚定格 + 编辑初值（oldValue 口径）+ 编辑器实例 */
-interface EditSession {
-  col: number
-  row: number
-  oldValue: unknown
-  editor: TextEditor
+interface BuiltinEditSession {
+  readonly kind: 'builtin'
+  readonly col: number
+  readonly row: number
+  readonly oldValue: unknown
+  readonly editor: TextEditor
 }
+
+interface CustomEditSession {
+  readonly kind: 'custom'
+  readonly col: number
+  readonly row: number
+  readonly oldValue: unknown
+  readonly editor: CellEditor
+  rectListener: ((rect: Region) => void) | null
+}
+
+type EditSession = BuiltinEditSession | CustomEditSession
 
 export class EditManager {
   private session: EditSession | null = null
@@ -142,16 +155,69 @@ export class EditManager {
       return false
     }
     const oldValue = this.init.resolveValue(col, row)
+    const column = this.init.columns[col]
+    const multiline = column?.editorMultiline ?? false
+    const maxLength = column?.editorMaxLength ?? this.init.editorMaxLength
+    const font = this.init.cellFont?.(col, row)
+    const editorSpec = this.init.registry.resolveEditor(this.init.columns, col, row)
+
+    if (editorSpec?.open) {
+      const session: CustomEditSession = {
+        kind: 'custom',
+        col,
+        row,
+        oldValue,
+        editor: editorSpec,
+        rectListener: null,
+      }
+      const cellSession: CellEditorSession = {
+        col,
+        row,
+        container: this.init.container,
+        rect,
+        initialValue: oldValue,
+        font,
+        multiline,
+        maxLength,
+        commit: (value, move) => {
+          // 守卫陈旧会话回调：重复 commit / cancel 后再 commit 幂等跳过
+          if (this.session !== session) {
+            return
+          }
+          this.session = null
+          session.editor.close?.()
+          this.writeAndNotifyCommit(session, value, value !== session.oldValue, move)
+          this.init.restoreFocus()
+        },
+        cancel: () => {
+          if (this.session !== session) {
+            return
+          }
+          this.cancelEdit()
+        },
+        onRectChange: (listener) => {
+          if (this.session !== session) {
+            return
+          }
+          session.rectListener = listener
+        },
+      }
+      this.session = session
+      this.init.emitStart?.({ col, row, initialValue: oldValue })
+      editorSpec.open(cellSession)
+      return true
+    }
+
     const editor = createTextEditor({
-      multiline: this.init.columns[col]?.editorMultiline ?? false,
-      maxLength: this.init.columns[col]?.editorMaxLength ?? this.init.editorMaxLength,
-      font: this.init.cellFont?.(col, row),
+      multiline,
+      maxLength,
+      font,
       doc: this.init.doc,
     })
     editor.onKey((action) => this.onEditorKey(action))
     editor.onBlur(() => this.onEditorBlur())
     editor.open(this.host, rect, initialValueText(oldValue))
-    this.session = { col, row, oldValue, editor }
+    this.session = { kind: 'builtin', col, row, oldValue, editor }
     this.init.emitStart?.({ col, row, initialValue: oldValue })
     return true
   }
@@ -165,8 +231,13 @@ export class EditManager {
     if (!session) {
       return false
     }
+    if (session.kind === 'custom') {
+      // 自定义会话由 editor 经 session.commit(value) 提交；外部直接 commitEdit 仅关闭并取消
+      this.cancelEdit()
+      return false
+    }
     this.session = null
-    this.writeAndNotifyCommit(session, move)
+    this.commitBuiltin(session, move)
     this.init.restoreFocus()
     return true
   }
@@ -174,21 +245,37 @@ export class EditManager {
   /** 失焦终止：会话存在时按策略处理——commit 走提交语义（不抢回焦点），ignore 空操作；无会话幂等无操作 */
   private onEditorBlur(): void {
     const session = this.session
-    if (!session || (this.init.resolveEditorBlur?.() ?? 'commit') !== 'commit') {
+    if (
+      !session ||
+      session.kind !== 'builtin' ||
+      (this.init.resolveEditorBlur?.() ?? 'commit') !== 'commit'
+    ) {
       return
     }
     this.session = null
     // 焦点已移出画布（宿主 DOM 持有），不调 restoreFocus 抢回
-    this.writeAndNotifyCommit(session)
+    this.commitBuiltin(session)
+  }
+
+  private commitBuiltin(session: BuiltinEditSession, move?: EditCommitMove): void {
+    const newValue = session.editor.getValue()
+    session.editor.close()
+    this.writeAndNotifyCommit(
+      session,
+      newValue,
+      newValue !== initialValueText(session.oldValue),
+      move,
+    )
   }
 
   /** 提交核心：写回/局部刷新/抛变更与会话结束事件（序不变）；move 给定时随后移动选区 */
-  private writeAndNotifyCommit(session: EditSession, move?: EditCommitMove): void {
-    const newValue = session.editor.getValue()
-    session.editor.close()
-    // 无操作编辑（提交值与编辑初值同口径相等）跳过写回/刷新/变更事件：
-    // 不触数据源与 onCellChange；会话生命周期（end/焦点/选区移动）照常
-    if (newValue !== initialValueText(session.oldValue)) {
+  private writeAndNotifyCommit(
+    session: EditSession,
+    newValue: unknown,
+    changed: boolean,
+    move?: EditCommitMove,
+  ): void {
+    if (changed) {
       this.init.writeTarget.write(session.col, session.row, newValue)
       this.init.refreshCell(session.col, session.row)
       this.init.emitChange({
@@ -217,7 +304,11 @@ export class EditManager {
       return
     }
     this.session = null
-    session.editor.close()
+    if (session.kind === 'builtin') {
+      session.editor.close()
+    } else {
+      session.editor.close?.()
+    }
     this.init.emitEnd?.({
       col: session.col,
       row: session.row,
@@ -236,7 +327,7 @@ export class EditManager {
 
   /**
    * 滚动帧：编辑中浮层逐帧对齐锚定格最新视口矩形；
-   * 锚定格滚出视口（cellRect null）按 Enter 语义自动提交并关闭（不丢编辑内容）。
+   * 锚定格滚出视口（cellRect null）时内置编辑器按 Enter 语义自动提交，自定义会话取消关闭。
    */
   private followAnchor(): void {
     const session = this.session
@@ -245,10 +336,18 @@ export class EditManager {
     }
     const rect = this.init.cellRect(session.col, session.row)
     if (!rect) {
-      this.commitEdit('down')
+      if (session.kind === 'custom') {
+        this.cancelEdit()
+      } else {
+        this.commitEdit('down')
+      }
       return
     }
-    session.editor.moveTo(rect)
+    if (session.kind === 'custom') {
+      session.rectListener?.(rect)
+    } else {
+      session.editor.moveTo(rect)
+    }
   }
 
   private onEditorKey(action: TextEditorKeyAction): void {

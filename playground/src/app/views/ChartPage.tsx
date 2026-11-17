@@ -15,8 +15,8 @@ function ChartControls({ demo }: { demo: ChartDemo }) {
 
   const refreshStats = () => {
     setStatus(
-      `静态表：图表格 ${demo.staticMount.table.chartCellNodes.size} 个、位图缓存 ${demo.staticMount.table.mediaCache.size} 条；` +
-        `滚动表：图表格 ${demo.scrollMount.table.chartCellNodes.size} 个、位图缓存 ${demo.scrollMount.table.mediaCache.size} 条` +
+      `静态表：图表格 ${demo.staticMount.table.mediaState.chartCellNodes.size} 个、位图缓存 ${demo.staticMount.table.mediaState.mediaCache.size} 条；` +
+        `滚动表：图表格 ${demo.scrollMount.table.mediaState.chartCellNodes.size} 个、位图缓存 ${demo.scrollMount.table.mediaState.mediaCache.size} 条` +
         `（声明共享 ${CHART_SCROLL_VARIANTS} 组）`,
     )
   }

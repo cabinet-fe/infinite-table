@@ -1,6 +1,6 @@
 // 打印演示区装配：print 插件（createPrintPlugin）handle 形态的浏览器可验证路径——
 // headless 打印内核（分页/页面构建/占位符求值）+ iframe 打印输出。示例表超过一页
-// （两行表头带合并单元格 + 48 行数据），PrintSource 由本区数据函数直接适配供数
+// （两行表头带合并单元格 + 48 行数据），GridReadView 由本区数据函数直接适配供数
 // （「宿主/适配器供数」形态，屏上表格与打印共用同一数据源）。控件面（纸张/方向/
 // 缩放/分页模式参数与预览弹层）由 PrintPage 以 shadcn 渲染，经 PrintDemo.plugin
 // 消费 paginate/buildDocumentHtml/print。打印走插件缺省链路：隐藏 iframe 装载全部
@@ -12,9 +12,9 @@ import type { CellStyle } from '@infinitable/grid'
 import type { ListTableOptions } from '@infinitable/table'
 import {
   createPrintPlugin,
+  type GridReadView,
   type PrintConfig,
   type PrintPluginHandle,
-  type PrintSource,
 } from '@infinitable/plugins'
 
 import { mountTable, type DemoMount } from '../mount'
@@ -128,18 +128,18 @@ export function mountPrint(root: HTMLElement): PrintDemo {
   const section = document.createElement('section')
   root.appendChild(section)
 
-  // ---- 数据面：PrintSource 由本区数据函数适配（屏上表格与打印共用的单一事实源） ----
-  const source: PrintSource = {
+  // ---- 数据面：GridReadView 由本区数据函数适配（屏上表格与打印共用的单一事实源） ----
+  const source: GridReadView = {
     name: '2026 Q3 销售明细（打印示例）',
     rowCount: ROW_COUNT,
     colCount: PRINT_COL_WIDTHS.length,
-    rowHeight: () => PRINT_ROW_HEIGHT,
-    colWidth: (col) => PRINT_COL_WIDTHS[col] ?? 90,
-    merges: () => MERGES,
-    cellValue,
-    cellStyle,
+    getRowHeight: () => PRINT_ROW_HEIGHT,
+    getColWidth: (col) => PRINT_COL_WIDTHS[col] ?? 90,
+    getMergeRanges: () => MERGES,
+    getCellValue: cellValue,
+    getCellStyle: cellStyle,
     // 显示链回落原始值口径（与缺省 SheetStore 显示链一致）
-    displayValue: cellValue,
+    getCellText: (col, row) => String(cellValue(col, row) ?? ''),
   }
 
   // ---- 屏上演示表格（只读渲染：样式走同一 cellStyle 读取面） ----

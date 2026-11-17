@@ -1,13 +1,9 @@
 // 合并单元格：cell-range 的归一化、覆盖查询与主格判定。
 // 纯数据结构，不参与渲染；ListTable 据此做合并区布局、取值与命中。
 
-/** 单元格区间（闭区间，归一化后 start ≤ end） */
-export interface CellRange {
-  startCol: number
-  startRow: number
-  endCol: number
-  endRow: number
-}
+import type { CellRange } from '@infinitable/protocol'
+
+export type { CellRange }
 
 /** 归一化：交换使 start ≤ end */
 export function normalizeCellRange(range: CellRange): CellRange {

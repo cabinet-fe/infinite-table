@@ -47,7 +47,7 @@ import {
  *   （跳「数据块」tab）；边缘/角落拖拽 → 虚线预览，松开经 onRegionResizeCommit 提交
  *   （守卫与错误呈现归 DesignerPage）。两者都在捕获阶段拦截，不触发引擎选区；
  * - 右键菜单经 SheetGrid 的 onContextMenu 转发（kind 含 body/行头/列头）；
- * - 纸张边界/分页参考线：overlay painter 经协议 setOverlayPainter 挂 sky 层，
+ * - 纸张边界/分页参考线：overlay painter 经协议 registerPainter 挂 sky 层，
  *   网格重建时随 createGrid 重挂；仅显示层——配置由宿主持有，不写模型、不进快照。
  */
 
@@ -115,7 +115,7 @@ export interface FormCanvas {
   setPaperGuides(config: PaperGuidesConfig | null): void
   /** 当前画布实例（画布级回归测试断言引擎几何/合并用；业务代码不要依赖） */
   getGrid(): SheetGrid | undefined
-  release(): void
+  destroy(): void
 }
 
 export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
@@ -362,7 +362,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
   )
 
   function remount(): void {
-    grid?.release()
+    grid?.destroy()
     wrapper?.remove()
     grid = createGrid()
   }
@@ -378,13 +378,13 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
     getGrid(): SheetGrid | undefined {
       return grid
     },
-    release(): void {
+    destroy(): void {
       if (released) return
       released = true
       overlay.detach()
       for (const dispose of disposers) dispose()
       disposers.length = 0
-      grid?.release()
+      grid?.destroy()
       wrapper?.remove()
       grid = undefined
       wrapper = undefined

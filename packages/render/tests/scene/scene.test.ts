@@ -99,6 +99,15 @@ describe('命中测试', () => {
     expect(hitTest(root, 10, 10)).toBeNull()
   })
 
+  it('hitTestChildren=false 跳过子节点遍历，仅判定当前节点 pickable', () => {
+    const root = new SceneNode({ width: 100, height: 100, hitTestChildren: false })
+    const child = new SceneNode({ width: 50, height: 50 })
+    root.appendChild(child)
+    expect(hitTest(root, 10, 10)).toBe(root)
+    root.pickable = false
+    expect(hitTest(root, 10, 10)).toBeNull()
+  })
+
   it('父坐标系外的点不命中', () => {
     const root = new SceneNode({ width: 100, height: 100 })
     expect(hitTest(root, -1, 10)).toBeNull()

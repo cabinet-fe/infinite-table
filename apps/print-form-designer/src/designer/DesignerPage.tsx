@@ -227,7 +227,7 @@ export function DesignerPage() {
       offDocHistory()
       offSheetHistory()
       canvasRef.current = null
-      canvas.release()
+      canvas.destroy()
     }
   }, [doc])
 

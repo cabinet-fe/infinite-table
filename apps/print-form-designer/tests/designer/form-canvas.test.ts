@@ -13,8 +13,10 @@ setupCanvasMock()
 /** 引擎读取面：协议面 + 合并区读取（getMergeRanges 未收敛进 TableEngine 协议面，按实现窄化） */
 type EngineView = ReturnType<SheetGrid['getTable']> & {
   getMergeRanges(): readonly { startRow: number }[]
-  /** 场景格节点（文本溢出走廊断言用：textMinX/textMaxX 为格内局部坐标） */
-  cellNodes: Map<number, CellNodeView>
+  /** 场景状态（文本溢出走廊断言用：textMinX/textMaxX 为格内局部坐标） */
+  sceneState: {
+    cellNodes: Map<number, CellNodeView>
+  }
 }
 
 /** 场景格节点的断言用窄化（只取走廊相关字段） */
@@ -68,7 +70,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
       doc.setRowHeight(0, 0)
       expect(engine().getRowHeight(0)).toBe(defaultHeight)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -88,7 +90,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
       expect(mergeStartRow()).toBe(2)
       expect(doc.history.redo()).toBe(true)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -103,7 +105,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
     doc.setColWidth(3, 40)
     const { canvas, engine } = mountCanvas(doc)
     try {
-      const nodes = engine().cellNodes
+      const nodes = engine().sceneState.cellNodes
       const node = (col: number) => [...nodes.values()].find((n) => n.col === col && n.row === 0)!
       for (const col of [1, 3]) {
         // 走廊收敛在本格：绘制区不与任何邻格相交
@@ -111,7 +113,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
         expect(node(col).textMaxX).toBe(node(col).width)
       }
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -131,7 +133,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
       expect(canvas.getGrid()).toBe(grid)
       expect(engine().getRowHeight(0)).toBe(60)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -155,7 +157,7 @@ describe('画布视图同步（快照级静默 restore 后几何/合并还原）
       canvas.refresh()
       expect(canvas.getGrid()).not.toBe(grid)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 })

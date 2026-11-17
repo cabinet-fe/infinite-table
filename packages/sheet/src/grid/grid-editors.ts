@@ -1,9 +1,7 @@
-import { EditorRegistry, type TableEngine } from '@infinitable/table'
+import { EditorRegistry, type CellEditor, type CellEditorSession } from '@infinitable/table'
 
 import type { CellAddress } from '../core/address'
 import type { CellValue } from '../core/cell-store'
-import type { Sheet } from '../core/sheet'
-import { getSheetEditValue } from './grid-model'
 
 /** 统一文本编辑器注册名（未命中路由的回落目标，引擎侧等价于列级 `editor` 声明） */
 export const SHEET_TEXT_EDITOR = 'sheet-text'
@@ -52,158 +50,58 @@ export interface SheetGridEditorsOptions {
   route?: (addr: CellAddress) => string | undefined
 }
 
-interface RoutingInit {
-  options: SheetGridEditorsOptions
-  /** 自定义会话开始/结束（对齐 SheetGridOptions.onEditStart / onEditEnd 口径） */
-  onSessionStart?: (addr: CellAddress) => void
-  onSessionEnd?: (addr: CellAddress) => void
-}
-
-interface ActiveSession {
-  addr: CellAddress
-  editor: GridCellEditor
-  rectListener: ((rect: GridEditorRect) => void) | null
-}
-
 /**
- * 类型化编辑器路由（引擎 `EditorRegistry` 的 `route` hook 机制化）：
- * - 引擎侧注册名只承担可编判定（引擎编辑会话恒开内置文本编辑器）；
- * - 自定义编辑器在引擎 `onEditStart` 时接管——取消文本会话、挂载宿主编辑 UI，
- *   提交经 `table.updateCell` 走模型命令系统（可 undo），滚动跟随锚定格矩形。
+ * 类型化编辑器路由：直接将 `GridCellEditor` 适配为引擎原生会话型 `CellEditor` 注册到
+ * `EditorRegistry`——引擎 `EditManager` 原生托管生命周期、滚动帧矩形跟随、提交通道与事件派发。
  */
 export class GridEditorRouting {
-  private readonly options: SheetGridEditorsOptions
   private readonly editors = new Map<string, GridCellEditor>()
-  private readonly onSessionStart?: (addr: CellAddress) => void
-  private readonly onSessionEnd?: (addr: CellAddress) => void
-  private sheet: Sheet | null = null
-  private table: TableEngine | null = null
-  private container: HTMLElement | null = null
-  private session: ActiveSession | null = null
-  /** 接管中取消文本会话的合成事件标记（SheetGrid 转发引擎编辑事件前查询抑制） */
-  private suppressing = false
 
-  constructor(init: RoutingInit) {
-    this.options = init.options
-    this.onSessionStart = init.onSessionStart
-    this.onSessionEnd = init.onSessionEnd
-    for (const editor of init.options.editors) this.editors.set(editor.name, editor)
-  }
-
-  /** 引擎编辑事件是否为接管路径的合成事件（转发宿主回调前抑制） */
-  shouldSuppressEngineEvent(): boolean {
-    return this.suppressing
+  constructor(
+    private readonly options: SheetGridEditorsOptions,
+    private readonly container?: HTMLElement,
+  ) {
+    for (const editor of options.editors) {
+      this.editors.set(editor.name, editor)
+    }
   }
 
   /**
-   * 构造引擎注册表（引擎构造期装配）：文本编辑器 + 自定义编辑器注册名标记；
+   * 构造引擎注册表（引擎构造期装配）：注册默认文本编辑器 + 适配后的原生会话型自定义编辑器；
    * route 包装只放行已注册的自定义编辑器名，未命中回落列级 `sheet-text` 声明。
    */
   createRegistry(): EditorRegistry {
     const registry = new EditorRegistry(this.engineRoute)
     registry.registerEditor(SHEET_TEXT_EDITOR, {})
     for (const editor of this.editors.values()) {
-      registry.registerEditor(editor.name, { name: editor.name })
+      registry.registerEditor(editor.name, this.adaptEditor(editor))
     }
     return registry
   }
 
-  /** 接线引擎与容器（引擎构造后调用一次） */
-  attach(sheet: Sheet, table: TableEngine, container: HTMLElement): void {
-    this.sheet = sheet
-    this.table = table
-    this.container = container
-  }
-
-  /**
-   * 引擎编辑会话开启拦截：命中自定义编辑器则接管（取消文本会话、打开自定义编辑器）
-   * 并返回 true；未命中返回 false（文本会话照常），同时结束残留的旧自定义会话。
-   */
-  handleEngineEditStart(col: number, row: number): boolean {
-    const editor = this.routeEditor(col, row)
-    if (!editor) {
-      this.cancelSession()
-      return false
-    }
-    const table = this.table
-    if (!table) return false
-    const rect = table.getCellRelativeRect(col, row)
-    if (!rect) return false
-    this.cancelSession()
-    this.suppressing = true
-    try {
-      table.cancelEdit()
-    } finally {
-      this.suppressing = false
-    }
-    this.openSession(editor, { row, col }, rect)
-    return true
-  }
-
-  /** 滚动帧：会话中锚定格矩形变化通知编辑器；滚出视口自动取消 */
-  handleScrollFrame(): void {
-    const session = this.session
-    const table = this.table
-    if (!session || !table) return
-    const rect = table.getCellRelativeRect(session.addr.col, session.addr.row)
-    if (!rect) {
-      this.cancelSession()
-      return
-    }
-    session.rectListener?.(rect)
-  }
-
-  dispose(): void {
-    this.cancelSession()
-  }
-
-  /** 引擎 route hook：命中已注册自定义编辑器才返回其名（否则 undefined → 列级 sheet-text）。
-   *  签名与 core `EditorRegistry` 构造参数同构（core 公共面未单列该 hook 类型）。 */
-  private readonly engineRoute: (col: number, row: number) => string | undefined = (col, row) => {
-    return this.routeEditor(col, row)?.name
-  }
-
-  private routeEditor(col: number, row: number): GridCellEditor | null {
-    const name = this.options.route?.({ row, col })
-    return (name ? this.editors.get(name) : undefined) ?? null
-  }
-
-  private openSession(editor: GridCellEditor, addr: CellAddress, rect: GridEditorRect): void {
-    const session: ActiveSession = { addr, editor, rectListener: null }
-    this.session = session
-    editor.open({
-      addr,
-      container: this.container!,
-      rect,
-      value: this.sheet ? getSheetEditValue(this.sheet, addr.col, addr.row) : undefined,
-      commit: (value) => this.commitSession(value),
-      cancel: () => this.cancelSession(),
-      onRectChange: (listener) => {
-        session.rectListener = listener
+  private adaptEditor(editor: GridCellEditor): CellEditor {
+    return {
+      name: editor.name,
+      open: (session: CellEditorSession) => {
+        editor.open({
+          addr: { row: session.row, col: session.col },
+          container: session.container ?? this.container!,
+          rect: session.rect,
+          value: session.initialValue as CellValue | undefined,
+          commit: (value) => session.commit(value),
+          cancel: () => session.cancel(),
+          onRectChange: (listener) => session.onRectChange(listener),
+        })
       },
-    })
-    this.onSessionStart?.(addr)
+      close: () => {
+        editor.close()
+      },
+    }
   }
 
-  /** 提交：经引擎 updateCell 回写模型（命令系统，可 undo）后结束会话 */
-  private commitSession(value: CellValue): void {
-    const session = this.session
-    if (!session || !this.table) return
-    this.table.updateCell(session.addr.col, session.addr.row, value)
-    this.endSession(session)
-  }
-
-  private cancelSession(): void {
-    const session = this.session
-    if (!session) return
-    this.endSession(session)
-  }
-
-  private endSession(session: ActiveSession): void {
-    this.session = null
-    session.editor.close()
-    this.onSessionEnd?.(session.addr)
-    // 焦点交还网格容器（键盘导航），对齐引擎文本编辑会话结束行为
-    this.container?.focus({ preventScroll: true })
+  /** 引擎 route hook：命中已注册自定义编辑器才返回其名（否则 undefined → 列级 sheet-text） */
+  private readonly engineRoute: (col: number, row: number) => string | undefined = (col, row) => {
+    const name = this.options.route?.({ row, col })
+    return name && this.editors.has(name) ? name : undefined
   }
 }

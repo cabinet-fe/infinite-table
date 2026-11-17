@@ -640,7 +640,7 @@ const CHART_SPEC_TYPES: Record<(typeof CHART_STATIC_COL_TYPES)[number], string> 
 async function waitChartBitmaps(table: ListTable, label: string): Promise<void> {
   const deadline = Date.now() + 8000
   for (;;) {
-    const nodes = [...table.chartCellNodes.values()]
+    const nodes = [...table.mediaState.chartCellNodes.values()]
     if (nodes.length > 0 && nodes.every((node) => node.hasBitmap)) {
       return
     }
@@ -687,10 +687,11 @@ async function checkChart(checker: Checker, demos: DemoHandles): Promise<void> {
         )
       })
     }
-    assert(staticTable.chartMediaResolver !== null, '图表插件未挂到静态表')
+    assert(staticTable.options.resolveCellChart !== undefined, '图表插件未挂到静态表')
     assert(
-      staticTable.chartCellNodes.size === CHART_STATIC_ROW_COUNT * CHART_STATIC_COL_TYPES.length,
-      `静态表图表格数 ${staticTable.chartCellNodes.size}`,
+      staticTable.mediaState.chartCellNodes.size ===
+        CHART_STATIC_ROW_COUNT * CHART_STATIC_COL_TYPES.length,
+      `静态表图表格数 ${staticTable.mediaState.chartCellNodes.size}`,
     )
   })
 
@@ -707,15 +708,22 @@ async function checkChart(checker: Checker, demos: DemoHandles): Promise<void> {
 
   await checker.step('图表：位图落 cell 级 LRU（缓存直读命中）', async () => {
     await waitChartBitmaps(scrollTable, '滚动表')
-    for (const node of staticTable.chartCellNodes.values()) {
-      assert(staticTable.mediaCache.get(node.cacheKey), `静态表缓存缺失 ${node.cacheKey}`)
+    for (const node of staticTable.mediaState.chartCellNodes.values()) {
+      assert(
+        staticTable.mediaState.mediaCache.get(node.cacheKey),
+        `静态表缓存缺失 ${node.cacheKey}`,
+      )
     }
-    for (const node of scrollTable.chartCellNodes.values()) {
-      assert(scrollTable.mediaCache.get(node.cacheKey), `滚动表缓存缺失 ${node.cacheKey}`)
+    for (const node of scrollTable.mediaState.chartCellNodes.values()) {
+      assert(
+        scrollTable.mediaState.mediaCache.get(node.cacheKey),
+        `滚动表缓存缺失 ${node.cacheKey}`,
+      )
     }
     assert(
-      scrollTable.mediaCache.size <= CHART_SCROLL_VARIANTS * CHART_SCROLL_CHART_COLS.length,
-      `滚动表缓存条目 ${scrollTable.mediaCache.size}，超出共享变体上限（未收敛单飞）`,
+      scrollTable.mediaState.mediaCache.size <=
+        CHART_SCROLL_VARIANTS * CHART_SCROLL_CHART_COLS.length,
+      `滚动表缓存条目 ${scrollTable.mediaState.mediaCache.size}，超出共享变体上限（未收敛单飞）`,
     )
   })
 
@@ -726,7 +734,7 @@ async function checkChart(checker: Checker, demos: DemoHandles): Promise<void> {
     scrollTable.scrollTo(0, 0)
     await frames(1) // 只等一帧：缓存命中的图表格必须首帧直贴
     for (const col of CHART_SCROLL_CHART_COLS) {
-      const node = [...scrollTable.chartCellNodes.values()].find(
+      const node = [...scrollTable.mediaState.chartCellNodes.values()].find(
         (n) => n.col === col && n.row === 0,
       )
       assert(node, `滚动表 (${col},0) 图表格节点缺失`)

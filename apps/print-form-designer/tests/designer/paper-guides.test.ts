@@ -4,7 +4,7 @@
 // 参与数据态渲染（打印产物逐字相等 + 画布模型快照不变）。
 // DOM 面由环境注释挂载，canvas 2d 桩由 testing/canvas-mock 补。
 import { describe, expect, test } from 'vitest'
-import { createEnginePrintSource, createPrintPlugin, type PrintSource } from '@infinitable/plugins'
+import { createPrintPlugin, type GridReadView } from '@infinitable/plugins'
 
 import { FormDoc } from '../../src/domain/form-doc'
 import { mountFormCanvas } from '../../src/designer/form-canvas'
@@ -31,17 +31,17 @@ function uniformSource(
   cols: number,
   rowHeight: number,
   colWidth: number,
-): PrintSource {
+): GridReadView {
   return {
     name: '演练',
     rowCount: rows,
     colCount: cols,
-    rowHeight: () => rowHeight,
-    colWidth: () => colWidth,
-    merges: () => [],
-    cellValue: () => undefined,
-    cellStyle: () => undefined,
-    displayValue: () => undefined,
+    getRowHeight: () => rowHeight,
+    getColWidth: () => colWidth,
+    getMergeRanges: () => [],
+    getCellValue: () => undefined,
+    getCellStyle: () => undefined,
+    getCellText: () => '',
   }
 }
 
@@ -355,7 +355,7 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
         ops.some((item) => item.op === 'moveTo' && Math.abs(item.args[1]! - breakY) < 0.001),
       ).toBe(true)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -373,7 +373,7 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
       expect(ops.filter((item) => item.op === 'rect')).toHaveLength(1)
       expect(ops.filter((item) => item.op === 'moveTo')).toEqual([])
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -388,7 +388,7 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
       )(ctx, { width: 900, height: 420 })
       expect(ops).toEqual([])
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -404,7 +404,7 @@ describe('画布 overlay painter（协议槽位显示层）', () => {
       )(ctx, { width: 900, height: 420 })
       expect(ops).toEqual([])
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 })
@@ -446,7 +446,7 @@ describe('滚动后参考线恒显示（A1 滚出虚拟窗口不整组消失）'
         ops.some((item) => item.op === 'moveTo' && Math.abs(item.args[1]! - breakY) < 0.001),
       ).toBe(true)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -476,7 +476,7 @@ describe('滚动后参考线恒显示（A1 滚出虚拟窗口不整组消失）'
       expect(rect!.args[0]).toBeCloseTo(before.args[0]! - table.getScrollLeft(), 6)
       expect(rect!.args[0]).toBeLessThan(0)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 })
@@ -523,7 +523,7 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
       walkKeys(template)
       expect(hits).toEqual([])
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 
@@ -531,7 +531,8 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
     const { doc, canvas, config } = mountWithGuides()
     try {
       const sheetBefore = JSON.stringify(doc.sheet.snapshot())
-      const source = createEnginePrintSource(canvas.getGrid()!.getTable())
+      const table = canvas.getGrid()!.getTable()
+      const source = table.capabilities?.gridRead ?? table.read
       const htmlOn = createPrintPlugin({ source }).buildDocumentHtml()
 
       const { ctx } = recordContext()
@@ -547,7 +548,7 @@ describe('参考线不落模板 / 不参与数据态渲染', () => {
       expect(htmlOn).not.toContain('<canvas')
       expect(JSON.stringify(doc.sheet.snapshot())).toBe(sheetBefore)
     } finally {
-      canvas.release()
+      canvas.destroy()
     }
   })
 })

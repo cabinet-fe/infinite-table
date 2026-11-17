@@ -15,6 +15,7 @@
     "build": "vp build"
   },
   "dependencies": {
+    "@infinitable/grid": "workspace:*",
     "@infinitable/protocol": "workspace:*",
     "@infinitable/table": "workspace:*"
   }

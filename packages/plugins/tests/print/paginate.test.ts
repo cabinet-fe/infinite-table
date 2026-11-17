@@ -4,27 +4,37 @@
 
 import { describe, expect, it } from 'vitest'
 
+import type { GridReadView } from '@infinitable/protocol'
+
 import { derivePrintableArea, mmToPx, resolvePaperSizeMm } from '../../src/print/paper'
 import { paginate, type PrintPage, type PrintRowRange } from '../../src/print/paginate'
-import type { PrintConfig, PrintSource } from '../../src/print/types'
+import type { PrintConfig } from '../../src/print/types'
 
-/** 测试数据源工厂：行高/列宽数组 + 行主序值矩阵（cellValue/displayValue 同源） */
+/** 测试数据源工厂：行高/列宽数组 + 行主序值矩阵（getCellValue/getCellText 同源） */
 function makeSource(options: {
   rowHeights: number[]
   colWidths: number[]
   values?: unknown[][]
-}): PrintSource {
+}): GridReadView {
   const { rowHeights, colWidths, values = [] } = options
   return {
     name: '测试表',
     rowCount: rowHeights.length,
     colCount: colWidths.length,
-    rowHeight: (row) => rowHeights[row] ?? 0,
-    colWidth: (col) => colWidths[col] ?? 0,
-    merges: () => [],
-    cellValue: (col, row) => values[row]?.[col],
-    cellStyle: () => undefined,
-    displayValue: (col, row) => values[row]?.[col],
+    getRowHeight: (row) => rowHeights[row] ?? 0,
+    getColWidth: (col) => colWidths[col] ?? 0,
+    getMergeRanges: () => [],
+    getCellValue: (col, row) => values[row]?.[col],
+    getCellStyle: () => undefined,
+    getCellText: (col, row) => {
+      const value = values[row]?.[col]
+      if (value == null) {
+        return ''
+      }
+      return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : JSON.stringify(value)
+    },
   }
 }
 

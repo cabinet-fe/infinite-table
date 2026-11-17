@@ -1,7 +1,7 @@
-// 测试共享的记录型 2D 上下文（node 环境无 canvas）：实现 table 转出的 RenderContext
+// 测试共享的记录型 2D 上下文（node 环境无 canvas）：实现 @infinitable/render 转出的 RenderContext
 // 窄接口，按序记录水印绘制触达的调用，供平铺几何与插件行为断言。
 
-import type { RenderContext } from '@infinitable/table'
+import type { RenderContext } from '@infinitable/render'
 
 export interface RecordedTranslate {
   x: number

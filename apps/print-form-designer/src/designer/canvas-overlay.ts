@@ -376,9 +376,9 @@ function createCanvasOverlayPainter(
 }
 
 /**
- * overlay 接线（form-canvas 调用）：attach 随每次网格创建/重建把 painter 写进新引擎的
- * overlay 槽位；refresh 以同一 painter 原位重写触发 sky 整层失效——行高/列宽/选区/
- * 悬停数据块变化后数据块描边与名称 pill 随重绘对齐（协议 setOverlayPainter 非空写入恒提交失效）。
+ * overlay 接线（form-canvas 调用）：attach 随每次网格创建/重建把 painter 注册进新引擎的
+ * overlay 槽位；refresh 以同 id 重新注册触发 sky 整层失效——行高/列宽/选区/
+ * 悬停数据块变化后数据块描边与名称 pill 随重绘对齐（同 id 注册会同步覆盖并提交失效）。
  */
 export interface CanvasOverlay {
   attach(grid: SheetGrid): void
@@ -388,19 +388,28 @@ export interface CanvasOverlay {
 
 export function createCanvasOverlay(deps: CanvasOverlayDeps): CanvasOverlay {
   let grid: SheetGrid | undefined
+  let unregister: (() => void) | undefined
   const painter = createCanvasOverlayPainter(deps)
-  /** 把同一 painter 写回槽位：协议 setOverlayPainter 非空写入恒提交失效，即「原位重绘」 */
+  /** 把同一 painter 注册回槽位：同 id 注册会同步覆盖并提交失效，即「原位重绘」 */
   const apply = (): void => {
-    grid?.getTable().setOverlayPainter(painter)
+    if (!grid) return
+    unregister = grid.getTable().registerPainter({
+      id: 'designer-overlay',
+      slot: 'overlay',
+      paint: painter,
+    })
   }
   return {
     attach(next) {
+      unregister?.()
+      unregister = undefined
       grid = next
       apply()
     },
     refresh: apply,
     detach() {
-      grid?.getTable().setOverlayPainter(null)
+      unregister?.()
+      unregister = undefined
       grid = undefined
     },
   }

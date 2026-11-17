@@ -3,8 +3,10 @@
 // groupBreakBy 分组换页与两模式正交组合。输出统一 Page 结构供 P2 页面构建渲染。
 // 纯函数零 DOM（分层见 types.ts 文件头）。
 
+import type { GridReadView } from '@infinitable/protocol'
+
 import { derivePrintableArea, fitWidthScale, type PrintableArea } from './paper'
-import type { PrintConfig, PrintRange, PrintSource } from './types'
+import type { PrintConfig, PrintRange } from './types'
 
 /** 行区间（源表行号，含 start 不含 end） */
 export interface PrintRowRange {
@@ -39,18 +41,18 @@ function normalizeGroupColumns(groupBreakBy: PrintConfig['groupBreakBy']): Group
 }
 
 /**
- * 分组键：各分组列的 cellValue 串接（原始值口径，不受显示链影响——显示变换不改变
+ * 分组键：各分组列的 getCellValue 串接（原始值口径，不受显示链影响——显示变换不改变
  * 分组语义）。无分组列返回 null（永不换页）。
  */
-function makeGroupKey(source: PrintSource, cols: GroupColumns): (row: number) => string | null {
+function makeGroupKey(source: GridReadView, cols: GroupColumns): (row: number) => string | null {
   if (cols.length === 0) {
     return () => null
   }
-  return (row) => cols.map((col) => String(source.cellValue(col, row))).join('\u0000')
+  return (row) => cols.map((col) => String(source.getCellValue(col, row))).join('\u0000')
 }
 
 /**
- * 打印分页（headless）：按 PrintConfig 把 PrintSource 的数据行划分为页。
+ * 打印分页（headless）：按 PrintConfig 把 GridReadView 的数据行划分为页。
  *
  * - fitpage（缺省）：行高累加至放不下即换页；重复表头行每页先占高；单行高超可用页高
  *   时该行独占一页按原样输出（不截断行）。
@@ -68,7 +70,7 @@ function makeGroupKey(source: PrintSource, cols: GroupColumns): (row: number) =>
  *
  * 空表（数据行数为 0）或空打印区域返回空页列表。
  */
-export function paginate(source: PrintSource, config: PrintConfig): PrintPage[] {
+export function paginate(source: GridReadView, config: PrintConfig): PrintPage[] {
   const area: PrintableArea = derivePrintableArea(config)
   const headerRepeat = clampHeaderRepeatRows(config.headerRepeatRows, source.rowCount)
   const rowDomain = resolveRowDomain(config.rowRange, source.rowCount, headerRepeat)
@@ -146,7 +148,7 @@ function resolveRowDomain(
 
 /** 缩放系数：origin 恒 1；{ percent } 自定义百分比；fit-width = 可用页宽 / 内容宽（列宽和，只缩不放） */
 function computeScale(
-  source: PrintSource,
+  source: GridReadView,
   config: PrintConfig,
   area: PrintableArea,
   colRange: PrintRowRange,
@@ -164,7 +166,7 @@ function computeScale(
   }
   let contentWidth = 0
   for (let col = colRange.start; col < colRange.end; col++) {
-    contentWidth += source.colWidth(col)
+    contentWidth += source.getColWidth(col)
   }
   return fitWidthScale(contentWidth, area)
 }
@@ -174,7 +176,7 @@ function computeScale(
  * 输出（不截断列）。fit-width 缩放后全表不超页宽，自然只产出单一带。
  */
 function paginateColumns(
-  source: PrintSource,
+  source: GridReadView,
   domain: PrintRowRange,
   scale: number,
   area: PrintableArea,
@@ -183,7 +185,7 @@ function paginateColumns(
   let bandStart = domain.start
   let used = 0
   for (let col = domain.start; col < domain.end; col++) {
-    const width = source.colWidth(col) * scale
+    const width = source.getColWidth(col) * scale
     if (col > bandStart && used + width > area.width) {
       bands.push({ start: bandStart, end: col })
       bandStart = col
@@ -216,7 +218,7 @@ type RowBand = Omit<PrintPage, 'colRange'>
  * 单行高超可用页高时该行独占一页按原样输出。重复表头每页先占高（表头高也随 scale 折算）。
  */
 function paginateFitPage(
-  source: PrintSource,
+  source: GridReadView,
   dataStart: number,
   dataEnd: number,
   area: PrintableArea,
@@ -227,7 +229,7 @@ function paginateFitPage(
 ): RowBand[] {
   let headerHeight = 0
   for (let row = 0; row < headerRepeat; row++) {
-    headerHeight += source.rowHeight(row) * scale
+    headerHeight += source.getRowHeight(row) * scale
   }
   const available = area.height - headerHeight
   const pages: RowBand[] = []
@@ -237,7 +239,7 @@ function paginateFitPage(
     pages.push({ rowRange: { start: pageStart, end }, headerRows, blankRows: 0, scale })
   }
   for (let row = dataStart; row < dataEnd; row++) {
-    const height = source.rowHeight(row) * scale
+    const height = source.getRowHeight(row) * scale
     if (row > pageStart && (breakBefore(row) || used + height > available)) {
       closePage(row)
       pageStart = row

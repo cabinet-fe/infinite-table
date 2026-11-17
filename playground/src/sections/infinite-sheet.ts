@@ -50,6 +50,6 @@ export function mountInfiniteSheet(root: HTMLElement): InfiniteSheetDemo {
     grid,
     sheet,
     getDims: () => ({ rows: sheet.rows, cols: sheet.cols }),
-    release: () => grid.release(),
+    release: () => grid.destroy(),
   }
 }

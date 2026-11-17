@@ -29,12 +29,13 @@ import {
   type TableEngine,
   type ThemeOverride,
 } from '@infinitable/table'
+import { PluginHost } from '@infinitable/grid'
 import type {
-  CellChangeEvent,
   EngineAssembly,
+  EngineCapabilities,
   EnginePlugin,
-  OverlayPainter,
-  UnderlayPainter,
+  GridReadView,
+  PainterRegistration,
 } from '@infinitable/protocol'
 
 import { PivotModel } from './pivot-model'
@@ -67,6 +68,34 @@ const COLUMN_TEMPLATE: ColumnDefine = { field: '__pivot__', width: 120 }
 function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return ''
   return Number.isInteger(value) ? value.toLocaleString('en-US') : value.toFixed(1)
+}
+
+/** 单行省略号截断绘制，防止长维度文本溢出到相邻列 */
+function drawEllipsisText(
+  ctx: CellRenderTarget['ctx'],
+  text: string,
+  x: number,
+  baselineY: number,
+  maxWidth: number,
+): void {
+  if (maxWidth <= 0 || !text) return
+  if (ctx.measureText(text).width <= maxWidth) {
+    ctx.fillText(text, x, baselineY)
+    return
+  }
+  const ellipsis = '…'
+  if (ctx.measureText(ellipsis).width > maxWidth) return
+  let lo = 0
+  let hi = text.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (ctx.measureText(text.slice(0, mid) + ellipsis).width <= maxWidth) {
+      lo = mid
+    } else {
+      hi = mid - 1
+    }
+  }
+  ctx.fillText(text.slice(0, lo) + ellipsis, x, baselineY)
 }
 
 /** 树单元格字体串（与 table 内置 cellStyleFont 同约定；包内自足不深引内部原语） */
@@ -106,11 +135,14 @@ export interface PivotCellDrillEvent {
 }
 
 export class PivotGrid implements EngineAssembly {
+  readonly capabilities: EngineCapabilities
   private readonly model: PivotModel
   private readonly table: TableEngine
   private readonly container: HTMLElement
+  private readonly pluginHost = new PluginHost(this)
   private readonly disposers: (() => void)[] = []
   private readonly drillListeners = new Set<(event: PivotCellDrillEvent) => void>()
+  private measureFormatter?: (measure: PivotMeasure, value: number) => string
   private released = false
 
   constructor(options: PivotGridOptions) {
@@ -136,7 +168,7 @@ export class PivotGrid implements EngineAssembly {
       model: this.model,
       // 多级表头走冻结行 + 合并区自绘：引擎自带单行列头关闭
       showColHeader: false,
-      resolveDisplayValue: (col, row, base) => this.displayValue(base),
+      resolveDisplayValue: (col, row, base) => this.displayValue(col, row, base),
       resolveCellStyle: (col, row) => this.cellStyle(col, row),
       resolveCellRenderer: (col, row) =>
         col < this.model.rowHeaderCount && row >= this.model.headerRowCount ? this.treeCell : null,
@@ -157,10 +189,17 @@ export class PivotGrid implements EngineAssembly {
       },
     } satisfies ListTableOptions)
 
+    this.capabilities = {
+      gridRead: this.read,
+    }
+
     this.applyStructure()
     this.bindWheel()
     this.bindClick()
     this.bindDrill()
+    for (const plugin of options.plugins ?? []) {
+      this.use(plugin)
+    }
   }
 
   // ---- 领域操作（动态勾选：结构重算 + 引擎几何原地落地） ----
@@ -298,6 +337,21 @@ export class PivotGrid implements EngineAssembly {
     return () => this.drillListeners.delete(listener)
   }
 
+  /** 注册自定义度量数值格式化器（用于货币/百分比等列级格式化） */
+  setMeasureFormatter(
+    formatter: ((measure: PivotMeasure, value: number) => string) | undefined,
+  ): void {
+    this.measureFormatter = formatter
+    const { rows, cols } = this.table.getBodyVisibleCellRange()
+    this.table.batchUpdate(() => {
+      for (let r = rows.start; r < rows.end; r++) {
+        for (let c = Math.max(cols.start, this.model.rowHeaderCount); c < cols.end; c++) {
+          this.table.refreshCell(c, r)
+        }
+      }
+    })
+  }
+
   /** 引擎协议面出口（宿主调试/领域外操作的窄接口；本类不暴露 ListTable 具体类型） */
   getTable(): TableEngine {
     return this.table
@@ -309,6 +363,19 @@ export class PivotGrid implements EngineAssembly {
     return this.table.host
   }
 
+  get width(): number {
+    return this.table.width
+  }
+
+  get height(): number {
+    return this.table.height
+  }
+
+  resize(width: number, height: number): void {
+    if (this.released) return
+    this.table.resize(width, height)
+  }
+
   get rowCount(): number {
     return this.model.rowCount
   }
@@ -317,41 +384,38 @@ export class PivotGrid implements EngineAssembly {
     return this.model.getCellValue(col, row)
   }
 
-  updateCell(col: number, row: number, value: unknown): void {
-    this.table.updateCell(col, row, value)
-  }
-
-  onCellChange(listener: (change: CellChangeEvent) => void): () => void {
-    return this.table.onCellChange(listener)
-  }
-
   getTheme() {
     return this.table.getTheme()
   }
 
   updateTheme(override: ThemeOverride): void {
+    if (this.released) return
     this.table.updateTheme(override)
   }
 
-  setUnderlayPainter(painter: UnderlayPainter | null): void {
-    this.table.setUnderlayPainter(painter)
+  registerPainter(registration: PainterRegistration): () => void {
+    if (this.released) return () => {}
+    return this.table.registerPainter(registration)
   }
 
-  setOverlayPainter(painter: OverlayPainter | null): void {
-    this.table.setOverlayPainter(painter)
+  use(plugin: EnginePlugin): () => void {
+    if (this.released) return () => {}
+    return this.pluginHost.use(plugin)
   }
 
-  use(plugin: EnginePlugin): void {
-    this.table.use(plugin)
+  unuse(plugin: EnginePlugin | string): void {
+    if (this.released) return
+    this.pluginHost.unuse(plugin)
   }
 
-  get read() {
+  get read(): GridReadView {
     return this.table.read
   }
 
   destroy(): void {
     if (this.released) return
     this.released = true
+    this.pluginHost.unmountAll()
     for (const dispose of this.disposers) dispose()
     this.disposers.length = 0
     this.table.destroy()
@@ -364,7 +428,7 @@ export class PivotGrid implements EngineAssembly {
    * 竖直居中于合并区域；最深维度列与总计行无钮。折叠载体行的主格（组自身）出
    * ▸，其余可见组的格出 ▾（本行可见即其祖先组必为展开态）。
    */
-  private readonly treeCell: CellRenderer = ({ ctx, col, row, height, style, font }) => {
+  private readonly treeCell: CellRenderer = ({ ctx, col, row, width, height, style, font }) => {
     const pivotRow = this.model.rows[row - this.model.headerRowCount]
     if (!pivotRow) return
     const isCarrierMaster = pivotRow.type === 'branch' && col === pivotRow.path.length - 1
@@ -381,15 +445,26 @@ export class PivotGrid implements EngineAssembly {
     }
     ctx.fillStyle = style.color ?? '#1f2329'
     ctx.font = font ?? treeCellFont(style)
+    const textX = showToggle ? 18 : 8
+    const maxWidth = Math.max(0, width - textX - 8)
     const baselineY = midY + Math.round((style.fontSize ?? 12) / 3) - 1
-    ctx.fillText(label, showToggle ? 18 : 8, baselineY)
+    drawEllipsisText(ctx, label, textX, baselineY, maxWidth)
   }
 
   // ---- 内部：显示与样式投影 ----
 
-  private displayValue(base: unknown): string {
-    // 表头/树格文本为模型产出的字符串直接透传；聚合数值千分位
-    return typeof base === 'number' ? formatNumber(base) : ((base as string | undefined) ?? '')
+  private displayValue(col: number, _row: number, base: unknown): string {
+    // 表头/树格文本为模型产出的字符串直接透传；聚合数值支持自定义格式化或千分位
+    if (typeof base !== 'number') {
+      return (base as string | undefined) ?? ''
+    }
+    if (this.measureFormatter) {
+      const column = this.model.columns[col]
+      if (column?.kind === 'measure') {
+        return this.measureFormatter(column.measure, base)
+      }
+    }
+    return formatNumber(base)
   }
 
   private cellStyle(col: number, row: number): CellStyle | null {
@@ -508,19 +583,20 @@ export class PivotGrid implements EngineAssembly {
           ? { startRow: cell.row, endRow: cell.row }
           : this.model.groupRange(path!)
       if (!range) return
-      // 图标命中：主格矩形给出合并区域左上角，区域高 = 组跨行数 × 统一行高
-      const cellRect = this.table.getCellRelativeRect(cell.col, cell.row)
+      // 图标命中：主格矩形（含首行滚出视口上方时的推算原点）给出合并区域左上角，区域高 = 组跨行数 × 统一行高
+      const cellOrigin = this.resolveMergedCellOrigin(cell.col, range)
       if (
         this.model.collapsible &&
         pivotRow.type !== 'grand' &&
         cell.col < this.model.rowHeaderCount - 1 &&
         pivotRow.path.length > cell.col &&
-        cellRect !== null
+        cellOrigin !== null
       ) {
         const mergedHeight = (range.endRow - range.startRow + 1) * PIVOT_ROW_HEIGHT
         if (
-          x - cellRect.x <= TREE_TOGGLE_HIT_X &&
-          Math.abs(y - (cellRect.y + mergedHeight / 2)) <= TREE_TOGGLE_HIT_Y
+          x - cellOrigin.x >= 0 &&
+          x - cellOrigin.x <= TREE_TOGGLE_HIT_X &&
+          Math.abs(y - (cellOrigin.y + mergedHeight / 2)) <= TREE_TOGGLE_HIT_Y
         ) {
           this.toggleNode(path!)
           // 结构已变：按新结构重算组块（折叠收敛为载体行、展开恢复全组行），
@@ -586,5 +662,23 @@ export class PivotGrid implements EngineAssembly {
     }
     this.container.addEventListener('wheel', onWheel, { passive: false })
     this.disposers.push(() => this.container.removeEventListener('wheel', onWheel))
+  }
+
+  /** 计算合并组格主格的视口左上角坐标（支持首行已滚出视口上方时的局部可见组） */
+  private resolveMergedCellOrigin(
+    col: number,
+    range: { startRow: number; endRow: number },
+  ): { x: number; y: number } | null {
+    // 含冻结表头时 getBodyVisibleCellRange().rows.start 恒为 0，故逐行探测组内首个视口可见行
+    for (let row = range.startRow; row <= range.endRow; row++) {
+      const rect = this.table.getCellRelativeRect(col, row)
+      if (rect) {
+        return {
+          x: rect.x,
+          y: rect.y - (row - range.startRow) * PIVOT_ROW_HEIGHT,
+        }
+      }
+    }
+    return null
   }
 }

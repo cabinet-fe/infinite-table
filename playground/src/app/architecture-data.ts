@@ -222,7 +222,7 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
       '要加滚动细节（如按住 Shift 滚动横向）：改一处，所有引擎同时获得',
       '要做甘特图：时间轴本质也是行列几何，直接复用这层的滚动与命中',
     ],
-    dependsOn: ['render'],
+    dependsOn: ['render', 'protocol'],
     boundaries: [
       '不感知任何具体引擎（不知道表格引擎是谁），只提供网格原语',
       '与渲染层只经窄接口耦合，不碰具体渲染实现',
@@ -248,7 +248,7 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
       '要写跨引擎插件（导出、水印、埋点）：依赖这层契约而不是具体引擎，写一次处处可挂',
       '要给装配面加新部件：先在契约上加类型，再由各引擎实现——契约类型只有一个家',
     ],
-    dependsOn: ['grid', 'render'],
+    dependsOn: ['render'],
     boundaries: [
       '纯类型零运行时：安装它不增加任何产物字节，依赖边只是类型依赖',
       '契约一旦烧进领域概念（比如写死「表头」），跨引擎就死了——所以中立性是被测试守卫的红线',
@@ -304,7 +304,7 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
       '加新聚合方式（如中位数）：在聚合模型里加一类，引擎层无感',
       '要做甘特引擎：照它的样子写——算自己的时间/任务模型，把表格引擎当底盘，对外实现装配契约',
     ],
-    dependsOn: ['table', 'protocol'],
+    dependsOn: ['table', 'grid', 'protocol'],
     boundaries: [
       '只经表格领域公共面消费引擎，不触内部实现——这是适配层与引擎的边界范本',
       '渲染/滚动/选区全部复用引擎原语，不另起炉灶',
@@ -387,7 +387,7 @@ export const ARCH_PACKAGES: readonly ArchPackage[] = [
       '只对表格有意义的插件（如列右键菜单）：消费表格领域面，接受换引擎即失效',
       '只换实现不动机制（编辑器/公式函数/媒体解析器）：走各引擎的注册表',
     ],
-    dependsOn: ['table', 'grid', 'protocol'],
+    dependsOn: ['grid', 'render', 'protocol'],
     boundaries: [
       '三类插件各有判据，接口面红线有专门文档守卫——写插件前先对号入座',
       '注册表类扩展不在本包，随各引擎注册表承载',

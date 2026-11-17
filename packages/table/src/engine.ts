@@ -1,25 +1,30 @@
-// 表格引擎协议面：TableEngine——中立本体 EngineAssembly（@infinitable/protocol，
-// P7）的表格领域增量（G17：领域需求由 table 公共面增量承载而非协议特例）。
-// 全部成员是 ListTable 既有公共 API 的签名集合——sheet 的 SheetGrid 等适配层经
-// 本面消费 table 引擎，不触碰具体类；表头层级装配、按格可替换渲染器（G8 扩展缝，
-// 构造面 resolveCellRenderer）、行号列等领域概念只出现在本面之下的实现侧，
-// 本面仅收敛适配层实际消费的操作签名。
+// 表格引擎协议面：TableEngine——中立本体 EngineAssembly（@infinitable/protocol）的表格领域增量。
+// 全部成员是 ListTable 公共 API 的签名集合——sheet 的 SheetGrid、透视的 PivotGrid 等适配层
+// 经本面消费 table 引擎。
 
 import type {
   CellRange,
   CellRef,
-  FloatObjectLayer,
   ImageService,
   SelectionSnapshot,
+  TableTheme,
+  ThemeOverride,
   WindowRange,
 } from '@infinitable/grid'
+import type { CellChangeEvent, EngineAssembly, GridReadView } from '@infinitable/protocol'
 import type { Region } from '@infinitable/render'
-import type { EngineAssembly } from '@infinitable/protocol'
 
-import type { ScrollFrameListener } from './list-table'
-import type { ColumnDefine, ContextMenuListener, EditEndEvent, EditStartEvent } from './types'
 import type { FillDragEndListener } from './fill-handle'
+import type { FloatObjectLayer } from './float/float-object-layer'
 import type { HighlightRange } from './interaction-overlay'
+import type { ScrollFrameListener } from './list-table'
+import type {
+  ColHeaderClickListener,
+  ColumnDefine,
+  ContextMenuListener,
+  EditEndEvent,
+  EditStartEvent,
+} from './types'
 
 /**
  * 表格引擎协议面：EngineAssembly + 表格领域公共操作（中立本体的 table 实现）。
@@ -33,6 +38,8 @@ export interface TableEngine extends EngineAssembly {
   readonly height: number
   /** 列头带高（showColHeader 关闭时为 0） */
   readonly headerHeight: number
+  /** 数据行数（模型动态读取或 setRowCount 即时反映） */
+  readonly rowCount: number
   /** 数据列数（setColCount 增删列即时反映） */
   readonly colCount: number
   /** 原地调整视口尺寸（滚动位置与选区保留） */
@@ -53,6 +60,20 @@ export interface TableEngine extends EngineAssembly {
   batchUpdate(fn: () => void): void
   /** 局部刷新单格（窗外格安全跳过；被合并覆盖坐标路由主格） */
   refreshCell(col: number, row: number): void
+
+  // ---- 数据与主题 ----
+  /** 单元格原始值（数据面口径；合并区路由主格） */
+  getCellValue(col: number, row: number): unknown
+  /** 回驱模型数据源并局部刷新变更格 */
+  updateCell(col: number, row: number, value: unknown): void
+  /** 订阅数据变更；返回退订函数 */
+  onCellChange(listener: (change: CellChangeEvent) => void): () => void
+  /** 当前生效表格主题 */
+  getTheme(): TableTheme
+  /** 运行时深覆盖更新主题 */
+  updateTheme(override: ThemeOverride): void
+  /** 只读导出视图（与 capabilities.gridRead 同源） */
+  readonly read: GridReadView
 
   // ---- 滚动与命中 ----
   /** 相对滚动（自动夹取到边界） */
@@ -107,6 +128,8 @@ export interface TableEngine extends EngineAssembly {
   onScrollFrame(listener: ScrollFrameListener): () => void
   /** 右键菜单事件（区域归属见 TableContextMenuEvent.region） */
   onContextMenu(listener: ContextMenuListener): () => void
+  /** 列头单击事件（主键按下抬起落在同一列头且位移在阈值内） */
+  onColHeaderClick(listener: ColHeaderClickListener): () => void
   /** 列宽拖拽会话结束事件 */
   onColResizeEnd(listener: (event: { col: number; width: number }) => void): () => void
   /** 行高拖拽会话结束事件 */

@@ -6,7 +6,7 @@ import {
   MIN_ROW_HEIGHT,
   ResizeSession,
   type ResizeGeometry,
-} from '../src/resize'
+} from '@infinitable/grid'
 
 const COL_OFFSETS = [0, 100, 200, 300]
 const ROW_OFFSETS = [0, 32, 64, 96, 128]

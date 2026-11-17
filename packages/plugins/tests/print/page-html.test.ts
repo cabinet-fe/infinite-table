@@ -4,11 +4,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { CellRange, CellStyle } from '@infinitable/grid'
+import type { CellRange, CellStyle, GridReadView } from '@infinitable/protocol'
 
 import { buildPrintDocumentHtml, buildPrintPageHtml } from '../../src/print/page-html'
 import { paginate } from '../../src/print/paginate'
-import type { PrintConfig, PrintSource } from '../../src/print/types'
+import type { PrintConfig } from '../../src/print/types'
 
 /** 测试数据源工厂：行高/列宽数组 + 行主序值矩阵 + 合并区 + 逐格样式 + 可选格图通道 */
 function makeSource(options: {
@@ -18,19 +18,27 @@ function makeSource(options: {
   merges?: CellRange[]
   styles?: Record<string, CellStyle>
   cellImage?: (col: number, row: number) => string | null | undefined
-}): PrintSource {
+}): GridReadView {
   const { rowHeights, colWidths, values = [], merges = [], styles = {}, cellImage } = options
   return {
     name: '测试表',
     rowCount: rowHeights.length,
     colCount: colWidths.length,
-    rowHeight: (row) => rowHeights[row] ?? 0,
-    colWidth: (col) => colWidths[col] ?? 0,
-    merges: () => merges,
-    cellValue: (col, row) => values[row]?.[col],
-    cellStyle: (col, row) => styles[`${row},${col}`],
-    displayValue: (col, row) => values[row]?.[col],
-    cellImage,
+    getRowHeight: (row) => rowHeights[row] ?? 0,
+    getColWidth: (col) => colWidths[col] ?? 0,
+    getMergeRanges: () => merges,
+    getCellValue: (col, row) => values[row]?.[col],
+    getCellStyle: (col, row) => styles[`${row},${col}`],
+    getCellText: (col, row) => {
+      const value = values[row]?.[col]
+      if (value == null) {
+        return ''
+      }
+      return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+        ? String(value)
+        : JSON.stringify(value)
+    },
+    getCellImage: cellImage,
   }
 }
 

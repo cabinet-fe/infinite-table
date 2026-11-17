@@ -1,75 +1,92 @@
-// @vitest-environment happy-dom
-// 图表插件单测（happy-dom 挂载安全）：EnginePlugin 契约注册、格声明解析入口、
-// Chart.js 按需加载；container 挂载 + destroy 清理全链路不抛错。
+// 图表插件单测（node 环境直跑，不依赖 ListTable / 引擎）：
+// resolveCellChart 媒体解析与 memo 复用/失效、produce 出图产出 LoadedImage、
+// getChartSpec 声明解析与容错、Chart.js 按需加载与缓存。
 
 import { describe, expect, it } from 'vitest'
 
-import { ListTable } from '@infinitable/table'
-
-import { createChartPlugin } from '../../src/chart/chart-plugin'
 import { loadChartJs } from '../../src/chart/chart-loader'
-import { StubHost } from '../testing/stub-host'
+import { createChartPlugin } from '../../src/chart/chart-plugin'
+import type { ChartCellDeclaration } from '../../src/chart/types'
+import { FakeCanvas, FakeChart, createFakeChartModule, resetFakeChart } from '../testing/fake-chart'
 
-const BAR_DECLARATION = {
+const BAR_DECLARATION: ChartCellDeclaration = {
   type: 'bar',
   labels: ['Q1', 'Q2'],
   datasets: [{ label: '收入', data: [10, 20] }],
-} as const
+}
 
-describe('createChartPlugin 插件契约', () => {
-  it('构造 options.plugins 注册（与 sheet 插件族同一注册路径），destroy 清理', () => {
+describe('createChartPlugin 解析与媒体生产', () => {
+  it('resolveCellChart：合法声明产出 ChartCellMedia，普通格与非法声明返回 null', async () => {
+    resetFakeChart()
     const plugin = createChartPlugin({
-      resolveCellChart: (col, row) => (col === 0 && row === 0 ? BAR_DECLARATION : undefined),
+      resolveCellChart: (col, row) => {
+        if (col === 0 && row === 0) {
+          return BAR_DECLARATION
+        }
+        if (col === 1 && row === 0) {
+          return { type: 'radar' } as unknown as ChartCellDeclaration
+        }
+        return null
+      },
+      chartJsModule: createFakeChartModule(),
+      createCanvas: () => new FakeCanvas().asCanvas(),
     })
-    const host = new StubHost()
-    const table = new ListTable({
-      width: 400,
-      height: 200,
-      columns: [{ field: 'c0' }, { field: 'c1' }],
-      plugins: [plugin],
-      host,
+
+    expect(plugin.resolveCellChart(1, 0)).toBeNull()
+    expect(plugin.resolveCellChart(2, 2)).toBeNull()
+
+    const media = plugin.resolveCellChart(0, 0)
+    expect(media).not.toBeNull()
+    expect(typeof media!.key).toBe('string')
+    expect(media!.key.length).toBeGreaterThan(0)
+
+    const bitmap = await media!.produce({ width: 120, height: 80, dpr: 2 })
+    expect(bitmap.width).toBe(240)
+    expect(bitmap.height).toBe(160)
+    expect(FakeChart.created).toHaveLength(1)
+    expect(FakeChart.created[0]!.destroyed).toBe(true)
+  })
+
+  it('memo 复用与就地修改失效：同引用同内容复用实例，内容变更即换 key 并重建 media', () => {
+    const datasets = [{ label: '趋势', data: [1, 2] }]
+    const mutableDecl: ChartCellDeclaration = {
+      type: 'line',
+      labels: ['Q1', 'Q2'],
+      datasets,
+    }
+    const plugin = createChartPlugin({
+      resolveCellChart: (col, row) => (col === 0 && row === 0 ? mutableDecl : undefined),
     })
-    expect(plugin.name).toBe('chart')
-    // 声明解析入口：声明格出 spec，普通格 null
+
+    const first = plugin.resolveCellChart(0, 0)
+    const second = plugin.resolveCellChart(0, 0)
+    expect(first).not.toBeNull()
+    expect(second).toBe(first)
+
+    // 宿主就地改写声明数据（对象引用不变）→ 内容 key 改变，必须重建 media
+    datasets[0]!.data = [1, 99]
+    const third = plugin.resolveCellChart(0, 0)
+    expect(third).not.toBeNull()
+    expect(third).not.toBe(first)
+    expect(third!.key).not.toBe(first!.key)
+  })
+
+  it('getChartSpec：合法声明出 spec，未声明或非法声明容错为 null', () => {
+    const plugin = createChartPlugin({
+      resolveCellChart: (col, row) => {
+        if (col === 0 && row === 0) {
+          return BAR_DECLARATION
+        }
+        if (col === 0 && row === 1) {
+          return { type: 'radar' } as unknown as ChartCellDeclaration
+        }
+        return undefined
+      },
+    })
+
     expect(plugin.getChartSpec(0, 0)?.type).toBe('bar')
+    expect(plugin.getChartSpec(0, 1)).toBeNull()
     expect(plugin.getChartSpec(1, 1)).toBeNull()
-    // 注入宿主非表格所有：destroy 只逆序卸载插件，不销毁外部宿主
-    expect(() => table.destroy()).not.toThrow()
-  })
-
-  it('table.use() 注册即生效；非法声明容错为 null', () => {
-    const plugin = createChartPlugin({
-      resolveCellChart: (col, row) =>
-        col === 0 && row === 0 ? { type: 'radar' } : BAR_DECLARATION,
-    })
-    const host = new StubHost()
-    const table = new ListTable({
-      width: 400,
-      height: 200,
-      columns: [{ field: 'c0' }, { field: 'c1' }],
-      host,
-    })
-    table.use(plugin)
-    // (0,0) 非法声明 → null；(1,1) 合法声明 → spec
-    expect(plugin.getChartSpec(0, 0)).toBeNull()
-    expect(plugin.getChartSpec(1, 1)?.type).toBe('bar')
-    table.destroy()
-  })
-
-  it('happy-dom container 挂载 + 插件注册 + destroy 全链路不抛错', () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const plugin = createChartPlugin({ resolveCellChart: () => BAR_DECLARATION })
-    const table = new ListTable({
-      width: 400,
-      height: 200,
-      columns: [{ field: 'c0' }, { field: 'c1' }],
-      plugins: [plugin],
-      hostOptions: { container },
-    })
-    expect(container.querySelectorAll('canvas').length).toBeGreaterThanOrEqual(2)
-    table.destroy()
-    expect(container.querySelectorAll('canvas').length).toBe(0)
   })
 })
 

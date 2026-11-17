@@ -48,7 +48,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       expect(cleared.color).toBe(THEME_BODY_COLOR)
       expect(cleared.underline).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -65,7 +65,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       expect(style.color).toBe('red')
       expect(style.underline).toBe(true)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -78,7 +78,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       expect(style.color).toBe(THEME_LINK_COLOR)
       expect(style.underline).toBe(true)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -105,7 +105,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       expect(container.style.cursor).toBe('auto')
       expect(leaves).toEqual([{ col: LINK_CELL.col, row: LINK_CELL.row }])
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -128,7 +128,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
           url: LINK.url,
         })
       } finally {
-        defaults.grid.release()
+        defaults.grid.destroy()
       }
 
       open.mockClear()
@@ -148,7 +148,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
           text: LINK.text,
         })
       } finally {
-        disabled.grid.release()
+        disabled.grid.destroy()
       }
     } finally {
       open.mockRestore()
@@ -170,7 +170,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       fire(container, 'pointerup', { clientX: cellX(0), clientY: cellY(5) })
       expect(clicks).toEqual([])
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -188,7 +188,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       container.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
       expect(clicks).toEqual([])
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -220,7 +220,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       expect(clicks).toBe(0)
       expect(table.resolveStyle(LINK_CELL.col, LINK_CELL.row).underline).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -237,7 +237,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       grid.setCellLink({ row: LINK_CELL.row, col: LINK_CELL.col }, LINK)
 
       // 嵌入图桥：该格进入 media 请求并产出 ImageCellNode
-      const node = [...table.imageCellNodes.values()].find(
+      const node = [...table.mediaState.imageCellNodes.values()].find(
         (n) => n.col === LINK_CELL.col && n.row === LINK_CELL.row,
       )
       expect(node).toBeDefined()
@@ -249,7 +249,7 @@ describe('单元格超链接：SheetGrid 自动接线（宿主不传 hook）', (
       expect(clicks).toHaveLength(1)
       expect(clicks[0]).toMatchObject({ col: LINK_CELL.col, row: LINK_CELL.row, url: LINK.url })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

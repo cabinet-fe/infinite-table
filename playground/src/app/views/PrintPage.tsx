@@ -148,7 +148,7 @@ export function PrintPage() {
           <Badge variant="secondary">真实浏览器打印</Badge>
         </div>
         <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
-          headless 打印内核 + 预览弹层：超过一页的示例表（两行表头带合并单元格）经 PrintSource
+          headless 打印内核 + 预览弹层：超过一页的示例表（两行表头带合并单元格）经 GridReadView
           供数，右侧配置纸张/方向/缩放/分页模式后打开预览（缩略列表 + 当前页放大 +
           打印按钮）；点打印经隐藏 iframe 装载全部页面后调 iframe.contentWindow.print()
           调起浏览器打印（只打印报表内容），状态行与 window.__DEMO__.print 可读调起计数。

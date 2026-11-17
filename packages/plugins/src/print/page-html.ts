@@ -5,18 +5,13 @@
 // 水印形态参照 meta export/print.ts 先例：单个平铺单元渲染为 SVG data-URL、
 // 页内绝对定位层背景 repeat。纯函数零 DOM（分层见 types.ts 文件头）。
 
-import type { CellStyle } from '@infinitable/grid'
+import type { CellStyle, GridReadView } from '@infinitable/protocol'
 
 import { escapeAttr, escapeHtml } from './escape'
 import { renderHeaderFooter, type PlaceholderContext } from './header-footer'
 import { clampHeaderRepeatRows, paginate, type PrintPage, type PrintRowRange } from './paginate'
 import { derivePrintableArea, pxToMm, resolvePaperSizeMm, type PrintableArea } from './paper'
-import {
-  WATERMARK_TEXT_DEFAULTS,
-  type PrintConfig,
-  type PrintSource,
-  type WatermarkTextConfig,
-} from './types'
+import { WATERMARK_TEXT_DEFAULTS, type PrintConfig, type WatermarkTextConfig } from './types'
 
 /** 页面文档基础字号（px，与引擎缺省 12px 对齐） */
 const PRINT_FONT_SIZE_PX = 12
@@ -43,13 +38,13 @@ function formatPrintTime(date: Date): string {
 
 /** 页级聚合取数：页内数据行在指定列上的有限数值（非数值项滤除，原始值口径；
  * 列不在本页列区间（横向分页/打印区域）时返回空集——页级聚合按页内实际可见列计算） */
-function collectColumnNumbers(source: PrintSource, page: PrintPage, col: number): number[] {
+function collectColumnNumbers(source: GridReadView, page: PrintPage, col: number): number[] {
   if (col < page.colRange.start || col >= page.colRange.end) {
     return []
   }
   const values: number[] = []
   for (let row = page.rowRange.start; row < page.rowRange.end; row++) {
-    const value = source.cellValue(col, row)
+    const value = source.getCellValue(col, row)
     if (typeof value === 'number' && Number.isFinite(value)) {
       values.push(value)
     }
@@ -59,7 +54,7 @@ function collectColumnNumbers(source: PrintSource, page: PrintPage, col: number)
 
 /** 组装单页占位符上下文（页码/总页数/标题/时间戳 + 页级聚合取数闭包） */
 function makePageContext(
-  source: PrintSource,
+  source: GridReadView,
   page: PrintPage,
   pageNumber: number,
   pageCount: number,
@@ -69,7 +64,7 @@ function makePageContext(
   return {
     page: pageNumber,
     pageCount,
-    title: source.name,
+    title: source.name ?? '',
     date,
     time,
     columnNumbers: (col: number) => collectColumnNumbers(source, page, col),
@@ -97,7 +92,7 @@ interface PageMergeIndex {
  *   合并区残段；与本页列区间无交集的合并区整段跳过。
  */
 function buildPageMergeIndex(
-  source: PrintSource,
+  source: GridReadView,
   renderedRows: readonly number[],
   colRange: PrintRowRange,
 ): PageMergeIndex {
@@ -105,7 +100,7 @@ function buildPageMergeIndex(
   renderedRows.forEach((row, index) => positionOf.set(row, index))
   const spans = new Map<string, { rowspan: number; colspan: number }>()
   const covered = new Set<string>()
-  for (const range of source.merges()) {
+  for (const range of source.getMergeRanges()) {
     // 列方向裁剪：合并区 ∩ 本页列区间（空交集整段跳过）
     const colStart = Math.max(range.startCol, colRange.start)
     const colEnd = Math.min(range.endCol, colRange.end - 1)
@@ -201,20 +196,15 @@ function cellStyleToCss(style: CellStyle): string {
   return decls.join(';')
 }
 
-/** 单元格显示文本（null/undefined 出空串，其余 String 化后转义） */
-function cellText(value: unknown): string {
-  return value == null ? '' : escapeHtml(String(value))
-}
-
 /** 本页表格体：colgroup（本页列区间 × 缩放）+ 重复表头行 + 数据行 + 空白行补齐 */
-function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
+function buildPageTableHtml(source: GridReadView, page: PrintPage): string {
   const scale = page.scale
   const { start: colStart, end: colEnd } = page.colRange
   const pageColCount = colEnd - colStart
   const parts: string[] = ['<table class="print-table">']
   parts.push('<colgroup>')
   for (let col = colStart; col < colEnd; col++) {
-    parts.push(`<col style="width:${round2(source.colWidth(col) * scale)}px">`)
+    parts.push(`<col style="width:${round2(source.getColWidth(col) * scale)}px">`)
   }
   parts.push('</colgroup>')
 
@@ -231,7 +221,7 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
   const merges = buildPageMergeIndex(source, renderedRows, page.colRange)
 
   for (const row of renderedRows) {
-    parts.push(`<tr style="height:${round2(source.rowHeight(row) * scale)}px">`)
+    parts.push(`<tr style="height:${round2(source.getRowHeight(row) * scale)}px">`)
     for (let col = colStart; col < colEnd; col++) {
       const key = cellKeyOf(row, col)
       if (merges.covered.has(key)) {
@@ -245,17 +235,17 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
       if (span && span.rowspan > 1) {
         attrs.push(`rowspan="${span.rowspan}"`)
       }
-      const style = source.cellStyle(col, row)
+      const style = source.getCellStyle(col, row)
       const css = style ? cellStyleToCss(style) : ''
       if (css) {
         attrs.push(`style="${escapeAttr(css)}"`)
       }
       // 格图通道：命中格只出 <img>（src 属性转义；空值回落显示文本，与屏上
       // resolveCellImage 的「有图不画文本」口径一致）
-      const image = source.cellImage?.(col, row)
+      const image = source.getCellImage?.(col, row)
       const content = image
         ? `<img src="${escapeAttr(image)}">`
-        : cellText(source.displayValue(col, row))
+        : escapeHtml(source.getCellText(col, row))
       parts.push(`<td${attrs.length > 0 ? ` ${attrs.join(' ')}` : ''}>${content}</td>`)
     }
     parts.push('</tr>')
@@ -263,7 +253,7 @@ function buildPageTableHtml(source: PrintSource, page: PrintPage): string {
 
   // fixrows 末页空白行：高度取表末行高（行栅格口径与数据行一致），单格跨本页全列
   if (page.blankRows > 0 && source.rowCount > 0) {
-    const blankHeight = round2(source.rowHeight(source.rowCount - 1) * scale)
+    const blankHeight = round2(source.getRowHeight(source.rowCount - 1) * scale)
     for (let i = 0; i < page.blankRows; i++) {
       parts.push(`<tr style="height:${blankHeight}px"><td colspan="${pageColCount}"></td></tr>`)
     }
@@ -307,7 +297,7 @@ function buildWatermarkHtml(watermark: WatermarkTextConfig): string {
 
 /** 单页文档片段：页眉带（预留 headerHeight）+ 表格体 + 页脚带（预留 footerHeight）+ 水印层 */
 function buildPageHtml(
-  source: PrintSource,
+  source: GridReadView,
   config: PrintConfig,
   page: PrintPage,
   pageNumber: number,
@@ -363,7 +353,7 @@ function buildDocumentCss(config: PrintConfig, area: PrintableArea): string {
 }
 
 /** 空表兜底页：重复表头照常输出、无数据行（打印空表仍出一页带页眉页脚的空白纸） */
-function emptyPage(source: PrintSource, config: PrintConfig): PrintPage {
+function emptyPage(source: GridReadView, config: PrintConfig): PrintPage {
   const headerRepeat = clampHeaderRepeatRows(config.headerRepeatRows, source.rowCount)
   return {
     rowRange: { start: 0, end: 0 },
@@ -379,7 +369,7 @@ function emptyPage(source: PrintSource, config: PrintConfig): PrintPage {
  * 时间戳（同一次打印的 {date}/{time} 一致）；空表输出单页兜底。P3 预览薄壳与
  * print-output 的 iframe 装载均消费本产物。
  */
-export function buildPrintDocumentHtml(source: PrintSource, config: PrintConfig): string {
+export function buildPrintDocumentHtml(source: GridReadView, config: PrintConfig): string {
   const pages = paginate(source, config)
   const area = derivePrintableArea(config)
   const now = new Date()
@@ -388,7 +378,7 @@ export function buildPrintDocumentHtml(source: PrintSource, config: PrintConfig)
   const pageList = pages.length > 0 ? pages : [emptyPage(source, config)]
   const parts: string[] = []
   parts.push('<!doctype html><html><head><meta charset="utf-8">')
-  parts.push(`<title>${escapeHtml(source.name)}</title>`)
+  parts.push(`<title>${escapeHtml(source.name ?? '')}</title>`)
   parts.push(`<style>\n${buildDocumentCss(config, area)}\n</style></head><body>`)
   pageList.forEach((page, index) => {
     parts.push(buildPageHtml(source, config, page, index + 1, pageList.length, date, time))
@@ -403,7 +393,7 @@ export function buildPrintDocumentHtml(source: PrintSource, config: PrintConfig)
  * buildPrintDocumentHtml 的共享时间戳口径）。
  */
 export function buildPrintPageHtml(
-  source: PrintSource,
+  source: GridReadView,
   config: PrintConfig,
   page: PrintPage,
   pageNumber: number,

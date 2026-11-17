@@ -66,9 +66,8 @@ export type {
   CellRange,
   CellRectSource,
   CellStyle,
-  FloatContextMenuEvent,
-  FloatObject,
-  FloatTransformEndEvent,
+  FloatAnchor,
+  FloatGeometry,
   FloatTransformHandle,
   LoadedImage,
   MergeConflict,
@@ -89,10 +88,18 @@ export type {
 export type {
   CellChangeEvent,
   EngineAssembly,
+  EngineCapabilities,
+  EngineFrameStyle,
   EnginePlugin,
-  EngineReadView,
-  OverlayPainter,
-  UnderlayPainter,
+  EngineScrollbarTokens,
+  EngineTheme,
+  EngineThemeOverride,
+  GridDataModel,
+  GridReadView,
+  LayerPainter,
+  PainterRegistration,
+  PainterSlot,
+  WritableGridDataModel,
 } from '@infinitable/protocol'
 
 // ---- table 层（表格主体：主类 / 模型 / 编辑 / 媒体 / 表格引擎协议面）----
@@ -101,14 +108,22 @@ export type {
   // 文档源注入形态（ListTableOptions.doc：无 DOM 环境经它创建 canvas 构造出图）
   CanvasDocSource,
   CellChartMedia,
+  CellEditor,
+  CellEditorSession,
   CellLink,
   CellLinkClickEvent,
   CellLinkHoverEvent,
   CellLinkLeaveEvent,
   CellRenderer,
+  ColHeaderClickEvent,
+  ColHeaderClickListener,
   ColumnDefine,
   DataRecord,
   FillDragEndEvent,
+  FloatContextMenuEvent,
+  FloatDragEndEvent,
+  FloatObject,
+  FloatTransformEndEvent,
   HighlightRange,
   ImageLinkClickEvent,
   ImageLinkClickListener,
@@ -165,11 +180,10 @@ export type {
   SheetCellCoord,
 } from '@infinitable/formulas'
 
-// ---- plugins 层（官方插件工厂与配置：chart / watermark / print；print 的引擎
-// 供数适配 createEnginePrintSource 面向装配协议导出读取面，供宿主直接打印引擎实例）----
+// ---- plugins 层（官方插件工厂与配置：chart / watermark / print；print 通过协议
+// 契约 GridReadView 直接读取引擎视图面，供宿主或协议插件打印引擎实例）----
 export {
   createChartPlugin,
-  createEnginePrintSource,
   createPrintPlugin,
   createWatermarkPlugin,
   // 纸张可打印区推导（mm → px）：宿主侧纸张/分页几何与 print 插件同口径
@@ -177,6 +191,8 @@ export {
 } from '@infinitable/plugins'
 export type {
   ChartCellDeclaration,
+  ChartCellMedia,
+  ChartCellMediaSize,
   ChartDatasetDeclaration,
   ChartDatasetSpec,
   ChartPluginHandle,
@@ -196,7 +212,6 @@ export type {
   PrintPluginHandle,
   PrintPluginOptions,
   PrintScaleMode,
-  PrintSource,
   WatermarkHandle,
   WatermarkTextConfig,
 } from '@infinitable/plugins'

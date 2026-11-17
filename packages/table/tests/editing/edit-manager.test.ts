@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Region } from '@infinitable/render'
 
-import { EditorRegistry } from '../../src/editor-registry'
+import { EditorRegistry, type CellEditorSession } from '../../src/editor-registry'
 import { createFakeDoc, FakeEditorElement, FakeEditorHost } from '../testing/fake-editor-dom'
 import type { CellChangeEvent, ColumnDefine, EditEndEvent, EditStartEvent } from '../../src/types'
 import {
@@ -519,5 +519,163 @@ describe('EditManager 编辑器失焦互锁', () => {
     expect(h.changes).toHaveLength(1)
     expect(h.ends).toHaveLength(2)
     expect(h.focusRestores()).toBe(2)
+  })
+})
+
+describe('EditManager 自定义会话编辑器 (CellEditorSession)', () => {
+  function createCustomHarness(options: {
+    onOpen?: (session: CellEditorSession) => void
+    onClose?: () => void
+    withScrollFrame?: boolean
+  }) {
+    const registry = new EditorRegistry()
+    registry.registerEditor('custom', {
+      name: 'custom',
+      open: (session) => options.onOpen?.(session),
+      close: () => options.onClose?.(),
+    })
+    const { doc, created } = createFakeDoc()
+    const host = new FakeEditorHost()
+    const container = { tag: 'container' } as unknown as HTMLElement
+    const writes: Array<{ col: number; row: number; value: unknown }> = []
+    const changes: CellChangeEvent[] = []
+    const moves: Array<{ col: number; row: number; move: EditCommitMove }> = []
+    const ends: EditEndEvent[] = []
+    let focusRestores = 0
+    let cellRect: Region | null = { x: 100, y: 40, width: 120, height: 32 }
+    let scrollFrameListener: (() => void) | null = null
+    const manager = new EditManager({
+      columns: [
+        {
+          field: 'name',
+          title: 'Name',
+          editor: 'custom',
+          editorMultiline: true,
+          editorMaxLength: 20,
+        },
+      ],
+      registry,
+      writeTarget: {
+        canWrite: () => true,
+        write: (col, row, value) => writes.push({ col, row, value }),
+      },
+      resolveValue: () => 'init',
+      cellRect: () => cellRect,
+      refreshCell: () => {},
+      emitChange: (change) => changes.push(change),
+      emitEnd: (event) => ends.push(event),
+      moveSelection: (col, row, move) => moves.push({ col, row, move }),
+      restoreFocus: () => {
+        focusRestores++
+      },
+      host,
+      container,
+      doc,
+      subscribeScrollFrame: options.withScrollFrame
+        ? (listener) => {
+            scrollFrameListener = () => listener({ left: 0, top: 0 })
+            return () => {
+              scrollFrameListener = null
+            }
+          }
+        : undefined,
+    })
+    return {
+      manager,
+      created,
+      host,
+      container,
+      writes,
+      changes,
+      moves,
+      ends,
+      focusRestores: () => focusRestores,
+      setCellRect: (rect: Region | null) => {
+        cellRect = rect
+      },
+      fireScrollFrame: () => scrollFrameListener?.(),
+    }
+  }
+
+  it('open 接管编辑器：透传会话上下文且不挂内置输入框；commit/close 幂等', () => {
+    let activeSession: CellEditorSession | null = null
+    let closeCalls = 0
+    const h = createCustomHarness({
+      onOpen: (session) => {
+        activeSession = session
+      },
+      onClose: () => {
+        closeCalls++
+      },
+    })
+
+    expect(h.manager.startEdit(0, 0)).toBe(true)
+    expect(h.created).toHaveLength(0)
+    expect(h.host.children).toHaveLength(0)
+    expect(activeSession).not.toBeNull()
+    expect(activeSession!.col).toBe(0)
+    expect(activeSession!.row).toBe(0)
+    expect(activeSession!.container).toBe(h.container)
+    expect(activeSession!.rect).toEqual({ x: 100, y: 40, width: 120, height: 32 })
+    expect(activeSession!.initialValue).toBe('init')
+    expect(activeSession!.multiline).toBe(true)
+    expect(activeSession!.maxLength).toBe(20)
+
+    activeSession!.commit('next', 'down')
+    // 二次 commit / cancel 必须幂等（过期回调守卫）
+    activeSession!.commit('stale', 'right')
+    activeSession!.cancel()
+
+    expect(closeCalls).toBe(1)
+    expect(h.writes).toEqual([{ col: 0, row: 0, value: 'next' }])
+    expect(h.changes).toEqual([{ col: 0, row: 0, oldValue: 'init', newValue: 'next' }])
+    expect(h.moves).toEqual([{ col: 0, row: 0, move: 'down' }])
+    expect(h.ends).toEqual([
+      { col: 0, row: 0, initialValue: 'init', finalValue: 'next', committed: true },
+    ])
+    expect(h.focusRestores()).toBe(1)
+    expect(h.manager.isEditing()).toBe(false)
+  })
+
+  it('cancel 与滚出视口均关闭会话并防止后续 commit 写回', () => {
+    let activeSession: CellEditorSession | null = null
+    let closeCalls = 0
+    const rectUpdates: Region[] = []
+    const h = createCustomHarness({
+      withScrollFrame: true,
+      onOpen: (session) => {
+        activeSession = session
+        session.onRectChange((rect) => rectUpdates.push(rect))
+      },
+      onClose: () => {
+        closeCalls++
+      },
+    })
+
+    h.manager.startEdit(0, 0)
+    h.setCellRect({ x: 80, y: 20, width: 120, height: 32 })
+    h.fireScrollFrame()
+    expect(rectUpdates).toEqual([{ x: 80, y: 20, width: 120, height: 32 }])
+
+    // 滚出视口：自动 cancelEdit 并调用 close()
+    h.setCellRect(null)
+    h.fireScrollFrame()
+    expect(closeCalls).toBe(1)
+    expect(h.manager.isEditing()).toBe(false)
+    expect(h.ends).toEqual([{ col: 0, row: 0, initialValue: 'init', committed: false }])
+
+    // 过期 session 再调 commit 无效
+    activeSession!.commit('late')
+    expect(h.writes).toEqual([])
+    expect(closeCalls).toBe(1)
+
+    // session.cancel() 显式取消同样幂等
+    h.setCellRect({ x: 100, y: 40, width: 120, height: 32 })
+    h.manager.startEdit(0, 0)
+    activeSession!.cancel()
+    activeSession!.cancel()
+    expect(closeCalls).toBe(2)
+    expect(h.manager.isEditing()).toBe(false)
+    expect(h.ends).toHaveLength(2)
   })
 })

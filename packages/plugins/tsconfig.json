@@ -17,7 +17,7 @@
       "path": "../grid"
     },
     {
-      "path": "../table"
+      "path": "../render"
     }
   ]
 }

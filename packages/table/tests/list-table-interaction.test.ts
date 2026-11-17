@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'
 import type { FillDragEndEvent, FillHandleDoubleClickEvent } from '../src/fill-handle'
-import type { FloatDragEndEvent } from '@infinitable/grid'
+import type { FloatDragEndEvent } from '../src/float/float-object-layer'
 import { ListTable } from '../src/list-table'
 import { editorCellRect, mergeAwareCellRect } from '../src/list-table-interaction'
 import type { SelectionSnapshot } from '@infinitable/grid'
@@ -849,7 +849,7 @@ describe('resize 画布外指针接续', () => {
     // 无容器：接续事件一律判为画布外。1200 远超视口右缘（48 + 752 - 1 = 799）
     pointerHost.dispatch('pointermove', { clientX: 1200, clientY: 10, buttons: 1 })
     const viewport = table.bodyViewport
-    expect(table.resizeLine).toEqual({
+    expect(table.interactionState.resizeLine).toEqual({
       orientation: 'vertical',
       position: viewport.x + viewport.width - 1,
     })
@@ -858,8 +858,8 @@ describe('resize 画布外指针接续', () => {
     pointerHost.dispatch('pointerup', { clientX: 1200, clientY: 10 })
     // 100 + (1200 - 148)
     expect(table.getColWidth(0)).toBe(1152)
-    expect(table.resizeSession).toBeNull()
-    expect(table.resizeLine).toBeNull()
+    expect(table.interactionState.resizeSession).toBeNull()
+    expect(table.interactionState.resizeLine).toBeNull()
     expect(pointerHost.count('pointermove')).toBe(0)
     expect(pointerHost.count('pointerup')).toBe(0)
 
@@ -874,7 +874,7 @@ describe('resize 画布外指针接续', () => {
     fireBody(host, 'pointerdown', { x: 148, y: 10 })
     fireBody(host, 'pointermove', { x: 200, y: 10, originalEvent: { buttons: 0 } })
     expect(table.getColWidth(0)).toBe(152)
-    expect(table.resizeSession).toBeNull()
+    expect(table.interactionState.resizeSession).toBeNull()
     expect(pointerHost.count('pointermove')).toBe(0)
     expect(pointerHost.count('pointerup')).toBe(0)
     table.destroy()
@@ -891,16 +891,16 @@ describe('resize 画布外指针接续', () => {
       scrollbar: false,
     })
     fireBody(host, 'pointerdown', { x: 348, y: 10 })
-    expect(table.resizeSession?.target).toEqual({ kind: 'col', index: 2 })
+    expect(table.interactionState.resizeSession?.target).toEqual({ kind: 'col', index: 2 })
 
     fireSky(host, 'pointermove', { x: 520, y: 10 })
-    expect(table.resizeLine).toEqual({ orientation: 'vertical', position: 520 })
+    expect(table.interactionState.resizeLine).toEqual({ orientation: 'vertical', position: 520 })
     expect(table.getColWidth(2)).toBe(100)
 
     fireSky(host, 'pointerup', { x: 520, y: 10 })
     // 100 + (520 - 348)
     expect(table.getColWidth(2)).toBe(272)
-    expect(table.resizeSession).toBeNull()
+    expect(table.interactionState.resizeSession).toBeNull()
     table.destroy()
   })
 
@@ -909,7 +909,7 @@ describe('resize 画布外指针接续', () => {
     fireBody(host, 'pointerdown', { x: 148, y: 10 })
     expect(pointerHost.count('pointermove')).toBe(1)
     table.destroy()
-    expect(table.pointerSessionRelease).toBeNull()
+    expect(table.interactionState.pointerSessionRelease).toBeNull()
     expect(pointerHost.count('pointermove')).toBe(0)
     expect(pointerHost.count('pointerup')).toBe(0)
   })
@@ -1120,7 +1120,7 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
       vi.setSystemTime(1_120)
       fireBody(host, 'touchend', { x: 200, y: 80 })
       expect(table.getScrollState().top).toBe(80)
-      expect(table.inertia.isRunning).toBe(true)
+      expect(table.interactionState.inertia.isRunning).toBe(true)
 
       // 惯性首帧：dt=16ms、摩擦 0.95，位移 = (1 + 0.95)/2 × 16 ≈ 15.6（内容向下滚）
       host.pumpBatch(() => vi.setSystemTime(1_136))
@@ -1135,7 +1135,7 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
       let now = 1_152
       host.drainBatches(() => vi.setSystemTime((now += 16)))
       const settled = table.getScrollState().top
-      expect(table.inertia.isRunning).toBe(false)
+      expect(table.interactionState.inertia.isRunning).toBe(false)
       expect(host.pendingFrames).toBe(0)
       expect(settled).toBeGreaterThan(afterSecond)
       vi.setSystemTime(now + 100)
@@ -1161,7 +1161,7 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
       fireBody(host, 'touchend', { x: 201, y: 201 })
       let now = 2_100
       host.drainBatches(() => vi.setSystemTime((now += 16)))
-      expect(table.inertia.isRunning).toBe(false)
+      expect(table.interactionState.inertia.isRunning).toBe(false)
       expect(host.pendingFrames).toBe(0)
       expect(table.getScrollState()).toEqual({ left: 0, top: 0 })
     } finally {
@@ -1808,7 +1808,7 @@ describe('右键不改选区', () => {
     const before = table.getSelectedCellRanges()
     // 右键按下（button 2）落在第一段内部：选区保持原状
     fireBody(host, 'pointerdown', { x: cellX(0), y: cellY(0), button: 2 })
-    expect(table.selecting).toBe(false)
+    expect(table.interactionState.selecting).toBe(false)
     expect(table.getSelectedCellRanges()).toEqual(before)
     // 右键落在选区外：选区同样保持（宿主在 contextmenu 里自行改选）
     fireBody(host, 'pointerup', { x: cellX(6), y: cellY(6), button: 2 })
@@ -1827,7 +1827,7 @@ describe('右键不改选区', () => {
     })
     table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 1, row: 1 } }])
     fireBody(host, 'pointerdown', { x: cellX(6), y: cellY(1) })
-    expect(table.selecting).toBe(true)
+    expect(table.interactionState.selecting).toBe(true)
     const bounds = table.getSelectedCellRanges()[0]!
     expect(bounds.start).toEqual({ col: 6, row: 1 })
     expect(bounds.end).toEqual({ col: 6, row: 1 })
@@ -1868,7 +1868,7 @@ describe('编辑拾取模式与编辑态内容隐藏', () => {
   it('editPickMode：编辑中点选其它格不提交会话，选区照常流动；双击不进编辑', () => {
     const { host, table } = createEditingTable()
     expect(table.startEdit(0, 0)).toBe(true)
-    table.editPickMode = true
+    table.interactionState.editPickMode = true
     // 点选 (2,1)：会话保持、选区流动到被拾取格
     fireBody(host, 'pointerdown', { x: cellX(2), y: cellY(1) })
     expect(table.isEditing()).toBe(true)
@@ -1883,7 +1883,7 @@ describe('编辑拾取模式与编辑态内容隐藏', () => {
     expect(table.editManager.editingCell()).toEqual({ col: 0, row: 0 })
     // 会话提交后拾取点选仍正常提交语义回归：关闭拾取后点别处即提交
     fireBody(host, 'pointerdown', { x: cellX(3), y: cellY(1), button: 2 })
-    table.editPickMode = false
+    table.interactionState.editPickMode = false
     fireBody(host, 'pointerdown', { x: cellX(3), y: cellY(1) })
     expect(table.isEditing()).toBe(false)
   })
@@ -1921,11 +1921,11 @@ describe('编辑拾取模式与编辑态内容隐藏', () => {
     expect(node?.contentHidden).toBe(false)
     // 公式引用拾取会话（editPickMode）：失焦不终止会话；策略按失焦时点动态判定
     expect(table.startEdit(0, 0)).toBe(true)
-    table.editPickMode = true
+    table.interactionState.editPickMode = true
     created[1]!.dispatchBlur()
     expect(table.isEditing()).toBe(true)
     expect(table.editManager.editingCell()).toEqual({ col: 0, row: 0 })
-    table.editPickMode = false
+    table.interactionState.editPickMode = false
     created[1]!.dispatchBlur()
     expect(table.isEditing()).toBe(false)
     expect(findNode(host, 0, 0)?.contentHidden).toBe(false)
@@ -2008,5 +2008,46 @@ describe('ListTable 浮动图片命中拦截', () => {
     expect(drops).toEqual([])
     // 只读点按也不落入单元格选区
     expect(table.getSelection().ranges).toEqual([])
+  })
+})
+
+describe('ListTable 列头点击回调 onColHeaderClick', () => {
+  it('主按键同列头点击（含 slop 内）触发，角格/表体/拖选超 slop/resize 手柄/右键不触发', () => {
+    const { host, table } = createTable({ interactiveSelection: false })
+    const clicks: number[] = []
+    const off = table.onColHeaderClick((event) => clicks.push(event.col))
+
+    // 列头 1（x=48+100+50=198, y=16）主键点击
+    fireBody(host, 'pointerdown', { x: 198, y: 16, button: 0 })
+    fireBody(host, 'pointerup', { x: 200, y: 18, button: 0 })
+    expect(clicks).toEqual([1])
+
+    // 拖拽超过 slop 不触发
+    fireBody(host, 'pointerdown', { x: 198, y: 16, button: 0 })
+    fireBody(host, 'pointerup', { x: 220, y: 16, button: 0 })
+    expect(clicks).toEqual([1])
+
+    // 右键不触发
+    fireBody(host, 'pointerdown', { x: 198, y: 16, button: 2 })
+    fireBody(host, 'pointerup', { x: 198, y: 16, button: 2 })
+    expect(clicks).toEqual([1])
+
+    // resize 手柄（col0 右缘 x=148）不触发
+    fireBody(host, 'pointerdown', { x: 148, y: 16, button: 0 })
+    fireBody(host, 'pointerup', { x: 148, y: 16, button: 0 })
+    expect(clicks).toEqual([1])
+
+    // 左上角格（x=20, y=16）与表体（x=198, y=50）不触发
+    fireBody(host, 'pointerdown', { x: 20, y: 16, button: 0 })
+    fireBody(host, 'pointerup', { x: 20, y: 16, button: 0 })
+    fireBody(host, 'pointerdown', { x: 198, y: 50, button: 0 })
+    fireBody(host, 'pointerup', { x: 198, y: 50, button: 0 })
+    expect(clicks).toEqual([1])
+
+    off()
+    fireBody(host, 'pointerdown', { x: 198, y: 16, button: 0 })
+    fireBody(host, 'pointerup', { x: 198, y: 16, button: 0 })
+    expect(clicks).toEqual([1])
+    table.destroy()
   })
 })

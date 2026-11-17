@@ -98,12 +98,17 @@ function mountDispatchTable() {
 describe('浮动对象真实指针链路（DOM 坐标→跨层命中→body 路由）', () => {
   it('media 层格内图片节点不可拾取：跨层命中穿透到 body 数据格（根因回归）', () => {
     const { table } = mountDispatchTable()
-    const mediaRoot = table.media?.root
+    const mediaRoot = table.sceneState.media?.root
     expect(mediaRoot, 'media 层应存在（全表格声明格内图片）').toBeTruthy()
+    expect(mediaRoot!.hitTestChildren).toBe(false)
     expect(mediaRoot!.children.length).toBeGreaterThan(0)
-    for (const node of mediaRoot!.children) {
-      expect(node.pickable, '格内图片是数据格装饰层，不得截胡跨层命中').toBe(false)
+    for (const group of mediaRoot!.children) {
+      expect(group.pickable, 'media 容器组不得截胡跨层命中').toBe(false)
+      for (const node of group.children) {
+        expect(node.pickable, '格内图片是数据格装饰层，不得截胡跨层命中').toBe(false)
+      }
     }
+    expect(table.mediaState.imageCellNodes.size).toBeGreaterThan(0)
     table.destroy()
   })
 
@@ -111,7 +116,7 @@ describe('浮动对象真实指针链路（DOM 坐标→跨层命中→body 路�
     const { table, fire } = mountDispatchTable()
     // 层坐标 (98, 68) = 第 0 列第 1 行格内（带 428/234.5 页面偏移派发）
     fire('pointerdown', 98, 68)
-    expect(table.selection.snapshot.focus).toEqual({ col: 0, row: 1 })
+    expect(table.interactionState.selection.snapshot.focus).toEqual({ col: 0, row: 1 })
     fire('pointerup', 98, 68)
     table.destroy()
   })

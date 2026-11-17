@@ -93,7 +93,7 @@ export function mountNativeScroll(root: HTMLElement): NativeScrollDemo {
     sheet: { container: sheetContainer, grid, model },
     release: () => {
       list.table.destroy()
-      grid.release()
+      grid.destroy()
     },
   }
 }

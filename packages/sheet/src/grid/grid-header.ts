@@ -1,16 +1,19 @@
-import type { TableEngine } from '@infinitable/table'
+import type { CellRenderer, TableEngine } from '@infinitable/table'
 
 /**
- * 列头机制（引擎无表头渲染 hook 的补偿层）：
- * - 列头内容：`resolveTitle` 按列给标题，经引擎列定义 `title` 画布绘制（覆盖缺省 A/B/C 字母）；
- * - 表头自定义渲染：`resolveHeader` 按列返回 DOM 元素，由表头 DOM 覆盖层挂载定位
+ * 列头机制：
+ * - 列头内容：`resolveTitle` 按列给标题，经引擎 `resolveColTitle` / 列定义 `title` 画布绘制（覆盖缺省 A/B/C 字母）；
+ * - 画布自绘：`resolveHeaderRenderer` 按列返回 `CellRenderer`，直接转发引擎 `resolveColHeaderRenderer`；
+ * - DOM 覆盖层：`resolveHeader` 按列返回 DOM 元素，由表头 DOM 覆盖层挂载定位
  *   （类型图标、可点击配置入口等交互宿主自定）；引擎列头画布只承担底色/网格线底座。
  */
 export interface SheetGridHeaderOptions {
-  /** 按列列头标题；返回 undefined 该列回落缺省字母表头。构造期逐列调用一次 */
+  /** 按列列头标题；返回 undefined 该列回落缺省字母表头 */
   resolveTitle?: (col: number) => string | undefined
+  /** 按列自定义画布表头渲染器（直通引擎 `resolveColHeaderRenderer`）；返回 undefined 回落文本表头 */
+  resolveHeaderRenderer?: (col: number) => CellRenderer | undefined
   /**
-   * 按列自定义表头渲染：返回元素挂到该列列头位置（内容与交互宿主自定）；
+   * 按列自定义 DOM 表头渲染：返回元素挂到该列列头位置（内容与交互宿主自定）；
    * 返回 undefined 回落标题/字母表头。每个列号在实例生命周期内至多调用一次，
    * 元素由宿主持有可就地更新内容。
    */

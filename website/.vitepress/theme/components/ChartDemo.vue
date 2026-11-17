@@ -57,7 +57,8 @@ const { container } = useDemoTable((width) => {
     rowCount: 2,
     rowHeight: 110,
     resolveDisplayValue: (col, row) => (col === 0 ? (row === 0 ? '营收' : '利润') : ''),
-    plugins: [chartPlugin, watermark],
+    resolveCellChart: chartPlugin.resolveCellChart,
+    plugins: [watermark],
   }
 }, HEIGHT)
 

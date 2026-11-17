@@ -191,7 +191,7 @@ describe('按格嵌入图：插入/移除命令 + 变更事件', () => {
       expect(handler).toHaveBeenLastCalledWith({ addr: { row: 1, col: 2 } })
       expect(handler).toHaveBeenCalledTimes(4)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

@@ -3,8 +3,10 @@
 // 本模块是 print 链路唯一触 DOM 的环节：print 调用经 PrintHooks 可注入（测试与宿主
 // 替换真实 print）；构建/求值函数在 page-html/header-footer，headless 不触 DOM。
 
+import type { GridReadView } from '@infinitable/protocol'
+
 import { buildPrintDocumentHtml } from './page-html'
-import type { PrintConfig, PrintSource } from './types'
+import type { PrintConfig } from './types'
 
 /** iframe load 等待上限：load 事件缺失的环境（部分测试引擎）降级直通，不永久挂起 */
 const IFRAME_LOAD_TIMEOUT_MS = 5_000
@@ -49,7 +51,7 @@ function loadIframe(iframe: HTMLIFrameElement, html: string): Promise<void> {
  * 兜底定时器；钩子路径（测试/宿主接管）保持钩子返回/抛错后立即清理。
  */
 export async function printPages(
-  source: PrintSource,
+  source: GridReadView,
   config: PrintConfig,
   hooks?: PrintHooks,
 ): Promise<void> {

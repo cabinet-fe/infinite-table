@@ -46,7 +46,7 @@ describe('SheetGrid scrollbar 透传（构造后引擎收到等价配置）', ()
       expect(table.scrollbarGutterWidth).toBe(0)
       expect(table.scrollbarGutterHeight).toBe(0)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -61,7 +61,7 @@ describe('SheetGrid scrollbar 透传（构造后引擎收到等价配置）', ()
       // 内容 40×28 = 1120 > 600 − 28 纵向可滚：缺省 reserve 会预留 scrollbarSize(10)
       expect(table.scrollbarGutterWidth).toBe(0)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -71,14 +71,14 @@ describe('SheetGrid scrollbar 透传（构造后引擎收到等价配置）', ()
       expect(defTable.usesNativeScrollbar).toBe(false)
       expect(defTable.scrollbarGutterWidth).toBe(10)
     } finally {
-      def.release()
+      def.destroy()
     }
     const { grid: off, table: offTable } = createGrid({ scrollbar: false, rows: 40, cols: 6 })
     try {
       expect(offTable.usesNativeScrollbar).toBe(false)
       expect(offTable.scrollbarGutterWidth).toBe(0)
     } finally {
-      off.release()
+      off.destroy()
     }
   })
 })
@@ -108,7 +108,7 @@ describe('SheetGrid 宿主滚轮让位（原生模式不双滚）', () => {
       wrapper.dispatchEvent(new Event('scroll'))
       expect(table.getScrollTop()).toBe(150)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })
@@ -147,7 +147,7 @@ describe('SheetGrid growOnScroll 扩容与原生滚动范围同步', () => {
       expect(wrapper.style.width).toBe(`${VIEW_W}px`)
       expect(wrapper.style.height).toBe(`${VIEW_H}px`)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

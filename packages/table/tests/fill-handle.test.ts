@@ -282,3 +282,64 @@ describe('ListTable 填充柄事件载荷', () => {
     ])
   })
 })
+
+// ---- ListTable 集成：fillHandle: false 关闭柄（绘制/命中/光标），选区交互不受影响 ----
+
+describe('ListTable 填充柄关闭（fillHandle: false）', () => {
+  const RECORDS = [{ name: 'a' }, { name: 'b' }, { name: 'c' }]
+  const RANGE = [{ start: { col: 0, row: 0 }, end: { col: 1, row: 0 } }]
+  // 选区 (0,0)~(1,0)：柄骑 (1,0) 格右下角点 (248, 68)，8px 见方（与上组同几何）
+  const HANDLE_RECT = [244, 64, 8, 8]
+  const SELECTION_RECT = [48, 36, 200, 32]
+
+  /** sky 浮层节点绘制矩形集 */
+  const paintRects = (host: StubHost) => {
+    const node = host.layers.get('sky')!.root.children[0]!
+    const ctx = new RecordingContext()
+    node.paint(ctx)
+    return ctx.callsOf('fillRect').map((call) => call.args)
+  }
+
+  it('不画柄方点（对照组缺省画柄），选区高亮绘制照常', () => {
+    const control = createTable({ records: RECORDS })
+    control.table.selectCells(RANGE)
+    expect(paintRects(control.host)).toContainEqual(HANDLE_RECT)
+
+    const off = createTable({ records: RECORDS, fillHandle: false })
+    off.table.selectCells(RANGE)
+    const rects = paintRects(off.host)
+    expect(rects).not.toContainEqual(HANDLE_RECT)
+    expect(rects).toContainEqual(SELECTION_RECT)
+  })
+
+  it('柄位按下不命中：无按下/结束事件、无填充会话，落点按普通点选处理', () => {
+    const { host, table } = createTable({ records: RECORDS, fillHandle: false })
+    table.selectCells(RANGE)
+    const downs: FillHandleDownEvent[] = []
+    const ends: FillDragEndEvent[] = []
+    table.onFillHandleDown((event) => downs.push(event))
+    table.onFillDragEnd((event) => ends.push(event))
+
+    // 柄中心 (248,68) 裸命中 (2,1) 格：走普通选区路径（选区交互不受影响）
+    fireBody(host, 'pointerdown', { x: 248, y: 68 })
+    expect(table.interactionState.fillDrag).toBeNull()
+    fireBody(host, 'pointerup', { x: 248, y: 68 })
+    expect(downs).toEqual([])
+    expect(ends).toEqual([])
+    expect(table.getSelectedCellRanges()).toEqual([
+      { start: { col: 2, row: 1 }, end: { col: 2, row: 1 } },
+    ])
+  })
+
+  it('悬停柄位不出 crosshair：有选区也恢复缺省光标', () => {
+    const container = { style: { cursor: '' } } as unknown as HTMLElement
+    const { host, table } = createTable({
+      records: RECORDS,
+      fillHandle: false,
+      hostOptions: { container },
+    })
+    table.selectCells(RANGE)
+    fireBody(host, 'pointermove', { x: 248, y: 68 })
+    expect(container.style.cursor).toBe('auto')
+  })
+})

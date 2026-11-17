@@ -5,20 +5,21 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 
+import type { GridReadView } from '@infinitable/protocol'
+
 import { buildPrintDocumentHtml } from '../../src/print/page-html'
 import { printPages } from '../../src/print/print-output'
-import type { PrintSource } from '../../src/print/types'
 
-const SOURCE: PrintSource = {
+const SOURCE: GridReadView = {
   name: '打印输出测试',
   rowCount: 2,
   colCount: 2,
-  rowHeight: () => 28,
-  colWidth: () => 100,
-  merges: () => [],
-  cellValue: () => undefined,
-  cellStyle: () => undefined,
-  displayValue: (col, row) => `v${row}-${col}`,
+  getRowHeight: () => 28,
+  getColWidth: () => 100,
+  getMergeRanges: () => [],
+  getCellValue: () => undefined,
+  getCellStyle: () => undefined,
+  getCellText: (col, row) => `v${row}-${col}`,
 }
 
 describe('printPages：iframe 装载与清理', () => {

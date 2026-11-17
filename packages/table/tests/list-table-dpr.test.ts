@@ -32,10 +32,10 @@ describe('ListTable dpr：显式注入锁定 / 缺省随宿主环境', () => {
     window.devicePixelRatio = 2
     try {
       const { table, resized } = createTable({ hostOptions: { dpr: 1 } })
-      expect(table.hostDpr).toBe(1)
+      expect(table.mediaState.hostDpr).toBe(1)
       table.resize(320, 220)
       expect(resized).toEqual([1])
-      expect(table.hostDpr).toBe(1)
+      expect(table.mediaState.hostDpr).toBe(1)
     } finally {
       window.devicePixelRatio = 1
     }
@@ -45,10 +45,10 @@ describe('ListTable dpr：显式注入锁定 / 缺省随宿主环境', () => {
     window.devicePixelRatio = 2
     try {
       const { table, resized } = createTable()
-      expect(table.hostDpr).toBe(2)
+      expect(table.mediaState.hostDpr).toBe(2)
       table.resize(320, 220)
       expect(resized).toEqual([2])
-      expect(table.hostDpr).toBe(2)
+      expect(table.mediaState.hostDpr).toBe(2)
     } finally {
       window.devicePixelRatio = 1
     }
@@ -59,19 +59,19 @@ describe('ListTable dpr：显式注入锁定 / 缺省随宿主环境', () => {
     let injected = 3
     try {
       const { table, resized } = createTable({ resolveDevicePixelRatio: () => injected })
-      expect(table.hostDpr).toBe(3)
+      expect(table.mediaState.hostDpr).toBe(3)
       // 读取源每次调用：resize 拾取新值（无头测试的跨屏/缩放通道）
       injected = 4
       table.resize(320, 220)
       expect(resized).toEqual([4])
-      expect(table.hostDpr).toBe(4)
+      expect(table.mediaState.hostDpr).toBe(4)
 
       // 显式 hostOptions.dpr 锁值仍最优先（不被注入读取源覆盖）
       const locked = createTable({
         hostOptions: { dpr: 1 },
         resolveDevicePixelRatio: () => injected,
       })
-      expect(locked.table.hostDpr).toBe(1)
+      expect(locked.table.mediaState.hostDpr).toBe(1)
     } finally {
       window.devicePixelRatio = 1
     }

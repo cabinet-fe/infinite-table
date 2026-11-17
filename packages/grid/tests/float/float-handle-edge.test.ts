@@ -1,7 +1,7 @@
 // floatHandleEdge 测试：8 缩放手柄名 → 共享 8 方向边，逐一锁死（旋转手柄不在映射域）。
 import { describe, expect, it } from 'vitest'
 
-import { floatHandleEdge, type FloatTransformHandle } from '../../src/float/float-object-layer'
+import { floatHandleEdge, type FloatTransformHandle } from '../../src/float/float-geometry'
 import { cursorForEdge } from '../../src/interaction/resize-geometry'
 
 const EXPECTED: Record<Exclude<FloatTransformHandle, 'rotate'>, string> = {

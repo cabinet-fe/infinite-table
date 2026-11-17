@@ -50,6 +50,24 @@ function fireBody(host: StubHost, type: SceneEventType, init: Partial<SceneEvent
   })
 }
 
+/** sky 根派发：无任何可拾取命中的空白区（EventSystem 未命中时只从最顶层根派发） */
+function fireSky(host: StubHost, type: SceneEventType, init: Partial<SceneEvent>): void {
+  host.layers.get('sky')!.root.handleEvent({
+    type,
+    target: null,
+    x: 0,
+    y: 0,
+    deltaX: 0,
+    deltaY: 0,
+    key: undefined,
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    originalEvent: {},
+    ...init,
+  })
+}
+
 describe('planScrollbarThumb 滑块几何', () => {
   it('溢出轴按「视口 /（视口+滚动余量）」比例定长，行程与滚动范围同构', () => {
     // 视口 400、余量 600 → 内容 1000 → 滑块 40% 轨道
@@ -175,5 +193,66 @@ describe('ListTable 内建滚动条交互', () => {
     // 竖向仍可滚（100 行）
     fireBody(host, 'pointerdown', { x: 795, y: 300, button: 0 })
     expect(table.getScrollTop()).toBeGreaterThan(0)
+  })
+})
+
+describe('sky 根指针（空白区无 body 命中）', () => {
+  // 列总宽不足视口（3 列 × 100 + 48 = 348 < 800）时右缘竖向条带、行数不足（3 行）
+  // 时下缘横向条带下方均无可拾取格节点——按下/移动只从 sky 根派发，body 根收不到。
+  const threeCols = Array.from({ length: 3 }, (_, i) => ({ field: 'name', title: `C${i}` }))
+  // 数据格 (col, row) 视口坐标（行号列 48、列头 36、列宽 100、行高 32）
+  const cellX = (col: number) => 48 + col * 100 + 1
+  const cellY = (row: number) => 36 + row * 32 + 1
+
+  it('空白区竖向滑块可按住拖拽：sky 根 down 起会话、move 滚动、up 收尾后不再滚', () => {
+    const { host, table } = createTable({ columns: threeCols })
+    expect(table.getScrollTop()).toBe(0)
+    // 滑块头部（y=50 在滑块上）按下 → 拖拽 +100px
+    fireSky(host, 'pointerdown', { x: 795, y: 50, button: 0 })
+    fireSky(host, 'pointermove', { x: 795, y: 150 })
+    expect(table.getScrollTop()).toBeGreaterThan(0)
+    expect(table.getScrollLeft()).toBe(0)
+    // 滚动条会话不落选区
+    expect(table.getSelection().ranges.length).toBe(0)
+    fireSky(host, 'pointerup', { x: 795, y: 150 })
+    const settled = table.getScrollTop()
+    fireSky(host, 'pointermove', { x: 795, y: 400 })
+    expect(table.getScrollTop()).toBe(settled)
+  })
+
+  it('末行以下横向滑块同理可按住拖拽', () => {
+    // 10 列可横向滚、3 行内容高 132 < 600 → y∈[590,600) 条带下无格节点
+    const { host, table } = createTable({ records: rows(3) })
+    fireSky(host, 'pointerdown', { x: 400, y: 595, button: 0 })
+    fireSky(host, 'pointermove', { x: 500, y: 595 })
+    expect(table.getScrollLeft()).toBeGreaterThan(0)
+    fireSky(host, 'pointerup', { x: 500, y: 595 })
+  })
+
+  it('空白区非滚动条按下被守卫忽略：不开启选区、不改滚动；body 命中路径不受影响', () => {
+    const { host, table } = createTable({ columns: threeCols })
+    // (500,300) 在末列右侧空白（x > 348）、不在右/下缘条带内
+    fireSky(host, 'pointerdown', { x: 500, y: 300, button: 0 })
+    fireSky(host, 'pointerup', { x: 500, y: 300 })
+    expect(table.getSelection().ranges.length).toBe(0)
+    expect(table.getScrollTop()).toBe(0)
+    expect(table.getScrollLeft()).toBe(0)
+    // 同表格上按下仍走 body 命中路径开拖选
+    fireBody(host, 'pointerdown', { x: cellX(1), y: cellY(1), button: 0 })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 1 }, end: { col: 1, row: 1 } },
+    ])
+  })
+
+  it('空白区悬停条带：hover 档显示滚动条并高亮滑块，移出清 hover（悬停盲区修复）', () => {
+    const { host, table } = createTable({ columns: threeCols })
+    expect(table.interactionState.scrollbarVisible).toBe(false)
+    // 竖向滑块头部悬停：显示 + hover 态（事件只到 sky 根，此前被会话门丢弃）
+    fireSky(host, 'pointermove', { x: 795, y: 50 })
+    expect(table.interactionState.scrollbarVisible).toBe(true)
+    expect(table.interactionState.scrollbarHover).toBe('vertical')
+    // 移入非条带空白：清 hover
+    fireSky(host, 'pointermove', { x: 500, y: 300 })
+    expect(table.interactionState.scrollbarHover).toBeNull()
   })
 })

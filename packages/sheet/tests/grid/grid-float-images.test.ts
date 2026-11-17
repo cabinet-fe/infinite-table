@@ -50,7 +50,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       expect(object?.size).toEqual({ width: 100, height: 50 })
       expect(object?.anchor.from).toEqual({ col: 0, row: 0 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -86,7 +86,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       await flushMicrotasks()
       expect(table.floatObjects.get(id)).toBeUndefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -114,7 +114,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       expect(sheet.undo()).toBe(true)
       expect(sheet.getImage(id)?.anchor.from).toMatchObject({ row: 0, col: 0 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -138,7 +138,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       expect(image?.anchor.from).toMatchObject({ row: 1, col: 2 })
       expect(image?.anchor.to).toEqual({ row: 2, col: 3 })
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -161,7 +161,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       expect(sheet.undo()).toBe(true)
       expect(sheet.getImage(id)).toBeDefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -201,7 +201,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       await flushMicrotasks()
       expect(table.floatObjects.get(id)?.link).toBe('https://example.com/target')
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -225,7 +225,7 @@ describe('浮动图片同步（模型 ↔ 引擎浮动层）', () => {
       container.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
       expect(sheet.getImage(id)).toBeDefined()
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 })

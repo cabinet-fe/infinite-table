@@ -1,53 +1,8 @@
-// 打印插件类型面（P1 headless 内核的数据面抽象与配置模型，ureport2 双模式移植）。
+// 打印插件类型面（P1 headless 内核的配置模型，ureport2 双模式移植）。
 // 分层：本目录 P1 = headless 内核（types / paper / paginate，纯函数零 DOM，meta 可在测试
 // 环境直接消费）；P2 = 页面 HTML 构建（页眉页脚占位符求值 + 表格页 + 水印平铺 + iframe
-// 打印输出）；P3 = DOM 薄壳预览（openPrintPreview）。P1/P2 均不依赖引擎内部 API，
-// 只依赖 @infinitable/grid 公共类型。
-
-import type { CellRange, CellStyle } from '@infinitable/grid'
-
-// ---- 打印数据源（数据面抽象） ----
-
-/**
- * 打印数据源：宿主/适配器供数的窄接口，签名以能同时适配宿主侧 sheet 模型快照
- * （如 @infinitable/sheet 的 SheetSnapshot）为准（适配层做字段映射，本接口不绑定
- * 任何具体模型类）。
- * - getter 形态适配：rowCount/colCount → getRowCount/getColCount、rowHeight/colWidth
- *   → getRowHeight/getColWidth、merges → getMerges、cellValue → getValue、
- *   cellStyle → getEffectiveStyle、displayValue → getDisplayValue。
- * - meta 快照适配：cells 稀疏条目映射为 cellValue/displayValue、
- *   rowHeights/colWidths 元组映射为 rowHeight/colWidth。
- * 单位约定：行高/列宽一律 px（96dpi，与引擎行列尺寸同口径）。
- * 口径对齐：@infinitable/sheet 有本接口的结构化副本
- * （packages/sheet/src/core/print-source.ts，sheet 不反向依赖本包，靠结构化兼容
- * 直接供数）；任一侧改字段须同步另一侧。
- */
-export interface PrintSource {
-  /** 表名（页面标题缺省源，P2 占位符求值消费） */
-  name: string
-  /** 数据行数（含重复表头行在内的全表行数） */
-  rowCount: number
-  /** 数据列数 */
-  colCount: number
-  /** 行高读取（px；越界行为由适配层保证确定性） */
-  rowHeight(row: number): number
-  /** 列宽读取（px） */
-  colWidth(col: number): number
-  /** 合并单元格区域列表 */
-  merges(): readonly CellRange[]
-  /** 原始格值（分组换页按此判定分组语义，不受显示链影响） */
-  cellValue(col: number, row: number): unknown
-  /** 有效格样式（P2 页面构建消费；无样式返回 undefined） */
-  cellStyle(col: number, row: number): CellStyle | undefined
-  /** 显示值（P2 页面构建消费；经显示链产出展示形态） */
-  displayValue(col: number, row: number): unknown
-  /**
-   * 可选格图通道（P2 页面构建消费）：返回图源 URL/dataURL 的格在打印页输出 <img>
-   * （约束在格内，不再输出显示文本），返回空值回落显示文本。屏上对应引擎 media 层
-   * resolveCellImage（ListTableOptions 同名 hook），同一数据源两口径。
-   */
-  cellImage?: (col: number, row: number) => string | null | undefined
-}
+// 打印输出）；P3 = DOM 薄壳预览（openPrintPreview）。数据面统一消费 @infinitable/protocol
+// 的 GridReadView，本模块零引擎内部依赖。
 
 // ---- 纸张与布局 ----
 

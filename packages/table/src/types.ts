@@ -7,7 +7,7 @@ import type { ImageFit } from '@infinitable/grid'
 import type { ImageServiceOptions, LoadedImage } from '@infinitable/grid'
 import type { RenderCanvas, RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
 
-import type { CellType, ResolveCellRenderer } from './cell-renderer'
+import type { CellRenderer, CellType, ResolveCellRenderer } from './cell-renderer'
 import type { CellStyle, ResolveCellStyle } from './cell-style'
 import type { EditorRegistry } from './editor-registry'
 import type { CellChangeEvent, EnginePlugin } from '@infinitable/protocol'
@@ -248,10 +248,14 @@ export interface ListTableOptions {
   resolveCellStyle?: ResolveCellStyle
   /** 按格自定义渲染 hook：返回渲染器即接管该格内容绘制（与取值管线解耦） */
   resolveCellRenderer?: ResolveCellRenderer
+  /** 按列头自定义渲染 hook：返回渲染器即接管该列头内容绘制 */
+  resolveColHeaderRenderer?: (col: number) => CellRenderer | null
   /** 按格图片 hook：返回 URL 的格在 L2 media 层按图片渲染（ImageService 窗口化加载 + 无闪协议） */
   resolveCellImage?: ResolveCellImage
   /** 按格图片缩放 hook：返回 fill/contain 覆盖缩放语义（缺省 contain 保比例） */
   resolveCellImageFit?: ResolveCellImageFit
+  /** 按格图表 hook：返回媒体描述的格在 L2 media 层按位图渲染（图表语义在插件侧） */
+  resolveCellChart?: ResolveCellChart
   /** 按格超链接 hook：返回链接的格获得默认链接外观与链接 hover/单击事件 */
   resolveCellLink?: ResolveCellLink
   /** 按格嵌入图超链接 hook：返回 URL 的图片格单击派发图片链接点击事件（嵌入图渲染通道之外的独立链接来源） */
@@ -363,6 +367,13 @@ export interface ListTableOptions {
    */
   interactiveSelection?: boolean
   /**
+   * 填充柄开关：false 关闭选区焦点段右下角填充柄的绘制与交互——不画柄方点、
+   * 按下不命中（无填充拖拽会话与预览）、悬停不出 crosshair 光标；选区交互
+   * （拖选/键盘/表头选择）不受影响（与 interactiveSelection 平级的独立开关）。
+   * 宿主未订阅 onFillDragEnd 时柄无消费方，可整体关闭；缺省 true 保持现状。
+   */
+  fillHandle?: boolean
+  /**
    * 内建滚动条：false 整体关闭（不绘制、右/下缘条带不拦截指针）；缺省 hover 档
    * （悬停表格内或滚动时显示、静止 hideDelay 后隐藏）；显式 true 常驻（旧语义）；
    * 对象形态配置显示策略——'always' 常驻、'scrolling' 滚动或滚动条交互时显示、
@@ -403,3 +414,13 @@ export interface TableContextMenuEvent {
 }
 
 export type ContextMenuListener = (event: TableContextMenuEvent) => void
+
+/** 列头单击事件：主键按下并抬起落在同一列头且位移在阈值内（非 resize 手柄）时派发 */
+export interface ColHeaderClickEvent {
+  col: number
+  x: number
+  y: number
+  originalEvent: SceneEvent['originalEvent']
+}
+
+export type ColHeaderClickListener = (event: ColHeaderClickEvent) => void

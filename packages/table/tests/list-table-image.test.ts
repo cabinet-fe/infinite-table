@@ -56,10 +56,19 @@ function createImageTable(extra: Partial<ListTableOptions> = {}) {
 
 function imageNodeAt(host: StubHost, col: number, row: number): ImageCellNode | undefined {
   const media = host.layers.get('media')
-  return media?.root.children.find(
-    (child): child is ImageCellNode =>
-      child instanceof ImageCellNode && child.col === col && child.row === row,
-  )
+  if (!media) {
+    return undefined
+  }
+  for (const group of media.root.children) {
+    const found = group.children.find(
+      (child): child is ImageCellNode =>
+        child instanceof ImageCellNode && child.col === col && child.row === row,
+    )
+    if (found) {
+      return found
+    }
+  }
+  return undefined
 }
 
 describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
@@ -188,7 +197,7 @@ describe('ListTable 图片管线（L2 media 层 + 无闪协议）', () => {
     url = null
     table.refreshCell(0, 0)
     expect(imageNodeAt(host, 0, 0)).toBeUndefined()
-    expect(table.mediaCache.get('image:0:0:100x32')).toBeUndefined()
+    expect(table.mediaState.mediaCache.get('image:0:0:100x32')).toBeUndefined()
     // 重嵌入新图：补建分支不得命中残留位图
     url = 'b.png'
     table.refreshCell(0, 0)

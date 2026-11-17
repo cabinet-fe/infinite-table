@@ -46,6 +46,7 @@
         "@infinitable/render": "workspace:*",
         "@infinitable/table": "workspace:*",
         "hono": "^4.0.0",
+        "hucre": "^1.2.0",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
       },
@@ -68,6 +69,7 @@
       "name": "@infinitable/grid",
       "version": "0.0.0",
       "dependencies": {
+        "@infinitable/protocol": "workspace:*",
         "@infinitable/render": "workspace:*",
       },
     },
@@ -92,6 +94,7 @@
       "name": "@infinitable/pivot",
       "version": "0.0.0",
       "dependencies": {
+        "@infinitable/grid": "workspace:*",
         "@infinitable/protocol": "workspace:*",
         "@infinitable/table": "workspace:*",
       },
@@ -102,18 +105,17 @@
       "dependencies": {
         "@infinitable/grid": "workspace:*",
         "@infinitable/protocol": "workspace:*",
-        "@infinitable/table": "workspace:*",
+        "@infinitable/render": "workspace:*",
         "chart.js": "^4.6.1",
       },
       "devDependencies": {
-        "@infinitable/render": "workspace:*",
+        "@infinitable/table": "workspace:*",
       },
     },
     "packages/protocol": {
       "name": "@infinitable/protocol",
       "version": "0.0.0",
       "dependencies": {
-        "@infinitable/grid": "workspace:*",
         "@infinitable/render": "workspace:*",
       },
     },

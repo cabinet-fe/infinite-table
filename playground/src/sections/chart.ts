@@ -1,4 +1,4 @@
-// 单元格图表演示区：chart 插件经既有注册路径（构造 options.plugins）挂载，单元格声明图表
+// 单元格图表演示区：chart 插件经构造缝（options.resolveCellChart）注入表格引擎，单元格声明图表
 // （类型 + 数据）由插件离屏出图，位图落 L2 media cell 级缓存 blit 上屏——滚动滚回命中直贴
 // 无闪。静态场景覆盖柱状/折线/面积/饼四类基线图表；滚动场景为长列表图表格，声明按行取模
 // 共享 6 组（同 key 单飞出图 + cell 级缓存共享）。
@@ -142,7 +142,7 @@ export function mountChart(root: HTMLElement): ChartDemo {
     rowHeight: STATIC_ROW_HEIGHT,
     resolveDisplayValue: (col, row) =>
       col === 0 ? (STATIC_METRICS[row % STATIC_METRICS.length] ?? '') : '',
-    plugins: [staticPlugin],
+    resolveCellChart: staticPlugin.resolveCellChart,
   })
 
   // ---- 滚动场景：长列表图表格（滚回无闪 + 缓存命中） ----
@@ -169,7 +169,7 @@ export function mountChart(root: HTMLElement): ChartDemo {
     rowCount: CHART_SCROLL_ROW_COUNT,
     rowHeight: SCROLL_ROW_HEIGHT,
     resolveDisplayValue: (col, row) => (col === 0 ? `地区-${row}` : ''),
-    plugins: [scrollPlugin],
+    resolveCellChart: scrollPlugin.resolveCellChart,
   })
 
   const rotateLineData = (): void => {

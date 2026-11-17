@@ -1,19 +1,19 @@
-// 打印供数编排：数据态表单快照 → print 插件 PrintSource（快照 → PrintSource 的逐项
+// 打印供数编排：数据态表单快照 → print 插件 GridReadView（快照 → GridReadView 的逐项
 // 映射本体已下沉 @infinitable/sheet 的 createSnapshotPrintSource，本文件只保留取数编排）。
 //
 // 数据链（预览与打印共用同一条，同输入同输出）：
 // 数据块数据源 + 聚合入参 → 收集数据集 id 并集 → 原始行 → 按（数据集 × 重塑表达式）
 // 收集形态（reshapeDatasetData 唯一重塑管线）→ runAggregations 产出 agg →
 // renderDataState 数据态快照（分组展开 + 函数求值）→ createSnapshotPrintSource 适配
-// （结构化兼容 plugins 的 PrintSource，样式与显示链和屏上渲染同一份换算——
+// （返回 @infinitable/protocol 的 GridReadView，样式与显示链和屏上渲染同一份换算——
 // 打印页所见即画布所得）。
 import { createSnapshotPrintSource } from '@infinitable/sheet'
 import {
   createPrintPlugin,
+  type GridReadView,
   type PrintConfig,
   type PrintPluginHandle,
   type PrintPluginOptions,
-  type PrintSource,
 } from '@infinitable/plugins'
 
 import type { SourceRow } from '../transform/reshape'
@@ -83,12 +83,12 @@ export interface PrintSession {
 }
 
 /**
- * 建立打印会话：PrintSource 绑定进 print 插件句柄；预览与打印是同一句柄上的
+ * 建立打印会话：GridReadView 绑定进 print 插件句柄；预览与打印是同一句柄上的
  * 两个方法（buildDocumentHtml / print），同 source 同 config 同产物——一致性由
  * 结构保证，app 内测试另作断言锁死。hooks 仅测试注入桩用（PrintPluginOptions 口径）。
  */
 function createPrintSession(
-  source: PrintSource,
+  source: GridReadView,
   hooks?: PrintPluginOptions['hooks'],
 ): PrintSession {
   const plugin = createPrintPlugin({ source, hooks })

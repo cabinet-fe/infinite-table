@@ -26,14 +26,20 @@ export {
   formatByNumFmt,
   sheetStyleToEngineStyle,
   // 快照级版面与打印供数（自 print-form-designer 下沉）：内容包围盒 / 快照行静默变换
-  // （不平移公式引用，与 Sheet.applyStructureChange 有意分叉）/ 快照 → PrintSource 适配
+  // （不平移公式引用，与 Sheet.applyStructureChange 有意分叉）/ 快照 → GridReadView 适配
   snapshotContentBounds,
   clampSnapshotToBounds,
   type ContentBounds,
   insertSnapshotRows,
   deleteSnapshotRows,
   createSnapshotPrintSource,
-  type PrintSource,
+  type EngineAssembly,
+  type EngineCapabilities,
+  type EnginePlugin,
+  type GridReadView,
+  type LayerPainter,
+  type PainterRegistration,
+  type PainterSlot,
   NUMERIC_TEXT_RE,
   normalizeInputValue,
   inferCellType,

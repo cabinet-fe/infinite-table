@@ -189,12 +189,12 @@ describe('行列头高亮覆盖选区（S9-P3）', () => {
     const colHl = colHighlightOf(table)
     const rowHl = rowHighlightOf(table)
     table.selectAll()
-    expect(table.colHeaderNodes.size).toBeGreaterThan(0)
-    expect(table.rowHeaderNodes.size).toBeGreaterThan(0)
-    for (const node of table.colHeaderNodes.values()) {
+    expect(table.sceneState.colHeaderNodes.size).toBeGreaterThan(0)
+    expect(table.sceneState.rowHeaderNodes.size).toBeGreaterThan(0)
+    for (const node of table.sceneState.colHeaderNodes.values()) {
       expect(node.style.background).toBe(colHl)
     }
-    for (const node of table.rowHeaderNodes.values()) {
+    for (const node of table.sceneState.rowHeaderNodes.values()) {
       expect(node.style.background).toBe(rowHl)
     }
   })
@@ -206,8 +206,8 @@ describe('拖选回写稳定性（焦点摆动不抖动）', () => {
     const colHl = colHighlightOf(table)
     const rowHl = rowHighlightOf(table)
     // 交互拖选会话：按下 C3（col2,row2）拖到 E6（col4,row5）——引擎焦点随移动端点
-    table.selection.beginDragRange({ col: 2, row: 2 }, { col: 2, row: 2 })
-    table.selection.updateDragRange({ col: 2, row: 2 }, { col: 4, row: 5 })
+    table.interactionState.selection.beginDragRange({ col: 2, row: 2 }, { col: 2, row: 2 })
+    table.interactionState.selection.updateDragRange({ col: 2, row: 2 }, { col: 4, row: 5 })
     for (const col of [2, 3, 4]) {
       expect(colHeaderBg(host, col)).toBe(colHl)
     }

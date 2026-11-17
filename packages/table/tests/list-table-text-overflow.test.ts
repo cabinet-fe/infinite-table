@@ -1,4 +1,4 @@
-import type { RenderContext } from '@infinitable/render'
+import type { RenderContext, SceneNode } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { CellNode } from '../src/cell-node'
@@ -115,6 +115,43 @@ function createTable(extra: Partial<ListTableOptions> = {}) {
 function findNode(host: StubHost, col: number, row: number): CellNode | undefined {
   const body = host.layers.get('body')
   return body ? findCellNode(body.root, col, row) : undefined
+}
+
+/** 按场景树绘制序（前序）收集指定行的数据格节点列号 */
+function collectRowColsInPaintOrder(root: SceneNode, row: number): number[] {
+  const cols: number[] = []
+  const visit = (node: SceneNode): void => {
+    if (node instanceof CellNode && node.row === row && node.col >= 0) {
+      cols.push(node.col)
+      return
+    }
+    for (const child of node.children) {
+      visit(child)
+    }
+  }
+  visit(root)
+  return cols
+}
+
+/** 计算节点在场景树前序绘制次序中的位置 */
+function paintOrderIndex(root: SceneNode, target: SceneNode): number {
+  let index = 0
+  let found = -1
+  const visit = (node: SceneNode): void => {
+    if (found >= 0) {
+      return
+    }
+    if (node === target) {
+      found = index
+      return
+    }
+    index++
+    for (const child of node.children) {
+      visit(child)
+    }
+  }
+  visit(root)
+  return found
 }
 
 describe('renderTextCell 溢出与换行', () => {
@@ -572,13 +609,8 @@ describe('ListTable 溢出右界', () => {
 
   it('带内按列降序建节点：左格文本后画不被右格背景盖住', () => {
     const { host } = createTable({ records: [{ name: 'a' }], rowCount: 1 })
-    const body = host.layers.get('body')
-    const dataCols = body?.root.children
-      .filter(
-        (child): child is CellNode =>
-          child instanceof CellNode && child.row === 0 && child.col >= 0,
-      )
-      .map((child) => child.col)
+    const body = host.layers.get('body')!
+    const dataCols = collectRowColsInPaintOrder(body.root, 0)
     expect(dataCols).toEqual([7, 6, 5, 4, 3, 2, 1, 0])
   })
 
@@ -593,18 +625,13 @@ describe('ListTable 溢出右界', () => {
     expect(before?.textMaxX).toBeGreaterThan(before!.width)
 
     table.scrollTo(100, 0) // 窗口 [0,8) → [1,9)：col 8 滚入、col 0 滚出
-    const body = host.layers.get('body')
-    const cols = body?.root.children
-      .filter(
-        (child): child is CellNode =>
-          child instanceof CellNode && child.row === 0 && child.col >= 0,
-      )
-      .map((child) => child.col)
+    const body = host.layers.get('body')!
+    const cols = collectRowColsInPaintOrder(body.root, 0)
     expect(cols).toContain(8)
     // 溢出格必须后画于其溢出走廊上的全部空格（含增量补建的 col 8），文本不被新格背景盖住
-    expect(cols!.indexOf(3)).toBeGreaterThan(cols!.indexOf(8))
-    expect(cols!.indexOf(3)).toBeGreaterThan(cols!.indexOf(7))
-    expect(cols!.indexOf(3)).toBeGreaterThan(cols!.indexOf(4))
+    expect(cols.indexOf(3)).toBeGreaterThan(cols.indexOf(8))
+    expect(cols.indexOf(3)).toBeGreaterThan(cols.indexOf(7))
+    expect(cols.indexOf(3)).toBeGreaterThan(cols.indexOf(4))
     // 存活格溢出右界随滚动平移保持不变（limitX 与 x 同步位移）
     const after = findNode(host, 3, 0)
     expect(after?.textMaxX).toBe(before?.textMaxX)
@@ -734,15 +761,16 @@ describe('refreshCell 溢出联动失效', () => {
     host.submitted.length = 0
     model.data.delete('0:0')
     model.emit({ col: 0, row: 0, oldValue: 'x', newValue: undefined })
-    // 左壁放空：col 1 向左溢出，重挂树尾（行内其它数据格与全部走廊格之上）
+    // 左壁放空：col 1 向左溢出，迁入溢出组（行内其它数据格与全部走廊格之上）
     expect(findNode(host, 1, 0)?.textMinX).toBeLessThan(0)
     const root = host.layers.get('body')!.root
-    const dataCols = root.children
-      .filter((child): child is CellNode => child instanceof CellNode && child.row === 0)
-      .map((child) => child.col)
+    const dataCols = collectRowColsInPaintOrder(root, 0)
     expect(dataCols[dataCols.length - 1]).toBe(1)
-    // 表头容器与外框重挂后仍在溢出源之上
-    expect(root.children.indexOf(findNode(host, 1, 0)!)).toBeLessThan(root.children.length - 2)
+    // 表头容器与外框仍在溢出源之上
+    const headerGroup = root.children.at(-2)!
+    expect(paintOrderIndex(root, findNode(host, 1, 0)!)).toBeLessThan(
+      paintOrderIndex(root, headerGroup),
+    )
   })
 })
 
@@ -760,7 +788,7 @@ describe('表头容器 z 序（R2-5）', () => {
     expect(row0.y).toBeLessThan(36)
     expect(row0.y + row0.height).toBeGreaterThan(36)
     // 数据格在表头容器之前 → paintTree 后画表头，半格被表头覆盖
-    expect(root.children.indexOf(row0)).toBeLessThan(root.children.indexOf(headerGroup))
+    expect(paintOrderIndex(root, row0)).toBeLessThan(paintOrderIndex(root, headerGroup))
   })
 
   it('滚动后合并主格上缘伸进列头带：主格仍在表头容器之下（表头最上）', () => {
@@ -775,21 +803,15 @@ describe('表头容器 z 序（R2-5）', () => {
     const master = findNode(host, 0, 0)!
     expect(master.y).toBeLessThan(36)
     expect(master.height).toBe(4 * 32) // 主格跨 4 行取完整尺寸
-    expect(root.children.indexOf(master)).toBeLessThan(root.children.indexOf(headerGroup))
+    expect(paintOrderIndex(root, master)).toBeLessThan(paintOrderIndex(root, headerGroup))
     expect(headerGroup.children.length).toBeGreaterThan(0)
   })
 })
 
 describe('溢出 z 序不变量（增量窗口）', () => {
-  /** body root 中指定行的数据格列号（按树序） */
+  /** body root 中指定行的数据格列号（按绘制序） */
   function rowOrder(host: StubHost, row: number): number[] {
-    const root = host.layers.get('body')!.root
-    return root.children
-      .filter(
-        (child): child is CellNode =>
-          child instanceof CellNode && child.row === row && child.col >= 0,
-      )
-      .map((child) => child.col)
+    return collectRowColsInPaintOrder(host.layers.get('body')!.root, row)
   }
 
   function expectSourceAbove(order: number[], source: number, corridor: number[]): void {
@@ -877,13 +899,7 @@ describe('三路径渲染一致（全量重建 / 滚动增量 / refreshCell）',
 
   function expectSourceAboveCorridors(host: StubHost): void {
     const root = host.layers.get('body')!.root
-    const orderOf = (row: number): number[] =>
-      root.children
-        .filter(
-          (child): child is CellNode =>
-            child instanceof CellNode && child.row === row && child.col >= 0,
-        )
-        .map((child) => child.col)
+    const orderOf = (row: number): number[] => collectRowColsInPaintOrder(root, row)
     const row0 = orderOf(0)
     // 右溢源 col 1 与左溢源 col 5 都后画于本行全部非源格（含各自走廊格）
     for (const source of [1, 5]) {
@@ -899,7 +915,7 @@ describe('三路径渲染一致（全量重建 / 滚动增量 / refreshCell）',
     // 溢出源仍在表头容器之下（表头最上）
     const headerGroup = root.children.at(-2)!
     for (const source of [findNode(host, 1, 0)!, findNode(host, 5, 0)!, findNode(host, 3, 1)!]) {
-      expect(root.children.indexOf(source)).toBeLessThan(root.children.indexOf(headerGroup))
+      expect(paintOrderIndex(root, source)).toBeLessThan(paintOrderIndex(root, headerGroup))
     }
   }
 
@@ -979,9 +995,8 @@ function paintedRects(host: StubHost): Array<{
  */
 function rowVerticalLineXs(host: StubHost, row: number): number[] {
   const root = host.layers.get('body')!.root
-  const probe = root.children.find(
-    (child): child is CellNode => child instanceof CellNode && child.row === row && child.col >= 0,
-  )
+  const cols = collectRowColsInPaintOrder(root, row)
+  const probe = cols.length > 0 ? findNode(host, cols[0]!, row) : undefined
   if (!probe) {
     return []
   }
@@ -1355,15 +1370,9 @@ describe('纯纵向滚动的窗外源反查短路（P2）', () => {
 describe('窗外溢出源可见性（P1 窗缘反查）', () => {
   const TWENTY_COLUMNS = Array.from({ length: 20 }, (_, i) => ({ field: `f${i}` }))
 
-  /** body root 中指定行的数据格列号（按树序） */
+  /** body root 中指定行的数据格列号（按绘制序） */
   function rowOrder(host: StubHost, row: number): number[] {
-    const root = host.layers.get('body')!.root
-    return root.children
-      .filter(
-        (child): child is CellNode =>
-          child instanceof CellNode && child.row === row && child.col >= 0,
-      )
-      .map((child) => child.col)
+    return collectRowColsInPaintOrder(host.layers.get('body')!.root, row)
   }
 
   /** paintTree 绘制流的 fillText（层坐标）：回放 save/restore/translate 折算绝对位置 */
@@ -1401,7 +1410,7 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     })
     expect(findNode(host, 0, 0)?.textMaxX).toBe(300) // 走廊 [0,3)
     table.scrollTo(150, 0) // 窗口 [0,8) → [1,10)：col 0 完全滚出左缘
-    expect(table.cols).toEqual({ start: 1, end: 10 })
+    expect(table.geometryState.cols).toEqual({ start: 1, end: 10 })
     const source = findNode(host, 0, 0)
     expect(source).toBeDefined()
     // 走廊仍与可视列窗相交 → 保留，x/y 随滚动帧原地平移
@@ -1420,7 +1429,9 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(order.indexOf(0)).toBeGreaterThan(order.indexOf(1))
     expect(order.indexOf(0)).toBeGreaterThan(order.indexOf(2))
     const root = host.layers.get('body')!.root
-    expect(root.children.indexOf(source!)).toBeLessThan(root.children.length - 2)
+    expect(paintOrderIndex(root, source!)).toBeLessThan(
+      paintOrderIndex(root, root.children.at(-2)!),
+    )
     // 走廊内部标记覆盖窗外源走廊
     expect(findNode(host, 1, 0)?.corridorInterior).toBe(3)
     expect(findNode(host, 2, 0)?.corridorInterior).toBe(3)
@@ -1614,5 +1625,25 @@ describe('窗外溢出源可见性（P1 窗缘反查）', () => {
     expect(host.submitted).toEqual([
       { kind: 'body', inv: { type: 'region', region: { x: 448, y: 36, width: 400, height: 32 } } },
     ])
+  })
+
+  it('refreshCell 溢出状态翻转时节点在普通组与溢出组间精确迁移（无全量重排）', () => {
+    const model = new EchoModel(1)
+    model.data.set('0:0', 'ok')
+    const { table } = createTable({ columns: TWENTY_COLUMNS, rowCount: 1, model })
+    const groups = table.sceneState.groups!
+    const node = table.sceneState.cellNodes.get(0)!
+    expect(node.parent).toBe(groups.scrollableGroup)
+
+    // 普通文本改为超长溢出文本 → 迁入 scrollableOverflowGroup
+    model.data.set('0:0', LONG_TEXT)
+    table.refreshCell(0, 0)
+    expect(node.parent).toBe(groups.scrollableOverflowGroup)
+
+    // 改回短文本 → 迁回 scrollableGroup
+    model.data.set('0:0', 'short')
+    table.refreshCell(0, 0)
+    expect(node.parent).toBe(groups.scrollableGroup)
+    table.destroy()
   })
 })

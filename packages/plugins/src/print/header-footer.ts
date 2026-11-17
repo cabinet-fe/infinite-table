@@ -13,7 +13,7 @@ export interface PlaceholderContext {
   page: number
   /** 总页数（{pageCount}） */
   pageCount: number
-  /** 标题（{title}；缺省取 PrintSource.name） */
+  /** 标题（{title}；缺省取 GridReadView.name ?? ''） */
   title: string
   /** 日期文本（{date}，yyyy-MM-dd） */
   date: string

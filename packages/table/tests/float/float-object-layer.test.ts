@@ -1,7 +1,7 @@
 import { SceneNode, type RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
-import { ImageService, type LoadedImage } from '../../src/media/image-service'
+import { ImageService, type LoadedImage } from '@infinitable/grid'
 import type { CellRef } from '../../src/types'
 import type { FloatDragEndEvent, FloatTransformEndEvent } from '../../src/float/float-object-layer'
 import { FloatObjectLayer } from '../../src/float/float-object-layer'

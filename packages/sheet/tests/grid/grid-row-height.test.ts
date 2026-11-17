@@ -27,7 +27,7 @@ describe('wrap 行高引擎', () => {
       expect(height!).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
       expect(table.getRowHeight(0)).toBe(height!)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -44,7 +44,7 @@ describe('wrap 行高引擎', () => {
       expect(sheet.getRowHeight(0)).toBe(600)
       expect(table.getRowHeight(0)).toBe(600)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -56,7 +56,7 @@ describe('wrap 行高引擎', () => {
       expect(sheet.getRowHeight(0)!).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
       expect(table.getRowHeight(0)).toBe(sheet.getRowHeight(0)!)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -72,7 +72,7 @@ describe('wrap 行高引擎', () => {
       expect(sheet.getRowHeight(1)).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
       expect(table.getRowHeight(1)).toBe(sheet.getRowHeight(1)!)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -91,7 +91,7 @@ describe('wrap 行高引擎', () => {
       expect(merged).toBeGreaterThan(SHEET_DEFAULT_ROW_HEIGHT)
       expect(merged).toBeLessThan(200)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 
@@ -106,7 +106,7 @@ describe('wrap 行高引擎', () => {
       // 无文本内容：估算不高于默认行高（宽表空列不参与扫描的性能口径）
       expect(sheet.getRowHeight(0) ?? SHEET_DEFAULT_ROW_HEIGHT).toBe(SHEET_DEFAULT_ROW_HEIGHT)
     } finally {
-      grid.release()
+      grid.destroy()
     }
   })
 

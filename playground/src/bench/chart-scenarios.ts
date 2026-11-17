@@ -3,8 +3,12 @@
 // 场景只依赖 BenchEnv 抽象，headless 与浏览器跑同一份逻辑；失效口径同现有场景
 // （每帧失效像素面积 / 视口面积，full 全量重绘要求为 0，出图位图落 L2 media cell 级缓存）。
 
-import type { ColumnDefine, ListTableOptions, ResolveDisplayValue } from '@infinitable/table'
-import type { EnginePlugin } from '@infinitable/protocol'
+import type {
+  ColumnDefine,
+  ListTableOptions,
+  ResolveCellChart,
+  ResolveDisplayValue,
+} from '@infinitable/table'
 import type { RenderHost } from '@infinitable/render'
 import type { ChartCellDeclaration } from '@infinitable/plugins'
 
@@ -66,7 +70,7 @@ async function settleFirstFrame(bt: BenchTable): Promise<void> {
 async function settleChartBitmaps(bt: BenchTable): Promise<number> {
   let rounds = 0
   for (; rounds < SETTLE_MAX_ROUNDS; rounds++) {
-    const nodes = [...bt.table.chartCellNodes.values()]
+    const nodes = [...bt.table.mediaState.chartCellNodes.values()]
     if (nodes.length > 0 && nodes.every((node) => node.hasBitmap)) {
       break
     }
@@ -128,10 +132,10 @@ function createChartColumns(): ColumnDefine[] {
 /** 文本列显示值（图表格为位图格，无文本） */
 const chartDisplayValue: ResolveDisplayValue = (col, row) => (col === 0 ? `地区-${row}` : '')
 
-/** chart 口径 ListTable 参数（headless 与浏览器同一份表口径）：host 与 chart 插件由 env 注入 */
+/** chart 口径 ListTable 参数（headless 与浏览器同一份表口径）：host 与 resolveCellChart 由 env 注入 */
 export function chartTableOptions(
   host: RenderHost,
-  plugins: readonly EnginePlugin[],
+  resolveCellChart: ResolveCellChart,
 ): ListTableOptions {
   return {
     width: VIEWPORT_WIDTH,
@@ -141,7 +145,7 @@ export function chartTableOptions(
     rowHeight: CHART_ROW_HEIGHT,
     resolveDisplayValue: chartDisplayValue,
     host,
-    plugins,
+    resolveCellChart,
   }
 }
 
@@ -260,14 +264,14 @@ async function runChartInvalidation(env: BenchEnv): Promise<ScenarioResult> {
   }
 
   // 滚回首帧：缓存命中直贴（无闪协议），出图位图不经重出图、缓存条目不增长
-  const cacheSizeBeforeScrollBack = bt.table.mediaCache.size
+  const cacheSizeBeforeScrollBack = bt.table.mediaState.mediaCache.size
   await bt.beginFrame()
   bt.table.scrollTo(0, 0)
   bt.endFrame()
   const scrollBackFull = areaOf(bt.meter.drain(), 'body').bodyFull
-  const visibleNodes = [...bt.table.chartCellNodes.values()]
+  const visibleNodes = [...bt.table.mediaState.chartCellNodes.values()]
   const hitCount = visibleNodes.filter((node) => node.hasBitmap).length
-  const cacheSizeAfterScrollBack = bt.table.mediaCache.size
+  const cacheSizeAfterScrollBack = bt.table.mediaState.mediaCache.size
 
   // 数据变更：轮换一组柱状数据（内容换 key）→ refreshCell 定向失效重绘
   const nodeBefore = visibleNodes.find((node) => node.col === CHART_BAR_COL && node.row === 0)
@@ -279,11 +283,11 @@ async function runChartInvalidation(env: BenchEnv): Promise<ScenarioResult> {
   const refreshFullCount =
     (refreshStats.get('body')?.full ?? 0) + (refreshStats.get('media')?.full ?? 0)
   await settleChartBitmaps(bt)
-  const nodeAfter = [...bt.table.chartCellNodes.values()].find(
+  const nodeAfter = [...bt.table.mediaState.chartCellNodes.values()].find(
     (node) => node.col === CHART_BAR_COL && node.row === 0,
   )
   const cacheKeyChanged = nodeAfter !== undefined && nodeAfter.cacheKey !== cacheKeyBefore
-  const cacheSizeAfterBump = bt.table.mediaCache.size
+  const cacheSizeAfterBump = bt.table.mediaState.mediaCache.size
   bt.destroy()
 
   const ratio = (area: number): number => area / VIEWPORT_AREA

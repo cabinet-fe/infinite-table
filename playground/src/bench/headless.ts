@@ -196,7 +196,7 @@ export function createHeadlessEnv(): BenchEnv {
         createCanvas: () => new ChartFakeCanvas().asCanvas(),
       })
       const t0 = performance.now()
-      const table = new ListTable(chartTableOptions(meter.wrap(host), [chartPlugin]))
+      const table = new ListTable(chartTableOptions(meter.wrap(host), chartPlugin.resolveCellChart))
       const constructorMs = performance.now() - t0
       return benchTableBridge(table, meter, constructorMs, scheduled, eventsTarget, host)
     },
