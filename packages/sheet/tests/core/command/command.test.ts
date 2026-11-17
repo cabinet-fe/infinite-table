@@ -187,6 +187,36 @@ describe('MergeCellsCommand undo/redo', () => {
     expect(sheet.merges.size).toBe(0)
     expect(sheet.getCellData(B2)).toEqual({ v: 'v-b2', t: 's' })
   })
+
+  it('合并十万行大区域（A1:B100000）毫秒级完成，按行主序保留首个有值格且 undo/redo 一致', () => {
+    const sheet = new Sheet()
+    // 故意先写同列较靠后单元格，再写行主序更靠前的格，验证 entriesInRange 仍按 (row, col) 升序取保留值
+    sheet.setCellValue({ row: 99_999, col: 1 }, 'tail')
+    sheet.setCellValue({ row: 5, col: 1 }, 'b6')
+    sheet.setCellValue({ row: 5, col: 0 }, 'a6')
+    const before = snapshotSheet(sheet)
+
+    const range = { start: { row: 0, col: 0 }, end: { row: 99_999, col: 1 } }
+    const t0 = performance.now()
+    const finalRange = sheet.mergeCells(range)
+    const elapsed = performance.now() - t0
+
+    expect(elapsed).toBeLessThan(150)
+    expect(finalRange).toEqual(range)
+    expect(sheet.getCellData({ row: 0, col: 0 })).toEqual({ v: 'a6', t: 's' })
+    expect(sheet.getCellData({ row: 5, col: 0 })).toBeUndefined()
+    expect(sheet.getCellData({ row: 5, col: 1 })).toBeUndefined()
+    expect(sheet.getCellData({ row: 99_999, col: 1 })).toBeUndefined()
+    expect(sheet.getDisplayValue({ row: 50_000, col: 1 })).toBe('a6')
+    expect(sheet.getDisplayValue({ row: 99_999, col: 1 })).toBe('a6')
+    const merged = snapshotSheet(sheet)
+
+    expect(sheet.undo()).toBe(true)
+    expect(snapshotSheet(sheet)).toEqual(before)
+
+    expect(sheet.redo()).toBe(true)
+    expect(snapshotSheet(sheet)).toEqual(merged)
+  })
 })
 
 describe('MergeCellsBatchCommand（批量合并）', () => {

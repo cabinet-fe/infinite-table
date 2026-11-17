@@ -124,4 +124,70 @@ describe('实例函数集（overrides）', () => {
     expect(astHasVolatileCall(ast, overrides)).toBe(true)
     expect(astHasVolatileCall(ast)).toBe(false)
   })
+
+  it('元数据查询（getFormulaFunctionInfo / listFormulaFunctions）支持实例函数集', () => {
+    const richOverrides = new Map<string, FormulaFunction>([
+      [
+        'custom_tax',
+        {
+          minArgs: 1,
+          maxArgs: 2,
+          meta: {
+            params: [{ name: 'amount' }, { name: 'rate', optional: true }],
+            description: '计算税额',
+            category: '财务',
+          },
+          impl: (args) => Number(args[0]) * 0.1,
+        },
+      ],
+      [
+        'ABS',
+        {
+          minArgs: 1,
+          maxArgs: 1,
+          meta: {
+            params: [{ name: 'x' }],
+            description: '实例覆盖绝对值',
+            category: '数学',
+          },
+          impl: () => 0,
+        },
+      ],
+    ])
+
+    // 新增自定义函数元数据（大小写不敏感）
+    const customInfo = getFormulaFunctionInfo('CUSTOM_TAX', richOverrides)
+    expect(customInfo).toEqual({
+      name: 'CUSTOM_TAX',
+      signature: 'CUSTOM_TAX(amount, [rate])',
+      description: '计算税额',
+      category: '财务',
+      params: [{ name: 'amount' }, { name: 'rate', optional: true }],
+      volatile: false,
+    })
+    // 无 overrides 时不泄漏实例函数
+    expect(getFormulaFunctionInfo('CUSTOM_TAX')).toBeUndefined()
+
+    // 覆盖内置函数的元数据与未提供 meta 的覆盖
+    expect(getFormulaFunctionInfo('abs', richOverrides)?.description).toBe('实例覆盖绝对值')
+    expect(getFormulaFunctionInfo('abs', richOverrides)?.category).toBe('数学')
+    expect(getFormulaFunctionInfo('abs', overrides)).toMatchObject({
+      name: 'ABS',
+      signature: 'ABS()',
+      description: '',
+      category: undefined,
+    })
+    // 全局 ABS 未受影响
+    expect(getFormulaFunctionInfo('ABS')?.category).toBe('常用')
+
+    // listFormulaFunctions 合并实例函数且按名称升序、不产生重复项
+    const list = listFormulaFunctions(richOverrides)
+    const names = list.map((info) => info.name)
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
+    expect(names.filter((n) => n === 'ABS')).toHaveLength(1)
+    expect(list.find((info) => info.name === 'CUSTOM_TAX')?.signature).toBe(
+      'CUSTOM_TAX(amount, [rate])',
+    )
+    expect(list.find((info) => info.name === 'ABS')?.description).toBe('实例覆盖绝对值')
+  })
 })

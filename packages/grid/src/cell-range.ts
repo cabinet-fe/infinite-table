@@ -35,6 +35,255 @@ function isSingleCell(range: CellRange): boolean {
   return range.startCol === range.endCol && range.startRow === range.endRow
 }
 
+/** 逐格展开写入 byCoord 的单元格数量阈值；超过此阈值的合并区改走稀疏行分桶索引 */
+const SMALL_MERGE_CELL_LIMIT = 64
+/** 行分桶大小（每桶 256 行） */
+const ROW_BUCKET_SIZE = 256
+/** 单条合并区允许分桶的最大跨度（约 100 万行）；超出时退化到 hugeMerges 列表，防超大区间分配过量桶 */
+const MAX_BUCKET_SPAN = 4096
+
+function bucketOfRow(row: number): number {
+  return Math.max(0, Math.floor(row / ROW_BUCKET_SIZE))
+}
+
+function rangeCellCount(range: CellRange): number {
+  return (range.endRow - range.startRow + 1) * (range.endCol - range.startCol + 1)
+}
+
+function rangesOverlap(a: CellRange, b: CellRange): boolean {
+  return (
+    a.startRow <= b.endRow &&
+    a.endRow >= b.startRow &&
+    a.startCol <= b.endCol &&
+    a.endCol >= b.startCol
+  )
+}
+
+function containsCoord(range: CellRange, col: number, row: number): boolean {
+  return (
+    col >= range.startCol && col <= range.endCol && row >= range.startRow && row <= range.endRow
+  )
+}
+
+function pushToBuckets(
+  buckets: Map<number, CellRange[]>,
+  startRow: number,
+  endRow: number,
+  range: CellRange,
+): void {
+  const startBucket = bucketOfRow(startRow)
+  const endBucket = bucketOfRow(endRow)
+  for (let b = startBucket; b <= endBucket; b++) {
+    let list = buckets.get(b)
+    if (!list) {
+      list = []
+      buckets.set(b, list)
+    }
+    list.push(range)
+  }
+}
+
+function collectFromBuckets(
+  buckets: Map<number, CellRange[]>,
+  startBucket: number,
+  endBucket: number,
+  seen: Set<CellRange> | null,
+  visit: (range: CellRange) => void,
+): void {
+  for (let b = startBucket; b <= endBucket; b++) {
+    const list = buckets.get(b)
+    if (!list) continue
+    for (const range of list) {
+      if (seen) {
+        if (seen.has(range)) continue
+        seen.add(range)
+      }
+      visit(range)
+    }
+  }
+}
+
+/**
+ * 稀疏分桶合并索引（MergeCellMap 与 sanitizeMerges 共用）：
+ * - 小合并区（<= 64 格）：逐格写入 byCoord（O(1) 查询）并按行分桶入 smallBuckets（区间查询用）
+ * - 大合并区（> 64 格）：不展开逐格，按 256 行分桶入 largeBuckets（跨百万行以上进 hugeMerges）
+ */
+class SparseMergeIndex {
+  readonly ranges: CellRange[] = []
+  private readonly byCoord = new Map<number, CellRange>()
+  private readonly smallBuckets = new Map<number, CellRange[]>()
+  private readonly largeBuckets = new Map<number, CellRange[]>()
+  private readonly hugeMerges: CellRange[] = []
+  private hasLarge = false
+
+  add(range: CellRange): void {
+    this.ranges.push(range)
+    const startBucket = bucketOfRow(range.startRow)
+    const endBucket = bucketOfRow(range.endRow)
+    if (rangeCellCount(range) <= SMALL_MERGE_CELL_LIMIT) {
+      for (let row = range.startRow; row <= range.endRow; row++) {
+        for (let col = range.startCol; col <= range.endCol; col++) {
+          this.byCoord.set(cellKey(col, row), range)
+        }
+      }
+      pushToBuckets(this.smallBuckets, range.startRow, range.endRow, range)
+      return
+    }
+    this.hasLarge = true
+    if (endBucket - startBucket + 1 <= MAX_BUCKET_SPAN) {
+      pushToBuckets(this.largeBuckets, range.startRow, range.endRow, range)
+    } else {
+      this.hugeMerges.push(range)
+    }
+  }
+
+  rangeAt(col: number, row: number): CellRange | null {
+    const direct = this.byCoord.get(cellKey(col, row))
+    if (direct) {
+      return direct
+    }
+    if (!this.hasLarge) {
+      return null
+    }
+    const bucket = this.largeBuckets.get(bucketOfRow(row))
+    if (bucket) {
+      for (const range of bucket) {
+        if (containsCoord(range, col, row)) {
+          return range
+        }
+      }
+    }
+    for (const range of this.hugeMerges) {
+      if (containsCoord(range, col, row)) {
+        return range
+      }
+    }
+    return null
+  }
+
+  rangesInBounds(minCol: number, minRow: number, maxCol: number, maxRow: number): CellRange[] {
+    if (maxCol < minCol || maxRow < minRow || this.ranges.length === 0) {
+      return []
+    }
+    const result: CellRange[] = []
+    this.forEachRowCandidate(minRow, maxRow, true, (range) => {
+      if (
+        range.endCol >= minCol &&
+        range.startCol <= maxCol &&
+        range.endRow >= minRow &&
+        range.startRow <= maxRow
+      ) {
+        result.push(range)
+      }
+    })
+    return result
+  }
+
+  /**
+   * 按行主序找出与 incoming 首个冲突格（保留与逐格扫描完全一致的 coord 与 existing 判定）：
+   * - 小范围（<= 64 格）：直接按行主序查 byCoord + 大合并区，避免大量同桶小合并区的线性扫描
+   * - 大范围（> 64 格）：走桶索引筛选候选，取 (overlapRow, overlapCol) 字典序最小者
+   */
+  findFirstConflict(incoming: CellRange): MergeConflict | null {
+    if (this.ranges.length === 0) {
+      return null
+    }
+    let bestExisting: CellRange | null = null
+    let bestRow = Infinity
+    let bestCol = Infinity
+
+    const recordCandidate = (existing: CellRange): void => {
+      if (!rangesOverlap(existing, incoming)) {
+        return
+      }
+      const row = Math.max(existing.startRow, incoming.startRow)
+      const col = Math.max(existing.startCol, incoming.startCol)
+      if (row < bestRow || (row === bestRow && col < bestCol)) {
+        bestRow = row
+        bestCol = col
+        bestExisting = existing
+      }
+    }
+
+    if (rangeCellCount(incoming) <= SMALL_MERGE_CELL_LIMIT) {
+      smallScan: for (let row = incoming.startRow; row <= incoming.endRow; row++) {
+        for (let col = incoming.startCol; col <= incoming.endCol; col++) {
+          const existing = this.byCoord.get(cellKey(col, row))
+          if (existing) {
+            bestRow = row
+            bestCol = col
+            bestExisting = existing
+            break smallScan
+          }
+        }
+      }
+      if (this.hasLarge) {
+        this.forEachRowCandidate(incoming.startRow, incoming.endRow, false, recordCandidate)
+      }
+    } else {
+      this.forEachRowCandidate(incoming.startRow, incoming.endRow, true, recordCandidate)
+    }
+
+    return bestExisting
+      ? { coord: { col: bestCol, row: bestRow }, range: incoming, existing: bestExisting }
+      : null
+  }
+
+  private forEachRowCandidate(
+    startRow: number,
+    endRow: number,
+    includeSmall: boolean,
+    visit: (range: CellRange) => void,
+  ): void {
+    const startBucket = bucketOfRow(startRow)
+    const endBucket = bucketOfRow(endRow)
+    if (includeSmall && endBucket - startBucket + 1 > this.ranges.length) {
+      for (const range of this.ranges) {
+        visit(range)
+      }
+      return
+    }
+    const seen = startBucket === endBucket ? null : new Set<CellRange>()
+    if (includeSmall) {
+      collectFromBuckets(this.smallBuckets, startBucket, endBucket, seen, visit)
+    }
+    if (this.hasLarge) {
+      collectFromBuckets(this.largeBuckets, startBucket, endBucket, seen, visit)
+      for (const range of this.hugeMerges) {
+        if (seen) {
+          if (seen.has(range)) continue
+          seen.add(range)
+        }
+        visit(range)
+      }
+    }
+  }
+}
+
+function buildMergeIndex(
+  ranges: readonly CellRange[],
+  throwOnConflict: boolean,
+): { index: SparseMergeIndex; conflicts: MergeConflict[] } {
+  const index = new SparseMergeIndex()
+  const conflicts: MergeConflict[] = []
+  for (const raw of ranges) {
+    const range = normalizeCellRange(raw)
+    if (isSingleCell(range)) {
+      continue
+    }
+    const conflict = index.findFirstConflict(range)
+    if (conflict) {
+      if (throwOnConflict) {
+        throw new MergeOverlapError(conflict)
+      }
+      conflicts.push(conflict)
+      continue
+    }
+    index.add(range)
+  }
+  return { index, conflicts }
+}
+
 /**
  * 格坐标数值 key（全仓唯一定义）：`row * 2^21 + col`，替代模板串 key
  * 消除逐格索引的字符串分配。合并区索引（本文件）与场景/媒体格索引
@@ -91,36 +340,8 @@ export interface SanitizedMerges {
  * 与 MergeCellMap 同一套归一化语义。宿主在写快照前可用它自救脏数据。
  */
 export function sanitizeMerges(ranges: readonly CellRange[] = []): SanitizedMerges {
-  const kept: CellRange[] = []
-  const conflicts: MergeConflict[] = []
-  const byCoord = new Map<number, CellRange>()
-  for (const raw of ranges) {
-    const range = normalizeCellRange(raw)
-    if (isSingleCell(range)) {
-      continue
-    }
-    let conflict: MergeConflict | null = null
-    scan: for (let row = range.startRow; row <= range.endRow; row++) {
-      for (let col = range.startCol; col <= range.endCol; col++) {
-        const existing = byCoord.get(cellKey(col, row))
-        if (existing) {
-          conflict = { coord: { col, row }, range, existing }
-          break scan
-        }
-      }
-    }
-    if (conflict) {
-      conflicts.push(conflict)
-      continue
-    }
-    for (let row = range.startRow; row <= range.endRow; row++) {
-      for (let col = range.startCol; col <= range.endCol; col++) {
-        byCoord.set(cellKey(col, row), range)
-      }
-    }
-    kept.push(range)
-  }
-  return { ranges: kept, conflicts }
+  const { index, conflicts } = buildMergeIndex(ranges, false)
+  return { ranges: index.ranges, conflicts }
 }
 
 const warnedMergeConflicts = new Set<string>()
@@ -156,36 +377,31 @@ export function warnMergeConflicts(conflicts: readonly MergeConflict[], source: 
 export class MergeCellMap {
   /** 归一化后的合并区列表 */
   readonly ranges: readonly CellRange[]
-  private readonly byCoord = new Map<number, CellRange>()
+  private readonly index: SparseMergeIndex
 
   constructor(ranges: readonly CellRange[] = []) {
-    const normalized: CellRange[] = []
-    for (const raw of ranges) {
-      const range = normalizeCellRange(raw)
-      if (isSingleCell(range)) {
-        continue
-      }
-      for (let row = range.startRow; row <= range.endRow; row++) {
-        for (let col = range.startCol; col <= range.endCol; col++) {
-          const key = cellKey(col, row)
-          if (this.byCoord.has(key)) {
-            throw new MergeOverlapError({
-              coord: { col, row },
-              range,
-              existing: this.byCoord.get(key)!,
-            })
-          }
-          this.byCoord.set(key, range)
-        }
-      }
-      normalized.push(range)
-    }
-    this.ranges = normalized
+    const { index } = buildMergeIndex(ranges, true)
+    this.index = index
+    this.ranges = index.ranges
+  }
+
+  get size(): number {
+    return this.ranges.length
   }
 
   /** 覆盖 (col, row) 的合并区；未覆盖返回 null */
   rangeAt(col: number, row: number): CellRange | null {
-    return this.byCoord.get(cellKey(col, row)) ?? null
+    return this.index.rangeAt(col, row)
+  }
+
+  /** 查询与闭区间边界 [minCol..maxCol, minRow..maxRow] 相交的合并区列表 */
+  rangesInBounds(
+    minCol: number,
+    minRow: number,
+    maxCol: number,
+    maxRow: number,
+  ): readonly CellRange[] {
+    return this.index.rangesInBounds(minCol, minRow, maxCol, maxRow)
   }
 
   /** (col, row) 所属合并区的主格（左上角）坐标；未被任何合并区覆盖返回 null */

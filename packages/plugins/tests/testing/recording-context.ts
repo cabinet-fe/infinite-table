@@ -69,7 +69,7 @@ export class RecordingContext implements RenderContext {
 
   clearRect(): void {}
 
-  fillRect(): void {}
+  fillRect(_x: number, _y: number, _width: number, _height: number): void {}
 
   fillText(text: string, x: number, y: number): void {
     this.texts.push({ text, x, y })

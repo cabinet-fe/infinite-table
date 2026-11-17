@@ -2,7 +2,14 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { evaluate, isFormulaError, type FormulaError, type FormulaResolver } from '../src/index'
+import {
+  evaluate,
+  evaluateAst,
+  isFormulaError,
+  parseFormula,
+  type FormulaError,
+  type FormulaResolver,
+} from '../src/index'
 import { EMPTY_RESOLVER, createFakeResolver } from './testing/fake-resolver'
 
 /** 断言错误码 */
@@ -156,5 +163,13 @@ describe('evaluate：引用与跨表', () => {
     const resolver = createFakeResolver({ Sheet1: { A1: 1, B1: 2, B2: 3 } })
     expect(evaluate('SUM(A1:B2)', resolver)).toBe(6)
     expect(evaluate('COUNT(A1:B2)', resolver)).toBe(3)
+  })
+
+  it('evaluateAst / evaluate(ast) 直接求值预解析 AST', () => {
+    const resolver = createFakeResolver({ Main: { A1: 10, B1: 20 } }, 'Main')
+    const ast = parseFormula('A1+B1*2')
+    expect(evaluateAst(ast, resolver, { sheet: 'Main' })).toBe(50)
+    expect(evaluate(ast, resolver, { sheet: 'Main' })).toBe(50)
+    expectError(evaluateAst(parseFormula('A1:B1'), resolver), '#VALUE!')
   })
 })

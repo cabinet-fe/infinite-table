@@ -1,8 +1,9 @@
 // 查找与引用函数集：VLOOKUP / HLOOKUP / MATCH / INDEX / CHOOSE / ROW / COLUMN。
 //
 // 查找类函数不走「区域 → 稀疏数组」的参数形态（稀疏数组丢失位置信息），
-// 而是按 lazy 参数的 AST 引用节点取区域几何，经 ctx.readCell 逐格读取
-// （空格为 null，错误传播）。
+// 而是按 lazy 参数的 AST 引用节点取区域几何：
+// - 精确匹配在持有 FormulaLookupCache 时按首列/首行懒构建哈希索引（O(N) 建表、O(1) 命中）；
+// - 无缓存或近似匹配按流式/稀疏向量逐格读取，避免分配整列 O(N) 临时数组。
 
 import type { AstNode } from '../ast'
 import { formulaError, isFormulaError, type FormulaError } from '../errors'
@@ -14,6 +15,11 @@ import {
   type ScalarValue,
 } from '../evaluator'
 import type { RangeRef } from '../address'
+import {
+  buildLookupVectorKey,
+  type ExactLookupIndex,
+  type FormulaLookupCache,
+} from '../lookup-cache'
 import { registerFormulaFunction } from './registry'
 
 /** 引用参数（cell / range 节点）→ 目标区域（sheet 缺省保持 undefined，由 resolver 路由缺省表）；非引用节点 → null */
@@ -36,32 +42,118 @@ function cellAt(sheet: string | undefined, col: number, row: number) {
   return { sheet, col, row, colAbsolute: false, rowAbsolute: false }
 }
 
-/** 读取区域首列（column）/ 首行（row）的一维向量，保留位置语义（空格为 null）；错误传播 */
-function readVector(
+/** 补齐缺省表名（供 readSparseVector 路由当前公式所在表） */
+function fillRefSheet(ref: RangeRef, sheet: string | undefined): RangeRef {
+  return sheet === undefined || ref.sheet === sheet ? ref : { ...ref, sheet }
+}
+
+/** 查找向量长度 */
+function vectorLength(ref: RangeRef, along: 'column' | 'row'): number {
+  return along === 'column' ? ref.endRow - ref.startRow + 1 : ref.endCol - ref.startCol + 1
+}
+
+/** 按 0 基偏移读取查找向量的单格值（空格为 null） */
+function readVectorCell(
   ctx: FormulaEvalContext,
   sheet: string | undefined,
   ref: RangeRef,
   along: 'column' | 'row',
-): ScalarValue[] | FormulaError {
-  const values: ScalarValue[] = []
-  if (along === 'column') {
-    for (let row = ref.startRow; row <= ref.endRow; row++) {
-      const value = ctx.readCell(cellAt(sheet, ref.startCol, row))
-      if (isFormulaError(value)) {
-        return value
-      }
-      values.push(value)
-    }
-  } else {
-    for (let col = ref.startCol; col <= ref.endCol; col++) {
-      const value = ctx.readCell(cellAt(sheet, col, ref.startRow))
-      if (isFormulaError(value)) {
-        return value
-      }
-      values.push(value)
+  offset: number,
+): ScalarValue | FormulaError {
+  return along === 'column'
+    ? ctx.readCell(cellAt(sheet, ref.startCol, ref.startRow + offset))
+    : ctx.readCell(cellAt(sheet, ref.startCol + offset, ref.startRow))
+}
+
+/** Excel 通配符判断（* 任意串 / ? 单字符 / ~ 转义符） */
+const HAS_WILDCARD_RE = /[*?~]/
+const REGEXP_SPECIAL_RE = /[.*+?^${}()|[\]\\]/g
+
+/** 将 Excel 大小写不敏感通配符模式编译为匹配大写候选文本的正则 */
+function compileWildcardRegex(pattern: string): RegExp {
+  const upper = pattern.toUpperCase()
+  let source = '^'
+  for (let i = 0; i < upper.length; i++) {
+    const ch = upper[i]!
+    if (ch === '~' && i + 1 < upper.length) {
+      source += upper[++i]!.replace(REGEXP_SPECIAL_RE, '\\$&')
+    } else if (ch === '*') {
+      source += '[\\s\\S]*'
+    } else if (ch === '?') {
+      source += '[\\s\\S]'
+    } else {
+      source += ch.replace(REGEXP_SPECIAL_RE, '\\$&')
     }
   }
-  return values
+  source += '$'
+  return new RegExp(source)
+}
+
+/** 构造无缓存场景的精确匹配谓词（严守类型区分与文本大小写不敏感） */
+function createExactPredicate(
+  key: Exclude<ScalarValue, null>,
+  isWildcard: boolean,
+): (candidate: ScalarValue) => boolean {
+  if (isWildcard && typeof key === 'string') {
+    const regex = compileWildcardRegex(key)
+    return (candidate) => typeof candidate === 'string' && regex.test(candidate.toUpperCase())
+  }
+  if (typeof key === 'string') {
+    const upper = key.toUpperCase()
+    return (candidate) => typeof candidate === 'string' && candidate.toUpperCase() === upper
+  }
+  return (candidate) => typeof candidate === typeof key && candidate === key
+}
+
+/** 懒构建并缓存首列/首行的精确查找索引（首次出现优先） */
+function getOrBuildExactIndex(
+  cache: FormulaLookupCache,
+  ctx: FormulaEvalContext,
+  sheet: string | undefined,
+  ref: RangeRef,
+  along: 'column' | 'row',
+): ExactLookupIndex {
+  const cacheKey = buildLookupVectorKey(sheet, ref, along)
+  const cached = cache.getExactIndex(cacheKey)
+  if (cached !== undefined) {
+    return cached
+  }
+  const map = new Map<string | number | boolean, number>()
+  let error: FormulaError | undefined
+  const record = (offset: number, value: ScalarValue | FormulaError): boolean => {
+    if (isFormulaError(value)) {
+      error = value
+      return false
+    }
+    if (value === null) {
+      return true
+    }
+    const normalized = typeof value === 'string' ? value.toUpperCase() : value
+    if (!map.has(normalized)) {
+      map.set(normalized, offset)
+    }
+    return true
+  }
+
+  const sparse = ctx.readSparseVector?.(fillRefSheet(ref, sheet), along)
+  if (sparse !== undefined) {
+    for (const [offset, value] of sparse) {
+      if (!record(offset, value)) {
+        break
+      }
+    }
+  } else {
+    const length = vectorLength(ref, along)
+    for (let offset = 0; offset < length; offset++) {
+      if (!record(offset, readVectorCell(ctx, sheet, ref, along, offset))) {
+        break
+      }
+    }
+  }
+
+  const index: ExactLookupIndex = error ? { map, error } : { map }
+  cache.setExactIndex(cacheKey, index)
+  return index
 }
 
 /** Excel 匹配比较：同类型按类型规则（文本大小写不敏感）；类型不同或含空格 → null（不参与匹配） */
@@ -83,49 +175,114 @@ function compareForMatch(left: ScalarValue, right: ScalarValue): number | null {
   return null
 }
 
-/** 精确匹配：首个相等项的 0 基下标，未命中 -1 */
-function exactMatchIndex(vector: readonly ScalarValue[], lookup: ScalarValue): number {
-  for (let index = 0; index < vector.length; index++) {
-    if (compareForMatch(vector[index]!, lookup) === 0) {
-      return index
+/** 精确匹配（支持批内哈希缓存、通配符与流式早停）：返回 0 基下标，未命中 -1，遇错误传播 */
+function findExactMatch(
+  ctx: FormulaEvalContext,
+  sheet: string | undefined,
+  ref: RangeRef,
+  along: 'column' | 'row',
+  key: ScalarValue,
+): number | FormulaError {
+  if (key === null) {
+    return -1
+  }
+  const isWildcard = typeof key === 'string' && HAS_WILDCARD_RE.test(key)
+  if (ctx.lookupCache) {
+    const index = getOrBuildExactIndex(ctx.lookupCache, ctx, sheet, ref, along)
+    if (isWildcard) {
+      const regex = compileWildcardRegex(key)
+      for (const [candidate, offset] of index.map) {
+        if (typeof candidate === 'string' && regex.test(candidate)) {
+          return offset
+        }
+      }
+      return index.error ?? -1
+    }
+    const normalized = typeof key === 'string' ? key.toUpperCase() : key
+    const hit = index.map.get(normalized)
+    if (hit !== undefined) {
+      return hit
+    }
+    return index.error ?? -1
+  }
+
+  const matches = createExactPredicate(key, isWildcard)
+  const sparse = ctx.readSparseVector?.(fillRefSheet(ref, sheet), along)
+  if (sparse !== undefined) {
+    for (const [offset, value] of sparse) {
+      if (isFormulaError(value)) {
+        return value
+      }
+      if (matches(value)) {
+        return offset
+      }
+    }
+    return -1
+  }
+  const length = vectorLength(ref, along)
+  for (let offset = 0; offset < length; offset++) {
+    const value = readVectorCell(ctx, sheet, ref, along, offset)
+    if (isFormulaError(value)) {
+      return value
+    }
+    if (matches(value)) {
+      return offset
     }
   }
   return -1
 }
 
-/** 升序近似：≤ lookup 的最大项的 0 基下标（升序约定下遇首个大于项即停），未命中 -1 */
-function ascendingMatchIndex(vector: readonly ScalarValue[], lookup: ScalarValue): number {
+/**
+ * 近似匹配（流式/稀疏读取，零向量拷贝）：
+ * - descending=false（升序）：≤ key 的最大项 0 基下标（遇首个大于项即停）；
+ * - descending=true（降序）：≥ key 的最小项 0 基下标（遇首个小于项即停）。
+ */
+function findApproximateMatch(
+  ctx: FormulaEvalContext,
+  sheet: string | undefined,
+  ref: RangeRef,
+  along: 'column' | 'row',
+  key: ScalarValue,
+  descending: boolean,
+): number | FormulaError {
+  const stopSign = descending ? -1 : 1
   let best = -1
-  for (let index = 0; index < vector.length; index++) {
-    const compared = compareForMatch(vector[index]!, lookup)
+  const sparse = ctx.readSparseVector?.(fillRefSheet(ref, sheet), along)
+  if (sparse !== undefined) {
+    for (const [offset, value] of sparse) {
+      if (isFormulaError(value)) {
+        return value
+      }
+      const compared = compareForMatch(value, key)
+      if (compared === null) {
+        continue
+      }
+      if (compared === stopSign) {
+        break
+      }
+      best = offset
+    }
+    return best
+  }
+  const length = vectorLength(ref, along)
+  for (let offset = 0; offset < length; offset++) {
+    const value = readVectorCell(ctx, sheet, ref, along, offset)
+    if (isFormulaError(value)) {
+      return value
+    }
+    const compared = compareForMatch(value, key)
     if (compared === null) {
       continue
     }
-    if (compared > 0) {
+    if (compared === stopSign) {
       break
     }
-    best = index
+    best = offset
   }
   return best
 }
 
-/** 降序近似：≥ lookup 的最小项的 0 基下标（降序约定下遇首个小于项即停），未命中 -1 */
-function descendingMatchIndex(vector: readonly ScalarValue[], lookup: ScalarValue): number {
-  let best = -1
-  for (let index = 0; index < vector.length; index++) {
-    const compared = compareForMatch(vector[index]!, lookup)
-    if (compared === null) {
-      continue
-    }
-    if (compared < 0) {
-      break
-    }
-    best = index
-  }
-  return best
-}
-
-/** VLOOKUP / HLOOKUP 共用：沿 along 方向扫描首列 / 首行做匹配，取第 index 列 / 行（1 基）的值 */
+/** VLOOKUP / HLOOKUP 共用：沿 along 方向匹配首列 / 首行，取第 index 列 / 行（1 基）的值 */
 function vectorLookup(
   nodes: AstNode[],
   evalNode: (node: AstNode) => EvalValue,
@@ -167,19 +324,21 @@ function vectorLookup(
   if (index > span) {
     return formulaError('#REF!')
   }
-  const vector = readVector(ctx, table.sheet, ref, along)
-  if (isFormulaError(vector)) {
-    return vector
-  }
+  const sheet = table.sheet ?? ctx.currentSheet
   // 空查找值按 0 参与数值匹配（与引擎空格 → 0 的约定一致）
   const key = lookup === null ? 0 : lookup
-  const matched = exact ? exactMatchIndex(vector, key) : ascendingMatchIndex(vector, key)
+  const matched = exact
+    ? findExactMatch(ctx, sheet, ref, along, key)
+    : findApproximateMatch(ctx, sheet, ref, along, key, false)
+  if (isFormulaError(matched)) {
+    return matched
+  }
   if (matched < 0) {
     return formulaError('#N/A')
   }
   return along === 'column'
-    ? ctx.readCell(cellAt(table.sheet, ref.startCol + index - 1, ref.startRow + matched))
-    : ctx.readCell(cellAt(table.sheet, ref.startCol + matched, ref.startRow + index - 1))
+    ? ctx.readCell(cellAt(sheet, ref.startCol + index - 1, ref.startRow + matched))
+    : ctx.readCell(cellAt(sheet, ref.startCol + matched, ref.startRow + index - 1))
 }
 
 registerFormulaFunction('VLOOKUP', {
@@ -258,17 +417,16 @@ registerFormulaFunction('MATCH', {
     if (rows > 1 && cols > 1) {
       return formulaError('#N/A')
     }
-    const vector = readVector(ctx, arrayRef.sheet, arrayRef.ref, rows > 1 ? 'column' : 'row')
-    if (isFormulaError(vector)) {
-      return vector
-    }
+    const along = rows > 1 ? 'column' : 'row'
+    const sheet = arrayRef.sheet ?? ctx.currentSheet
     const key = lookup === null ? 0 : lookup
     const index =
       matchType === 0
-        ? exactMatchIndex(vector, key)
-        : matchType > 0
-          ? ascendingMatchIndex(vector, key)
-          : descendingMatchIndex(vector, key)
+        ? findExactMatch(ctx, sheet, arrayRef.ref, along, key)
+        : findApproximateMatch(ctx, sheet, arrayRef.ref, along, key, matchType < 0)
+    if (isFormulaError(index)) {
+      return index
+    }
     if (index < 0) {
       return formulaError('#N/A')
     }

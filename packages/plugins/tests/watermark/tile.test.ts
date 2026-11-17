@@ -2,13 +2,16 @@
 // 颜色 alpha 预混（globalAlpha 等效）、缺省样式解析与 drawTextWatermark 的
 // 整层绘制序列（translate → rotate → fillText，记录型上下文断言）。
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+import type { RenderCanvas, RenderImageSource } from '@infinitable/render'
 
 import {
   drawTextWatermark,
   resolveWatermarkStyle,
   watermarkFillColor,
   watermarkFont,
+  WatermarkTileCache,
   watermarkTileOrigins,
 } from '../../src/watermark/tile'
 import { RecordingContext } from '../testing/recording-context'
@@ -130,5 +133,179 @@ describe('drawTextWatermark 整层绘制', () => {
     expect(ctx.texts).toEqual([])
     expect(ctx.translates).toEqual([])
     expect(ctx.saveCount).toBe(0)
+  })
+})
+
+/** 支持 createPattern 与记录 fillRect 的测试上下文 */
+class PatternRecordingContext extends RecordingContext {
+  readonly createdPatterns: { image: RenderImageSource; repetition: string | null }[] = []
+  readonly fillRects: { x: number; y: number; width: number; height: number }[] = []
+
+  override fillRect(x: number, y: number, width: number, height: number): void {
+    this.fillRects.push({ x, y, width, height })
+  }
+
+  createPattern(
+    image: RenderImageSource,
+    repetition: 'repeat' | 'repeat-x' | 'repeat-y' | 'no-repeat' | null,
+  ): CanvasPattern | null {
+    this.createdPatterns.push({ image, repetition })
+    return { setTransform() {} } as unknown as CanvasPattern
+  }
+}
+
+describe('WatermarkTileCache 离屏 CanvasPattern 缓存', () => {
+  it('ctx.createPattern + 离屏画布可用时走图案快路径，重绘与 resize 复用同一瓦片不重绘', () => {
+    const offscreenContexts: RecordingContext[] = []
+    let canvasCreates = 0
+    const canvasFactory = (): RenderCanvas => {
+      canvasCreates++
+      const tileCtx = new RecordingContext()
+      offscreenContexts.push(tileCtx)
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => tileCtx,
+      }
+    }
+
+    const cache = new WatermarkTileCache(canvasFactory)
+    const ctx = new PatternRecordingContext()
+    const config = { enabled: true, text: 'wm', fontSize: 10, gapX: 100, gapY: 50 }
+
+    drawTextWatermark(ctx, config, { width: 800, height: 600 }, { cache })
+    expect(canvasCreates).toBe(1)
+    expect(ctx.createdPatterns).toHaveLength(1)
+    expect(ctx.createdPatterns[0]?.repetition).toBe('repeat')
+    expect(ctx.fillRects).toEqual([{ x: 0, y: 0, width: 800, height: 600 }])
+    // 主上下文未退化逐格 fillText；离屏瓦片画布绘制 3×3 周期包裹单元
+    expect(ctx.texts).toHaveLength(0)
+    expect(offscreenContexts[0]?.texts).toHaveLength(9)
+    expect(offscreenContexts[0]?.saveCount).toBe(offscreenContexts[0]?.restoreCount)
+
+    // 同参数重绘 & 视口尺寸变化：直接复用缓存 CanvasPattern 与离屏画布，零重新生成
+    drawTextWatermark(ctx, { ...config }, { width: 1200, height: 900 }, { cache })
+    expect(canvasCreates).toBe(1)
+    expect(ctx.createdPatterns).toHaveLength(1)
+    expect(ctx.fillRects).toEqual([
+      { x: 0, y: 0, width: 800, height: 600 },
+      { x: 0, y: 0, width: 1200, height: 900 },
+    ])
+  })
+
+  it('参数或 DPR 变更使缓存失效并重建瓦片', () => {
+    let canvasCreates = 0
+    const canvasFactory = (): RenderCanvas => {
+      canvasCreates++
+      const tileCtx = new RecordingContext()
+      return { width: 0, height: 0, getContext: () => tileCtx }
+    }
+
+    const cache = new WatermarkTileCache(canvasFactory)
+    const ctx = new PatternRecordingContext()
+    const base = {
+      enabled: true,
+      text: 'wm',
+      fontSize: 14,
+      color: '#000000',
+      rotate: -30,
+      gapX: 160,
+      gapY: 120,
+    }
+
+    drawTextWatermark(ctx, base, { width: 400, height: 300 }, { cache, dpr: 1 })
+    expect(canvasCreates).toBe(1)
+
+    drawTextWatermark(ctx, { ...base, text: 'wm2' }, { width: 400, height: 300 }, { cache, dpr: 1 })
+    expect(canvasCreates).toBe(2)
+
+    drawTextWatermark(
+      ctx,
+      { ...base, text: 'wm2', fontSize: 20 },
+      { width: 400, height: 300 },
+      { cache, dpr: 1 },
+    )
+    expect(canvasCreates).toBe(3)
+
+    drawTextWatermark(
+      ctx,
+      { ...base, text: 'wm2', fontSize: 20, color: '#ff0000' },
+      { width: 400, height: 300 },
+      { cache, dpr: 1 },
+    )
+    expect(canvasCreates).toBe(4)
+
+    drawTextWatermark(
+      ctx,
+      { ...base, text: 'wm2', fontSize: 20, color: '#ff0000', rotate: 15 },
+      { width: 400, height: 300 },
+      { cache, dpr: 1 },
+    )
+    expect(canvasCreates).toBe(5)
+
+    drawTextWatermark(
+      ctx,
+      { ...base, text: 'wm2', fontSize: 20, color: '#ff0000', rotate: 15, gapX: 80 },
+      { width: 400, height: 300 },
+      { cache, dpr: 1 },
+    )
+    expect(canvasCreates).toBe(6)
+
+    drawTextWatermark(
+      ctx,
+      { ...base, text: 'wm2', fontSize: 20, color: '#ff0000', rotate: 15, gapX: 80 },
+      { width: 400, height: 300 },
+      { cache, dpr: 1, offsetX: 12 },
+    )
+    expect(canvasCreates).toBe(7)
+
+    // 模拟支持 DOMMatrix 的高 DPR 宿主环境，验证 DPR 变更触发重建并通过 pattern.setTransform 缩回 CSS 尺寸
+    const FakeDOMMatrix = class {
+      scaleX = 1
+      scaleY = 1
+      scale(x: number, y = x) {
+        this.scaleX = x
+        this.scaleY = y
+        return this
+      }
+    }
+    vi.stubGlobal('DOMMatrix', FakeDOMMatrix)
+    try {
+      drawTextWatermark(
+        ctx,
+        { ...base, text: 'wm2', fontSize: 20, color: '#ff0000', rotate: 15, gapX: 80 },
+        { width: 400, height: 300 },
+        { cache, dpr: 2, offsetX: 12 },
+      )
+      expect(canvasCreates).toBe(8)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('无 createPattern 或离屏 2D 上下文不可用时回落逐格平铺路径', () => {
+    const noPatternCtx = new RecordingContext()
+    drawTextWatermark(
+      noPatternCtx,
+      { enabled: true, text: 'wm', fontSize: 10, gapX: 100, gapY: 50 },
+      { width: 220, height: 60 },
+    )
+    expect(noPatternCtx.texts).toHaveLength(2)
+
+    const nullCanvasCache = new WatermarkTileCache(() => ({
+      width: 0,
+      height: 0,
+      getContext: () => null,
+    }))
+    const fallbackCtx = new PatternRecordingContext()
+    drawTextWatermark(
+      fallbackCtx,
+      { enabled: true, text: 'wm', fontSize: 10, gapX: 100, gapY: 50 },
+      { width: 220, height: 60 },
+      { cache: nullCanvasCache },
+    )
+    expect(fallbackCtx.createdPatterns).toHaveLength(0)
+    expect(fallbackCtx.fillRects).toHaveLength(0)
+    expect(fallbackCtx.texts).toHaveLength(2)
   })
 })

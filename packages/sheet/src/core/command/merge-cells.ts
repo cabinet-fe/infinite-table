@@ -1,4 +1,4 @@
-import { iterateRange, rangesIntersect, type CellRange } from '../address'
+import { rangesIntersect, type CellAddress, type CellRange } from '../address'
 import { cellDataEqual, isEmptyCellData, type CellData } from '../cell-store'
 import type { Sheet } from '../sheet'
 import type { CellStyle } from '../style/types'
@@ -8,52 +8,32 @@ export interface MergeCellsParams {
   range: CellRange
 }
 
-/** 收集合并区域边界上的有效边框并合成到基础样式上 */
+/** 从已按行主序排列的实存格中合成合并区四边外边框到基础样式 */
 function synthesizeMergeBorder(
   sheet: Sheet,
   finalRange: CellRange,
+  entries: readonly [CellAddress, CellData][],
   baseStyle?: CellStyle,
 ): CellStyle | undefined {
   const mergedBorder = { ...baseStyle?.border }
-
-  // top
-  if (!mergedBorder.top) {
-    for (let c = finalRange.start.col; c <= finalRange.end.col; c++) {
-      const edge = sheet.getCellStyle({ row: finalRange.start.row, col: c })?.border?.top
-      if (edge) {
-        mergedBorder.top = edge
-        break
-      }
+  for (const [addr, data] of entries) {
+    if (data.s == null) continue
+    const border = sheet.stylePool.get(data.s)?.border
+    if (!border) continue
+    if (!mergedBorder.top && addr.row === finalRange.start.row && border.top) {
+      mergedBorder.top = border.top
     }
-  }
-  // bottom
-  if (!mergedBorder.bottom) {
-    for (let c = finalRange.start.col; c <= finalRange.end.col; c++) {
-      const edge = sheet.getCellStyle({ row: finalRange.end.row, col: c })?.border?.bottom
-      if (edge) {
-        mergedBorder.bottom = edge
-        break
-      }
+    if (!mergedBorder.bottom && addr.row === finalRange.end.row && border.bottom) {
+      mergedBorder.bottom = border.bottom
     }
-  }
-  // left
-  if (!mergedBorder.left) {
-    for (let r = finalRange.start.row; r <= finalRange.end.row; r++) {
-      const edge = sheet.getCellStyle({ row: r, col: finalRange.start.col })?.border?.left
-      if (edge) {
-        mergedBorder.left = edge
-        break
-      }
+    if (!mergedBorder.left && addr.col === finalRange.start.col && border.left) {
+      mergedBorder.left = border.left
     }
-  }
-  // right
-  if (!mergedBorder.right) {
-    for (let r = finalRange.start.row; r <= finalRange.end.row; r++) {
-      const edge = sheet.getCellStyle({ row: r, col: finalRange.end.col })?.border?.right
-      if (edge) {
-        mergedBorder.right = edge
-        break
-      }
+    if (!mergedBorder.right && addr.col === finalRange.end.col && border.right) {
+      mergedBorder.right = border.right
+    }
+    if (mergedBorder.top && mergedBorder.bottom && mergedBorder.left && mergedBorder.right) {
+      break
     }
   }
 
@@ -64,9 +44,9 @@ function synthesizeMergeBorder(
 /**
  * 收集单区域合并补丁（MergeCellsCommand 与 MergeCellsBatchCommand 共用，行为一致）：
  * - merge 补丁：解除被包围的既有合并 + 登记新区域（相交取包围盒）
- * - cell 补丁：捕获包围盒内各格 before；值保留规则同 Excel/univer——行主序
- *   第一个有值格的值写入新锚点，其余清空；边框规则：合成区域边界上的外边框
- *   写入新锚点；过滤无实际变化的补丁（如被覆盖格本就为空）
+ * - cell 补丁：通过 entriesInRange 仅扫描区域内实存格（按 (row, col) 升序保证行主序），
+ *   消除十万行级大合并区对空坐标的逐格分配；行主序第一个有值格的值写入新锚点，其余清空；
+ *   边框规则：合成区域边界上的外边框写入新锚点；过滤无实际变化的补丁
  */
 function collectMergeRangePatches(
   sheet: Sheet,
@@ -74,29 +54,43 @@ function collectMergeRangePatches(
 ): { finalRange: CellRange; patches: Patch[] } {
   const { range: finalRange, removed } = sheet.merges.computeMerge(range)
 
-  // 捕获包围盒内各格 before；同时按行主序找出第一个有值格
-  const cellPatches: CellPatch[] = []
+  // entriesInRange 内层遍历 rowMap 为插入序，按 (row, col) 升序重排以严格满足行主序规则
+  const entries = [...sheet.store.entriesInRange(finalRange)]
+  entries.sort((a, b) => a[0].row - b[0].row || a[0].col - b[0].col)
+
   let retained: CellData | undefined
-  let anchorPatch: CellPatch | undefined
-  for (const addr of iterateRange(finalRange)) {
-    const before = sheet.store.getCell(addr)
-    if (before && !retained && !isEmptyCellData(before)) retained = before
-    const patch: CellPatch = { kind: 'cell', addr, before, after: undefined }
-    if (addr.row === finalRange.start.row && addr.col === finalRange.start.col) {
-      anchorPatch = patch
+  let anchorBefore: CellData | undefined
+  const cellPatches: CellPatch[] = []
+  for (const [addr, before] of entries) {
+    if (!retained && !isEmptyCellData(before)) {
+      retained = before
     }
-    cellPatches.push(patch)
+    if (addr.row === finalRange.start.row && addr.col === finalRange.start.col) {
+      anchorBefore = before
+    } else {
+      cellPatches.push({ kind: 'cell', addr, before, after: undefined })
+    }
   }
 
   const baseStyle = retained?.s != null ? sheet.stylePool.get(retained.s) : undefined
-  const finalStyle = synthesizeMergeBorder(sheet, finalRange, baseStyle)
+  const finalStyle = synthesizeMergeBorder(sheet, finalRange, entries, baseStyle)
   let styleId = retained?.s
   if (finalStyle && finalStyle !== baseStyle) {
     styleId = sheet.stylePool.intern(finalStyle)
   }
 
-  if (anchorPatch && (retained || styleId != null)) {
-    anchorPatch.after = { ...retained, ...(styleId != null ? { s: styleId } : {}) }
+  const anchorAfter: CellData | undefined =
+    retained || styleId != null
+      ? { ...retained, ...(styleId != null ? { s: styleId } : {}) }
+      : undefined
+
+  if (!cellDataEqual(anchorBefore, anchorAfter)) {
+    cellPatches.unshift({
+      kind: 'cell',
+      addr: { ...finalRange.start },
+      before: anchorBefore,
+      after: anchorAfter,
+    })
   }
 
   return {
@@ -109,7 +103,7 @@ function collectMergeRangePatches(
         after: false,
       })),
       { kind: 'merge', range: finalRange, before: false, after: true },
-      ...cellPatches.filter((patch) => !cellDataEqual(patch.before, patch.after)),
+      ...cellPatches,
     ],
   }
 }

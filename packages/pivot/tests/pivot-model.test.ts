@@ -406,3 +406,164 @@ describe('动态勾选与聚合切换', () => {
     expect(pivot.activeMeasures.map((m) => m.key)).toEqual(['extra-min'])
   })
 })
+
+describe('两阶段架构：零记录重扫与 100k 行性能回归', () => {
+  it('toggleNode / expandAll / collapseAll / setCollapsible / 仅显示属性 updateMeasure 零扫描 records', () => {
+    let elementReads = 0
+    let filterCalls = 0
+    const trappedRecords = new Proxy(RECORDS, {
+      get(target, prop, receiver) {
+        if (prop === 'filter') {
+          return (...args: Parameters<typeof RECORDS.filter>) => {
+            filterCalls++
+            return target.filter(...args)
+          }
+        }
+        if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+          elementReads++
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+
+    const pivot = new PivotModel({
+      dimensions: DIMENSIONS,
+      measures: MEASURES,
+      records: trappedRecords,
+      rowDimensions: ['region', 'product'],
+      columnDimensions: ['channel'],
+    })
+
+    // 阶段 1 单遍扫描：每条记录仅在构造时读取一次，且零 filter 调用
+    expect(elementReads).toBe(RECORDS.length)
+    expect(filterCalls).toBe(0)
+
+    elementReads = 0
+    filterCalls = 0
+
+    expect(pivot.toggleNode(['东'])).toBe(true)
+    expect(pivot.rows.map((r) => `${r.type}:${r.path.join('/')}`)).toEqual([
+      'branch:东',
+      'leaf:西/A',
+      'leaf:西/B',
+      'grand:',
+    ])
+    expect(pivot.getCellValue(2, 2)).toBe(4)
+
+    expect(pivot.collapseAll()).toBe(true)
+    expect(pivot.rows.map((r) => r.type)).toEqual(['branch', 'branch', 'grand'])
+    expect(pivot.expandAll()).toBe(true)
+    expect(pivot.rowCount).toBe(7)
+
+    expect(pivot.setCollapsible(false)).toBe(true)
+    expect(pivot.setCollapsible(true)).toBe(true)
+
+    // 仅改标题与列宽：不重扫 records，表头与列宽即时更新
+    expect(pivot.updateMeasure('qty-sum', { title: '新数量', width: 155 })).toBe(true)
+    expect(pivot.getCellValue(2, 1)).toBe('新数量')
+    expect(pivot.getColumnWidth(2)).toBe(155)
+
+    expect(elementReads).toBe(0)
+    expect(filterCalls).toBe(0)
+
+    // 改 agg 触发阶段 1 重建累加槽
+    expect(pivot.updateMeasure('qty-sum', { agg: 'avg' })).toBe(true)
+    expect(elementReads).toBe(RECORDS.length)
+    expect(filterCalls).toBe(0)
+    expect(pivot.getCellValue(2, 6)).toBeCloseTo(3.5) // (1+3+4+6)/4
+  })
+
+  it('三层嵌套行维度：折叠/展开保持完整 rows、matrix、mergeRanges 语义', () => {
+    const pivot = new PivotModel({
+      dimensions: DIMENSIONS,
+      measures: MEASURES,
+      records: RECORDS,
+      rowDimensions: ['region', 'product', 'channel'],
+      columnDimensions: [],
+    })
+    expect(pivot.rows.map((r) => `${r.type}:${r.path.join('/')}`)).toEqual([
+      'leaf:东/A/线上',
+      'leaf:东/A/线下',
+      'leaf:东/B/线上',
+      'leaf:西/A/线上',
+      'leaf:西/B/线上',
+      'leaf:西/B/线下',
+      'grand:',
+    ])
+
+    // 折叠中间层 [东, A]
+    expect(pivot.toggleNode(['东', 'A'])).toBe(true)
+    expect(pivot.rows.map((r) => `${r.type}:${r.path.join('/')}`)).toEqual([
+      'branch:东/A',
+      'leaf:东/B/线上',
+      'leaf:西/A/线上',
+      'leaf:西/B/线上',
+      'leaf:西/B/线下',
+      'grand:',
+    ])
+    // [东, A] 载体聚合：qty 1+2=3，amount 300
+    expect(pivot.getCellValue(3, 1)).toBe(3)
+    expect(pivot.getCellValue(4, 1)).toBe(300)
+
+    // 折叠顶层 [东] 后，隐藏子孙 [东, A] 不再允许 toggle
+    expect(pivot.toggleNode(['东'])).toBe(true)
+    expect(pivot.toggleNode(['东', 'A'])).toBe(false)
+
+    // 全部收起 → 2 个顶层 branch + 1 grand
+    expect(pivot.collapseAll()).toBe(true)
+    expect(pivot.rows.map((r) => `${r.type}:${r.path.join('/')}`)).toEqual([
+      'branch:东',
+      'branch:西',
+      'grand:',
+    ])
+    // 全部展开恢复 6 leaf + 1 grand
+    expect(pivot.expandAll()).toBe(true)
+    expect(pivot.rows).toHaveLength(7)
+  })
+
+  it('100,000 行数据集：toggleNode / collapseAll / expandAll 在 50ms 内完成', () => {
+    const regions = ['华东', '华北', '华南', '西南', '西北']
+    const products = Array.from({ length: 20 }, (_, i) => `P${String(i).padStart(2, '0')}`)
+    const channels = ['线上', '线下', '渠道A', '渠道B', '直营']
+    const largeRecords: PivotRecord[] = []
+    for (let i = 0; i < 100_000; i++) {
+      largeRecords.push({
+        region: regions[i % regions.length]!,
+        product: products[Math.floor(i / 5) % products.length]!,
+        channel: channels[Math.floor(i / 100) % channels.length]!,
+        qty: (i % 10) + 1,
+        amount: ((i % 10) + 1) * 10,
+        rating: (i % 5) + 1,
+      })
+    }
+
+    const pivot = new PivotModel({
+      dimensions: DIMENSIONS,
+      measures: MEASURES,
+      records: largeRecords,
+      rowDimensions: ['region', 'product', 'channel'],
+      columnDimensions: ['channel'],
+    })
+
+    expect(pivot.rows).toHaveLength(501) // 5 * 20 * 5 leaf + 1 grand
+
+    const t0 = performance.now()
+    expect(pivot.toggleNode(['华东'])).toBe(true)
+    const toggleCost = performance.now() - t0
+    expect(pivot.rows).toHaveLength(402) // 1 branch + 400 leaf + 1 grand
+
+    const t1 = performance.now()
+    expect(pivot.collapseAll()).toBe(true)
+    const collapseCost = performance.now() - t1
+    expect(pivot.rows).toHaveLength(6) // 5 branch + 1 grand
+
+    const t2 = performance.now()
+    expect(pivot.expandAll()).toBe(true)
+    const expandCost = performance.now() - t2
+    expect(pivot.rows).toHaveLength(501)
+
+    expect(toggleCost).toBeLessThan(50)
+    expect(collapseCost).toBeLessThan(50)
+    expect(expandCost).toBeLessThan(50)
+  })
+})

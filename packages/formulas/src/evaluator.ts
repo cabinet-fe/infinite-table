@@ -13,6 +13,7 @@ import type { CellRef, RangeRef } from './address'
 import type { AstNode, BinaryOperator } from './ast'
 import { formulaError, isFormulaError, type FormulaError } from './errors'
 import { invokeFormulaFunction, type FormulaFunctionOverrides } from './functions/registry'
+import type { FormulaLookupCache } from './lookup-cache'
 import { parseFormula } from './parser'
 import { FormulaParseError } from './tokenizer'
 
@@ -32,16 +33,23 @@ export interface FormulaResolver {
   cell(ref: CellRef): unknown
   /** 读区域：先行后列展开（稀疏语义由宿主决定，建议空格不进数组） */
   range(ref: RangeRef): unknown[]
+  /**
+   * 可选稀疏向量读取（查找函数优化钩子）：按列或行读取首列/首行的非空单元格，
+   * 返回按 0 基偏移升序排列的 `[offset, rawValue]` 列表；未提供时回退逐格 `cell()`。
+   */
+  sparseVector?(ref: RangeRef, along: 'column' | 'row'): Array<readonly [number, unknown]>
 }
 
-/** evaluate 的可选上下文 */
-interface EvaluateOptions {
+/** evaluate / evaluateAst 的可选上下文 */
+export interface FormulaEvaluateOptions {
   /** 公式所在表名：填入缺省 sheet 的引用后传给 resolver（缺省保持 undefined，由 resolver 自定） */
   sheet?: string
   /** 公式所在格（ROW()/COLUMN() 省参语义）；缺省 { col: 0, row: 0 } */
   cell?: { col: number; row: number }
   /** 实例函数集：宿主注入的求值覆盖集，查询先于全局注册表（未命中回落全局） */
   functions?: FormulaFunctionOverrides
+  /** 批内查找索引缓存：供 VLOOKUP / HLOOKUP / MATCH 精确查找复用首列/首行索引 */
+  lookupCache?: FormulaLookupCache
 }
 
 /** 求值上下文（函数 lazy 实现经它回读单元格/区域） */
@@ -50,10 +58,17 @@ export interface FormulaEvalContext {
   readonly currentSheet: string | undefined
   /** 公式所在格地址（0 基） */
   readonly currentCell: { col: number; row: number }
+  /** 可选批内查找索引缓存 */
+  readonly lookupCache?: FormulaLookupCache
   /** 读取单格（normalize 后；resolver 抛错 → #REF!） */
   readCell(ref: CellRef): ScalarValue | FormulaError
   /** 读取区域（逐项 normalize；resolver 抛错 → #REF!） */
   readRange(ref: RangeRef): (ScalarValue | FormulaError)[] | FormulaError
+  /** 可选稀疏向量读取（按列/行返回 [0 基偏移, 归一化值] 升序列表；未实现返回 undefined） */
+  readSparseVector?(
+    ref: RangeRef,
+    along: 'column' | 'row',
+  ): Array<readonly [number, ScalarValue | FormulaError]> | undefined
   /** 调用函数（名称未知 → #NAME?；参数个数非法 → #VALUE!；ctx 透传给函数实现） */
   callFunction(
     name: string,
@@ -218,8 +233,8 @@ function typeRank(type: string): number {
 
 const COMPARISON_OPS = new Set(['=', '<>', '<', '<=', '>', '>='])
 
-/** AST 求值 */
-function evaluateAst(node: AstNode, ctx: FormulaEvalContext): EvalValue {
+/** AST 节点求值 */
+function evalAstNode(node: AstNode, ctx: FormulaEvalContext): EvalValue {
   switch (node.kind) {
     case 'number':
     case 'string':
@@ -234,14 +249,14 @@ function evaluateAst(node: AstNode, ctx: FormulaEvalContext): EvalValue {
     case 'range':
       return ctx.readRange(fillRangeSheet(node.ref, ctx))
     case 'unary': {
-      const num = coerceToNumber(evaluateAst(node.operand, ctx))
+      const num = coerceToNumber(evalAstNode(node.operand, ctx))
       if (isFormulaError(num)) {
         return num
       }
       return node.op === '-' ? -num : num
     }
     case 'percent': {
-      const num = coerceToNumber(evaluateAst(node.operand, ctx))
+      const num = coerceToNumber(evalAstNode(node.operand, ctx))
       if (isFormulaError(num)) {
         return num
       }
@@ -250,7 +265,7 @@ function evaluateAst(node: AstNode, ctx: FormulaEvalContext): EvalValue {
     case 'binary':
       return evaluateBinary(node.op, node.left, node.right, ctx)
     case 'call':
-      return ctx.callFunction(node.name, node.args, (arg) => evaluateAst(arg, ctx), ctx)
+      return ctx.callFunction(node.name, node.args, (arg) => evalAstNode(arg, ctx), ctx)
   }
 }
 
@@ -275,11 +290,11 @@ function evaluateBinary(
   rightNode: AstNode,
   ctx: FormulaEvalContext,
 ): EvalValue {
-  const left = evaluateAst(leftNode, ctx)
+  const left = evalAstNode(leftNode, ctx)
   if (isFormulaError(left)) {
     return left
   }
-  const right = evaluateAst(rightNode, ctx)
+  const right = evalAstNode(rightNode, ctx)
   if (isFormulaError(right)) {
     return right
   }
@@ -352,10 +367,14 @@ function evaluateBinary(
 }
 
 /** 由 resolver 构造求值上下文 */
-function createContext(resolver: FormulaResolver, options: EvaluateOptions): FormulaEvalContext {
+function createContext(
+  resolver: FormulaResolver,
+  options: FormulaEvaluateOptions,
+): FormulaEvalContext {
   const ctx: FormulaEvalContext = {
     currentSheet: options.sheet,
     currentCell: options.cell ?? { col: 0, row: 0 },
+    lookupCache: options.lookupCache,
     readCell(ref) {
       try {
         return normalizeCellValue(resolver.cell(ref))
@@ -370,6 +389,17 @@ function createContext(resolver: FormulaResolver, options: EvaluateOptions): For
         return formulaError('#REF!')
       }
     },
+    readSparseVector: resolver.sparseVector
+      ? (ref, along) => {
+          try {
+            return resolver.sparseVector!(ref, along).map(
+              ([offset, value]) => [offset, normalizeCellValue(value)] as const,
+            )
+          } catch {
+            return [[0, formulaError('#REF!')]]
+          }
+        }
+      : undefined,
     callFunction(name, nodes, evalNode, fnCtx) {
       return invokeFormulaFunction(name, nodes, evalNode, fnCtx ?? ctx, options.functions)
     },
@@ -378,14 +408,33 @@ function createContext(resolver: FormulaResolver, options: EvaluateOptions): For
 }
 
 /**
- * 求值公式文本（不含前导 '='）。
+ * 直接求值预解析 AST（免重复解析开销；区域作为最终结果 → #VALUE!）。
+ */
+export function evaluateAst(
+  ast: AstNode,
+  resolver: FormulaResolver,
+  options: FormulaEvaluateOptions = {},
+): number | string | boolean | FormulaError {
+  const result = evalAstNode(ast, createContext(resolver, options))
+  if (Array.isArray(result)) {
+    return formulaError('#VALUE!')
+  }
+  // 空格引用作为终值按 Excel 观感显示为 0
+  return result === null ? 0 : result
+}
+
+/**
+ * 求值公式文本（不含前导 '='）或预解析 AST。
  * 解析失败 → #ERROR!；区域作为最终结果（非函数参数）→ #VALUE!（v1 不做数组公式）。
  */
 export function evaluate(
-  formula: string,
+  formula: string | AstNode,
   resolver: FormulaResolver,
-  options: EvaluateOptions = {},
+  options: FormulaEvaluateOptions = {},
 ): number | string | boolean | FormulaError {
+  if (typeof formula !== 'string') {
+    return evaluateAst(formula, resolver, options)
+  }
   let ast: AstNode
   try {
     ast = parseFormula(formula)
@@ -395,10 +444,5 @@ export function evaluate(
     }
     throw error
   }
-  const result = evaluateAst(ast, createContext(resolver, options))
-  if (Array.isArray(result)) {
-    return formulaError('#VALUE!')
-  }
-  // 空格引用作为终值按 Excel 观感显示为 0
-  return result === null ? 0 : result
+  return evaluateAst(ast, resolver, options)
 }

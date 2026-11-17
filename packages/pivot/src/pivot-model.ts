@@ -51,29 +51,171 @@ function dimensionValue(raw: unknown): string {
   return EMPTY_DIMENSION_VALUE
 }
 
-/** 聚合：空集 count/sum 为 0，avg/min/max 无值（显示层出空） */
-function aggregate(
-  records: readonly PivotRecord[],
-  field: string,
+/** 预聚合累加槽布局：[0]=记录数，之后每度量 4 个槽位 [numCount, sum, min, max] */
+const ACC_STRIDE = 4
+
+/** 行维度树节点：阶段 1 单遍扫描构建，阶段 2 按折叠态 DFS 展平 */
+export interface PivotTreeNode {
+  /** 节点路径键（以 \u0000 连接） */
+  key: string
+  /** 行维度路径（根节点为空数组） */
+  path: readonly string[]
+  /** 树深度（0 基；根节点为 -1） */
+  depth: number
+  /** 当前层维度值（根节点为空串） */
+  label: string
+  /** 子节点序列（阶段 1 构建后按维度值码点序排列） */
+  children: PivotTreeNode[]
+  /** 可折叠 branch 节点键（非最深层且 depth >= 0 时非空，最深层与根为 null） */
+  branchKey: string | null
+  /** 预聚合累加槽（按列叶子 rawColId 索引） */
+  accumulators: Map<number, Float64Array>
+}
+
+/** 阶段 1 构建期的临时树节点（挂载子节点查找表，构建后按码点序冻结到 children） */
+interface BuildTreeNode extends PivotTreeNode {
+  childrenMap: Map<string, BuildTreeNode>
+  children: BuildTreeNode[]
+}
+
+/** 阶段 1 构建期的列维度前缀树节点 */
+interface ColTrieNode {
+  children: Map<string, ColTrieNode>
+  rawId: number
+}
+
+/** 创建空累加槽（min 初始化为 +∞、max 初始化为 -∞） */
+function createAccumulatorSlot(measureCount: number): Float64Array {
+  const slot = new Float64Array(1 + measureCount * ACC_STRIDE)
+  for (let m = 0; m < measureCount; m++) {
+    const offset = 1 + m * ACC_STRIDE
+    slot[offset + 2] = Number.POSITIVE_INFINITY
+    slot[offset + 3] = Number.NEGATIVE_INFINITY
+  }
+  return slot
+}
+
+/** 单条记录累加进槽位（阶段 1 单遍扫描内调用） */
+function accumulateRecord(
+  slot: Float64Array,
+  record: PivotRecord,
+  measures: readonly PivotMeasure[],
+): void {
+  slot[0] = slot[0]! + 1
+  for (let m = 0; m < measures.length; m++) {
+    const measure = measures[m]!
+    if (measure.agg === 'count') continue
+    const value = record[measure.field]
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    const offset = 1 + m * ACC_STRIDE
+    slot[offset] = slot[offset]! + 1
+    slot[offset + 1] = slot[offset + 1]! + value
+    if (value < slot[offset + 2]!) slot[offset + 2] = value
+    if (value > slot[offset + 3]!) slot[offset + 3] = value
+  }
+}
+
+/** 子节点累加槽向上归并到父节点（阶段 1 自底向上汇总用） */
+function mergeAccumulatorSlot(
+  target: Float64Array,
+  source: Float64Array,
+  measureCount: number,
+): void {
+  target[0] = target[0]! + source[0]!
+  for (let m = 0; m < measureCount; m++) {
+    const offset = 1 + m * ACC_STRIDE
+    const srcNumCount = source[offset]!
+    if (srcNumCount === 0) continue
+    target[offset] = target[offset]! + srcNumCount
+    target[offset + 1] = target[offset + 1]! + source[offset + 1]!
+    const srcMin = source[offset + 2]!
+    if (srcMin < target[offset + 2]!) target[offset + 2] = srcMin
+    const srcMax = source[offset + 3]!
+    if (srcMax > target[offset + 3]!) target[offset + 3] = srcMax
+  }
+}
+
+/** 从预聚合累加槽读取指定度量的最终聚合值（空集 count/sum 为 0，avg/min/max 为 undefined） */
+function resolveAccumulatorValue(
+  slot: Float64Array | undefined,
+  measureIndex: number,
   agg: PivotMeasure['agg'],
 ): number | undefined {
-  if (agg === 'count') return records.length
-  let sum = 0
-  let count = 0
-  let min = Number.POSITIVE_INFINITY
-  let max = Number.NEGATIVE_INFINITY
-  for (const record of records) {
-    const value = record[field]
-    if (typeof value !== 'number' || !Number.isFinite(value)) continue
-    sum += value
-    count++
-    if (value < min) min = value
-    if (value > max) max = value
-  }
+  if (agg === 'count') return slot ? slot[0]! : 0
+  if (!slot) return agg === 'sum' ? 0 : undefined
+  const offset = 1 + measureIndex * ACC_STRIDE
+  const numCount = slot[offset]!
+  const sum = slot[offset + 1]!
   if (agg === 'sum') return sum
-  if (count === 0) return undefined
-  if (agg === 'avg') return sum / count
-  return agg === 'min' ? min : max
+  if (numCount === 0) return undefined
+  if (agg === 'avg') return sum / numCount
+  return agg === 'min' ? slot[offset + 2]! : slot[offset + 3]!
+}
+
+/** 将节点预聚合累加槽投影为该可见行的数据列数组 */
+function materializeRowValues(
+  node: PivotTreeNode,
+  colLeafRawIds: readonly number[],
+  measures: readonly PivotMeasure[],
+): (number | undefined)[] {
+  const values: (number | undefined)[] = []
+  for (let c = 0; c < colLeafRawIds.length; c++) {
+    const slot = node.accumulators.get(colLeafRawIds[c]!)
+    for (let m = 0; m < measures.length; m++) {
+      values.push(resolveAccumulatorValue(slot, m, measures[m]!.agg))
+    }
+  }
+  return values
+}
+
+/** 节点维度值码点序比较（与 [...keys].sort() 一致） */
+function compareNodeLabel(a: PivotTreeNode, b: PivotTreeNode): number {
+  return a.label < b.label ? -1 : a.label > b.label ? 1 : 0
+}
+
+/** 列维度前缀树 DFS 展开为码点序叶子路径及对应的 rawColId */
+function collectSortedColLeaves(
+  node: ColTrieNode,
+  prefix: string[],
+  outPaths: string[][],
+  outRawIds: number[],
+): void {
+  if (node.children.size === 0) {
+    if (node.rawId >= 0) {
+      outPaths.push(prefix)
+      outRawIds.push(node.rawId)
+    }
+    return
+  }
+  const keys = [...node.children.keys()].sort()
+  for (const key of keys) {
+    collectSortedColLeaves(node.children.get(key)!, [...prefix, key], outPaths, outRawIds)
+  }
+}
+
+/** 阶段 1 收尾：按码点序整理子节点、收集 branchKeys 并自底向上归并累加槽 */
+function finalizeTreeNode(
+  node: BuildTreeNode,
+  measureCount: number,
+  branchKeys: Set<string>,
+): void {
+  if (node.branchKey !== null) {
+    branchKeys.add(node.branchKey)
+  }
+  if (node.childrenMap.size === 0) return
+  const children = [...node.childrenMap.values()].sort(compareNodeLabel)
+  node.children = children
+  for (const child of children) {
+    finalizeTreeNode(child, measureCount, branchKeys)
+    for (const [rawColId, childSlot] of child.accumulators) {
+      let parentSlot = node.accumulators.get(rawColId)
+      if (!parentSlot) {
+        parentSlot = createAccumulatorSlot(measureCount)
+        node.accumulators.set(rawColId, parentSlot)
+      }
+      mergeAccumulatorSlot(parentSlot, childSlot, measureCount)
+    }
+  }
 }
 
 /** 去重且保持首现顺序（行/列维度与度量序列按调用方顺序生效，不回池序） */
@@ -83,7 +225,11 @@ function dedupe(keys: readonly string[]): string[] {
 
 /** 两路径前 length 级一致（length ≤ 较短路径长度时才可能为 true） */
 function samePathPrefix(a: readonly string[], b: readonly string[], length: number): boolean {
-  return a.length >= length && b.length >= length && a.slice(0, length).every((v, i) => v === b[i])
+  if (a.length < length || b.length < length) return false
+  for (let i = 0; i < length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
@@ -112,6 +258,21 @@ export class PivotModel implements TableModel {
   private matrix: (number | undefined)[][] = []
   /** 合并区（引擎坐标，含表头行偏移；结构变更整体重算） */
   private mergeList: CellRange[] = []
+  /** 阶段 1 产物：列维度叶子路径（码点序）及其对应的累加槽 rawColId */
+  private colLeaves: string[][] = [[]]
+  private colLeafRawIds: number[] = [0]
+  /** 阶段 1 产物：内存行维度树虚拟根节点（其累加槽即 grandTotals） */
+  private rootNode: PivotTreeNode = {
+    key: '',
+    path: [],
+    depth: -1,
+    label: '',
+    children: [],
+    branchKey: null,
+    accumulators: new Map(),
+  }
+  /** 阶段 1 产物：全树可折叠 branch 节点键集合（无视当前折叠态） */
+  private branchKeys = new Set<string>()
 
   constructor(options: {
     dimensions: readonly PivotDimension[]
@@ -136,7 +297,8 @@ export class PivotModel implements TableModel {
     )
     this.showGrandTotal = options.showGrandTotal ?? true
     this.collapsibleEnabled = options.collapsible ?? true
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
   }
 
   // ---- TableModel 数据面（引擎经 ListTableOptions.model 直挂消费；只读模型） ----
@@ -207,7 +369,7 @@ export class PivotModel implements TableModel {
     if (enabled === this.collapsibleEnabled) return false
     this.collapsibleEnabled = enabled
     if (!enabled) this.collapsedKeys.clear()
-    this.rebuild()
+    this.materializeView()
     return true
   }
 
@@ -330,7 +492,8 @@ export class PivotModel implements TableModel {
     if (next.length === 0 || sameList(next, this.rowDimKeys)) return false
     this.rowDimKeys = next
     this.collapsedKeys.clear()
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
     return true
   }
 
@@ -340,7 +503,8 @@ export class PivotModel implements TableModel {
     if (sameList(next, this.columnDimKeys)) return false
     this.columnDimKeys = next
     this.collapsedKeys.clear()
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
     return true
   }
 
@@ -352,34 +516,43 @@ export class PivotModel implements TableModel {
     if (next.length === 0 || sameList(next, this.measureKeys)) return false
     this.measureKeys = next
     this.collapsedKeys.clear()
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
     return true
   }
 
-  /** 更高度量定义（聚合方式 / 标题 / 列宽；不改勾选序列；树展开态保留） */
+  /** 更高度量定义（聚合方式 / 标题 / 列宽；仅显示属性变化时不重扫记录） */
   updateMeasure(
     key: string,
     patch: Partial<Pick<PivotMeasure, 'agg' | 'title' | 'width'>>,
   ): boolean {
     const measure = this.measurePool.find((entry) => entry.key === key)
     if (!measure) return false
-    if (
-      (patch.agg === undefined || patch.agg === measure.agg) &&
-      (patch.title === undefined || patch.title === measure.title) &&
-      (patch.width === undefined || patch.width === measure.width)
-    ) {
+    const aggChanged = patch.agg !== undefined && patch.agg !== measure.agg
+    const titleChanged = patch.title !== undefined && patch.title !== measure.title
+    const widthChanged = patch.width !== undefined && patch.width !== measure.width
+    if (!aggChanged && !titleChanged && !widthChanged) {
       return false
     }
-    if (patch.agg !== undefined) measure.agg = patch.agg
-    if (patch.title !== undefined) measure.title = patch.title
-    if (patch.width !== undefined) measure.width = patch.width
-    this.rebuild()
+    if (aggChanged) measure.agg = patch.agg!
+    if (titleChanged) measure.title = patch.title!
+    if (widthChanged) measure.width = patch.width!
+    if (this.measureKeys.includes(key)) {
+      if (aggChanged) {
+        this.rebuildDataTree()
+        this.materializeView()
+      } else {
+        // 仅标题或列宽等显示属性变更：刷新列描述，零记录重扫
+        this.rebuildColumns()
+      }
+    }
     return true
   }
 
   setRecords(records: readonly PivotRecord[]): boolean {
     this.records = records
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
     return true
   }
 
@@ -394,7 +567,8 @@ export class PivotModel implements TableModel {
     this.rowDimKeys = nextRows
     this.columnDimKeys = this.columnDimKeys.filter((key) => validKeys.has(key))
     this.collapsedKeys.clear()
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
     return true
   }
 
@@ -408,7 +582,8 @@ export class PivotModel implements TableModel {
     }
     this.measureKeys = nextMeasures
     this.collapsedKeys.clear()
-    this.rebuild()
+    this.rebuildDataTree()
+    this.materializeView()
     return true
   }
 
@@ -417,12 +592,12 @@ export class PivotModel implements TableModel {
   /**
    * 切换 branch 节点展开态：展开时组格跨行合并且无自有行，折叠时收敛为单行
    * 载体（聚合值可见）。不可折叠时恒拒绝。只对树上存在且当前可见的节点生效
-   * ——被折叠祖先隐藏的节点返回 false。
+   * ——被折叠祖先隐藏的节点返回 false。阶段 2 物化 O(可见行数)，零记录扫描。
    */
   toggleNode(path: readonly string[]): boolean {
     if (!this.collapsibleEnabled) return false
     const key = path.join(NODE_KEY_SEP)
-    if (!this.branchKeys().has(key)) return false
+    if (!this.branchKeys.has(key)) return false
     for (let depth = 1; depth < path.length; depth++) {
       if (this.collapsedKeys.has(path.slice(0, depth).join(NODE_KEY_SEP))) return false
     }
@@ -431,138 +606,203 @@ export class PivotModel implements TableModel {
     } else {
       this.collapsedKeys.add(key)
     }
-    this.rebuild()
+    this.materializeView()
     return true
   }
 
-  /** 全部展开 */
+  /** 全部展开（阶段 2 物化，零记录扫描） */
   expandAll(): boolean {
     if (this.collapsedKeys.size === 0) return false
     this.collapsedKeys.clear()
-    this.rebuild()
+    this.materializeView()
     return true
   }
 
   /** 全部收起：所有 branch（含嵌套）置为折叠，整树收拢到一级；不可折叠时恒拒绝 */
   collapseAll(): boolean {
     if (!this.collapsibleEnabled) return false
-    const keys = [...this.branchKeys()]
-    if (keys.every((key) => this.collapsedKeys.has(key))) return false
-    for (const key of keys) this.collapsedKeys.add(key)
-    this.rebuild()
+    let changed = false
+    for (const key of this.branchKeys) {
+      if (!this.collapsedKeys.has(key)) {
+        this.collapsedKeys.add(key)
+        changed = true
+      }
+    }
+    if (!changed) return false
+    this.materializeView()
     return true
   }
 
-  // ---- 内部：结构重算 ----
+  // ---- 内部：两阶段重算 ----
 
-  private rebuild(): void {
+  /**
+   * 阶段 1：单遍扫描 this.records 构建列维度叶子路径、行维度树与预聚合累加槽
+   * （含 grandTotals 虚拟根节点）及全树可折叠 branch 键集合。仅在记录或结构/聚合
+   * 定义变更时调用。
+   */
+  private rebuildDataTree(): void {
     const rowDims = this.activeRowDimensions
     const colDims = this.activeColumnDimensions
     const measures = this.activeMeasures
+    const measureCount = measures.length
 
     // 表头行数：列维度逐层一行 + 度量标题行（无列维度仅度量行）
     this.headerRows = colDims.length + 1
 
-    // 列序列：行维度列（每维度一列）+ 数据列（列维度叶子路径 × 度量）
+    const root: BuildTreeNode = {
+      key: '',
+      path: [],
+      depth: -1,
+      label: '',
+      children: [],
+      branchKey: null,
+      accumulators: new Map(),
+      childrenMap: new Map(),
+    }
+
+    const colRoot: ColTrieNode = { children: new Map(), rawId: -1 }
+    let nextRawColId = 0
+
+    for (let i = 0; i < this.records.length; i++) {
+      const record = this.records[i]!
+
+      let rawColId = 0
+      if (colDims.length > 0) {
+        let colNode = colRoot
+        for (let level = 0; level < colDims.length; level++) {
+          const val = dimensionValue(record[colDims[level]!.key])
+          let child = colNode.children.get(val)
+          if (!child) {
+            child = { children: new Map(), rawId: -1 }
+            colNode.children.set(val, child)
+          }
+          colNode = child
+        }
+        if (colNode.rawId < 0) {
+          colNode.rawId = nextRawColId++
+        }
+        rawColId = colNode.rawId
+      }
+
+      let rowNode = root
+      for (let depth = 0; depth < rowDims.length; depth++) {
+        const val = dimensionValue(record[rowDims[depth]!.key])
+        let child = rowNode.childrenMap.get(val)
+        if (!child) {
+          const childPath = depth === 0 ? [val] : [...rowNode.path, val]
+          const key = childPath.join(NODE_KEY_SEP)
+          child = {
+            key,
+            path: childPath,
+            depth,
+            label: val,
+            children: [],
+            branchKey: depth < rowDims.length - 1 ? key : null,
+            accumulators: new Map(),
+            childrenMap: new Map(),
+          }
+          rowNode.childrenMap.set(val, child)
+        }
+        rowNode = child
+      }
+
+      let slot = rowNode.accumulators.get(rawColId)
+      if (!slot) {
+        slot = createAccumulatorSlot(measureCount)
+        rowNode.accumulators.set(rawColId, slot)
+      }
+      accumulateRecord(slot, record, measures)
+    }
+
+    if (colDims.length === 0) {
+      this.colLeaves = [[]]
+      this.colLeafRawIds = [0]
+    } else {
+      const leaves: string[][] = []
+      const rawIds: number[] = []
+      collectSortedColLeaves(colRoot, [], leaves, rawIds)
+      this.colLeaves = leaves
+      this.colLeafRawIds = rawIds
+    }
+
+    const branchKeys = new Set<string>()
+    finalizeTreeNode(root, measureCount, branchKeys)
+    this.rootNode = root
+    this.branchKeys = branchKeys
+
+    this.rebuildColumns()
+  }
+
+  /** 根据已构建的列叶子路径与当前度量定义刷新列序列（纯列结构投影，零记录扫描） */
+  private rebuildColumns(): void {
+    const rowDims = this.activeRowDimensions
+    const measures = this.activeMeasures
     const columns: PivotColumn[] = rowDims.map((dimension) => ({
       kind: 'row-header',
       title: dimension.title,
       width: dimension.width,
     }))
-    for (const colPath of this.columnLeafPaths()) {
+    for (const colPath of this.colLeaves) {
       for (const measure of measures) {
         columns.push({ kind: 'measure', colPath, measure })
       }
     }
     this.columnList = columns
-
-    // 行序列：leaf 全展开 + 折叠组载体 + 总计
-    const rows: PivotRow[] = []
-    this.buildRows(this.records, [], 0, rows)
-    if (this.showGrandTotal) {
-      rows.push({ type: 'grand', path: [], depth: -1, expanded: true, hasChildren: false })
-    }
-    this.rowList = rows
-
-    // 聚合矩阵：每数据行按路径前缀过滤记录，逐数据列（列维度路径过滤）聚合
-    this.matrix = rows.map((row) => {
-      const bucket = this.recordsFor(row)
-      return columns.slice(rowDims.length).map((column) => {
-        if (column.kind !== 'measure') return undefined
-        const cellRecords =
-          colDims.length === 0
-            ? bucket
-            : bucket.filter((record) =>
-                column.colPath.every(
-                  (value, level) => dimensionValue(record[colDims[level]!.key]) === value,
-                ),
-              )
-        return aggregate(cellRecords, column.measure.field, column.measure.agg)
-      })
-    })
-
-    this.mergeList = this.computeMerges()
   }
 
   /**
-   * 行维度树递归展开（桶内按维度值码点序）：最深层出 leaf 行；非最深层展开时
-   * 无自有行（组格由行侧合并区跨行呈现），折叠时出 branch 载体行。
+   * 阶段 2：按当前折叠态与 collapsible 配置 DFS 遍历内存行维度树，在 O(可见行数)
+   * 内物化 rowList、matrix（直接读取预聚合累加槽）与 mergeList；全程零访问 this.records。
    */
-  private buildRows(
-    bucket: readonly PivotRecord[],
-    path: readonly string[],
-    depth: number,
-    out: PivotRow[],
-  ): void {
-    const rowDims = this.activeRowDimensions
-    if (depth >= rowDims.length) return
-    const groups = new Map<string, PivotRecord[]>()
-    for (const record of bucket) {
-      const value = dimensionValue(record[rowDims[depth]!.key])
-      const existing = groups.get(value)
-      if (existing) {
-        existing.push(record)
-      } else {
-        groups.set(value, [record])
-      }
-    }
-    const isLeafDepth = depth === rowDims.length - 1
-    for (const value of [...groups.keys()].sort()) {
-      const childPath = [...path, value]
-      if (isLeafDepth) {
-        out.push({ type: 'leaf', path: childPath, depth, expanded: true, hasChildren: false })
-      } else {
-        const key = childPath.join(NODE_KEY_SEP)
-        const collapsed = this.collapsibleEnabled && this.collapsedKeys.has(key)
-        if (collapsed) {
-          out.push({ type: 'branch', path: childPath, depth, expanded: false, hasChildren: true })
-        } else {
-          this.buildRows(groups.get(value)!, childPath, depth + 1, out)
-        }
-      }
-    }
-  }
+  private materializeView(): void {
+    const leafDepth = this.activeRowDimensions.length - 1
+    const measures = this.activeMeasures
+    const colLeafRawIds = this.colLeafRawIds
+    const rows: PivotRow[] = []
+    const matrix: (number | undefined)[][] = []
 
-  /** 列维度树叶子路径序列（逐层按维度值码点序 DFS；空序列列方向无维度） */
-  private columnLeafPaths(): string[][] {
-    const colDims = this.activeColumnDimensions
-    let paths: string[][] = [[]]
-    for (const dimension of colDims) {
-      const next: string[][] = []
-      for (const prefix of paths) {
-        const values = new Set<string>()
-        for (const record of this.records) {
-          if (
-            prefix.every((value, level) => dimensionValue(record[colDims[level]!.key]) === value)
-          ) {
-            values.add(dimensionValue(record[dimension.key]))
-          }
-        }
-        for (const value of [...values].sort()) next.push([...prefix, value])
+    const visit = (node: PivotTreeNode): void => {
+      if (node.depth === leafDepth) {
+        rows.push({
+          type: 'leaf',
+          path: node.path,
+          depth: node.depth,
+          expanded: true,
+          hasChildren: false,
+        })
+        matrix.push(materializeRowValues(node, colLeafRawIds, measures))
+        return
       }
-      paths = next
+      const collapsed =
+        this.collapsibleEnabled && node.branchKey !== null && this.collapsedKeys.has(node.branchKey)
+      if (collapsed) {
+        rows.push({
+          type: 'branch',
+          path: node.path,
+          depth: node.depth,
+          expanded: false,
+          hasChildren: true,
+        })
+        matrix.push(materializeRowValues(node, colLeafRawIds, measures))
+        return
+      }
+      for (const child of node.children) {
+        visit(child)
+      }
     }
-    return paths
+
+    for (const child of this.rootNode.children) {
+      visit(child)
+    }
+
+    if (this.showGrandTotal) {
+      rows.push({ type: 'grand', path: [], depth: -1, expanded: true, hasChildren: false })
+      matrix.push(materializeRowValues(this.rootNode, colLeafRawIds, measures))
+    }
+
+    this.rowList = rows
+    this.matrix = matrix
+    this.mergeList = this.computeMerges()
   }
 
   /**
@@ -604,14 +844,15 @@ export class PivotModel implements TableModel {
 
     for (let depth = 0; depth < rowCount - 1; depth++) {
       let start = -1
-      let startKey: string | null = null
+      let startPivotRow: PivotRow | undefined
       for (let index = 0; index <= rows.length; index++) {
         const current = rows[index]
-        const key =
-          current !== undefined && current.path.length > depth
-            ? current.path.slice(0, depth + 1).join(NODE_KEY_SEP)
-            : null
-        if (key !== null && key === startKey) continue
+        const hasDepth = current !== undefined && current.path.length > depth
+        const sameGroup =
+          hasDepth &&
+          startPivotRow !== undefined &&
+          samePathPrefix(startPivotRow.path, current.path, depth + 1)
+        if (sameGroup) continue
         if (start >= 0 && index - 1 > start) {
           ranges.push({
             startCol: depth,
@@ -620,8 +861,8 @@ export class PivotModel implements TableModel {
             endRow: index - 1 + headerRows,
           })
         }
-        start = key !== null ? index : -1
-        startKey = key
+        start = hasDepth ? index : -1
+        startPivotRow = hasDepth ? current : undefined
       }
     }
 
@@ -644,40 +885,7 @@ export class PivotModel implements TableModel {
     return ranges
   }
 
-  /** 全树 branch 节点键集合（无视折叠态，含被折叠隐藏的嵌套节点） */
-  private branchKeys(): Set<string> {
-    const keys: string[] = []
-    this.collectBranchKeys(this.records, [], 0, keys)
-    return new Set(keys)
-  }
-
-  /** collapseAll/branchKeys 用：逐层收集非最深层组键 */
-  private collectBranchKeys(
-    bucket: readonly PivotRecord[],
-    path: readonly string[],
-    depth: number,
-    out: string[],
-  ): void {
-    const rowDims = this.activeRowDimensions
-    if (depth >= rowDims.length - 1) return
-    const groups = new Map<string, PivotRecord[]>()
-    for (const record of bucket) {
-      const value = dimensionValue(record[rowDims[depth]!.key])
-      const existing = groups.get(value)
-      if (existing) {
-        existing.push(record)
-      } else {
-        groups.set(value, [record])
-      }
-    }
-    for (const value of [...groups.keys()].sort()) {
-      const childPath = [...path, value]
-      out.push(childPath.join(NODE_KEY_SEP))
-      this.collectBranchKeys(groups.get(value)!, childPath, depth + 1, out)
-    }
-  }
-
-  /** 行 → 参与聚合的记录集（leaf 全路径匹配；branch 前缀匹配——路径之外的深层不过滤；grand 全体） */
+  /** 行 → 参与聚合的记录集（仅 getCellRecords 下钻按需调用，构建与物化阶段不触发） */
   private recordsFor(row: PivotRow): readonly PivotRecord[] {
     if (row.type === 'grand') return this.records
     const rowDims = this.activeRowDimensions

@@ -448,15 +448,15 @@ export class PivotGrid implements EngineAssembly {
       pivotRow.type !== 'grand' &&
       col < this.model.rowHeaderCount - 1 &&
       label !== ''
-    const midY = height / 2 + 1
+    const { centerY } = this.resolveTreeCellLayout(col, row, height)
     if (showToggle) {
-      drawToggleTriangle(ctx, 9, midY, !isCarrierMaster)
+      drawToggleTriangle(ctx, 9, centerY, !isCarrierMaster)
     }
     ctx.fillStyle = style.color ?? '#1f2329'
     ctx.font = font ?? treeCellFont(style)
     const textX = showToggle ? 18 : 8
     const maxWidth = Math.max(0, width - textX - 8)
-    const baselineY = midY + Math.round((style.fontSize ?? 12) / 3) - 1
+    const baselineY = centerY + Math.round((style.fontSize ?? 12) / 3)
     drawEllipsisText(ctx, label, textX, baselineY, maxWidth)
   }
 
@@ -607,20 +607,24 @@ export class PivotGrid implements EngineAssembly {
           ? { startRow: cell.row, endRow: cell.row }
           : this.model.groupRange(path!)
       if (!range) return
-      // 图标命中：主格矩形（含首行滚出视口上方时的推算原点）给出合并区域左上角，区域高 = 组跨行数 × 统一行高
-      const cellOrigin = this.resolveMergedCellOrigin(cell.col, range)
+      // 图标命中：与 treeCell 渲染共用 resolveTreeCellLayout，确保粘性居中后的三角图标与点击坐标一致
       if (
         this.model.collapsible &&
         pivotRow.type !== 'grand' &&
         cell.col < this.model.rowHeaderCount - 1 &&
-        pivotRow.path.length > cell.col &&
-        cellOrigin !== null
+        pivotRow.path.length > cell.col
       ) {
         const mergedHeight = (range.endRow - range.startRow + 1) * PIVOT_ROW_HEIGHT
+        const { origin, centerY } = this.resolveTreeCellLayout(
+          cell.col,
+          range.startRow,
+          mergedHeight,
+        )
         if (
-          x - cellOrigin.x >= 0 &&
-          x - cellOrigin.x <= TREE_TOGGLE_HIT_X &&
-          Math.abs(y - (cellOrigin.y + mergedHeight / 2)) <= TREE_TOGGLE_HIT_Y
+          origin !== null &&
+          x - origin.x >= 0 &&
+          x - origin.x <= TREE_TOGGLE_HIT_X &&
+          Math.abs(y - (origin.y + centerY)) <= TREE_TOGGLE_HIT_Y
         ) {
           this.toggleNode(path!)
           // 结构已变：按新结构重算组块（折叠收敛为载体行、展开恢复全组行），
@@ -688,13 +692,75 @@ export class PivotGrid implements EngineAssembly {
     this.disposers.push(() => this.container.removeEventListener('wheel', onWheel))
   }
 
+  /**
+   * 树单元格内容竖直居中布局（渲染与点击命中共用，保证三角形与文本在长合并组滚出视口时
+   * 仍粘性居中于可见表体区间内，且点击命中带与绘制坐标严格一致）：
+   * 1. 解析合并组主格在视口坐标下的原点 origin（支持首行滚出视口上方时的 O(1) 定位）；
+   * 2. 用 table.getDrawRange() 与冻结表头行高夹取节点局部 [0, mergedHeight] 到可见表体区间；
+   * 3. 在可见区间中点取 centerY，并以半行内边距夹紧到 [pad, mergedHeight - pad] 防贴边裁切；
+   * 几何不可用或完全在视口内时回落 mergedHeight / 2。
+   */
+  private resolveTreeCellLayout(
+    col: number,
+    startRow: number,
+    mergedHeight: number,
+  ): { origin: { x: number; y: number } | null; centerY: number } {
+    const fallbackCenterY = mergedHeight / 2
+    const rowSpan = Math.max(1, Math.round(mergedHeight / PIVOT_ROW_HEIGHT))
+    const origin = this.resolveMergedCellOrigin(col, {
+      startRow,
+      endRow: startRow + rowSpan - 1,
+    })
+    if (!origin || mergedHeight <= 0) {
+      return { origin, centerY: fallbackCenterY }
+    }
+    const drawRange = this.table.getDrawRange()
+    const frozenRowCount = this.table.getFrozenRowCount()
+    let frozenRowsHeight = 0
+    for (let r = 0; r < frozenRowCount; r++) {
+      frozenRowsHeight += this.table.getRowHeight(r)
+    }
+    const bodyViewportTop = drawRange.y + frozenRowsHeight
+    const bodyViewportBottom = drawRange.y + drawRange.height
+    if (bodyViewportBottom <= bodyViewportTop) {
+      return { origin, centerY: fallbackCenterY }
+    }
+    const visibleLocalTop = Math.max(0, bodyViewportTop - origin.y)
+    const visibleLocalBottom = Math.min(mergedHeight, bodyViewportBottom - origin.y)
+    if (visibleLocalBottom <= visibleLocalTop) {
+      return { origin, centerY: fallbackCenterY }
+    }
+    if (visibleLocalTop <= 0 && visibleLocalBottom >= mergedHeight) {
+      return { origin, centerY: fallbackCenterY }
+    }
+    const pad = Math.min(fallbackCenterY, PIVOT_ROW_HEIGHT / 2)
+    const rawCenterY = (visibleLocalTop + visibleLocalBottom) / 2
+    const centerY = Math.max(pad, Math.min(mergedHeight - pad, rawCenterY))
+    return { origin, centerY }
+  }
+
   /** 计算合并组格主格的视口左上角坐标（支持首行已滚出视口上方时的局部可见组） */
   private resolveMergedCellOrigin(
     col: number,
     range: { startRow: number; endRow: number },
   ): { x: number; y: number } | null {
-    // 含冻结表头时 getBodyVisibleCellRange().rows.start 恒为 0，故逐行探测组内首个视口可见行
-    for (let row = range.startRow; row <= range.endRow; row++) {
+    // 优先直接查询主格；主格在窗口外时，按当前滚动位置 O(1) 估算首个可见行起探
+    const direct = this.table.getCellRelativeRect(col, range.startRow)
+    if (direct) {
+      return { x: direct.x, y: direct.y }
+    }
+    const frozenRowCount = this.table.getFrozenRowCount()
+    const approxFirstRow = frozenRowCount + Math.floor(this.table.getScrollTop() / PIVOT_ROW_HEIGHT)
+    const probeRow = Math.max(range.startRow, Math.min(range.endRow, approxFirstRow))
+    const probed = this.table.getCellRelativeRect(col, probeRow)
+    if (probed) {
+      return {
+        x: probed.x,
+        y: probed.y - (probeRow - range.startRow) * PIVOT_ROW_HEIGHT,
+      }
+    }
+    // 兜底逐行探测组内首个视口可见行（含冻结表头时 getBodyVisibleCellRange().rows.start 恒为 0）
+    for (let row = range.startRow + 1; row <= range.endRow; row++) {
       const rect = this.table.getCellRelativeRect(col, row)
       if (rect) {
         return {

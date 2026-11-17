@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { ListTable } from '@infinitable/table'
+import { ListTable, type CellRenderer } from '@infinitable/table'
 
 import { PivotGrid } from '../src/pivot-grid'
 import type { PivotDimension, PivotMeasure, PivotRecord } from '../src/types'
@@ -243,6 +243,166 @@ describe('PivotGrid 列宽保留与短路', () => {
       expect(table.getColWidth(0)).toBe(100)
       expect(table.getColWidth(1)).toBe(175)
       expect(table.getColWidth(4)).toBe(240)
+    } finally {
+      pivot.destroy()
+    }
+  })
+})
+
+/** 绘制坐标捕获桩：记录 treeCell 绘制的三角路径 y 坐标与文本基线 y 坐标 */
+function paintTreeCellAndCapture(
+  table: ListTable,
+  col: number,
+  row: number,
+): { triangleCenterY: number; textBaselineY: number } {
+  let targetNode: { paint: (ctx: Parameters<CellRenderer>[0]['ctx']) => void } | undefined
+  for (const node of table.sceneState.cellNodes.values()) {
+    if (node.col === col && node.row === row) {
+      targetNode = node
+      break
+    }
+  }
+  if (!targetNode) {
+    throw new Error(`未找到场景节点 (${col}, ${row})`)
+  }
+  const pathYs: number[] = []
+  let textBaselineY = Number.NaN
+  const noop = (): void => {}
+  const ctx: Parameters<CellRenderer>[0]['ctx'] = {
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    font: '',
+    save: noop,
+    restore: noop,
+    setTransform: noop,
+    translate: noop,
+    beginPath: noop,
+    rect: noop,
+    moveTo: (_x, y) => {
+      pathYs.push(y)
+    },
+    lineTo: (_x, y) => {
+      pathYs.push(y)
+    },
+    bezierCurveTo: noop,
+    quadraticCurveTo: noop,
+    arc: noop,
+    closePath: noop,
+    stroke: noop,
+    fill: noop,
+    clip: noop,
+    clearRect: noop,
+    fillRect: noop,
+    fillText: (_text, _x, y) => {
+      textBaselineY = y
+    },
+    drawImage: noop,
+    measureText: (text) => ({ width: text.length * 7 }),
+  }
+  targetNode.paint(ctx)
+  // 展开态三角形由 drawToggleTriangle(cx, cy, true) 绘出：[cy - 1.75, cy - 1.75, cy + 3.5]
+  const topY = pathYs[0]!
+  const tipY = pathYs[2]!
+  const triangleCenterY = (topY * 2 + tipY) / 3
+  return { triangleCenterY, textBaselineY }
+}
+
+describe('PivotGrid treeCell 粘性居中渲染与同源点击命中', () => {
+  function createTallPivot(): { pivot: PivotGrid; table: ListTable; container: HTMLElement } {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const records: PivotRecord[] = [
+      ...Array.from({ length: 20 }, (_, i) => ({
+        status: 'A组',
+        priority: `项${String(i + 1).padStart(2, '0')}`,
+        amount: i + 1,
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        status: 'B组',
+        priority: `项${String(i + 1).padStart(2, '0')}`,
+        amount: 100 + i,
+      })),
+    ]
+    // height=256（含 1 行冻结表头 32px → 可滚动表体视口 [32, 256]，高 224px）
+    // 总宽度 120 + 100 + 120 = 340 < 600，无横向滚动条槽
+    const pivot = new PivotGrid({
+      container,
+      width: 600,
+      height: 256,
+      dpr: 1,
+      dimensions: DIMENSIONS,
+      measures: [MEASURES[0]!],
+      records,
+      rowDimensions: ['status', 'priority'],
+      columnDimensions: [],
+    })
+    return { pivot, table: pivot.getTable() as unknown as ListTable, container }
+  }
+
+  it('长合并组底部裁出视口时（scrollTop=0）：三角与文本粘性居中于可见区间，点击精确折叠', () => {
+    const { pivot, table, container } = createTallPivot()
+    try {
+      expect(pivot.getVisibleRowCount()).toBe(26) // 20 A + 5 B + 1 grand
+      // A组 spans rows 1..20 (height=640), origin.y=32, 可见区间 [32, 256] → 局部 [0, 224], centerY=112
+      const painted = paintTreeCellAndCapture(table, 0, 1)
+      expect(painted.triangleCenterY).toBe(112)
+      expect(painted.textBaselineY).toBe(116)
+
+      // 视口 y = origin.y(32) + centerY(112) = 144：点击命中折叠 A组
+      click(container, 9, 144)
+      expect(pivot.getVisibleRowCount()).toBe(7) // 1 branch(A) + 5 B + 1 grand
+    } finally {
+      pivot.destroy()
+    }
+  })
+
+  it('长合并组上下两端均裁出视口时（scrollTop=160，首行滚出窗口）：仍粘性居中于表体中线并命中点击', () => {
+    const { pivot, table, container } = createTallPivot()
+    try {
+      table.scrollBy(0, 160) // 滚过 5 行：origin.y = 32 - 160 = -128；局部可见 [160, 384] → centerY=272
+      const painted = paintTreeCellAndCapture(table, 0, 1)
+      expect(painted.triangleCenterY).toBe(272)
+      expect(painted.textBaselineY).toBe(276)
+
+      // 视口 y = -128 + 272 = 144：原格顶附近的 (9, 48) 不应再触发折叠，仅高亮 A组
+      click(container, 9, 48)
+      expect(pivot.getVisibleRowCount()).toBe(26)
+      expect(table.getSelection().ranges).toEqual([
+        { start: { col: 0, row: 1 }, end: { col: 2, row: 20 } },
+      ])
+
+      // 点击粘性居中后的三角坐标 (9, 144) 精确折叠 A组
+      click(container, 9, 144)
+      expect(pivot.getVisibleRowCount()).toBe(7)
+    } finally {
+      pivot.destroy()
+    }
+  })
+
+  it('长合并组仅底端局部留在视口时（scrollTop=544）：居中于剩余可见段并在对应坐标命中点击', () => {
+    const { pivot, table, container } = createTallPivot()
+    try {
+      table.scrollBy(0, 544) // origin.y = 32 - 544 = -512, 组底端在 128；局部可见 [544, 640] → centerY=592
+      const painted = paintTreeCellAndCapture(table, 0, 1)
+      expect(painted.triangleCenterY).toBe(592)
+      expect(painted.textBaselineY).toBe(596)
+
+      // 视口 y = -512 + 592 = 80（[32, 128] 中点）
+      click(container, 9, 80)
+      expect(pivot.getVisibleRowCount()).toBe(7)
+    } finally {
+      pivot.destroy()
+    }
+  })
+
+  it('长合并组仅剩不足一行贴顶时（scrollTop=628）：按半行内边距夹紧到 mergedHeight - 16', () => {
+    const { pivot, table } = createTallPivot()
+    try {
+      table.scrollBy(0, 628) // 局部可见 [628, 640]，rawCenterY=634 夹紧至 640 - 16 = 624
+      const painted = paintTreeCellAndCapture(table, 0, 1)
+      expect(painted.triangleCenterY).toBe(624)
+      expect(painted.textBaselineY).toBe(628)
     } finally {
       pivot.destroy()
     }

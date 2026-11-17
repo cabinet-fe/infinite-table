@@ -39,8 +39,16 @@ export type { ScannedReference } from './scan-refs'
 export { shiftFormulaText, shiftFormulaRefs } from './shift'
 export type { FormulaShiftResult, FormulaShiftScope } from './shift'
 
-export { evaluate } from './evaluator'
-export type { EvalValue, FormulaEvalContext, FormulaResolver, ScalarValue } from './evaluator'
+export { evaluate, evaluateAst } from './evaluator'
+export type {
+  EvalValue,
+  FormulaEvalContext,
+  FormulaEvaluateOptions,
+  FormulaResolver,
+  ScalarValue,
+} from './evaluator'
+
+export { FormulaLookupCache } from './lookup-cache'
 
 export {
   FORMULA_FUNCTION_CATEGORIES,

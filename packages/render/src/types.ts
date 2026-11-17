@@ -93,6 +93,14 @@ export interface RenderContext {
     dw: number,
     dh: number,
   ): void
+  /**
+   * 创建平铺图案（可选：真实 2D 上下文天然满足，最小测试桩可缺省，
+   * 消费方如水印绘制需自行容错降级）。
+   */
+  createPattern?(
+    image: RenderImageSource,
+    repetition: 'repeat' | 'repeat-x' | 'repeat-y' | 'no-repeat' | null,
+  ): CanvasPattern | null
   measureText(text: string): {
     width: number
     actualBoundingBoxAscent?: number

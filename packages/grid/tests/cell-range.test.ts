@@ -73,6 +73,48 @@ describe('MergeCellMap', () => {
     expect(map.ranges).toEqual([])
     expect(map.rangeAt(1, 1)).toBeNull()
   })
+
+  it('十万行大合并（A1:B100000）毫秒级构造与首/中/尾查询，rangesInBounds 仅返回相交区间', () => {
+    const large = { startCol: 0, startRow: 0, endCol: 1, endRow: 99_999 }
+    const smallTop = { startCol: 3, startRow: 10, endCol: 4, endRow: 12 }
+    const smallMid = { startCol: 3, startRow: 50_000, endCol: 4, endRow: 50_002 }
+    const smallBottom = { startCol: 3, startRow: 99_990, endCol: 4, endRow: 99_995 }
+
+    const t0 = performance.now()
+    const sanitized = sanitizeMerges([large, smallTop, smallMid, smallBottom])
+    const map = new MergeCellMap(sanitized.ranges)
+    const elapsed = performance.now() - t0
+
+    expect(sanitized.conflicts).toEqual([])
+    expect(elapsed).toBeLessThan(100)
+    expect(map.size).toBe(4)
+
+    // 首/中/尾坐标精确命中
+    expect(map.rangeAt(0, 0)).toEqual(large)
+    expect(map.rangeAt(1, 50_000)).toEqual(large)
+    expect(map.rangeAt(1, 99_999)).toEqual(large)
+    expect(map.masterOf(1, 99_999)).toEqual({ col: 0, row: 0 })
+    expect(map.rangeAt(2, 50_000)).toBeNull()
+    expect(map.rangeAt(4, 50_001)).toEqual(smallMid)
+
+    // rangesInBounds 只返回与视口边界相交的合并区
+    const inBounds = map.rangesInBounds(0, 50_000, 5, 50_010)
+    expect(inBounds).toHaveLength(2)
+    expect(inBounds).toEqual(expect.arrayContaining([large, smallMid]))
+    expect(map.rangesInBounds(2, 50_000, 5, 50_010)).toEqual([smallMid])
+    expect(map.rangesInBounds(2, 100, 5, 200)).toEqual([])
+
+    // 与十万行大合并区冲突也能快速识别首个冲突坐标
+    expect(
+      () => new MergeCellMap([large, { startCol: 1, startRow: 88_888, endCol: 2, endRow: 88_890 }]),
+    ).toThrow(MergeOverlapError)
+    const conflictResult = sanitizeMerges([
+      large,
+      { startCol: 1, startRow: 88_888, endCol: 2, endRow: 88_890 },
+    ])
+    expect(conflictResult.conflicts).toHaveLength(1)
+    expect(conflictResult.conflicts[0]?.coord).toEqual({ col: 1, row: 88_888 })
+  })
 })
 
 describe('sanitizeMerges', () => {

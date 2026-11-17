@@ -97,7 +97,19 @@ export function getFormulaFunction(
   name: string,
   overrides?: FormulaFunctionOverrides,
 ): FormulaFunction | undefined {
-  return overrides?.get(name.toUpperCase()) ?? registry.get(name.toUpperCase())
+  const upper = name.toUpperCase()
+  if (overrides) {
+    const direct = overrides.get(upper)
+    if (direct !== undefined) {
+      return direct
+    }
+    for (const [key, def] of overrides) {
+      if (key.toUpperCase() === upper) {
+        return def
+      }
+    }
+  }
+  return registry.get(upper)
 }
 
 /** 易失性查询（宿主缓存策略用；实例集优先）：未注册函数返回 false */
@@ -134,17 +146,30 @@ function toInfo(name: string, def: FormulaFunction): FormulaFunctionInfo {
   }
 }
 
-/** 查询单个函数的完整信息（大小写不敏感；未注册返回 undefined） */
-export function getFormulaFunctionInfo(name: string): FormulaFunctionInfo | undefined {
-  const def = registry.get(name.toUpperCase())
-  return def ? toInfo(name.toUpperCase(), def) : undefined
+/** 查询单个函数的完整信息（大小写不敏感；实例集优先，未注册返回 undefined） */
+export function getFormulaFunctionInfo(
+  name: string,
+  overrides?: FormulaFunctionOverrides,
+): FormulaFunctionInfo | undefined {
+  const key = name.toUpperCase()
+  const def = getFormulaFunction(key, overrides)
+  return def ? toInfo(key, def) : undefined
 }
 
-/** 枚举全部已注册函数信息（名称升序） */
-export function listFormulaFunctions(): FormulaFunctionInfo[] {
-  return [...registry.keys()]
+/** 枚举全部已注册函数信息（含实例集自定义函数及覆盖，同名以实例集为准，名称升序） */
+export function listFormulaFunctions(overrides?: FormulaFunctionOverrides): FormulaFunctionInfo[] {
+  if (!overrides || overrides.size === 0) {
+    return [...registry.keys()]
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => toInfo(name, registry.get(name)!))
+  }
+  const merged = new Map(registry)
+  for (const [name, def] of overrides) {
+    merged.set(name.toUpperCase(), def)
+  }
+  return [...merged.keys()]
     .sort((a, b) => a.localeCompare(b))
-    .map((name) => toInfo(name, registry.get(name)!))
+    .map((name) => toInfo(name, merged.get(name)!))
 }
 
 /** 求值器回调：名称解析 + 参数个数校验 + 按 kind 分发（ctx 为公式所在格的求值上下文；实例集优先） */

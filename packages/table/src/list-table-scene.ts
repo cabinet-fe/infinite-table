@@ -18,6 +18,7 @@ import {
   strongerEdge,
   themeCellBase,
   unionRegions,
+  type CellRange,
   type FrameStyle,
   type WindowRange,
 } from '@infinitable/grid'
@@ -1061,18 +1062,38 @@ function appendPartiallyVisibleMerges(
   rowBands: readonly WindowRange[],
   colBands: readonly WindowRange[],
 ): boolean {
+  const { mergeCells } = table.geometryState
+  if (mergeCells.ranges.length === 0) {
+    return false
+  }
   let created = false
-  const visible = (start: number, end: number, bands: readonly WindowRange[]): boolean =>
-    bands.some((band) => start < band.end && end >= band.start)
-  for (const range of table.geometryState.mergeCells.ranges) {
-    if (table.sceneState.cellNodes.has(cellKey(range.startCol, range.startRow))) {
+  let seen: Set<CellRange> | undefined
+  for (const rowBand of rowBands) {
+    if (rowBand.end <= rowBand.start) {
       continue
     }
-    if (
-      visible(range.startRow, range.endRow, rowBands) &&
-      visible(range.startCol, range.endCol, colBands)
-    ) {
-      created = appendCell(table, range.startCol, range.startRow, left, top) || created
+    for (const colBand of colBands) {
+      if (colBand.end <= colBand.start) {
+        continue
+      }
+      for (const range of mergeCells.rangesInBounds(
+        colBand.start,
+        rowBand.start,
+        colBand.end - 1,
+        rowBand.end - 1,
+      )) {
+        if (seen?.has(range)) {
+          continue
+        }
+        if (rowBands.length > 1 || colBands.length > 1) {
+          seen ??= new Set()
+          seen.add(range)
+        }
+        if (table.sceneState.cellNodes.has(cellKey(range.startCol, range.startRow))) {
+          continue
+        }
+        created = appendCell(table, range.startCol, range.startRow, left, top) || created
+      }
     }
   }
   return created

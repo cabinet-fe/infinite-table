@@ -21,6 +21,7 @@ export { dashedLine, roundRectPath } from './scene/canvas-paths'
 export type { DashLineContext, DashPattern, RoundRectPathContext } from './scene/canvas-paths'
 export type { SceneEvent, SceneEventType } from './events/event-system'
 export type {
+  CanvasFactory,
   FrameTask,
   Invalidation,
   LayerConsumption,

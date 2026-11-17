@@ -589,4 +589,97 @@ describe('实例函数集（自定义公式）', () => {
     wb.recalcAllFormulas()
     expect(sheet.getCellData(B1)).toMatchObject({ v: 70 })
   })
+
+  it('实例函数元数据（getFunctionInfo / listFunctions）感知构造函数与运行时注册', () => {
+    const wb = new Workbook({
+      functions: {
+        TAX: {
+          minArgs: 1,
+          meta: { params: [{ name: 'amount' }], description: '实例税率', category: '财务' },
+          impl: (args: EvalValue[]) => Number(args[0]) * 0.1,
+        },
+      },
+    })
+    expect(wb.formulaGraph.getFunctionInfo('tax')).toMatchObject({
+      name: 'TAX',
+      signature: 'TAX(amount)',
+      description: '实例税率',
+      category: '财务',
+    })
+    expect(wb.formulaGraph.listFunctions().some((f) => f.name === 'TAX')).toBe(true)
+
+    wb.formulaGraph.registerFunction('FEE', { impl: () => 5 })
+    expect(wb.formulaGraph.getFunctionInfo('FEE')?.name).toBe('FEE')
+    // 隔离到本工作簿：普通工作簿不含 TAX / FEE
+    expect(new Workbook().formulaGraph.getFunctionInfo('TAX')).toBeUndefined()
+  })
+})
+
+describe('AST 缓存与批内 VLOOKUP 查找索引缓存', () => {
+  it('同公式多次求值复用缓存 AST，且公式修改与批内查找列变更后正确失效刷新', () => {
+    const sheet = new Sheet()
+    // 构建查找表 A1:B4（含乱序/稀疏验证）
+    sheet.setCells([
+      { addr: { row: 0, col: 0 }, data: { v: 'k1', t: 's' } },
+      { addr: { row: 1, col: 0 }, data: { v: 'k2', t: 's' } },
+      { addr: { row: 2, col: 0 }, data: { v: 'k3', t: 's' } },
+      { addr: { row: 0, col: 1 }, data: { v: 100, t: 'n' } },
+      { addr: { row: 1, col: 1 }, data: { v: 200, t: 'n' } },
+      { addr: { row: 2, col: 1 }, data: { v: 300, t: 'n' } },
+      // D1..D3 存储待查键，E1..E3 使用相同模式公式触发 AST 缓存 + 批内 lookupCache
+      { addr: { row: 0, col: 3 }, data: { v: 'k2', t: 's' } },
+      { addr: { row: 1, col: 3 }, data: { v: 'k3', t: 's' } },
+      { addr: { row: 2, col: 3 }, data: { v: 'k1', t: 's' } },
+    ])
+    sheet.setCellFormula({ row: 0, col: 4 }, '=VLOOKUP(D1, $A$1:$B$3, 2, FALSE)')
+    sheet.setCellFormula({ row: 1, col: 4 }, '=VLOOKUP(D2, $A$1:$B$3, 2, FALSE)')
+    sheet.setCellFormula({ row: 2, col: 4 }, '=VLOOKUP(D3, $A$1:$B$3, 2, FALSE)')
+
+    expect(sheet.getCellData({ row: 0, col: 4 })).toMatchObject({ v: 200 })
+    expect(sheet.getCellData({ row: 1, col: 4 })).toMatchObject({ v: 300 })
+    expect(sheet.getCellData({ row: 2, col: 4 })).toMatchObject({ v: 100 })
+
+    // 下一轮编辑修改查找列 A2（'k2' → 'k9'）并改结果列 B2，验证批内查找索引不跨批残留
+    sheet.setCells([
+      { addr: { row: 1, col: 0 }, data: { v: 'k9', t: 's' } },
+      { addr: { row: 1, col: 1 }, data: { v: 999, t: 'n' } },
+    ])
+    expect(sheet.getCellData({ row: 0, col: 4 })).toMatchObject({ v: '#N/A', t: 'e' })
+
+    // 再次写入一个查 'k9' 的相同引用区域公式，能命中新键并返回 999
+    sheet.setCellValue({ row: 0, col: 3 }, 'k9')
+    expect(sheet.getCellData({ row: 0, col: 4 })).toMatchObject({ v: 999 })
+  })
+
+  it('重复公式大量填充与重算复用 AST 缓存（同公式仅解析一次）', () => {
+    const sheet = new Sheet()
+    sheet.setCellValue(A1, 10)
+    // 在 B1..B50 写入完全相同的公式文本
+    for (let row = 0; row < 50; row++) {
+      sheet.setCellFormula({ row, col: 1 }, '= $A$1 * 2 + 1 ')
+    }
+    expect(sheet.getCellData({ row: 49, col: 1 })).toMatchObject({ v: 21 })
+
+    sheet.setCellValue(A1, 20)
+    expect(sheet.getCellData({ row: 0, col: 1 })).toMatchObject({ v: 41 })
+    expect(sheet.getCellData({ row: 49, col: 1 })).toMatchObject({ v: 41 })
+  })
+
+  it('十万行稀疏表 VLOOKUP + 批内查找列含公式格时同步重算正确', () => {
+    const sheet = new Sheet()
+    sheet.setCellValue({ row: 0, col: 2 }, 5) // C1
+    sheet.setCellFormula({ row: 1, col: 0 }, '=C1*10') // A2 = 50
+    sheet.setCellValue({ row: 1, col: 1 }, 'hit-a2')
+    sheet.setCellValue({ row: 99_990, col: 0 }, 999)
+    sheet.setCellValue({ row: 99_990, col: 1 }, 'hit-99991')
+
+    sheet.setCellFormula({ row: 0, col: 3 }, '=VLOOKUP(50, $A$1:$B$100000, 2, FALSE)')
+    sheet.setCellFormula({ row: 1, col: 3 }, '=VLOOKUP(999, $A$1:$B$100000, 2, FALSE)')
+    expect(sheet.getCellData({ row: 0, col: 3 })).toMatchObject({ v: 'hit-a2' })
+    expect(sheet.getCellData({ row: 1, col: 3 })).toMatchObject({ v: 'hit-99991' })
+
+    // 修改 C1 → A2 变为 60，D1(=VLOOKUP(50,...)) 应在同批重算中看到新值并变 #N/A
+    sheet.setCellValue({ row: 0, col: 2 }, 6)
+    expect(sheet.getCellData({ row: 0, col: 3 })).toMatchObject({ v: '#N/A', t: 'e' })
+  })
 })

@@ -27,7 +27,7 @@ export type {
 
 // ---- watermark 插件（协议插件：文字平铺水印——经引擎装配协议 overlay 槽位注册绘制器，锚定视口不随滚动） ----
 export { createWatermarkPlugin } from './watermark/watermark-plugin'
-export type { WatermarkHandle } from './watermark/watermark-plugin'
+export type { WatermarkHandle, WatermarkPluginOptions } from './watermark/watermark-plugin'
 // 水印插件参数配置（与打印水印共享同一模型，经本入口一并转出）
 export type { WatermarkTextConfig } from './print/types'
 

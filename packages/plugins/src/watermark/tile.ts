@@ -1,12 +1,13 @@
-// 文字平铺水印的几何与绘制（univer watermark util 移植）：双层 for 平铺，
-// 步长 = 内容尺寸 + gap，逐单元 translate（单元中心）+ rotate + fillText。
-// 整层透明度经「颜色 × opacity 预混 rgba」实现——@infinitable/render 转出的 RenderContext
-// 窄接口无 globalAlpha，预混等效且零引擎改动；rotate 为可选成员，缺失的最小桩
-// 上下文按未旋转绘制（与浮动对象旋转渲染同容错约定）。
-// 配置消费 P1 打印水印共享的 WatermarkTextConfig：屏幕端（顶层 overlay）与打印端
-// 同一配置模型；本模块纯函数部分（平铺原点/颜色预混）可脱离 canvas 单测。
+// 文字平铺水印的几何与绘制（univer watermark util 移植）：
+// - 快路径（ctx.createPattern + 离屏瓦片画布可用时）：将单周期瓦片预渲染到离屏 canvas，
+//   按参数（text/font/color/angle/gapX/gapY/offsetX/offsetY）与 DPR 缓存并按需失效，
+//   视口重绘只需一次 createPattern + fillRect。
+// - 降级路径（无 createPattern 或无离屏 2D 上下文，如测试桩 / 无头环境）：回落
+//   watermarkTileOrigins 双层循环逐单元 translate + rotate + fillText。
+// 整层透明度经「颜色 × opacity 预混 rgba」实现；rotate 为可选成员，缺失的最小桩
+// 上下文按未旋转绘制。
 
-import type { RenderContext } from '@infinitable/render'
+import type { CanvasFactory, RenderCanvas, RenderContext } from '@infinitable/render'
 
 import { WATERMARK_TEXT_DEFAULTS, type WatermarkTextConfig } from '../print/types'
 
@@ -18,6 +19,40 @@ interface ResolvedWatermarkStyle {
   rotate: number
   gapX: number
   gapY: number
+}
+
+/** 离屏瓦片缓存条目：任一渲染参数或 DPR 变更时整体失效重建 */
+interface CachedWatermarkTile {
+  text: string
+  font: string
+  fillColor: string
+  angle: number
+  gapX: number
+  gapY: number
+  offsetX: number
+  offsetY: number
+  dpr: number
+  stepX: number
+  stepY: number
+  tileWidthPx: number
+  tileHeightPx: number
+  canvas: RenderCanvas
+  patternCtx?: RenderContext
+  pattern?: CanvasPattern | null
+}
+
+/** 绘制附加选项（可选离屏缓存、画布工厂、DPR 与平铺原点偏移） */
+export interface WatermarkDrawOptions {
+  /** 跨帧复用离屏瓦片与 CanvasPattern 的缓存实例 */
+  cache?: WatermarkTileCache
+  /** 自定义离屏画布工厂（缺省使用 document.createElement('canvas')） */
+  canvasFactory?: CanvasFactory
+  /** 显式覆盖 DPR（缺省从 ctx.getTransform().a 或 window.devicePixelRatio 读取） */
+  dpr?: number
+  /** 平铺原点横向偏移（CSS 像素，缺省 0） */
+  offsetX?: number
+  /** 平铺原点纵向偏移（CSS 像素，缺省 0） */
+  offsetY?: number
 }
 
 /** 水印文本基线相对单元中线的近似偏移系数（alphabetic 基线下视觉居中，约 0.3em） */
@@ -103,22 +138,201 @@ export function watermarkFont(fontSize: number): string {
   return `${fontSize}px ${WATERMARK_FONT_FAMILY}`
 }
 
+function defaultCanvasFactory(): RenderCanvas | null {
+  if (typeof document === 'undefined') {
+    return null
+  }
+  return document.createElement('canvas')
+}
+
+function resolveContextDpr(ctx: RenderContext): number {
+  const transform = (ctx as { getTransform?: () => { a: number } }).getTransform?.()
+  if (transform && Number.isFinite(transform.a) && transform.a > 0) {
+    return transform.a
+  }
+  if (
+    typeof window !== 'undefined' &&
+    Number.isFinite(window.devicePixelRatio) &&
+    window.devicePixelRatio > 0
+  ) {
+    return window.devicePixelRatio
+  }
+  return 1
+}
+
 /**
- * 文字平铺水印绘制入口：测量前先设 font——真实 2D 上下文按「当前 font」计量文本宽
- * （table cell-node.ts measureTextWidth 同款先例），否则步长按画布缺省 10px 字宽计算
- * 而绘制按配置字号，大字号时平铺重叠。整层统一 font 与预混 alpha 的 fillStyle，
- * 文本宽经 ctx.measureText 测量一次，随后按平铺原点逐单元 translate（单元中心）→
- * rotate → fillText（绕中心旋转，负角度逆时针）。步长 = 测量宽 + gapX / 字号 + gapY。
+ * 水印离屏瓦片缓存：将单个无缝平铺周期渲染到离屏 canvas，
+ * 仅当水印选项（text/font/color/angle/gapX/gapY/offsetX/offsetY）或 DPR 变化时重建。
+ */
+export class WatermarkTileCache {
+  private entry: CachedWatermarkTile | null = null
+
+  constructor(private readonly canvasFactory?: CanvasFactory) {}
+
+  clear(): void {
+    this.entry = null
+  }
+
+  /** 获取或重建缓存的 CanvasPattern；不可用（无 createPattern / 无离屏 2D 上下文）时返回 null */
+  getPattern(
+    ctx: RenderContext,
+    text: string,
+    style: ResolvedWatermarkStyle,
+    font: string,
+    tileSize: { width: number; height: number },
+    dpr: number,
+    offsetX: number,
+    offsetY: number,
+  ): CanvasPattern | null {
+    if (typeof ctx.createPattern !== 'function') {
+      return null
+    }
+    const stepX = tileSize.width + style.gapX
+    const stepY = tileSize.height + style.gapY
+    if (stepX <= 0 || stepY <= 0) {
+      return null
+    }
+    // 非 1 DPR 需要 DOMMatrix 支持 pattern.setTransform 缩回 CSS 像素尺寸；无 DOMMatrix 时按 1x 构建
+    const effectiveDpr = dpr !== 1 && typeof DOMMatrix !== 'undefined' ? dpr : 1
+    const fillColor = watermarkFillColor(style.color, style.opacity)
+
+    let cached = this.entry
+    const hit =
+      cached !== null &&
+      cached.text === text &&
+      cached.font === font &&
+      cached.fillColor === fillColor &&
+      cached.angle === style.rotate &&
+      cached.gapX === style.gapX &&
+      cached.gapY === style.gapY &&
+      cached.offsetX === offsetX &&
+      cached.offsetY === offsetY &&
+      cached.dpr === effectiveDpr &&
+      cached.stepX === stepX &&
+      cached.stepY === stepY
+
+    if (!hit || cached === null) {
+      const canvas = this.canvasFactory ? this.canvasFactory() : defaultCanvasFactory()
+      if (!canvas) {
+        return null
+      }
+      const tileWidthPx = Math.max(1, Math.round(stepX * effectiveDpr))
+      const tileHeightPx = Math.max(1, Math.round(stepY * effectiveDpr))
+      canvas.width = tileWidthPx
+      canvas.height = tileHeightPx
+      const tileCtx = canvas.getContext('2d')
+      if (!tileCtx) {
+        return null
+      }
+
+      const scaleX = tileWidthPx / stepX
+      const scaleY = tileHeightPx / stepY
+      tileCtx.save()
+      tileCtx.setTransform(scaleX, 0, 0, scaleY, 0, 0)
+      tileCtx.clearRect(0, 0, stepX, stepY)
+      tileCtx.font = font
+      tileCtx.fillStyle = fillColor
+      const cx = tileSize.width / 2
+      const cy = tileSize.height / 2
+      const rad = (style.rotate * Math.PI) / 180
+      // 3×3 周期包裹：旋转后超出单瓦片边界的笔画在相邻瓦片边缘无缝补齐，不截断
+      for (const dy of [-stepY, 0, stepY]) {
+        for (const dx of [-stepX, 0, stepX]) {
+          tileCtx.save()
+          tileCtx.translate(cx + dx, cy + dy)
+          if (tileCtx.rotate) {
+            tileCtx.rotate(rad)
+          }
+          tileCtx.fillText(text, -tileSize.width / 2, tileSize.height * BASELINE_CENTER_RATIO)
+          tileCtx.restore()
+        }
+      }
+      tileCtx.restore()
+
+      cached = {
+        text,
+        font,
+        fillColor,
+        angle: style.rotate,
+        gapX: style.gapX,
+        gapY: style.gapY,
+        offsetX,
+        offsetY,
+        dpr: effectiveDpr,
+        stepX,
+        stepY,
+        tileWidthPx,
+        tileHeightPx,
+        canvas,
+      }
+      this.entry = cached
+    }
+
+    if (cached.patternCtx === ctx && cached.pattern !== undefined) {
+      return cached.pattern
+    }
+
+    const pattern = ctx.createPattern(cached.canvas, 'repeat')
+    if (pattern && (cached.tileWidthPx !== stepX || cached.tileHeightPx !== stepY)) {
+      const setTransform = (pattern as { setTransform?: (matrix?: DOMMatrix2DInit) => void })
+        .setTransform
+      if (typeof setTransform !== 'function' || typeof DOMMatrix === 'undefined') {
+        return null
+      }
+      setTransform.call(
+        pattern,
+        new DOMMatrix().scale(stepX / cached.tileWidthPx, stepY / cached.tileHeightPx),
+      )
+    }
+    cached.patternCtx = ctx
+    cached.pattern = pattern
+    return pattern
+  }
+}
+
+/**
+ * 文字平铺水印绘制入口：测量前先设 font（真实 2D 上下文按当前 font 计量文本宽）。
+ * 优先走离屏 CanvasPattern 缓存快路径（单次 fillRect 铺满视口）；若运行环境无
+ * createPattern 或无法创建离屏 2D 上下文，平滑降级为 watermarkTileOrigins 逐格绘制。
  */
 export function drawTextWatermark(
   ctx: RenderContext,
   config: WatermarkTextConfig,
   viewport: { width: number; height: number },
+  options?: WatermarkDrawOptions,
 ): void {
   const style = resolveWatermarkStyle(config)
-  ctx.font = watermarkFont(style.fontSize)
+  const font = watermarkFont(style.fontSize)
+  ctx.font = font
   const textWidth = ctx.measureText(config.text).width
   const tileSize = { width: textWidth, height: style.fontSize }
+  const stepX = tileSize.width + style.gapX
+  const stepY = tileSize.height + style.gapY
+  if (stepX <= 0 || stepY <= 0 || viewport.width <= 0 || viewport.height <= 0) {
+    return
+  }
+
+  const offsetX = options?.offsetX ?? 0
+  const offsetY = options?.offsetY ?? 0
+
+  if (typeof ctx.createPattern === 'function') {
+    const cache = options?.cache ?? new WatermarkTileCache(options?.canvasFactory)
+    const dpr = options?.dpr ?? resolveContextDpr(ctx)
+    const pattern = cache.getPattern(ctx, config.text, style, font, tileSize, dpr, offsetX, offsetY)
+    if (pattern) {
+      ctx.save()
+      ctx.fillStyle = pattern
+      if (offsetX !== 0 || offsetY !== 0) {
+        ctx.translate(offsetX, offsetY)
+        ctx.fillRect(-offsetX, -offsetY, viewport.width, viewport.height)
+      } else {
+        ctx.fillRect(0, 0, viewport.width, viewport.height)
+      }
+      ctx.restore()
+      return
+    }
+  }
+
   const origins = watermarkTileOrigins(viewport, tileSize, style.gapX, style.gapY)
   if (origins.length === 0) {
     return
@@ -128,7 +342,7 @@ export function drawTextWatermark(
   ctx.fillStyle = watermarkFillColor(style.color, style.opacity)
   for (const origin of origins) {
     ctx.save()
-    ctx.translate(origin.x + tileSize.width / 2, origin.y + tileSize.height / 2)
+    ctx.translate(origin.x + offsetX + tileSize.width / 2, origin.y + offsetY + tileSize.height / 2)
     if (ctx.rotate) {
       ctx.rotate(rad)
     }

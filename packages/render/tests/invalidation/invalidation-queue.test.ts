@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { InvalidationQueue } from '../../src/invalidation/invalidation-queue'
-import type { LayerConsumption } from '../../src/types'
+import { intersects } from '../../src/region'
+import type { LayerConsumption, Region } from '../../src/types'
 
 describe('InvalidationQueue 合并语义', () => {
   it('region 归一化：双包围盒 union + 扩边 10 + 像素对齐', () => {
@@ -153,5 +154,96 @@ describe('InvalidationQueue 消费策略（建层注入）', () => {
 
   it('空队列 drain 返回 null', () => {
     expect(new InvalidationQueue('regions').drain()).toBeNull()
+  })
+})
+
+/** 断言矩形集两两不相交，且总面积等于预期并集面积 */
+function expectPairwiseDisjointWithArea(regions: readonly Region[], expectedArea: number): void {
+  let totalArea = 0
+  for (let i = 0; i < regions.length; i++) {
+    const a = regions[i]!
+    expect(a.width).toBeGreaterThan(0)
+    expect(a.height).toBeGreaterThan(0)
+    totalArea += a.width * a.height
+    for (let j = i + 1; j < regions.length; j++) {
+      expect(intersects(a, regions[j]!)).toBe(false)
+    }
+  }
+  expect(totalArea).toBe(expectedArea)
+}
+
+describe('InvalidationQueue 对角 band 去重与 region 合并上限', () => {
+  it('对角滚动（水平 band + 垂直 band）拆解为两两不相交矩形，总面积等于精确并集且交叉角只绘一次', () => {
+    const queue = new InvalidationQueue('regions')
+    // 水平 band [0..800, 500..540] 面积 32000，垂直 band [760..800, 0..540] 面积 21600
+    // 交叉角 [760..800, 500..540] 面积 1600，精确并集面积 = 32000 + 21600 - 1600 = 52000
+    queue.push({ type: 'band', region: { x: 0, y: 500, width: 800, height: 40 } })
+    queue.push({ type: 'band', region: { x: 760, y: 0, width: 40, height: 540 } })
+    const plan = queue.drain()
+    expect(plan).not.toBeNull()
+    expect(plan!.full).toBe(false)
+    if (!plan || plan.full) throw new Error('expected partial plan')
+    expectPairwiseDisjointWithArea(plan.regions, 52000)
+
+    // 十字交叉（垂直 band 穿中水平 band）拆成上下两段 + 水平整条，同样两两不相交且面积精确
+    const crossQueue = new InvalidationQueue('band-full-only')
+    crossQueue.push({ type: 'band', region: { x: 0, y: 200, width: 800, height: 40 } })
+    crossQueue.push({ type: 'band', region: { x: 300, y: 0, width: 50, height: 600 } })
+    const crossPlan = crossQueue.drain()
+    expect(crossPlan).not.toBeNull()
+    if (!crossPlan || crossPlan.full) throw new Error('expected partial plan')
+    // 32000 + 30000 - 2000 = 60000
+    expectPairwiseDisjointWithArea(crossPlan.regions, 60000)
+  })
+
+  it('被已有 band 完全包含的新 band 直接忽略，被新 band 完全包含的旧 band 被吸收', () => {
+    const queue = new InvalidationQueue('regions')
+    queue.push({ type: 'band', region: { x: 0, y: 0, width: 800, height: 100 } })
+    queue.push({ type: 'band', region: { x: 10, y: 10, width: 100, height: 50 } })
+    expect(queue.drain()).toEqual({
+      full: false,
+      regions: [{ x: 0, y: 0, width: 800, height: 100 }],
+    })
+
+    queue.push({ type: 'band', region: { x: 10, y: 10, width: 100, height: 50 } })
+    queue.push({ type: 'band', region: { x: 0, y: 0, width: 800, height: 100 } })
+    expect(queue.drain()).toEqual({
+      full: false,
+      regions: [{ x: 0, y: 0, width: 800, height: 100 }],
+    })
+  })
+
+  it('重叠与桥接 region 通过 union 级联合并（不重复绘制）', () => {
+    const queue = new InvalidationQueue('regions')
+    // 两个原本分离的 region
+    queue.push({ type: 'region', region: { x: 0, y: 0, width: 10, height: 10 } })
+    queue.push({ type: 'region', region: { x: 60, y: 0, width: 10, height: 10 } })
+    // 第三个 region 桥接两者 → 三者合并为一个包围盒
+    queue.push({ type: 'region', region: { x: 25, y: 0, width: 20, height: 10 } })
+    // raw: [0..70, 0..10]，spread(10) → [-10..80, -10..20] = { x: -10, y: -10, width: 90, height: 30 }
+    expect(queue.drain()).toEqual({
+      full: false,
+      regions: [{ x: -10, y: -10, width: 90, height: 30 }],
+    })
+  })
+
+  it('离散 region 数超过 MAX_REGIONS (24) 升级为 full，重叠合并后未超上限不升级', () => {
+    const coalesced = new InvalidationQueue('regions')
+    for (let i = 0; i < 30; i++) {
+      // 步长 15 < 2*SPREAD + width(10) = 30，全部重叠合并成单个 region
+      coalesced.push({ type: 'region', region: { x: i * 15, y: 0, width: 10, height: 10 } })
+    }
+    const coalescedPlan = coalesced.drain()
+    expect(coalescedPlan).toEqual({
+      full: false,
+      regions: [{ x: -10, y: -10, width: 30 * 15 - 15 + 10 + 20, height: 30 }],
+    })
+
+    const overflowed = new InvalidationQueue('regions')
+    for (let i = 0; i <= 24; i++) {
+      // 步长 100，两两严格分离，第 25 个触发 MAX_REGIONS 上限升级 full
+      overflowed.push({ type: 'region', region: { x: i * 100, y: 0, width: 10, height: 10 } })
+    }
+    expect(overflowed.drain()).toEqual({ full: true })
   })
 })

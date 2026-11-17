@@ -113,4 +113,43 @@ describe('snapshot / restore', () => {
     expect([...store.peekRow(1)].map(([col]) => col).sort((a, b) => a - b)).toEqual([2, 3])
     expect([...store.peekRow(0)]).toEqual([])
   })
+
+  it('entriesInRange / peekEntriesInRange：稀疏 A1:A100000 仅 5 行保持严格行主序且不拷贝（peek）', () => {
+    const store = new CellStore()
+    // 刻意乱序写入行，验证稀疏行键排序后的严格升序输出
+    const rows = [90_000, 10, 50_000, 0, 25_000]
+    for (const row of rows) {
+      store.setCell({ row, col: 0 }, { v: row })
+    }
+    const range = { start: { row: 0, col: 0 }, end: { row: 99_999, col: 0 } }
+    const start = performance.now()
+    const entries = [...store.entriesInRange(range)]
+    const elapsed = performance.now() - start
+
+    expect(entries.map(([addr, data]) => [addr.row, data.v])).toEqual([
+      [0, 0],
+      [10, 10],
+      [25_000, 25_000],
+      [50_000, 50_000],
+      [90_000, 90_000],
+    ])
+    expect(elapsed).toBeLessThan(20)
+
+    // 宽行乱序写入列，验证仍按列号升序输出
+    store.setCell({ row: 1, col: 100 }, { v: 'c100' })
+    store.setCell({ row: 1, col: 5 }, { v: 'c5' })
+    store.setCell({ row: 1, col: 50 }, { v: 'c50' })
+    const wide = [
+      ...store.peekEntriesInRange({ start: { row: 1, col: 0 }, end: { row: 1, col: 500 } }),
+    ]
+    expect(wide.map(([addr, data]) => [addr.col, data.v])).toEqual([
+      [5, 'c5'],
+      [50, 'c50'],
+      [100, 'c100'],
+    ])
+    // peekEntriesInRange 返回内部引用，entriesInRange 返回副本
+    expect(wide[0]![1]).toBe(store.peekCell({ row: 1, col: 5 }))
+    const copied = [...store.entriesInRange({ start: { row: 1, col: 5 }, end: { row: 1, col: 5 } })]
+    expect(copied[0]![1]).not.toBe(store.peekCell({ row: 1, col: 5 }))
+  })
 })

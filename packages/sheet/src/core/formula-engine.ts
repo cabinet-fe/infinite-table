@@ -11,16 +11,21 @@
 
 import {
   DependencyGraph,
+  FormulaLookupCache,
   FormulaParseError,
   astHasVolatileCall,
   collectAstReferences,
-  evaluate,
+  evaluateAst,
   formulaError,
+  getFormulaFunctionInfo,
   isFormulaError,
   isFormulaErrorCode,
+  listFormulaFunctions,
   parseFormula,
+  type AstNode,
   type FormulaError,
   type FormulaFunction,
+  type FormulaFunctionInfo,
   type FormulaRefCoord,
   type FormulaResolver,
   type ScalarValue,
@@ -37,6 +42,9 @@ export interface FormulaNodeView {
   readonly sheetName: string
   readonly addr: CellAddress
 }
+
+/** 有界 AST 缓存上限（避免超大/长生命周期工作簿无限增长） */
+const MAX_AST_CACHE_SIZE = 4096
 
 /** 格坐标键（长度前缀编码 sheet 名，任意表名无歧义；与 formulas 图同编码方案） */
 function keyOf(coord: SheetCellCoord): string {
@@ -88,6 +96,8 @@ export class FormulaEngine {
   private readonly graph = new DependencyGraph()
   /** 实例函数集（key 大写形态；求值与易失探针先于此，未命中回落全局注册表） */
   private readonly functions = new Map<string, FormulaFunction>()
+  /** 有界 AST 缓存（按去首尾空白的公式文本索引；LRU 淘汰） */
+  private readonly astCache = new Map<string, AstNode>()
 
   constructor(options: FormulaEngineOptions = {}) {
     for (const [name, def] of Object.entries(options.functions ?? {})) {
@@ -135,6 +145,16 @@ export class FormulaEngine {
    */
   registerFunction(name: string, def: FormulaFunction): void {
     this.functions.set(name.toUpperCase(), def)
+  }
+
+  /** 查询单个函数元数据（大小写不敏感；实例函数集优先，未命中回落全局注册表） */
+  getFunctionInfo(name: string): FormulaFunctionInfo | undefined {
+    return getFormulaFunctionInfo(name, this.functions)
+  }
+
+  /** 枚举当前引擎可用的全部函数元数据（含实例自定义函数及覆盖，名称升序） */
+  listFunctions(): FormulaFunctionInfo[] {
+    return listFormulaFunctions(this.functions)
   }
 
   /**
@@ -198,7 +218,7 @@ export class FormulaEngine {
     const records: Array<{ coord: SheetCellCoord; formula: string }> = []
     for (const coord of affected.values()) {
       const owner = this.sheets.get(coord.sheet)
-      const formula = owner?.store.getCell({ row: coord.row, col: coord.col })?.f
+      const formula = owner?.store.peekCell({ row: coord.row, col: coord.col })?.f
       if (formula) records.push({ coord, formula })
     }
     for (const coord of affected.values()) this.graph.remove(coord)
@@ -328,6 +348,8 @@ export class FormulaEngine {
     const stack: SheetCellCoord[] = []
     const cycleMembers = new Set<string>()
     const cycleError = formulaError('#CYCLE!')
+    // 批内查找索引缓存：同一轮重算共享 VLOOKUP / HLOOKUP / MATCH 首列/首行索引，结束即清空
+    const lookupCache = new FormulaLookupCache()
 
     /**
      * 裸引用缺省表：lazy 函数（VLOOKUP/MATCH 等按 AST 取区域几何逐格回读）
@@ -356,14 +378,18 @@ export class FormulaEngine {
       try {
         const formula = this.sheets
           .get(coord.sheet)
-          ?.store.getCell({ row: coord.row, col: coord.col })?.f
-        value = formula
-          ? evaluate(formula, resolver, {
-              sheet: coord.sheet,
-              cell: { col: coord.col, row: coord.row },
-              functions: this.functions,
-            })
-          : formulaError('#ERROR!')
+          ?.store.peekCell({ row: coord.row, col: coord.col })?.f
+        if (formula) {
+          const ast = this.parseCached(formula)
+          value = evaluateAst(ast, resolver, {
+            sheet: coord.sheet,
+            cell: { col: coord.col, row: coord.row },
+            functions: this.functions,
+            lookupCache,
+          })
+        } else {
+          value = formulaError('#ERROR!')
+        }
       } catch {
         // 求值期异常（如自定义函数抛错）不应击穿重算 → 记为 #ERROR!
         value = formulaError('#ERROR!')
@@ -388,7 +414,7 @@ export class FormulaEngine {
         const addr = { row: ref.row, col: ref.col }
         const coord = { sheet: sheet.name, col: ref.col, row: ref.row }
         if (dirtyKeys.has(keyOf(coord))) return evaluateCoord(coord)
-        return cellDataToScalar(sheet.store.getCell(addr))
+        return cellDataToScalar(sheet.store.peekCell(addr))
       },
       range(ref) {
         const sheet = resolveSheet(ref.sheet ?? defaultSheet)
@@ -397,17 +423,47 @@ export class FormulaEngine {
           start: { row: ref.startRow, col: ref.startCol },
           end: { row: ref.endRow, col: ref.endCol },
         }
-        const values: unknown[] = []
-        // 只迭代稀疏存在的格（空格不进数组，聚合语义由函数层决定）
-        for (const [addr, data] of sheet.store.entriesInRange(range)) {
+        const rangeValues: unknown[] = []
+        // 只迭代稀疏存在的格（空格不进数组，聚合语义由函数层决定；peek 免拷贝）
+        for (const [addr, data] of sheet.store.peekEntriesInRange(range)) {
           const coord = { sheet: sheet.name, col: addr.col, row: addr.row }
-          values.push(dirtyKeys.has(keyOf(coord)) ? evaluateCoord(coord) : cellDataToScalar(data))
+          rangeValues.push(
+            dirtyKeys.has(keyOf(coord)) ? evaluateCoord(coord) : cellDataToScalar(data),
+          )
         }
-        return values
+        return rangeValues
+      },
+      sparseVector(ref, along) {
+        const sheet = resolveSheet(ref.sheet ?? defaultSheet)
+        if (!sheet) return [[0, formulaError('#REF!')]]
+        const sliceRange: CellRange =
+          along === 'column'
+            ? {
+                start: { row: ref.startRow, col: ref.startCol },
+                end: { row: ref.endRow, col: ref.startCol },
+              }
+            : {
+                start: { row: ref.startRow, col: ref.startCol },
+                end: { row: ref.startRow, col: ref.endCol },
+              }
+        const base = along === 'column' ? ref.startRow : ref.startCol
+        const entries: Array<readonly [number, unknown]> = []
+        for (const [addr, data] of sheet.store.peekEntriesInRange(sliceRange)) {
+          const coord = { sheet: sheet.name, col: addr.col, row: addr.row }
+          const val = dirtyKeys.has(keyOf(coord)) ? evaluateCoord(coord) : cellDataToScalar(data)
+          if (val !== null) {
+            entries.push([(along === 'column' ? addr.row : addr.col) - base, val])
+          }
+        }
+        return entries
       },
     }
 
-    for (const coord of dirty.values()) evaluateCoord(coord)
+    try {
+      for (const coord of dirty.values()) evaluateCoord(coord)
+    } finally {
+      lookupCache.clear()
+    }
 
     // 派生补丁：缓存值与重算结果一致的跳过（收敛时不产生冗余变更）
     const patches: CellPatch[] = []
@@ -416,7 +472,7 @@ export class FormulaEngine {
       const sheet = this.sheets.get(coord.sheet)
       if (!sheet) continue
       const addr = { row: coord.row, col: coord.col }
-      const before = sheet.store.getCell(addr)
+      const before = sheet.store.peekCell(addr)
       const formula = before?.f
       if (!formula) continue
       const { v, t } = serializeResult(value)
@@ -425,7 +481,7 @@ export class FormulaEngine {
         kind: 'cell',
         sheet,
         addr,
-        before,
+        before: { ...before },
         // 只写缓存值（v/t），保留既有样式（s）——重算不得丢失格式
         after: before.s != null ? { f: formula, v, t, s: before.s } : { f: formula, v, t },
       })
@@ -434,6 +490,24 @@ export class FormulaEngine {
   }
 
   // ─── 内部 ─────────────────────────────────────────────────
+
+  /** 带 LRU 上限的公式解析缓存（重复/填充公式避免重复分词与建树） */
+  private parseCached(formula: string): AstNode {
+    const normalized = formula.trim()
+    const cached = this.astCache.get(normalized)
+    if (cached !== undefined) {
+      this.astCache.delete(normalized)
+      this.astCache.set(normalized, cached)
+      return cached
+    }
+    const ast = parseFormula(normalized)
+    if (this.astCache.size >= MAX_AST_CACHE_SIZE) {
+      const oldestKey = this.astCache.keys().next().value
+      if (oldestKey !== undefined) this.astCache.delete(oldestKey)
+    }
+    this.astCache.set(normalized, ast)
+    return ast
+  }
 
   /** 解析公式并注册进依赖图：静态引用收集（裸引用归一到公式所在表）、易失标记 */
   private registerFormula(
@@ -445,7 +519,7 @@ export class FormulaEngine {
     let refs: FormulaRefCoord[] = []
     let volatile = false
     try {
-      const ast = parseFormula(formula)
+      const ast = this.parseCached(formula)
       volatile = astHasVolatileCall(ast, this.functions)
       const seen = new Set<string>()
       for (const ref of collectAstReferences(ast)) {

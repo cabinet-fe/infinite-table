@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ListTable } from '@infinitable/table'
 import type { EngineAssembly, EnginePlugin } from '@infinitable/protocol'
+import type { RenderImageSource } from '@infinitable/render'
 
 import { createWatermarkPlugin } from '../../src/watermark/watermark-plugin'
 import { StubHost } from '../testing/stub-host'
@@ -224,5 +225,52 @@ describe('overlay 事件透传', () => {
     expect(node?.children).toEqual([])
     expect(node?.width).toBe(400)
     expect(node?.height).toBe(200)
+  })
+})
+
+describe('createWatermarkPlugin 图案缓存集成', () => {
+  it('注入 canvasFactory 且渲染上下文支持 createPattern 时复用离屏瓦片，updateConfig 才重建', () => {
+    let tileCanvasCreates = 0
+    const plugin = createWatermarkPlugin(
+      { enabled: true, text: '机密' },
+      {
+        canvasFactory: () => {
+          tileCanvasCreates++
+          const tileCtx = new RecordingContext()
+          return { width: 0, height: 0, getContext: () => tileCtx }
+        },
+      },
+    )
+    const host = new StubHost()
+    const table = createTable(host, [plugin])
+    const children = host.layers.get('sky')?.root.children ?? []
+    const watermarkNode = children[children.length - 2]!
+
+    class PatternStubContext extends RecordingContext {
+      fillRectCount = 0
+      patternCount = 0
+      override fillRect(): void {
+        this.fillRectCount++
+      }
+      createPattern(_img: RenderImageSource): CanvasPattern | null {
+        this.patternCount++
+        return {} as CanvasPattern
+      }
+    }
+
+    const ctx = new PatternStubContext()
+    watermarkNode.paint(ctx)
+    watermarkNode.paint(ctx)
+    expect(tileCanvasCreates).toBe(1)
+    expect(ctx.patternCount).toBe(1)
+    expect(ctx.fillRectCount).toBe(2)
+    expect(ctx.texts).toHaveLength(0)
+
+    plugin.updateConfig({ text: '绝密' })
+    watermarkNode.paint(ctx)
+    expect(tileCanvasCreates).toBe(2)
+    expect(ctx.patternCount).toBe(2)
+    expect(ctx.fillRectCount).toBe(3)
+    table.destroy()
   })
 })

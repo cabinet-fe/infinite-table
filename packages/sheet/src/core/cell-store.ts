@@ -151,15 +151,65 @@ export class CellStore {
 
   /** 只遍历区域内真实存在的单元格（行主序；公式区域展开用，空行/空格不分配不访问） */
   *entriesInRange(range: CellRange): Generator<[CellAddress, CellData], void, undefined> {
+    for (const [addr, data] of this.peekEntriesInRange(range)) {
+      yield [addr, { ...data }]
+    }
+  }
+
+  /**
+   * 只读遍历区域内真实存在的单元格（严格行主序，不拷贝 CellData；调用方不得修改返回对象）。
+   * 稀疏大行跨度下直接过滤并排序已有行键，避免空行 Map 点查；宽行内同理保证列序。
+   */
+  *peekEntriesInRange(range: CellRange): Generator<[CellAddress, CellData], void, undefined> {
+    const rowSpan = range.end.row - range.start.row + 1
+    const colSpan = range.end.col - range.start.col + 1
+    if (rowSpan <= 0 || colSpan <= 0 || this.cells.size === 0) return
+
+    if (rowSpan > this.cells.size * 2) {
+      const rows: number[] = []
+      for (const row of this.cells.keys()) {
+        if (row >= range.start.row && row <= range.end.row) rows.push(row)
+      }
+      rows.sort((a, b) => a - b)
+      for (const row of rows) {
+        yield* this.peekRowEntriesInColRange(
+          row,
+          this.cells.get(row)!,
+          range.start.col,
+          range.end.col,
+        )
+      }
+      return
+    }
+
     for (let row = range.start.row; row <= range.end.row; row++) {
       const rowMap = this.cells.get(row)
       if (!rowMap) continue
-      // 迭代行内稀疏键再按列范围过滤：宽区域（如 =SUM(A1:XFD100000)）下
-      // 代价 = O(有数据的行数 + 行内键数)，而非 O(行数 × 列范围宽)（#7）
-      for (const [col, data] of rowMap) {
-        if (col < range.start.col || col > range.end.col) continue
-        yield [{ row, col }, { ...data }]
+      yield* this.peekRowEntriesInColRange(row, rowMap, range.start.col, range.end.col)
+    }
+  }
+
+  private *peekRowEntriesInColRange(
+    row: number,
+    rowMap: Map<number, CellData>,
+    startCol: number,
+    endCol: number,
+  ): Generator<[CellAddress, CellData], void, undefined> {
+    const colSpan = endCol - startCol + 1
+    if (colSpan <= rowMap.size * 2) {
+      for (let col = startCol; col <= endCol; col++) {
+        const data = rowMap.get(col)
+        if (data !== undefined) yield [{ row, col }, data]
       }
+      return
+    }
+    const cols: number[] = []
+    for (const col of rowMap.keys()) {
+      if (col >= startCol && col <= endCol) cols.push(col)
+    }
+    cols.sort((a, b) => a - b)
+    for (const col of cols) {
+      yield [{ row, col }, rowMap.get(col)!]
     }
   }
 

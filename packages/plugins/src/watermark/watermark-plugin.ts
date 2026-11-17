@@ -10,9 +10,16 @@
 // import 面零引擎内部 API：只经 @infinitable/protocol 契约面。
 
 import type { EngineAssembly, EnginePlugin, LayerPainter } from '@infinitable/protocol'
+import type { CanvasFactory } from '@infinitable/render'
 
 import type { WatermarkTextConfig } from '../print/types'
-import { drawTextWatermark, resolveWatermarkStyle } from './tile'
+import { drawTextWatermark, resolveWatermarkStyle, WatermarkTileCache } from './tile'
+
+/** 水印插件可选参数 */
+export interface WatermarkPluginOptions {
+  /** 可选离屏画布工厂（缺省使用 document.createElement('canvas')，测试或无头环境可注入） */
+  canvasFactory?: CanvasFactory
+}
 
 /** 水印插件句柄：EnginePlugin 契约 + 运行时配置读写 */
 export interface WatermarkHandle extends EnginePlugin {
@@ -42,14 +49,18 @@ function sameWatermarkConfig(a: WatermarkTextConfig, b: WatermarkTextConfig): bo
  * 创建水印插件：配置必给 enabled/text（样式字段可选，缺省见 WATERMARK_TEXT_DEFAULTS）。
  * 构造 options.plugins 或引擎 use() 注册即挂载；返回值既是 EnginePlugin 也是运行时句柄。
  */
-export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHandle {
+export function createWatermarkPlugin(
+  config: WatermarkTextConfig,
+  options?: WatermarkPluginOptions,
+): WatermarkHandle {
   let current: WatermarkTextConfig = { ...config }
   let engine: EngineAssembly | null = null
   let unregister: (() => void) | null = null
+  const tileCache = new WatermarkTileCache(options?.canvasFactory)
 
   // painter 捕获配置引用（updateConfig 整体换引用，重绘帧读到的是最新配置）
   const painter: LayerPainter = (ctx, viewport) => {
-    drawTextWatermark(ctx, current, viewport)
+    drawTextWatermark(ctx, current, viewport, { cache: tileCache })
   }
 
   /** 注销已注册的 overlay painter 并清空引用（幂等） */
@@ -73,6 +84,7 @@ export function createWatermarkPlugin(config: WatermarkTextConfig): WatermarkHan
   /** 卸载清理：注销 painter 并清除引擎引用（幂等） */
   const dispose = (): void => {
     clearPainter()
+    tileCache.clear()
     engine = null
   }
 

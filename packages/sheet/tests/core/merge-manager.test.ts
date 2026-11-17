@@ -95,4 +95,29 @@ describe('MergeManager 边界', () => {
     })
     expect(mgr.getCellInfo(B2).kind).toBe('merged-anchor')
   })
+
+  it('十万行大合并（A1:B100000）走分桶索引：毫秒级注册、中/尾查询与行列平移', () => {
+    const mgr = new MergeManager()
+    const large = { start: { row: 0, col: 0 }, end: { row: 99_999, col: 1 } }
+    const t0 = performance.now()
+    mgr.addMerge(large)
+    const elapsed = performance.now() - t0
+    expect(elapsed).toBeLessThan(100)
+
+    expect(mgr.getMergeAt({ row: 0, col: 0 })).toEqual(large)
+    expect(mgr.getMergeAt({ row: 50_000, col: 1 })).toEqual(large)
+    expect(mgr.getMergeAt({ row: 99_999, col: 1 })).toEqual(large)
+    expect(mgr.getMergeAt({ row: 50_000, col: 2 })).toBeUndefined()
+    expect(mgr.resolveAnchor({ row: 99_999, col: 1 })).toEqual({ row: 0, col: 0 })
+
+    mgr.shiftRowsInsert(50_000, 10)
+    expect(mgr.getMergeAt({ row: 100_009, col: 1 })).toEqual({
+      start: { row: 0, col: 0 },
+      end: { row: 100_009, col: 1 },
+    })
+
+    mgr.removeMerge({ start: { row: 0, col: 0 }, end: { row: 100_009, col: 1 } })
+    expect(mgr.size).toBe(0)
+    expect(mgr.getMergeAt({ row: 50_000, col: 1 })).toBeUndefined()
+  })
 })

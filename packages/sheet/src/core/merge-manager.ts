@@ -3,18 +3,35 @@ import {
   cellKey,
   createRange,
   iterateRange,
+  rangeContainsAddress,
   rangesIntersect,
   type CellAddress,
   type CellRange,
 } from './address'
 import { sanitizeMerges, warnMergeConflicts } from '@infinitable/grid'
 
+/** 逐格展开写入 coverIndex 的单元格数量阈值；超限合并区走稀疏行分桶索引 */
+const SMALL_MERGE_CELL_LIMIT = 64
+/** 行分桶大小（每桶 256 行） */
+const ROW_BUCKET_SIZE = 256
+/** 单条合并区允许分桶的最大跨度（约 100 万行）；超出时退化到 hugeMerges */
+const MAX_BUCKET_SPAN = 4096
+
+function bucketOfRow(row: number): number {
+  return Math.max(0, Math.floor(row / ROW_BUCKET_SIZE))
+}
+
+function rangeCellCount(range: CellRange): number {
+  return (range.end.row - range.start.row + 1) * (range.end.col - range.start.col + 1)
+}
+
 /**
  * 合并单元格管理器（只管几何，不管数据）。
  *
  * - 锚点恒为区域左上角，数据只存在锚点格（数据搬迁由 Sheet 编排）
  * - merges：anchorKey → CellRange
- * - coverIndex：coveredCellKey（不含锚点自身）→ anchorKey，O(1) 查询
+ * - coverIndex：小合并区（<= 64 格）coveredCellKey（不含锚点自身）→ anchorKey，O(1) 查询
+ * - largeBuckets / hugeMerges：大合并区（> 64 格）按 256 行分桶索引，避免 O(spanRows * spanCols) 写入
  */
 
 /** 单元格在合并语义下的种类 */
@@ -60,6 +77,9 @@ export interface MergeResult {
 export class MergeManager {
   private merges = new Map<number, CellRange>()
   private coverIndex = new Map<number, number>()
+  private largeMerges = new Map<number, CellRange>()
+  private largeBuckets = new Map<number, Set<CellRange>>()
+  private hugeMerges = new Set<CellRange>()
 
   /**
    * 计算合并结果（纯查询，不修改状态）：
@@ -101,7 +121,18 @@ export class MergeManager {
     const asAnchor = this.merges.get(key)
     if (asAnchor) return asAnchor
     const anchorKey = this.coverIndex.get(key)
-    return anchorKey === undefined ? undefined : this.merges.get(anchorKey)
+    if (anchorKey !== undefined) return this.merges.get(anchorKey)
+    if (this.largeMerges.size === 0) return undefined
+    const bucket = this.largeBuckets.get(bucketOfRow(addr.row))
+    if (bucket) {
+      for (const range of bucket) {
+        if (rangeContainsAddress(range, addr)) return range
+      }
+    }
+    for (const range of this.hugeMerges) {
+      if (rangeContainsAddress(range, addr)) return range
+    }
+    return undefined
   }
 
   /** 合并语义下的单元格信息 */
@@ -130,22 +161,58 @@ export class MergeManager {
   clear(): void {
     this.merges.clear()
     this.coverIndex.clear()
+    this.largeMerges.clear()
+    this.largeBuckets.clear()
+    this.hugeMerges.clear()
   }
 
   private register(range: CellRange): void {
     const anchorKey = cellKey(range.start)
     this.merges.set(anchorKey, range)
-    for (const addr of iterateRange(range)) {
-      if (addr.row !== range.start.row || addr.col !== range.start.col) {
-        this.coverIndex.set(cellKey(addr), anchorKey)
+    if (rangeCellCount(range) <= SMALL_MERGE_CELL_LIMIT) {
+      for (const addr of iterateRange(range)) {
+        if (addr.row !== range.start.row || addr.col !== range.start.col) {
+          this.coverIndex.set(cellKey(addr), anchorKey)
+        }
       }
+      return
+    }
+    this.largeMerges.set(anchorKey, range)
+    const startBucket = bucketOfRow(range.start.row)
+    const endBucket = bucketOfRow(range.end.row)
+    if (endBucket - startBucket + 1 <= MAX_BUCKET_SPAN) {
+      for (let b = startBucket; b <= endBucket; b++) {
+        let bucket = this.largeBuckets.get(b)
+        if (!bucket) {
+          bucket = new Set()
+          this.largeBuckets.set(b, bucket)
+        }
+        bucket.add(range)
+      }
+    } else {
+      this.hugeMerges.add(range)
     }
   }
 
   private unregister(range: CellRange): void {
-    this.merges.delete(cellKey(range.start))
-    for (const addr of iterateRange(range)) {
-      if (addr.row !== range.start.row || addr.col !== range.start.col) {
+    const anchorKey = cellKey(range.start)
+    const stored = this.merges.get(anchorKey)
+    if (!stored) return
+    this.merges.delete(anchorKey)
+    if (this.largeMerges.delete(anchorKey)) {
+      if (this.hugeMerges.delete(stored)) return
+      const startBucket = bucketOfRow(stored.start.row)
+      const endBucket = bucketOfRow(stored.end.row)
+      for (let b = startBucket; b <= endBucket; b++) {
+        const bucket = this.largeBuckets.get(b)
+        if (!bucket) continue
+        bucket.delete(stored)
+        if (bucket.size === 0) this.largeBuckets.delete(b)
+      }
+      return
+    }
+    for (const addr of iterateRange(stored)) {
+      if (addr.row !== stored.start.row || addr.col !== stored.start.col) {
         this.coverIndex.delete(cellKey(addr))
       }
     }
