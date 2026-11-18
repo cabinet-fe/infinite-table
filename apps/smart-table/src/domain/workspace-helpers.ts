@@ -41,6 +41,29 @@ export function buildModeSearchUrl(
   return `${pathname}${qs ? `?${qs}` : ''}${hash}`
 }
 
+/** 从 URL query string 解析独立数据录入端入口表 ID（?entry=<tableId>） */
+export function resolveEntryTableIdFromSearch(search: string): string | null {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const raw = params.get('entry')?.trim()
+  return raw ? raw : null
+}
+
+/** 构造普通数据源表的独立数据录入页分享链接（清理工作台查询参数与 hash，仅保留 ?entry=<tableId>） */
+export function buildEntryShareUrl(baseUrl: string, tableId: string): string {
+  const trimmedId = tableId.trim()
+  const isAbsolute = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(baseUrl)
+  const url = new URL(baseUrl || '/', isAbsolute ? undefined : 'http://localhost')
+  url.search = ''
+  url.hash = ''
+  if (trimmedId) {
+    url.searchParams.set('entry', trimmedId)
+  }
+  if (isAbsolute) {
+    return url.toString()
+  }
+  return `${url.pathname}${url.search}`
+}
+
 /** 汇总方式中文标签 */
 export const SUMMARY_LABELS: Record<SummaryType, string> = {
   none: '无汇总',

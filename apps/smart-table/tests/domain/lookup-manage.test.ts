@@ -126,12 +126,32 @@ describe('编辑操作与 dirty', () => {
     expect(lookupDraftError(draft)).toBeNull()
   })
 
-  it('空列名校验失败', () => {
-    let draft = createLookupManageDraft(makeOneColumns(), tablesById)
+  it('空列名与非法匹配条件（本组带出字段/公式字段）校验失败', () => {
+    const baseCols = makeOneColumns()
+    const columns: SmartColumn[] = [
+      ...baseCols,
+      { key: 'formula_score', title: '评分公式', type: 'formula', width: 100, formulaExpr: '1' },
+    ]
+    let draft = createLookupManageDraft(columns, tablesById)
     const groupId = draft.groups[0]!.groupId
     const itemKey = draft.groups[0]!.items[0]!.key
+
+    const withSelfRule = appendLookupRule(draft, groupId, {
+      sourceField: itemKey,
+      targetField: 'dept',
+    })
+    expect(lookupDraftError(withSelfRule, columns)).toBe('匹配条件不能使用本组带出字段或公式字段')
+
+    const withFormulaRule = appendLookupRule(draft, groupId, {
+      sourceField: 'formula_score',
+      targetField: 'dept',
+    })
+    expect(lookupDraftError(withFormulaRule, columns)).toBe(
+      '匹配条件不能使用本组带出字段或公式字段',
+    )
+
     draft = setLookupItemTitle(draft, groupId, itemKey, '  ')
-    expect(lookupDraftError(draft)).toBe('带出列显示名称不能为空')
+    expect(lookupDraftError(draft, columns)).toBe('带出列显示名称不能为空')
   })
 })
 
@@ -215,5 +235,47 @@ describe('buildLookupManageChanges + applyLookupManageChanges', () => {
     expect(added.width).toBe(120)
     const next = applyLookupManageChanges(columns, changes)
     expect(next.map((c) => c.key)).toContain(added.key)
+  })
+
+  it('严格校验目标数据源表原始字段边界：禁止匹配或带出目标表的 lookup/formula 列', () => {
+    const dirtyTables = new Map<string, TableBundle>([
+      [
+        'tbl_emp',
+        {
+          meta: {
+            id: 'tbl_emp',
+            name: '员工花名册',
+            kind: 'advanced',
+            columns: [
+              ...EMP_COLUMNS,
+              {
+                key: 'derived_bonus',
+                title: '派生奖金',
+                type: 'formula',
+                width: 100,
+                formulaExpr: '1',
+              },
+            ],
+            views: [],
+            summaries: {},
+          },
+          records: [],
+        },
+      ],
+    ])
+    const cols = makeOneColumns()
+    let draft = createLookupManageDraft(cols, dirtyTables)
+    const groupId = draft.groups[0]!.groupId
+    const itemKey = draft.groups[0]!.items[0]!.key
+
+    const badTargetRule = updateLookupRule(draft, groupId, 0, { targetField: 'derived_bonus' })
+    expect(lookupDraftError(badTargetRule, cols, dirtyTables)).toBe(
+      '匹配条件只能选择目标数据源表的原始字段',
+    )
+
+    draft = setLookupItemField(draft, groupId, itemKey, 'derived_bonus', '派生奖金')
+    expect(lookupDraftError(draft, cols, dirtyTables)).toBe(
+      '带出字段只能选择目标数据源表的原始字段',
+    )
   })
 })

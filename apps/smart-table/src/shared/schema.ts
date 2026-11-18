@@ -19,6 +19,89 @@ export type SmartColumnType =
   | 'lookup' // 傻瓜式 VLOOKUP 跨表查找引用列
   | 'formula' // 整列计算公式列（如 [累计回款] / [合同金额]）
 
+export type CellTextAlign = 'left' | 'center' | 'right'
+
+/** 原始字段类型（可落库存储于数据源表） */
+export type RawSmartColumnType = Exclude<SmartColumnType, 'lookup' | 'formula'>
+
+/** 派生字段类型（仅归属于智能表格 SmartApp 层） */
+export type DerivedSmartColumnType = Extract<SmartColumnType, 'lookup' | 'formula'>
+
+export const RAW_COLUMN_TYPES = [
+  'text',
+  'number',
+  'select',
+  'date',
+  'checkbox',
+  'person',
+  'progress',
+  'image',
+  'link',
+] as const satisfies readonly RawSmartColumnType[]
+
+export const DERIVED_COLUMN_TYPES = [
+  'lookup',
+  'formula',
+] as const satisfies readonly DerivedSmartColumnType[]
+
+/** 判断列类型是否为派生列（lookup / formula） */
+export function isDerivedColumnType(type: SmartColumnType): type is DerivedSmartColumnType {
+  return type === 'lookup' || type === 'formula'
+}
+
+/** 判断列类型是否为原始字段 */
+export function isRawColumnType(type: SmartColumnType): type is RawSmartColumnType {
+  return !isDerivedColumnType(type)
+}
+
+/** 判断列定义是否为派生列 */
+export function isDerivedColumn(col: Pick<SmartColumn, 'type'>): boolean {
+  return isDerivedColumnType(col.type)
+}
+
+/** 提取数据源表中的原始字段列（过滤任何 lookup / formula 派生列） */
+export function filterRawColumns(columns: readonly SmartColumn[]): SmartColumn[] {
+  return columns.filter((col) => isRawColumnType(col.type))
+}
+
+/** 将列列表拆分为原始字段列与派生列 */
+export function splitColumnsByLayer(columns: readonly SmartColumn[]): {
+  rawColumns: SmartColumn[]
+  derivedColumns: SmartColumn[]
+} {
+  const rawColumns: SmartColumn[] = []
+  const derivedColumns: SmartColumn[] = []
+  for (const col of columns) {
+    if (isDerivedColumnType(col.type)) {
+      derivedColumns.push(col)
+    } else {
+      rawColumns.push(col)
+    }
+  }
+  return { rawColumns, derivedColumns }
+}
+
+/** 合并数据源原始列与 SmartApp 派生列（过滤非法非派生列与重复 key，保证原始列优先） */
+export function mergeSmartColumns(
+  rawColumns: readonly SmartColumn[],
+  derivedColumns?: readonly SmartColumn[],
+): SmartColumn[] {
+  const baseRaw = filterRawColumns(rawColumns)
+  if (!derivedColumns || derivedColumns.length === 0) {
+    return baseRaw
+  }
+  const seen = new Set(baseRaw.map((col) => col.key))
+  const merged = [...baseRaw]
+  for (const col of derivedColumns) {
+    if (!isDerivedColumnType(col.type) || seen.has(col.key)) {
+      continue
+    }
+    seen.add(col.key)
+    merged.push(col)
+  }
+  return merged
+}
+
 export interface SelectOption {
   label: string
   color: string // 胶囊背景色
@@ -54,6 +137,10 @@ export interface SmartColumn {
   title: string
   type: SmartColumnType
   width: number
+  /** 是否必填（仅用于数据源表原始字段录入、编辑与导入校验） */
+  required?: boolean
+  /** 表级基础水平对齐（优先级低于视图 columnStyles.align） */
+  align?: CellTextAlign
   /** 是否为唯一键/索引列（进阶表会在列头展示 🔑 标识） */
   isUniqueKey?: boolean
   /** select 类型的枚举项 */
@@ -123,8 +210,6 @@ export const ROW_HEIGHT_VALUES: Record<RowHeightPreset, number> = {
   standard: 38,
   comfortable: 52,
 }
-
-export type CellTextAlign = 'left' | 'center' | 'right'
 
 /** 列级样式配置（水平对齐、列头与整列背景/文字色） */
 export interface ColumnStyleConfig {
@@ -259,7 +344,7 @@ export interface SmartView {
   dashboardConfig?: DashboardConfig
 }
 
-/** 独立智能表格应用（基于底层数据源表创建，每张智能表格内置多个视图） */
+/** 独立智能表格应用（基于底层数据源表创建，承载派生列、消歧锁定与多维视图） */
 export interface SmartApp {
   id: string
   name: string
@@ -268,6 +353,10 @@ export interface SmartApp {
   tableId: string
   /** 智能表格列表中的排序序号 */
   sortOrder: number
+  /** 应用层派生列（仅允许 lookup / formula，由同 App 多视图共享） */
+  derivedColumns?: SmartColumn[]
+  /** VLOOKUP 重名消歧锁定表：recordId -> (groupId -> targetRecordId) */
+  lookupOverrides?: Record<string, Record<string, string>>
   updatedAt?: string
 }
 

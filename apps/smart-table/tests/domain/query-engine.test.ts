@@ -121,7 +121,7 @@ describe('query-engine', () => {
     expect(formatSummaryValue(null, 'avg', 'decimal')).toBe('-')
   })
 
-  it('runSmartTablePipeline 串联 VLOOKUP → 公式列 → 过滤 → 排序 → 汇总', () => {
+  it('runSmartTablePipeline 支持 SmartApp 派生上下文（VLOOKUP → 公式列 → 过滤 → 排序 → 汇总）与数据源纯原始模式', () => {
     const empBundle: TableBundle = {
       meta: {
         id: 'tbl_emp',
@@ -147,29 +147,8 @@ describe('query-engine', () => {
       kind: 'normal',
       columns: [
         { key: 'owner', title: '负责人', type: 'person', width: 100 },
-        {
-          key: 'lookup_dept',
-          title: '部门',
-          type: 'lookup',
-          width: 100,
-          lookupConfig: {
-            groupId: 'grp_emp',
-            targetTableId: 'tbl_emp',
-            matchRules: [{ sourceField: 'owner', targetField: 'name' }],
-            targetReturnField: 'dept',
-            mode: 'one',
-          },
-        },
         { key: 'paid', title: '回款', type: 'number', width: 100, numberFormat: 'currency' },
         { key: 'contract', title: '合同', type: 'number', width: 100, numberFormat: 'currency' },
-        {
-          key: 'rate',
-          title: '达成率',
-          type: 'formula',
-          width: 100,
-          formulaExpr: '[paid] / [contract]',
-          numberFormat: 'percent',
-        },
       ],
       views: [],
       summaries: {
@@ -177,6 +156,30 @@ describe('query-engine', () => {
         rate: 'avg',
       },
     }
+
+    const derivedColumns: SmartColumn[] = [
+      {
+        key: 'lookup_dept',
+        title: '部门',
+        type: 'lookup',
+        width: 100,
+        lookupConfig: {
+          groupId: 'grp_emp',
+          targetTableId: 'tbl_emp',
+          matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+          targetReturnField: 'dept',
+          mode: 'one',
+        },
+      },
+      {
+        key: 'rate',
+        title: '达成率',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '[paid] / [contract]',
+        numberFormat: 'percent',
+      },
+    ]
 
     const rawRecords: SmartRecord[] = [
       { _id: 'r1', owner: '张三', paid: 80, contract: 100 },
@@ -196,19 +199,33 @@ describe('query-engine', () => {
       sortRules: [{ field: 'paid', direction: 'desc' }],
     }
 
-    const result = runSmartTablePipeline(
-      prjMeta,
-      rawRecords,
-      new Map([['tbl_emp', empBundle]]),
-      view,
-    )
+    // 1. SmartApp 派生上下文模式（支持 lookupOverrides 消歧锁定）
+    const tablesById = new Map([['tbl_emp', empBundle]])
+    const result = runSmartTablePipeline(prjMeta, rawRecords, tablesById, view, {
+      derivedColumns,
+      lookupOverrides: { r1: { grp_emp: 'e2' } },
+    })
 
     expect(result.allComputedRecords).toHaveLength(3)
-    expect(result.unresolvedConflictCount).toBe(1)
+    expect(result.allComputedRecords[0]!['lookup_dept']).toBe('销售部')
+    expect(result.unresolvedConflictCount).toBe(0)
     expect(result.displayRecords.map((r) => r._id)).toEqual(['r2', 'r3'])
     expect(result.displayRecords[0]!['rate']).toBe(0.5)
     expect(result.summaries['paid']).toEqual({ type: 'sum', value: 70, text: '¥70' })
     expect(result.summaries['rate']?.text).toBe('35%')
+
+    // 2. 数据源中心模式（未传 appContext）：即使 meta.columns 残留派生列，也不执行 VLOOKUP 与公式
+    const dirtyMeta: SmartTableMeta = {
+      ...prjMeta,
+      columns: [...prjMeta.columns, ...derivedColumns],
+      summaries: { paid: 'sum' },
+    }
+    const rawResult = runSmartTablePipeline(dirtyMeta, rawRecords, tablesById)
+    expect(rawResult.allComputedRecords[0]!['lookup_dept']).toBeUndefined()
+    expect(rawResult.allComputedRecords[0]!['rate']).toBeUndefined()
+    expect(rawResult.unresolvedConflictCount).toBe(0)
+    expect(rawResult.conflictsByRow.size).toBe(0)
+    expect(rawResult.summaries['paid']).toEqual({ type: 'sum', value: 150, text: '¥150' })
   })
 
   it('修复数值/日期比较非数字文本、链接对象/空白筛选、checkbox 视同 false 与全空 sum/格式对齐', () => {

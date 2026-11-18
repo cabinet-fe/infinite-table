@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DERIVED_COLUMN_TYPES,
+  RAW_COLUMN_TYPES,
   ROW_HEIGHT_VALUES,
+  filterRawColumns,
+  isDerivedColumn,
+  isDerivedColumnType,
+  isRawColumnType,
+  mergeSmartColumns,
+  splitColumnsByLayer,
   type ConditionalFormatRule,
   type DashboardChartType,
   type DashboardConfig,
   type DashboardKpiIcon,
   type KanbanConfig,
+  type SmartApp,
+  type SmartColumn,
   type SmartViewType,
   type WorkspaceView,
 } from '../../src/shared/schema'
@@ -159,5 +169,76 @@ describe('shared schema extensions', () => {
     expect(config.charts[0]?.limit).toBe(5)
     expect(config.charts[1]?.chartType).toBe('area')
     expect(config.charts[2]?.chartType).toBe('radar')
+  })
+
+  it('SmartColumn 支持 required/align，SmartApp 支持 derivedColumns/lookupOverrides 及原始/派生拆分助手', () => {
+    const rawCol: SmartColumn = {
+      key: 'amount',
+      title: '合同金额',
+      type: 'number',
+      width: 120,
+      required: true,
+      align: 'right',
+      numberFormat: 'currency',
+    }
+    const lookupCol: SmartColumn = {
+      key: 'lookup_dept',
+      title: '部门',
+      type: 'lookup',
+      width: 120,
+      lookupConfig: {
+        groupId: 'grp_emp',
+        targetTableId: 'tbl_emp',
+        matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+        targetReturnField: 'dept',
+        mode: 'one',
+      },
+    }
+    const formulaCol: SmartColumn = {
+      key: 'rate',
+      title: '达成率',
+      type: 'formula',
+      width: 100,
+      formulaExpr: '[paid] / [amount]',
+    }
+
+    const app: SmartApp = {
+      id: 'app_prj',
+      name: '项目管理台账',
+      tableId: 'tbl_projects',
+      sortOrder: 0,
+      derivedColumns: [lookupCol, formulaCol],
+      lookupOverrides: { rec_1: { grp_emp: 'emp_2' } },
+    }
+
+    expect(rawCol.required).toBe(true)
+    expect(rawCol.align).toBe('right')
+    expect(app.derivedColumns).toHaveLength(2)
+    expect(app.lookupOverrides?.rec_1?.grp_emp).toBe('emp_2')
+
+    expect(RAW_COLUMN_TYPES).not.toContain('lookup')
+    expect(RAW_COLUMN_TYPES).not.toContain('formula')
+    expect(DERIVED_COLUMN_TYPES).toEqual(['lookup', 'formula'])
+    expect(isDerivedColumnType('lookup')).toBe(true)
+    expect(isDerivedColumnType('formula')).toBe(true)
+    expect(isDerivedColumnType('number')).toBe(false)
+    expect(isRawColumnType('date')).toBe(true)
+    expect(isRawColumnType('lookup')).toBe(false)
+    expect(isDerivedColumn(lookupCol)).toBe(true)
+
+    const mixed = [rawCol, lookupCol, formulaCol]
+    expect(filterRawColumns(mixed)).toEqual([rawCol])
+    expect(splitColumnsByLayer(mixed)).toEqual({
+      rawColumns: [rawCol],
+      derivedColumns: [lookupCol, formulaCol],
+    })
+    // mergeSmartColumns 自动过滤非法非派生列及与原始列重名列
+    const merged = mergeSmartColumns(mixed, [
+      { key: 'amount', title: '重复key', type: 'formula', width: 100, formulaExpr: '1' },
+      { key: 'extra_raw', title: '非法原始列', type: 'text', width: 100 },
+      lookupCol,
+      formulaCol,
+    ])
+    expect(merged.map((c) => c.key)).toEqual(['amount', 'lookup_dept', 'rate'])
   })
 })

@@ -3,10 +3,14 @@ import { writeXlsx } from 'hucre/xlsx'
 import { describe, expect, test } from 'vitest'
 import {
   buildImportRecords,
+  buildMappedImportRecords,
   coerceImportCell,
+  matchImportColumns,
   parseImportFile,
 } from '../../src/shared/import-parse'
 import type { ImportPreviewColumn } from '../../src/shared/api-types'
+import { validateBatchRecords } from '../../src/shared/record-validation'
+import type { SmartColumn } from '../../src/shared/schema'
 
 function csvFile(content: string): File {
   return new File([content], 'import.csv', { type: 'text/csv' })
@@ -98,5 +102,67 @@ describe('coerceImportCell / buildImportRecords', () => {
   test('行矩阵 → 建表初始记录：空数值不写入、行宽不足补空', () => {
     const records = buildImportRecords(columns, [['张三', '100'], ['李四', ''], ['王五']])
     expect(records).toEqual([{ name: '张三', amount: 100 }, { name: '李四' }, { name: '王五' }])
+  })
+})
+
+describe('matchImportColumns / buildMappedImportRecords', () => {
+  const targetColumns: SmartColumn[] = [
+    { key: 'project_code', title: '项目编号', type: 'text', width: 120, required: true },
+    { key: 'contract_amount', title: '合同金额', type: 'number', width: 120, required: true },
+    { key: 'due_date', title: '交付日期', type: 'date', width: 120 },
+    {
+      key: 'lookup_dept',
+      title: '所属部门',
+      type: 'lookup',
+      width: 120,
+    },
+  ]
+
+  test('按列标题精确、key 精确与常见归一化匹配，且跳过目标派生列', () => {
+    const importCols: ImportPreviewColumn[] = [
+      { key: 'col_1', label: '项目编号*', type: 'text' }, // 归一化去 * 匹配
+      { key: 'contractAmount', label: 'Contract Amount', type: 'number' }, // 归一化去空格匹配 key
+      { key: 'col_3', label: '交付日期', type: 'date' }, // 标题精确匹配
+      { key: 'col_4', label: '所属部门', type: 'text' }, // 目标为 lookup，不匹配
+      { key: 'col_5', label: '备注列', type: 'text' }, // 未命中
+    ]
+
+    const mappings = matchImportColumns(importCols, targetColumns)
+    expect(mappings.map((m) => m.targetField)).toEqual([
+      'project_code',
+      'contract_amount',
+      'due_date',
+      null,
+      null,
+    ])
+  })
+
+  test('buildMappedImportRecords 按映射转换并保留非法值供批量校验收集错误', () => {
+    const importCols: ImportPreviewColumn[] = [
+      { key: 'c1', label: '项目编号', type: 'text' },
+      { key: 'c2', label: '合同金额', type: 'number' },
+      { key: 'c3', label: '交付日期', type: 'date' },
+    ]
+    const mappings = matchImportColumns(importCols, targetColumns)
+    const mapped = buildMappedImportRecords(mappings, targetColumns, [
+      ['P-1', '12000', '2026/4/1'],
+      ['P-2', 'bad_num', '2026-04-02'],
+    ])
+
+    expect(mapped).toEqual([
+      { project_code: 'P-1', contract_amount: 12000, due_date: '2026-04-01' },
+      { project_code: 'P-2', contract_amount: 'bad_num', due_date: '2026-04-02' },
+    ])
+
+    const batch = validateBatchRecords(targetColumns, mapped)
+    expect(batch.valid).toBe(false)
+    expect(batch.errors).toEqual([
+      {
+        rowIndex: 1,
+        field: 'contract_amount',
+        columnTitle: '合同金额',
+        message: '请输入有效数值',
+      },
+    ])
   })
 })

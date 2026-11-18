@@ -4,10 +4,12 @@ import {
   appendMatchRuleToLookupGroup,
   createLookupColumnsFromWizard,
   evaluateTableLookups,
+  getEligibleLookupSourceColumns,
+  getEligibleLookupTargetColumns,
   previewLookupStats,
 } from '../../src/domain/lookup-engine'
 import type { TableBundle } from '../../src/shared/api-types'
-import type { SmartRecord, SmartTableMeta } from '../../src/shared/schema'
+import type { SmartColumn, SmartRecord, SmartTableMeta } from '../../src/shared/schema'
 
 function makeEmpTable(): TableBundle {
   return {
@@ -260,30 +262,7 @@ describe('lookup-engine', () => {
     expect(emptyRules).toEqual({ matchedRows: 0, conflictRows: 0, unmatchedRows: 5 })
   })
 
-  it('支持目标表自身 lookup/formula 递归求值、本表拓扑排序与循环保护', () => {
-    const suppliersBundle: TableBundle = {
-      meta: {
-        id: 'tbl_sup',
-        name: '供应商',
-        kind: 'normal',
-        columns: [
-          { key: 'sup_id', title: '编号', type: 'text', width: 100 },
-          { key: 'sup_name', title: '名称', type: 'text', width: 120 },
-          { key: 'base_days', title: '基础交期', type: 'number', width: 80 },
-          {
-            key: 'total_days',
-            title: '总交期',
-            type: 'formula',
-            width: 80,
-            formulaExpr: '[base_days] + 2',
-          },
-        ],
-        views: [],
-        summaries: {},
-      },
-      records: [{ _id: 's1', sup_id: 'SUP-1', sup_name: '精工科技', base_days: 5 }],
-    }
-
+  it('支持本表拓扑排序与循环保护，并严格禁止关联目标表非原始字段（lookup/formula）', () => {
     const partsBundle: TableBundle = {
       meta: {
         id: 'tbl_parts',
@@ -291,28 +270,44 @@ describe('lookup-engine', () => {
         kind: 'normal',
         columns: [
           { key: 'part_id', title: '零件', type: 'text', width: 100 },
-          { key: 'sup_code', title: '供应商编码', type: 'text', width: 100 },
+          { key: 'base_days', title: '基础交期', type: 'number', width: 80 },
+          // 模拟历史残留非原始列，VLOOKUP 禁止读取或匹配它们
           {
             key: 'sup_total_days',
             title: '供应商总交期',
             type: 'lookup',
             width: 100,
-            lookupConfig: {
-              groupId: 'grp_sup',
-              targetTableId: 'tbl_sup',
-              matchRules: [{ sourceField: 'sup_code', targetField: 'sup_id' }],
-              targetReturnField: 'total_days',
-              mode: 'one',
-            },
+          },
+          {
+            key: 'total_days',
+            title: '公式总交期',
+            type: 'formula',
+            width: 100,
+            formulaExpr: '[base_days] + 2',
           },
         ],
         views: [],
         summaries: {},
       },
-      records: [{ _id: 'pt1', part_id: 'P-1', sup_code: 'SUP-1' }],
+      records: [
+        {
+          _id: 'pt1',
+          part_id: 'P-1',
+          base_days: 5,
+          sup_total_days: 99,
+          total_days: 7,
+        },
+      ],
     }
 
-    // 本表：后置 lookup 排在前面（依赖排在后面的 lookup_part_sup），应经拓扑排序正确求值
+    // 目标原始列过滤助手剔除 lookup/formula
+    expect(getEligibleLookupTargetColumns(partsBundle.meta.columns).map((c) => c.key)).toEqual([
+      'part_id',
+      'base_days',
+    ])
+
+    // 本表：后置 lookup 排在前面（依赖排在后面的 lookup_part_id），经拓扑排序正确求值；
+    // 引用目标表 lookup/formula 列则返回 null
     const ordersMeta: SmartTableMeta = {
       id: 'tbl_orders',
       name: '采购单',
@@ -328,7 +323,7 @@ describe('lookup-engine', () => {
             groupId: 'grp_o2',
             targetTableId: 'tbl_parts',
             matchRules: [{ sourceField: 'lookup_part_id', targetField: 'part_id' }],
-            targetReturnField: 'sup_total_days',
+            targetReturnField: 'base_days',
             mode: 'one',
           },
         },
@@ -341,6 +336,32 @@ describe('lookup-engine', () => {
             groupId: 'grp_o1',
             targetTableId: 'tbl_parts',
             matchRules: [{ sourceField: 'part_ref', targetField: 'part_id' }],
+            targetReturnField: 'part_id',
+            mode: 'one',
+          },
+        },
+        {
+          key: 'lookup_blocked_formula',
+          title: '非法引用公式列',
+          type: 'lookup',
+          width: 100,
+          lookupConfig: {
+            groupId: 'grp_bad_ret',
+            targetTableId: 'tbl_parts',
+            matchRules: [{ sourceField: 'lookup_part_id', targetField: 'part_id' }],
+            targetReturnField: 'total_days',
+            mode: 'one',
+          },
+        },
+        {
+          key: 'lookup_blocked_match',
+          title: '非法匹配公式列',
+          type: 'lookup',
+          width: 100,
+          lookupConfig: {
+            groupId: 'grp_bad_match',
+            targetTableId: 'tbl_parts',
+            matchRules: [{ sourceField: 'part_ref', targetField: 'sup_total_days' }],
             targetReturnField: 'part_id',
             mode: 'one',
           },
@@ -364,10 +385,7 @@ describe('lookup-engine', () => {
       summaries: {},
     }
 
-    const tablesById = new Map<string, TableBundle>([
-      ['tbl_sup', suppliersBundle],
-      ['tbl_parts', partsBundle],
-    ])
+    const tablesById = new Map<string, TableBundle>([['tbl_parts', partsBundle]])
 
     const res = evaluateTableLookups(
       ordersMeta,
@@ -375,71 +393,54 @@ describe('lookup-engine', () => {
       tablesById,
     )
     expect(res.records[0]!['lookup_part_id']).toBe('P-1')
-    expect(res.records[0]!['lookup_lead_days']).toBe(7)
+    expect(res.records[0]!['lookup_lead_days']).toBe(5)
+    expect(res.records[0]!['lookup_blocked_formula']).toBeNull()
+    expect(res.records[0]!['lookup_blocked_match']).toBeNull()
     expect(res.records[0]!['lookup_cycle']).toBeNull()
 
-    // 跨表相互循环（A <-> B）不应栈溢出
-    const cycleA: TableBundle = {
-      meta: {
-        id: 'tbl_a',
-        name: 'A',
-        kind: 'normal',
-        columns: [
-          { key: 'id', title: 'ID', type: 'text', width: 80 },
-          {
-            key: 'from_b',
-            title: 'B值',
-            type: 'lookup',
-            width: 80,
-            lookupConfig: {
-              groupId: 'g1',
-              targetTableId: 'tbl_b',
-              matchRules: [{ sourceField: 'id', targetField: 'id' }],
-              targetReturnField: 'from_a',
-              mode: 'one',
-            },
-          },
-        ],
-        views: [],
-        summaries: {},
-      },
-      records: [{ _id: 'a1', id: '1' }],
-    }
-    const cycleB: TableBundle = {
-      meta: {
-        id: 'tbl_b',
-        name: 'B',
-        kind: 'normal',
-        columns: [
-          { key: 'id', title: 'ID', type: 'text', width: 80 },
-          {
-            key: 'from_a',
-            title: 'A值',
-            type: 'lookup',
-            width: 80,
-            lookupConfig: {
-              groupId: 'g2',
-              targetTableId: 'tbl_a',
-              matchRules: [{ sourceField: 'id', targetField: 'id' }],
-              targetReturnField: 'from_b',
-              mode: 'one',
-            },
-          },
-        ],
-        views: [],
-        summaries: {},
-      },
-      records: [{ _id: 'b1', id: '1' }],
-    }
-    const cycleRes = evaluateTableLookups(
-      cycleA.meta,
-      cycleA.records,
-      new Map([
-        ['tbl_a', cycleA],
-        ['tbl_b', cycleB],
-      ]),
+    // previewLookupStats 传入 targetColumns 时禁止匹配非原始字段
+    const badStats = previewLookupStats(
+      [{ _id: '1', k: 99 }],
+      partsBundle.records,
+      [{ sourceField: 'k', targetField: 'sup_total_days' }],
+      partsBundle.meta.columns,
     )
-    expect(cycleRes.records[0]!['from_b']).toBeNull()
+    expect(badStats).toEqual({ matchedRows: 0, conflictRows: 0, unmatchedRows: 1 })
+  })
+
+  it('支持传入 SmartApp.derivedColumns 与 SmartApp.lookupOverrides 求值与重名消歧', () => {
+    const rawMeta: SmartTableMeta = {
+      id: 'tbl_prj',
+      name: '项目表',
+      kind: 'normal',
+      columns: [{ key: 'owner', title: '负责人', type: 'person', width: 100 }],
+      views: [],
+      summaries: {},
+    }
+    const derivedColumns = createLookupColumnsFromWizard({
+      groupId: 'grp_emp',
+      targetTableId: 'tbl_emp',
+      matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+      mode: 'one',
+      returnFields: [{ field: 'emp_id', title: '工号' }],
+    })
+    const records: SmartRecord[] = [
+      { _id: 'r1', owner: '张三' },
+      { _id: 'r2', owner: '张三' },
+    ]
+    const tablesById = new Map<string, TableBundle>([['tbl_emp', makeEmpTable()]])
+
+    const res = evaluateTableLookups(rawMeta, records, tablesById, {
+      derivedColumns,
+      lookupOverrides: { r1: { grp_emp: 'e2' } },
+    })
+
+    const key = derivedColumns[0]!.key
+    expect(res.records[0]![key]).toBe('EMP-009')
+    expect(res.records[1]![key]).toBe('EMP-001')
+    expect(res.conflictsByRow.get('r1')?.get('grp_emp')?.isResolved).toBe(true)
+    expect(res.conflictsByRow.get('r2')?.get('grp_emp')?.isResolved).toBe(false)
+    expect(res.unresolvedConflictCount).toBe(1)
   })
 
   it('createLookupColumnsFromWizard 防止 key 冲突且 count 强制使用 integer 格式', () => {
@@ -464,5 +465,76 @@ describe('lookup-engine', () => {
     })
     expect(second[0]?.key).not.toBe(first[0]?.key)
     expect(second[0]?.numberFormat).toBe('integer')
+  })
+
+  it('getEligibleLookupSourceColumns 与 appendMatchRuleToLookupGroup 禁止把本组带出字段、依赖列或公式列加入匹配条件', () => {
+    const grpEmpCols = createLookupColumnsFromWizard({
+      groupId: 'grp_emp',
+      targetTableId: 'tbl_emp',
+      matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+      mode: 'one',
+      returnFields: [
+        { field: 'dept', title: '所属部门' },
+        { field: 'emp_id', title: '唯一工号' },
+      ],
+    })
+    const grpDeptLeadCols = createLookupColumnsFromWizard({
+      groupId: 'grp_dept_lead',
+      targetTableId: 'tbl_dept',
+      matchRules: [{ sourceField: grpEmpCols[0]!.key, targetField: 'dept' }],
+      mode: 'one',
+      returnFields: [{ field: 'lead', title: '部门总监' }],
+    })
+    const grpIndependentCols = createLookupColumnsFromWizard({
+      groupId: 'grp_pay',
+      targetTableId: 'tbl_pay',
+      matchRules: [{ sourceField: 'code', targetField: 'project_code' }],
+      mode: 'rollup',
+      returnFields: [{ field: 'amount', title: '累计回款', rollupAgg: 'sum' }],
+    })
+
+    const columns: SmartColumn[] = [
+      { key: 'code', title: '项目编号', type: 'text', width: 100 },
+      { key: 'owner', title: '负责人', type: 'person', width: 100 },
+      { key: 'region', title: '大区', type: 'select', width: 100 },
+      ...grpEmpCols,
+      ...grpDeptLeadCols,
+      ...grpIndependentCols,
+      {
+        key: 'formula_rate',
+        title: '达成率',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '[code]',
+      },
+    ]
+
+    // grp_emp 不能选自身带出列、依赖自身的 grp_dept_lead 列或公式列；保留原生列与无环外部关联列
+    const eligibleForEmp = getEligibleLookupSourceColumns(columns, 'grp_emp').map((c) => c.key)
+    expect(eligibleForEmp).toEqual(['code', 'owner', 'region', grpIndependentCols[0]!.key])
+
+    // appendMatchRuleToLookupGroup 拒绝追加本组带出列、成环依赖列与公式列
+    for (const badSource of [
+      grpEmpCols[0]!.key,
+      grpEmpCols[1]!.key,
+      grpDeptLeadCols[0]!.key,
+      'formula_rate',
+    ]) {
+      const next = appendMatchRuleToLookupGroup(columns, 'grp_emp', {
+        sourceField: badSource,
+        targetField: 'dept',
+      })
+      const empCol = next.find((c) => c.key === grpEmpCols[0]!.key)!
+      expect(empCol.lookupConfig?.matchRules).toHaveLength(1)
+    }
+
+    // 原生字段可正常追加
+    const validNext = appendMatchRuleToLookupGroup(columns, 'grp_emp', {
+      sourceField: 'region',
+      targetField: 'dept',
+    })
+    expect(
+      validNext.find((c) => c.key === grpEmpCols[0]!.key)?.lookupConfig?.matchRules,
+    ).toHaveLength(2)
   })
 })

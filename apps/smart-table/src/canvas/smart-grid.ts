@@ -31,6 +31,7 @@ import {
   resolveVisibleColumns,
   type ViewStyleResolver,
 } from '../domain/style-engine'
+import { validateAndCoerceCellValue, type CellValidationResult } from '../shared/record-validation'
 import type {
   CellTextAlign,
   LookupConflictInfo,
@@ -430,6 +431,9 @@ function isColumnEditable(col: SmartColumn | undefined, hasRichCellEdit: boolean
 }
 
 function defaultColumnAlign(col: SmartColumn): CellTextAlign | undefined {
+  if (col.align !== undefined) {
+    return col.align
+  }
   if (col.type === 'checkbox') {
     return 'center'
   }
@@ -504,6 +508,7 @@ function columnsSchemaEqual(a: readonly SmartColumn[], b: readonly SmartColumn[]
       ca.key !== cb.key ||
       ca.title !== cb.title ||
       ca.type !== cb.type ||
+      ca.align !== cb.align ||
       ca.isUniqueKey !== cb.isUniqueKey ||
       ca.numberFormat !== cb.numberFormat ||
       ca.formulaExpr !== cb.formulaExpr ||
@@ -616,18 +621,63 @@ function computeHeaderRegions(size: Size): ColHeaderHitRegion[] {
   return []
 }
 
-/** 按当前排序规则取列头按钮图标与激活状态 */
-function sortButtonGlyph(
+/** 绘制列头矢量排序指示器（双向圆角折线箭头，支持主/次排序视觉区分） */
+function drawHeaderSortIndicator(
+  ctx: RenderContext,
+  rect: Region,
   sortRules: readonly SortRule[],
   field: string,
-): { glyph: string; active: boolean } {
+): void {
   const index = sortRules.findIndex((rule) => rule.field === field)
-  if (index < 0) {
-    return { glyph: '⇅', active: false }
+  const direction = index >= 0 ? sortRules[index]!.direction : null
+  const isMultiSort = sortRules.length > 1 && index >= 0
+
+  if (index >= 0) {
+    roundRectPath(ctx, rect.x, rect.y, rect.width, rect.height, 4)
+    ctx.fillStyle = '#ebf1ff'
+    ctx.fill()
   }
-  const asc = sortRules[index]!.direction === 'asc'
-  const glyph = index === 0 ? (asc ? '▲' : '▼') : asc ? '△' : '▽'
-  return { glyph, active: true }
+
+  const arrowCx = isMultiSort ? rect.x + rect.width / 2 - 2.5 : rect.x + rect.width / 2
+  const cy = rect.y + rect.height / 2
+  const halfW = 3
+  const upTipY = cy - 4.5
+  const upBaseY = cy - 1.5
+  const downBaseY = cy + 1.5
+  const downTipY = cy + 4.5
+
+  const activeColor = index === 0 ? '#2563eb' : '#60a5fa'
+  const mutedColor = '#cbd5e1'
+  const idleColor = '#94a3b8'
+
+  const drawChevron = (yBase: number, yTip: number, color: string, lineWidth: number): void => {
+    ctx.beginPath()
+    ctx.moveTo(arrowCx - halfW, yBase)
+    ctx.lineTo(arrowCx, yTip)
+    ctx.lineTo(arrowCx + halfW, yBase)
+    ctx.strokeStyle = color
+    ctx.lineWidth = lineWidth
+    ctx.stroke()
+  }
+
+  ctx.save()
+  if (direction === 'asc') {
+    drawChevron(upBaseY, upTipY, activeColor, index === 0 ? 1.8 : 1.6)
+    drawChevron(downBaseY, downTipY, mutedColor, 1.25)
+  } else if (direction === 'desc') {
+    drawChevron(upBaseY, upTipY, mutedColor, 1.25)
+    drawChevron(downBaseY, downTipY, activeColor, index === 0 ? 1.8 : 1.6)
+  } else {
+    drawChevron(upBaseY, upTipY, idleColor, 1.4)
+    drawChevron(downBaseY, downTipY, idleColor, 1.4)
+  }
+
+  if (isMultiSort) {
+    ctx.font = '600 8px sans-serif'
+    ctx.fillStyle = activeColor
+    ctx.fillText(String(index + 1), arrowCx + 3.5, cy + 4.5)
+  }
+  ctx.restore()
 }
 
 /** 绘制 select 圆角彩色标签胶囊（支持 align 与未命中枚举时的文字色继承） */
@@ -811,33 +861,9 @@ function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRendere
   }
 }
 
-type CoerceEditResult = { valid: true; value: unknown } | { valid: false; message: string }
-
-/** 将编辑器文本按列类型校验并归一化回写类型（number/progress 校验失败不写入脏值） */
-function coerceEditedValue(col: SmartColumn, value: unknown): CoerceEditResult {
-  if (col.type !== 'number' && col.type !== 'progress') {
-    return { valid: true, value }
-  }
-  if (value === null || value === undefined) {
-    return { valid: true, value: null }
-  }
-  let parsed: number
-  if (typeof value === 'number') {
-    parsed = value
-  } else if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (trimmed === '') {
-      return { valid: true, value: null }
-    }
-    parsed = Number(trimmed)
-  } else {
-    return { valid: false, message: '请输入有效数值' }
-  }
-  if (!Number.isFinite(parsed)) {
-    return { valid: false, message: '请输入有效数值' }
-  }
-  const normalized = col.type === 'progress' ? Math.max(0, Math.min(100, parsed)) : parsed
-  return { valid: true, value: normalized }
+/** 委托共享记录校验单源执行必填 required 与字段类型校验及归一化 */
+function coerceEditedValue(col: SmartColumn, value: unknown): CellValidationResult {
+  return validateAndCoerceCellValue(col, value)
 }
 
 /** 判断 DOM 事件目标是否处于单元格文本编辑控件内 */
@@ -1518,17 +1544,7 @@ export class SmartGridAdapter {
 
       const sortRegion = regions.find((r) => r.id === 'sort')
       if (sortRegion) {
-        const { glyph, active } = sortButtonGlyph(this.sortRules, colDef.key)
-        const r = sortRegion.rect
-        if (active) {
-          roundRectPath(ctx, r.x, r.y, r.width, r.height, 4)
-          ctx.fillStyle = '#ebf1ff'
-          ctx.fill()
-        }
-        ctx.font = '600 10px sans-serif'
-        ctx.fillStyle = active ? '#3370ff' : '#9aa1ab'
-        const glyphW = ctx.measureText(glyph).width
-        ctx.fillText(glyph, r.x + (r.width - glyphW) / 2, r.y + r.height / 2 + 3.5)
+        drawHeaderSortIndicator(ctx, sortRegion.rect, this.sortRules, colDef.key)
       }
 
       const menuRegion = regions.find((r) => r.id === 'menu')

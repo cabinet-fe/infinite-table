@@ -2,8 +2,14 @@
 // dirty/校验判断与一次性保存载荷（LookupManageChanges）的构建与应用。
 // LookupManageModal 只负责渲染与调用这些操作，编辑规则单一事实源在本文件。
 import type { TableBundle } from '../shared/api-types'
-import type { LookupConfig, LookupMatchRule, LookupRollupAgg, SmartColumn } from '../shared/schema'
-import { createLookupColumnsFromWizard } from './lookup-engine'
+import {
+  filterRawColumns,
+  type LookupConfig,
+  type LookupMatchRule,
+  type LookupRollupAgg,
+  type SmartColumn,
+} from '../shared/schema'
+import { createLookupColumnsFromWizard, getBlockedLookupSourceKeys } from './lookup-engine'
 
 /** 既有带出列的编辑草稿（orig* 为落库原值，供 dirty 比对） */
 export interface LookupItemDraft {
@@ -82,14 +88,15 @@ export function createLookupManageDraft(
       }
       groups.set(config.groupId, group)
     }
+    const targetRawColumns = filterRawColumns(
+      tablesById.get(config.targetTableId)?.meta.columns ?? [],
+    )
     group.items.push({
       key: col.key,
       field: config.targetReturnField,
       origField: config.targetReturnField,
       targetTitle:
-        tablesById
-          .get(config.targetTableId)
-          ?.meta.columns.find((c) => c.key === config.targetReturnField)?.title ??
+        targetRawColumns.find((c) => c.key === config.targetReturnField)?.title ??
         config.targetReturnField,
       title: col.title,
       origTitle: col.title,
@@ -249,11 +256,41 @@ export function isLookupDraftDirty(draft: LookupManageDraft): boolean {
   )
 }
 
-/** 校验失败返回错误消息（供弹窗就地提示），通过返回 null */
-export function lookupDraftError(draft: LookupManageDraft): string | null {
+/** 校验失败返回错误消息（供弹窗就地提示），通过返回 null；传 tablesById 时同步校验目标表原始字段边界 */
+export function lookupDraftError(
+  draft: LookupManageDraft,
+  columns?: readonly SmartColumn[],
+  tablesById?: ReadonlyMap<string, TableBundle>,
+): string | null {
   for (const group of draft.groups) {
     if (group.deleted) continue
     if (group.matchRules.length === 0) return '每组关联至少保留一条匹配条件'
+    if (group.matchRules.some((rule) => !rule.sourceField || !rule.targetField)) {
+      return '请完善匹配条件字段'
+    }
+    if (columns) {
+      const blocked = getBlockedLookupSourceKeys(columns, group.groupId)
+      if (group.matchRules.some((rule) => blocked.has(rule.sourceField))) {
+        return '匹配条件不能使用本组带出字段或公式字段'
+      }
+    }
+    if (tablesById) {
+      const targetBundle = tablesById.get(group.targetTableId)
+      if (!targetBundle) {
+        return '关联的目标数据源表不存在'
+      }
+      const rawTargetKeys = new Set(filterRawColumns(targetBundle.meta.columns).map((c) => c.key))
+      if (group.matchRules.some((rule) => !rawTargetKeys.has(rule.targetField))) {
+        return '匹配条件只能选择目标数据源表的原始字段'
+      }
+      const activeItems = group.items.filter((item) => !item.removed)
+      if (
+        activeItems.some((item) => !rawTargetKeys.has(item.field)) ||
+        group.staged.some((staged) => !rawTargetKeys.has(staged.field))
+      ) {
+        return '带出字段只能选择目标数据源表的原始字段'
+      }
+    }
     const emptyTitle = [...group.items.filter((item) => !item.removed), ...group.staged].find(
       (item) => item.title.trim() === '',
     )
@@ -267,11 +304,13 @@ export function buildLookupManageChanges(
   draft: LookupManageDraft,
   columns: readonly SmartColumn[],
   tablesById: ReadonlyMap<string, TableBundle>,
+  extraExistingKeys?: readonly string[],
 ): LookupManageChanges {
   const deletedKeys: string[] = []
   const updates: LookupColumnUpdate[] = []
   const addedColumns: SmartColumn[] = []
   const columnByKey = new Map(columns.map((col) => [col.key, col]))
+  const existingKeySet = new Set([...columns.map((col) => col.key), ...(extraExistingKeys ?? [])])
 
   for (const group of draft.groups) {
     if (group.deleted) {
@@ -313,22 +352,26 @@ export function buildLookupManageChanges(
     }
 
     if (group.staged.length > 0) {
-      const targetColumns = tablesById.get(group.targetTableId)?.meta.columns ?? []
-      addedColumns.push(
-        ...createLookupColumnsFromWizard({
-          groupId: group.groupId,
-          targetTableId: group.targetTableId,
-          matchRules: group.matchRules,
-          mode: group.mode,
-          existingKeys: columns.map((col) => col.key),
-          returnFields: group.staged.map((staged) => ({
-            field: staged.field,
-            title: staged.title.trim(),
-            ...(staged.rollupAgg !== undefined ? { rollupAgg: staged.rollupAgg } : {}),
-            ...pickTargetFormat(targetColumns, staged.field),
-          })),
-        }),
+      const targetColumns = filterRawColumns(
+        tablesById.get(group.targetTableId)?.meta.columns ?? [],
       )
+      const materialized = createLookupColumnsFromWizard({
+        groupId: group.groupId,
+        targetTableId: group.targetTableId,
+        matchRules: group.matchRules,
+        mode: group.mode,
+        existingKeys: existingKeySet,
+        returnFields: group.staged.map((staged) => ({
+          field: staged.field,
+          title: staged.title.trim(),
+          ...(staged.rollupAgg !== undefined ? { rollupAgg: staged.rollupAgg } : {}),
+          ...pickTargetFormat(targetColumns, staged.field),
+        })),
+      })
+      for (const col of materialized) {
+        existingKeySet.add(col.key)
+      }
+      addedColumns.push(...materialized)
     }
   }
 

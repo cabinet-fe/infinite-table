@@ -10,7 +10,7 @@ import {
 } from '@infinitable/formulas'
 
 import type { AstNode, FormulaResolver, ScalarValue } from '@infinitable/formulas'
-import type { SmartColumn, SmartRecord } from '../shared/schema'
+import { mergeSmartColumns, type SmartColumn, type SmartRecord } from '../shared/schema'
 
 const UNSUPPORTED_REF_MSG = '暂不支持区域/单元格坐标引用，请使用 [字段名]'
 
@@ -370,13 +370,17 @@ function hasPathToTarget(
 
 /**
  * 校验列公式表达式语法、字段引用与循环依赖是否有效，供公式列配置 UI 使用。
+ * 可选传入 SmartApp.derivedColumns 与底层原始列合并校验。
  */
 export function validateFormulaExpr(
   expr: string,
   columns: readonly SmartColumn[],
   currentColumnKey?: string,
+  derivedColumns?: readonly SmartColumn[],
 ): { valid: boolean; error?: string } {
-  const index = buildColumnLookupIndex(columns)
+  const effectiveColumns =
+    derivedColumns !== undefined ? mergeSmartColumns(columns, derivedColumns) : columns
+  const index = buildColumnLookupIndex(effectiveColumns)
   const validated = compileAndValidateFormula(expr, index)
   if (!validated.ok) {
     return { valid: false, error: validated.error }
@@ -392,7 +396,7 @@ export function validateFormulaExpr(
         hasPathToTarget(
           currentColIdx,
           validated.referencedColIndices,
-          columns,
+          effectiveColumns,
           index,
           validated.referencedColIndices,
         )
@@ -468,17 +472,21 @@ function topoSortFormulaColumns(preparedList: readonly PreparedFormulaColumn[]):
 
 /**
  * 按依赖拓扑顺序对所有 `type === 'formula'` 且存在 `formulaExpr` 的列求值，并返回浅拷贝新记录数组。
+ * 可选传入 SmartApp.derivedColumns 与底层原始列合并求值。
  */
 export function evaluateFormulaColumns(
   columns: readonly SmartColumn[],
   records: readonly SmartRecord[],
+  derivedColumns?: readonly SmartColumn[],
 ): SmartRecord[] {
+  const effectiveColumns =
+    derivedColumns !== undefined ? mergeSmartColumns(columns, derivedColumns) : columns
   const nextRecords: SmartRecord[] = records.map((record) => ({ ...record }))
-  const index = buildColumnLookupIndex(columns)
+  const index = buildColumnLookupIndex(effectiveColumns)
 
   const formulaColIndexSet = new Set<number>()
-  for (let i = 0; i < columns.length; i++) {
-    if (columns[i]!.type === 'formula') {
+  for (let i = 0; i < effectiveColumns.length; i++) {
+    if (effectiveColumns[i]!.type === 'formula') {
       formulaColIndexSet.add(i)
     }
   }
@@ -489,8 +497,8 @@ export function evaluateFormulaColumns(
   const preparedList: PreparedFormulaColumn[] = []
   const invalidOrEmptyKeys: string[] = []
 
-  for (let i = 0; i < columns.length; i++) {
-    const col = columns[i]!
+  for (let i = 0; i < effectiveColumns.length; i++) {
+    const col = effectiveColumns[i]!
     if (col.type !== 'formula') {
       continue
     }
@@ -524,7 +532,7 @@ export function evaluateFormulaColumns(
     }
   }
   for (const cyclicIdx of cyclicIndices) {
-    const key = columns[cyclicIdx]!.key
+    const key = effectiveColumns[cyclicIdx]!.key
     for (const record of nextRecords) {
       record[key] = null
     }
@@ -537,7 +545,7 @@ export function evaluateFormulaColumns(
       if (ref.row !== 0 || !activeRecord) {
         return null
       }
-      const targetCol = columns[ref.col]
+      const targetCol = effectiveColumns[ref.col]
       if (!targetCol) {
         return null
       }

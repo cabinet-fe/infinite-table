@@ -4,6 +4,8 @@ import type { CellValue, Workbook as HucreWorkbook } from 'hucre'
 import { parseCsv } from 'hucre/csv'
 import { readXlsx } from 'hucre/xlsx'
 import type { ImportColumnType, ImportPreviewColumn, ImportPreviewResponse } from './api-types'
+import { validateAndCoerceCellValue } from './record-validation'
+import { filterRawColumns, type SmartColumn } from './schema'
 
 /** 导入网格规模上限：超出截断并在预览标注 truncated */
 export const IMPORT_MAX_ROWS = 5000
@@ -146,6 +148,102 @@ export function buildImportRecords(
       const value = coerceImportCell(row[index] ?? '', column.type)
       if (value !== null) record[column.key] = value
     })
+    return record
+  })
+}
+
+/** 导入列与目标数据源表原始列的映射项（targetField 为 null 表示跳过该导入列） */
+export interface ImportColumnMapping {
+  sourceIndex: number
+  sourceLabel: string
+  sourceKey: string
+  targetField: string | null
+}
+
+function normalizeHeaderToken(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_\-*＊]+/g, '')
+}
+
+/**
+ * 基于导入表头与目标表原始列自动匹配列映射：
+ * 优先级：列标题精确匹配 → 列 key 精确匹配 → 归一化（忽略大小写/空白/下划线/星号）匹配。
+ * 仅匹配目标表原始列（自动过滤 lookup / formula），且每个目标列最多自动分配一次。
+ */
+export function matchImportColumns(
+  importColumns: readonly ImportPreviewColumn[],
+  targetColumns: readonly SmartColumn[],
+): ImportColumnMapping[] {
+  const rawTargets = filterRawColumns(targetColumns)
+  const assignments: Array<string | null> = importColumns.map(() => null)
+  const usedTargets = new Set<string>()
+
+  const tryAssignPass = (
+    predicate: (src: ImportPreviewColumn, target: SmartColumn) => boolean,
+  ): void => {
+    for (let i = 0; i < importColumns.length; i++) {
+      if (assignments[i] !== null) continue
+      const src = importColumns[i]!
+      const matched = rawTargets.find(
+        (target) => !usedTargets.has(target.key) && predicate(src, target),
+      )
+      if (matched) {
+        assignments[i] = matched.key
+        usedTargets.add(matched.key)
+      }
+    }
+  }
+
+  // 1. 表头与目标列标题精确匹配
+  tryAssignPass(
+    (src, target) => src.label.trim() !== '' && src.label.trim() === target.title.trim(),
+  )
+
+  // 2. 表头或清洗 key 与目标列 key 精确匹配
+  tryAssignPass((src, target) => src.label.trim() === target.key)
+  tryAssignPass((src, target) => !/^col_\d+$/.test(src.key) && src.key === target.key)
+
+  // 3. 常见归一化匹配（忽略大小写、空白、下划线、连字符与必填星号）
+  tryAssignPass((src, target) => {
+    const srcNorm = normalizeHeaderToken(src.label)
+    if (srcNorm === '') return false
+    return (
+      srcNorm === normalizeHeaderToken(target.title) || srcNorm === normalizeHeaderToken(target.key)
+    )
+  })
+
+  return importColumns.map((col, index) => ({
+    sourceIndex: index,
+    sourceLabel: col.label,
+    sourceKey: col.key,
+    targetField: assignments[index] ?? null,
+  }))
+}
+
+/**
+ * 按列映射将导入字符串矩阵转换为待校验/提交的记录数组：
+ * 仅保留映射到目标原始列的非空单元格，有效值按目标列类型规整，非法值保留原串供 validateBatchRecords 收集行级错误。
+ */
+export function buildMappedImportRecords(
+  mappings: readonly ImportColumnMapping[],
+  targetColumns: readonly SmartColumn[],
+  rows: readonly (readonly string[])[],
+): Record<string, unknown>[] {
+  const rawByKey = new Map(filterRawColumns(targetColumns).map((col) => [col.key, col]))
+
+  return rows.map((row) => {
+    const record: Record<string, unknown> = {}
+    for (const mapping of mappings) {
+      if (!mapping.targetField) continue
+      const targetCol = rawByKey.get(mapping.targetField)
+      if (!targetCol) continue
+      const raw = row[mapping.sourceIndex] ?? ''
+      if (raw.trim() === '') continue
+      const coerced = validateAndCoerceCellValue(targetCol, raw)
+      record[targetCol.key] = coerced.valid ? coerced.value : raw
+    }
     return record
   })
 }

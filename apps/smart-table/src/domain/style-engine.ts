@@ -1,5 +1,5 @@
 // 视图样式层级合并与条件格式求值引擎：
-// 样式优先级：条件格式（conditionalFormats）> 单元格/选区自定义（cellStyles）> 列级样式（columnStyles）
+// 样式优先级：条件格式（conditionalFormats）> 单元格/选区自定义（cellStyles）> 视图列级样式（columnStyles）> 表列基础对齐（SmartColumn.align）
 
 import {
   ROW_HEIGHT_VALUES,
@@ -104,17 +104,19 @@ export function resolveVisibleColumns(
   return visible
 }
 
-/** 解析列头样式 */
+/** 解析列头样式（支持视图列级 align 覆盖表列基础 align） */
 export function resolveHeaderStyle(
   fieldKey: string,
   columnStyles?: Record<string, ColumnStyleConfig>,
+  baseAlign?: CellTextAlign,
 ): ResolvedHeaderStyle {
   const colStyle = columnStyles?.[fieldKey]
-  if (!colStyle) return {}
+  const align = colStyle?.align ?? baseAlign
+  if (!colStyle && align === undefined) return {}
   return {
-    bgColor: nonEmptyColor(colStyle.headerBgColor),
-    textColor: nonEmptyColor(colStyle.headerTextColor),
-    align: colStyle.align,
+    bgColor: nonEmptyColor(colStyle?.headerBgColor),
+    textColor: nonEmptyColor(colStyle?.headerTextColor),
+    align,
   }
 }
 
@@ -136,13 +138,14 @@ function matchRowConditionalRules(
 
 function mergeLayers(
   fieldKey: string,
+  col: SmartColumn | undefined,
   colStyle: ColumnStyleConfig | undefined,
   cellStyle: CellStyleConfig | undefined,
   matchedRowRules: readonly ConditionalFormatRule[],
 ): ResolvedCellStyle {
   let bgColor = nonEmptyColor(colStyle?.bgColor)
   let textColor = nonEmptyColor(colStyle?.textColor)
-  let align: CellTextAlign | undefined = colStyle?.align
+  let align: CellTextAlign | undefined = colStyle?.align ?? col?.align
 
   if (cellStyle) {
     const customBg = nonEmptyColor(cellStyle.bgColor)
@@ -172,7 +175,7 @@ function mergeLayers(
 }
 
 /**
- * 解析单格最终样式（优先级：条件格式 > 单元格自定义 > 列级样式）。
+ * 解析单格最终样式（优先级：条件格式 > 单元格自定义 > 视图列级样式 > 表列基础对齐）。
  * 适合单次求值或测试；高频渲染场景建议使用 `createViewStyleResolver`。
  */
 export function resolveCellStyle(
@@ -185,7 +188,7 @@ export function resolveCellStyle(
   const matchedRowRules = matchRowConditionalRules(record, view?.conditionalFormats, colMap)
   const colStyle = view?.columnStyles?.[fieldKey]
   const cellStyle = view?.cellStyles?.[record._id]?.[fieldKey]
-  return mergeLayers(fieldKey, colStyle, cellStyle, matchedRowRules)
+  return mergeLayers(fieldKey, colMap.get(fieldKey), colStyle, cellStyle, matchedRowRules)
 }
 
 /** 创建带行级条件格式缓存的视图样式解析器 */
@@ -201,7 +204,7 @@ export function createViewStyleResolver(
 
   return {
     resolveHeader(fieldKey: string): ResolvedHeaderStyle {
-      return resolveHeaderStyle(fieldKey, columnStyles)
+      return resolveHeaderStyle(fieldKey, columnStyles, colMap.get(fieldKey)?.align)
     },
     resolveCell(record: SmartRecord, fieldKey: string): ResolvedCellStyle {
       let matched = rowMatchesCache.get(record)
@@ -211,7 +214,7 @@ export function createViewStyleResolver(
       }
       const colStyle = columnStyles?.[fieldKey]
       const cellStyle = cellStyles?.[record._id]?.[fieldKey]
-      return mergeLayers(fieldKey, colStyle, cellStyle, matched)
+      return mergeLayers(fieldKey, colMap.get(fieldKey), colStyle, cellStyle, matched)
     },
   }
 }

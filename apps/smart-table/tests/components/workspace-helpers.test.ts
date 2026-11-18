@@ -6,6 +6,7 @@ import { buildGridMenuItems, type GridMenuContext } from '../../src/components/G
 import {
   applyCellStyleToSelection,
   buildDefaultViewPayload,
+  buildEntryShareUrl,
   buildModeSearchUrl,
   formatRecordsAsCsv,
   buildRecordsXlsxBytes,
@@ -13,6 +14,7 @@ import {
   normalizeColumnOrder,
   reorderStringList,
   resolveAppModeFromSearch,
+  resolveEntryTableIdFromSearch,
   toggleHiddenColumn,
 } from '../../src/domain/workspace-helpers'
 import type { TableBundle } from '../../src/shared/api-types'
@@ -65,6 +67,19 @@ describe('双态 URL 解析与生成', () => {
       '/?view=v1#sec',
     )
     expect(buildModeSearchUrl('/', '?mode=viewer', '', 'operator')).toBe('/')
+  })
+
+  test('resolveEntryTableIdFromSearch 与 buildEntryShareUrl 解析和生成独立数据录入页链接', () => {
+    expect(resolveEntryTableIdFromSearch('')).toBeNull()
+    expect(resolveEntryTableIdFromSearch('?entry=   ')).toBeNull()
+    expect(resolveEntryTableIdFromSearch('?entry=tbl_projects&mode=viewer')).toBe('tbl_projects')
+
+    expect(
+      buildEntryShareUrl('https://demo.local/app?view=v1&mode=viewer#sec', 'tbl_projects'),
+    ).toBe('https://demo.local/app?entry=tbl_projects')
+    expect(buildEntryShareUrl('/smart-table?view=v1', 'tbl_demo')).toBe(
+      '/smart-table?entry=tbl_demo',
+    )
   })
 })
 

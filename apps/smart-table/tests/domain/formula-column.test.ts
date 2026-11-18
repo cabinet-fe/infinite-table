@@ -173,4 +173,38 @@ describe('formula-column', () => {
     expect(evalRes[0]!['f2']).toBeNull()
     expect(evalRes[0]!['calc_bracket']).toBe(30)
   })
+
+  it('支持合并底层原始列与 SmartApp.derivedColumns 校验和求值', () => {
+    const rawCols: SmartColumn[] = [
+      { key: 'paid', title: '回款', type: 'number', width: 120 },
+      { key: 'contract', title: '合同金额', type: 'number', width: 120 },
+    ]
+    const derivedCols: SmartColumn[] = [
+      {
+        key: 'rate',
+        title: '达成率',
+        type: 'formula',
+        width: 100,
+        formulaExpr: '[paid] / [合同金额]',
+      },
+      {
+        key: 'grade',
+        title: '评级',
+        type: 'formula',
+        width: 100,
+        formulaExpr: 'IF([达成率] >= 0.8, "达标", "待跟进")',
+      },
+    ]
+
+    expect(validateFormulaExpr('[达成率] * 100', rawCols, undefined, derivedCols)).toEqual({
+      valid: true,
+    })
+    const res = evaluateFormulaColumns(
+      rawCols,
+      [{ _id: 'r1', paid: 90, contract: 100 }],
+      derivedCols,
+    )
+    expect(res[0]!['rate']).toBe(0.9)
+    expect(res[0]!['grade']).toBe('达标')
+  })
 })

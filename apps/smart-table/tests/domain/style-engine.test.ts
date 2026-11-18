@@ -166,4 +166,29 @@ describe('style-engine', () => {
     expect(res.summaries.amount).toEqual({ type: 'avg', value: 350, text: '¥350' })
     expect(res.summaries.code).toEqual({ type: 'count', value: 2, text: '2' })
   })
+
+  it('SmartColumn.align 作为基础对齐层级合并在 view.columnStyles 与 cellStyles 之下', () => {
+    const colsWithAlign: SmartColumn[] = [
+      { key: 'code', title: '编号', type: 'text', width: 120, align: 'center' },
+      { key: 'amount', title: '金额', type: 'number', width: 140, align: 'left' },
+    ]
+    const view: Pick<SmartView, 'columnStyles' | 'cellStyles' | 'conditionalFormats'> = {
+      columnStyles: {
+        code: { bgColor: '#f8fafc' }, // 未覆盖 align，应继承 SmartColumn.align
+        amount: { align: 'right' }, // 覆盖 SmartColumn.align
+      },
+      cellStyles: {
+        r2: {
+          code: { align: 'right' },
+        },
+      },
+    }
+
+    const resolver = createViewStyleResolver(colsWithAlign, view)
+    expect(resolver.resolveHeader('code').align).toBe('center')
+    expect(resolver.resolveHeader('amount').align).toBe('right')
+    expect(resolver.resolveCell(RECORDS[0]!, 'code').align).toBe('center')
+    expect(resolver.resolveCell(RECORDS[0]!, 'amount').align).toBe('right')
+    expect(resolver.resolveCell(RECORDS[1]!, 'code').align).toBe('right')
+  })
 })

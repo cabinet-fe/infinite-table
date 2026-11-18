@@ -21,10 +21,12 @@ import type { LookupConflictInfo, SmartColumn, SmartRecord } from '../../src/sha
 function createMockRenderContext(): {
   ctx: RenderContext
   texts: string[]
+  strokes: Array<{ color: string; lineWidth: number }>
   arcs: number
   fills: number
 } {
   const texts: string[] = []
+  const strokes: Array<{ color: string; lineWidth: number }> = []
   let arcs = 0
   let fills = 0
   const ctx: RenderContext = {
@@ -46,7 +48,9 @@ function createMockRenderContext(): {
       arcs++
     },
     closePath: () => {},
-    stroke: () => {},
+    stroke: () => {
+      strokes.push({ color: String(ctx.strokeStyle), lineWidth: ctx.lineWidth })
+    },
     fill: () => {
       fills++
     },
@@ -62,6 +66,7 @@ function createMockRenderContext(): {
   return {
     ctx,
     texts,
+    strokes,
     get arcs() {
       return arcs
     },
@@ -786,8 +791,8 @@ describe('SmartGridAdapter', () => {
       style: {},
     })
     expect(initialHeaderSpy.texts).toContain('项目名称')
-    expect(initialHeaderSpy.texts).toContain('⇅')
     expect(initialHeaderSpy.texts).toContain('⋯')
+    expect(initialHeaderSpy.strokes.filter((s) => s.color === '#94a3b8')).toHaveLength(2)
 
     // sortRules 变化原地刷新列头，不重建 ListTable 实例
     adapter.setData(
@@ -812,7 +817,8 @@ describe('SmartGridAdapter', () => {
       value: '项目名称',
       style: {},
     })
-    expect(primarySortSpy.texts).toContain('▼')
+    expect(primarySortSpy.strokes.some((s) => s.color === '#2563eb')).toBe(true)
+    expect(primarySortSpy.texts).toContain('1')
 
     const secondarySortSpy = createMockRenderContext()
     table.options.resolveColHeaderRenderer?.(0)?.({
@@ -825,7 +831,8 @@ describe('SmartGridAdapter', () => {
       value: '🔑 项目编号',
       style: {},
     })
-    expect(secondarySortSpy.texts).toContain('△')
+    expect(secondarySortSpy.strokes.some((s) => s.color === '#60a5fa')).toBe(true)
+    expect(secondarySortSpy.texts).toContain('2')
 
     // 先选中表体 (0, 0)
     table.selectCell(0, 0)
@@ -1164,5 +1171,51 @@ describe('SmartGridAdapter', () => {
     } finally {
       openSpy.mockRestore()
     }
+  })
+
+  it('SmartColumn.align 驱动基础列对齐，且 required 列编辑空值时回滚格值并触发 onValidationError', () => {
+    const onCellValueChange =
+      vi.fn<(recordId: string, fieldKey: string, newValue: unknown) => void>()
+    const onValidationError = vi.fn<(message: string) => void>()
+    const cols: SmartColumn[] = [
+      { key: 'name', title: '项目名称', type: 'text', width: 140, required: true, align: 'center' },
+      { key: 'amount', title: '金额', type: 'number', width: 120, required: true, align: 'left' },
+    ]
+    const recs: SmartRecord[] = [{ _id: 'r1', name: '一期项目', amount: 1000 }]
+
+    const { container, adapter } = mountGrid({
+      columns: cols,
+      records: recs,
+      summaries: { amount: 'sum' },
+      onCellValueChange,
+      onValidationError,
+    })
+    const table = adapter.getTable()
+
+    // 列级基础 align 覆盖默认文本左对齐 / 数值右对齐，并被视图 columnStyles 覆盖
+    expect(table.styleAt(0, -1).textAlign).toBe('center')
+    expect(table.getCellStyle(0, 0).textAlign).toBe('center')
+    expect(table.getCellStyle(1, 0).textAlign).toBe('left')
+    expect(table.options.resolveBottomCellStyle?.(1, 0)?.textAlign).toBe('left')
+
+    // required 文本列输入纯空白并提交：拒绝修改、回滚格值、触发错误提示
+    expect(table.startEdit(0, 0)).toBe(true)
+    const nameInput = container.querySelector('input, textarea') as HTMLInputElement
+    nameInput.value = '   '
+    expect(table.commitEdit()).toBe(true)
+    expect(onValidationError).toHaveBeenCalledWith('项目名称为必填项')
+    expect(onCellValueChange).not.toHaveBeenCalled()
+    expect(table.getCellValue(0, 0)).toBe('一期项目')
+
+    // required 数值列输入空串并提交：拒绝修改并回滚
+    expect(table.startEdit(1, 0)).toBe(true)
+    const amountInput = container.querySelector('input, textarea') as HTMLInputElement
+    amountInput.value = ''
+    expect(table.commitEdit()).toBe(true)
+    expect(onValidationError).toHaveBeenCalledWith('金额为必填项')
+    expect(onCellValueChange).not.toHaveBeenCalled()
+    expect(table.getCellValue(1, 0)).toBe(1000)
+
+    adapter.destroy()
   })
 })

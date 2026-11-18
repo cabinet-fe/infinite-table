@@ -1,16 +1,18 @@
 // 数据查询与计算管线引擎：串联 VLOOKUP → 公式列 → 过滤（快捷胶囊 + 高级条件组）→ 多级排序 → 底部汇总
 
 import type { TableBundle } from '../shared/api-types'
-import type {
-  FilterCondition,
-  FilterGroup,
-  LookupConflictInfo,
-  SmartColumn,
-  SmartRecord,
-  SmartTableMeta,
-  SmartView,
-  SortRule,
-  SummaryType,
+import {
+  filterRawColumns,
+  mergeSmartColumns,
+  type FilterCondition,
+  type FilterGroup,
+  type LookupConflictInfo,
+  type SmartColumn,
+  type SmartRecord,
+  type SmartTableMeta,
+  type SmartView,
+  type SortRule,
+  type SummaryType,
 } from '../shared/schema'
 import { evaluateFormulaColumns } from './formula-column'
 import { evaluateTableLookups } from './lookup-engine'
@@ -471,39 +473,73 @@ export function computeSummaries(
   return result
 }
 
+/** SmartApp 派生计算上下文（传入后合并原始字段运行 VLOOKUP → 公式；不传则按数据源纯原始字段模式运行） */
+export interface SmartAppPipelineContext {
+  derivedColumns?: readonly SmartColumn[]
+  lookupOverrides?: Readonly<Record<string, Readonly<Record<string, string>>>>
+}
+
 /**
- * 串联完整领域计算管线：VLOOKUP 求值 → 公式列求值 → 视图过滤 → 视图排序 → 底部汇总。
+ * 串联完整领域计算管线：
+ * - 传入 `appContext`（SmartApp 模式）：合并原始字段与派生列，串联 VLOOKUP → 公式列 → 视图过滤 → 视图排序 → 底部汇总。
+ * - 未传 `appContext`（数据源中心模式）：仅基于原始字段运行过滤 → 排序 → 汇总，不执行 VLOOKUP 与公式派生。
  */
 export function runSmartTablePipeline(
   meta: SmartTableMeta,
   rawRecords: readonly SmartRecord[],
   tablesById: ReadonlyMap<string, TableBundle>,
   activeView?: SmartView,
+  appContext?: SmartAppPipelineContext,
 ): SmartPipelineResult {
-  const lookupResult = evaluateTableLookups(meta, rawRecords, tablesById)
-  const allComputedRecords = evaluateFormulaColumns(meta.columns, lookupResult.records)
+  const rawColumns = filterRawColumns(meta.columns)
+
+  let effectiveColumns: SmartColumn[]
+  let allComputedRecords: SmartRecord[]
+  let conflictsByRow: Map<string, Map<string, LookupConflictInfo>>
+  let unresolvedConflictCount: number
+
+  if (appContext === undefined) {
+    effectiveColumns = rawColumns
+    allComputedRecords = rawRecords.map((record) => ({ ...record }))
+    conflictsByRow = new Map<string, Map<string, LookupConflictInfo>>()
+    unresolvedConflictCount = 0
+  } else {
+    effectiveColumns = mergeSmartColumns(rawColumns, appContext.derivedColumns)
+    const lookupResult = evaluateTableLookups(
+      { ...meta, columns: rawColumns },
+      rawRecords,
+      tablesById,
+      {
+        derivedColumns: appContext.derivedColumns,
+        lookupOverrides: appContext.lookupOverrides,
+      },
+    )
+    allComputedRecords = evaluateFormulaColumns(effectiveColumns, lookupResult.records)
+    conflictsByRow = lookupResult.conflictsByRow
+    unresolvedConflictCount = lookupResult.unresolvedConflictCount
+  }
 
   const filteredRecords = activeView
     ? filterRecords(
         allComputedRecords,
-        meta.columns,
+        effectiveColumns,
         activeView.filterGroup,
         activeView.quickFilterValues,
       )
     : [...allComputedRecords]
 
   const displayRecords = activeView
-    ? sortRecords(filteredRecords, meta.columns, activeView.sortRules)
+    ? sortRecords(filteredRecords, effectiveColumns, activeView.sortRules)
     : filteredRecords
 
   const activeSummaries = activeView?.summaries ?? meta.summaries
-  const summaries = computeSummaries(displayRecords, meta.columns, activeSummaries)
+  const summaries = computeSummaries(displayRecords, effectiveColumns, activeSummaries)
 
   return {
     allComputedRecords,
     displayRecords,
-    conflictsByRow: lookupResult.conflictsByRow,
-    unresolvedConflictCount: lookupResult.unresolvedConflictCount,
+    conflictsByRow,
+    unresolvedConflictCount,
     summaries,
   }
 }

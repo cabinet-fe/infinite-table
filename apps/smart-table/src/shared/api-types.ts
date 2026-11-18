@@ -2,6 +2,7 @@
 
 import type {
   SmartApp,
+  SmartColumn,
   SmartRecord,
   SmartTableMeta,
   SmartView,
@@ -29,6 +30,8 @@ export interface CreateAppRequest {
   name: string
   tableId: string
   description?: string
+  derivedColumns?: SmartColumn[]
+  lookupOverrides?: Record<string, Record<string, string>>
 }
 
 export interface CreateAppResponse {
@@ -36,7 +39,9 @@ export interface CreateAppResponse {
   defaultView: WorkspaceView
 }
 
-export type UpdateAppRequest = Partial<Pick<SmartApp, 'name' | 'description' | 'sortOrder'>>
+export type UpdateAppRequest = Partial<
+  Pick<SmartApp, 'name' | 'description' | 'sortOrder' | 'derivedColumns' | 'lookupOverrides'>
+>
 
 export interface ReorderAppsRequest {
   appIds: string[]
@@ -134,4 +139,24 @@ export interface ImportCommitRequest {
   tableName: string
   columns: ImportPreviewColumn[]
   rows: string[][]
+}
+
+/** POST /api/tables/:id/records/batch 请求：向普通数据源表批量追加记录 */
+export interface BatchImportRecordsRequest {
+  records: Record<string, unknown>[]
+}
+
+/** 批量追加导入单行单列校验错误（rowIndex 从 0 开始） */
+export interface BatchImportRowError {
+  rowIndex: number
+  field: string
+  columnTitle: string
+  message: string
+}
+
+/** 批量追加导入响应 */
+export interface BatchImportRecordsResponse {
+  insertedCount: number
+  records: SmartRecord[]
+  errors?: BatchImportRowError[]
 }
