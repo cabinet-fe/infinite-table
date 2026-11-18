@@ -319,15 +319,68 @@ describe('SmartPivotAdapter', () => {
     expect(drawnTexts[0]).toMatch(/…$/)
 
     // 向下滚动 32px：该组首行（row=1）滚出视口上方（getCellRelativeRect(0, 1) 为 null），
-    // 但该组（rows 1..4，高 128px）竖直中线仍在视口 y = 32 + 64 - 32 = 64 处可见
+    // 该组可见区间 [32, 128] 的粘性居中展开钮位于视口 y = (32 + 128) / 2 = 80 处
     table.scrollBy(0, 32)
     expect(table.getCellRelativeRect(0, 1)).toBeNull()
     expect(pivot.getSubtotalRowCount()).toBe(0)
 
-    // 点击展开钮热区（x=9, y=64）应成功折叠该组
-    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: 9, clientY: 64 }))
-    container.dispatchEvent(new MouseEvent('click', { clientX: 9, clientY: 64 }))
+    // 点击展开钮热区（x=9, y=80）应成功折叠该组
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: 9, clientY: 80 }))
+    container.dispatchEvent(new MouseEvent('click', { clientX: 9, clientY: 80 }))
     expect(pivot.getSubtotalRowCount()).toBe(1)
+
+    adapter.destroy()
+  })
+
+  it('动态切换 showGrandTotal 原地更新总计行，不重建 PivotGrid 与 ListTable 且保留折叠态', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const config: SmartPivotConfig = {
+      rowDimensions: ['dept', 'status'],
+      columnDimensions: [],
+      measures: [{ key: 'amount', title: '合同金额', field: 'amount', agg: 'sum', width: 120 }],
+      showGrandTotal: true,
+      collapsible: true,
+    }
+    const adapter = new SmartPivotAdapter({
+      container,
+      columns: COLUMNS,
+      records: RECORDS,
+      config,
+    })
+
+    const pivot = adapter.getPivot()
+    const table = pivot.getTable() as ListTable
+    // 研发部2行 + 销售部1行 + 总计1行 = 4
+    expect(adapter.getShowGrandTotal()).toBe(true)
+    expect(pivot.getVisibleRowCount()).toBe(4)
+
+    // 先折叠 1 个组，再切换总计开关验证折叠态与实例均保留
+    pivot.collapseAll()
+    expect(pivot.getSubtotalRowCount()).toBe(2) // 研发部、销售部 2 个折叠载体行 + 总计 = 3
+    expect(pivot.getVisibleRowCount()).toBe(3)
+
+    // 通过 update 原地关闭总计
+    adapter.update({
+      columns: COLUMNS,
+      records: RECORDS,
+      config: { ...config, showGrandTotal: false },
+    })
+
+    expect(adapter.getPivot()).toBe(pivot)
+    expect(pivot.getTable()).toBe(table)
+    expect(adapter.getShowGrandTotal()).toBe(false)
+    expect(pivot.getVisibleRowCount()).toBe(2) // 仅剩 2 个折叠载体行
+    expect(pivot.getSubtotalRowCount()).toBe(2)
+
+    // 通过 setShowGrandTotal 原地重新开启总计
+    adapter.setShowGrandTotal(true)
+    expect(adapter.getPivot()).toBe(pivot)
+    expect(pivot.getTable()).toBe(table)
+    expect(adapter.getShowGrandTotal()).toBe(true)
+    expect(pivot.getVisibleRowCount()).toBe(3)
+    expect(pivot.getSubtotalRowCount()).toBe(2)
+    expect(pivot.getCellValue(2, 3)).toBe(3500) // 总计行：1000 + 2000 + 500 = 3500
 
     adapter.destroy()
   })

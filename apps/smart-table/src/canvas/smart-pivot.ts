@@ -292,7 +292,36 @@ export class SmartPivotAdapter {
     const nextShowGrandTotal = params.config.showGrandTotal ?? true
     if (nextShowGrandTotal !== this.lastShowGrandTotal) {
       this.lastShowGrandTotal = nextShowGrandTotal
+      this.pivot.setShowGrandTotal(nextShowGrandTotal)
     }
+  }
+
+  /** 切换总计行显示（原地更新 PivotGrid，不重建实例） */
+  setShowGrandTotal(enabled: boolean): void {
+    if (this.destroyed) {
+      return
+    }
+    this.lastShowGrandTotal = enabled
+    this.pivot.setShowGrandTotal(enabled)
+  }
+
+  /** 获取当前总计行显示状态 */
+  getShowGrandTotal(): boolean {
+    return this.pivot.getShowGrandTotal()
+  }
+
+  /** 切换行维度树可折叠开关 */
+  setCollapsible(enabled: boolean): void {
+    if (this.destroyed) {
+      return
+    }
+    this.lastCollapsible = enabled
+    this.pivot.setCollapsible(enabled)
+  }
+
+  /** 获取当前可折叠开关状态 */
+  getCollapsible(): boolean {
+    return this.pivot.getCollapsible()
   }
 
   /** 订阅数据格双击下钻事件 */

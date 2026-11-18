@@ -8,9 +8,13 @@ import {
   SmartGridAdapter,
   formatSmartCellDisplayValue,
   formatSmartColumnTitle,
-  type FooterLayout,
+  type SmartGridColWidthChangeInfo,
   type SmartGridConflictClickInfo,
+  type SmartGridContextMenuInfo,
+  type SmartGridHeaderMenuClickInfo,
+  type SmartGridHeaderSortClickInfo,
   type SmartGridRichEditInfo,
+  type SmartGridSummaryClickInfo,
 } from '../../src/canvas/smart-grid'
 import type { LookupConflictInfo, SmartColumn, SmartRecord } from '../../src/shared/schema'
 
@@ -645,46 +649,147 @@ describe('SmartGridAdapter', () => {
     adapter.destroy()
   })
 
-  it('getFooterLayout 返回画布几何镜像（行表头宽、列内容坐标、滚动条预留与内容总宽）', () => {
-    const { adapter } = mountGrid()
-    const table = adapter.getTable()
-    const layout = adapter.getFooterLayout()
+  it('原生底部冻结汇总行展示计数与汇总值，none 格保持干净，点击汇总格触发 onSummaryCellClick', () => {
+    const onSummaryCellClick = vi.fn<(info: SmartGridSummaryClickInfo) => void>()
+    const { container, adapter } = mountGrid({
+      summaries: { amount: 'sum', code: 'none' },
+      totalCount: 5,
+      onSummaryCellClick,
+    })
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      right: 900,
+      bottom: 550,
+      width: 800,
+      height: 500,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    })
 
-    expect(layout.rowHeaderWidth).toBe(table.rowHeaderWidth)
-    expect(layout.scrollbarSize).toBe(table.theme.interaction.scrollbarSize)
-    expect(layout.contentWidth).toBe(1250)
-    expect(layout.columns).toHaveLength(BASE_COLUMNS.length)
-    expect(layout.columns[0]).toEqual({ field: 'code', left: 0, width: 100 })
-    expect(layout.columns[1]).toEqual({ field: 'name', left: 100, width: 140 })
-    expect(layout.columns.map((c) => c.field)).toEqual(BASE_COLUMNS.map((c) => c.key))
+    const table = adapter.getTable()
+    expect(table.frozenBottomRowCount).toBe(1)
+
+    // 底部行头展示筛选/总数计数
+    const rowHeaderRenderer = table.options.resolveBottomRowHeaderRenderer?.(0)
+    expect(rowHeaderRenderer).toBeTruthy()
+    const rhSpy = createMockRenderContext()
+    rowHeaderRenderer?.({
+      ctx: rhSpy.ctx,
+      col: -1,
+      row: 0,
+      width: table.rowHeaderWidth,
+      height: table.bottomRowHeight,
+      text: '',
+      value: '',
+      style: {},
+    })
+    expect(rhSpy.texts).toContain('2/5')
+
+    // 未配置汇总（none）保持干净空白
+    expect(table.options.resolveBottomCellRenderer?.(0, 0)).toBeNull()
+
+    // 数值列 amount（col=5）展示汇总结果（1234.56 + 1234 = 2468.56 -> ¥2,468.56）
+    const amountSummaryRenderer = table.options.resolveBottomCellRenderer?.(5, 0)
+    expect(amountSummaryRenderer).toBeTruthy()
+    const sumSpy = createMockRenderContext()
+    amountSummaryRenderer?.({
+      ctx: sumSpy.ctx,
+      col: 5,
+      row: 0,
+      width: 120,
+      height: table.bottomRowHeight,
+      text: '',
+      value: '',
+      style: table.options.resolveBottomCellStyle?.(5, 0) ?? {},
+    })
+    expect(sumSpy.texts).toContain('求和')
+    expect(sumSpy.texts).toContain('¥2,468.56')
+
+    // 点击底部汇总格触发 onSummaryCellClick 并返回视口坐标锚点矩形
+    const relRect = table.getBottomCellRelativeRect(5, 0)!
+    expect(relRect).not.toBeNull()
+    const clientX = 100 + relRect.x + relRect.width / 2
+    const clientY = 50 + relRect.y + relRect.height / 2
+    container.dispatchEvent(new MouseEvent('pointerdown', { clientX, clientY, button: 0 }))
+    container.dispatchEvent(new MouseEvent('pointerup', { clientX, clientY, button: 0 }))
+
+    expect(onSummaryCellClick).toHaveBeenCalledTimes(1)
+    expect(onSummaryCellClick.mock.calls[0]?.[0]).toMatchObject({
+      columnKey: 'amount',
+      colIndex: 5,
+      summaryType: 'sum',
+      rect: {
+        x: 100 + relRect.x,
+        y: 50 + relRect.y,
+        width: relRect.width,
+        height: relRect.height,
+      },
+    })
+
+    // 原地更新汇总方式与总数不重建 ListTable 实例
+    adapter.setSummaries({ amount: 'avg' }, 2)
+    expect(adapter.getTable()).toBe(table)
+
+    const updatedRhSpy = createMockRenderContext()
+    table.options.resolveBottomRowHeaderRenderer?.(0)?.({
+      ctx: updatedRhSpy.ctx,
+      col: -1,
+      row: 0,
+      width: table.rowHeaderWidth,
+      height: table.bottomRowHeight,
+      text: '',
+      value: '',
+      style: {},
+    })
+    expect(updatedRhSpy.texts).toContain('共 2 条')
+
+    const updatedAvgSpy = createMockRenderContext()
+    table.options.resolveBottomCellRenderer?.(
+      5,
+      0,
+    )?.({
+      ctx: updatedAvgSpy.ctx,
+      col: 5,
+      row: 0,
+      width: 120,
+      height: table.bottomRowHeight,
+      text: '',
+      value: '',
+      style: table.options.resolveBottomCellStyle?.(5, 0) ?? {},
+    })
+    expect(updatedAvgSpy.texts).toContain('均值')
+    expect(updatedAvgSpy.texts).toContain('¥1,234.28')
 
     adapter.destroy()
   })
 
-  it('建表与列宽拖拽结束推送 onFooterLayoutChange 布局快照', () => {
-    const onFooterLayoutChange = vi.fn<(layout: FooterLayout) => void>()
-    const { adapter } = mountGrid({ onFooterLayoutChange })
-    expect(onFooterLayoutChange).toHaveBeenCalledTimes(1)
-    expect(onFooterLayoutChange.mock.calls[0]?.[0].contentWidth).toBe(1250)
-
-    adapter.destroy()
-  })
-
-  it('sortRules 变化重建列定义并追加方向指示：首规则实心、次级空心', () => {
-    const { adapter } = mountGrid()
+  it('列头右侧绘制排序/菜单按钮，点本体仅选列不排序，点按钮热区隔离选列并触发对应回调', () => {
+    const onHeaderSortClick = vi.fn<(info: SmartGridHeaderSortClickInfo) => void>()
+    const onHeaderMenuClick = vi.fn<(info: SmartGridHeaderMenuClickInfo) => void>()
+    const { container, adapter } = mountGrid({ onHeaderSortClick, onHeaderMenuClick })
     const table = adapter.getTable()
-    expect(table.columns[1]?.title).toBe('项目名称')
 
-    adapter.setData(
-      BASE_COLUMNS,
-      BASE_RECORDS.map((r) => ({ ...r })),
-      undefined,
-      [{ field: 'name', direction: 'asc' }],
-    )
-    const rebuilt = adapter.getTable()
-    expect(rebuilt).not.toBe(table)
-    expect(rebuilt.columns[1]?.title).toBe('项目名称 ▲')
+    // 验证列头自定义渲染器绘制标题 + 排序按钮 + 菜单按钮
+    const headerRenderer = table.options.resolveColHeaderRenderer?.(1)
+    expect(headerRenderer).toBeTruthy()
+    const initialHeaderSpy = createMockRenderContext()
+    headerRenderer?.({
+      ctx: initialHeaderSpy.ctx,
+      col: 1,
+      row: -1,
+      width: 140,
+      height: table.headerHeight,
+      text: '项目名称',
+      value: '项目名称',
+      style: {},
+    })
+    expect(initialHeaderSpy.texts).toContain('项目名称')
+    expect(initialHeaderSpy.texts).toContain('⇅')
+    expect(initialHeaderSpy.texts).toContain('⋯')
 
+    // sortRules 变化原地刷新列头，不重建 ListTable 实例
     adapter.setData(
       BASE_COLUMNS,
       BASE_RECORDS.map((r) => ({ ...r })),
@@ -694,107 +799,341 @@ describe('SmartGridAdapter', () => {
         { field: 'code', direction: 'asc' },
       ],
     )
-    expect(adapter.getTable().columns[1]?.title).toBe('项目名称 ▼')
-    expect(adapter.getTable().columns[0]?.title).toBe('🔑 项目编号 △')
+    expect(adapter.getTable()).toBe(table)
 
-    // 排序规则未变化时不重建实例
-    const stable = adapter.getTable()
-    adapter.setData(
-      BASE_COLUMNS,
-      BASE_RECORDS.map((r) => ({ ...r })),
-      undefined,
-      [
-        { field: 'name', direction: 'desc' },
-        { field: 'code', direction: 'asc' },
-      ],
+    const primarySortSpy = createMockRenderContext()
+    table.options.resolveColHeaderRenderer?.(1)?.({
+      ctx: primarySortSpy.ctx,
+      col: 1,
+      row: -1,
+      width: 140,
+      height: table.headerHeight,
+      text: '项目名称',
+      value: '项目名称',
+      style: {},
+    })
+    expect(primarySortSpy.texts).toContain('▼')
+
+    const secondarySortSpy = createMockRenderContext()
+    table.options.resolveColHeaderRenderer?.(0)?.({
+      ctx: secondarySortSpy.ctx,
+      col: 0,
+      row: -1,
+      width: 100,
+      height: table.headerHeight,
+      text: '🔑 项目编号',
+      value: '🔑 项目编号',
+      style: {},
+    })
+    expect(secondarySortSpy.texts).toContain('△')
+
+    // 先选中表体 (0, 0)
+    table.selectCell(0, 0)
+
+    // 计算第 1 列（name, left=100, width=140）热区坐标
+    const col1Left = table.rowHeaderWidth + 100
+    const regions =
+      table.options.resolveColHeaderRegions?.(1, {
+        width: 140,
+        height: table.headerHeight,
+      }) ?? []
+    const sortRegion = regions.find((r) => r.id === 'sort')!
+    const menuRegion = regions.find((r) => r.id === 'menu')!
+    expect(sortRegion).toBeDefined()
+    expect(menuRegion).toBeDefined()
+
+    // 1) 点击排序按钮热区（带 shiftKey）：触发 onHeaderSortClick 且不破坏既有表体选区
+    const sortX = col1Left + sortRegion.rect.x + sortRegion.rect.width / 2
+    const sortY = sortRegion.rect.y + sortRegion.rect.height / 2
+    container.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: sortX, clientY: sortY, button: 0, shiftKey: true }),
     )
-    expect(adapter.getTable()).toBe(stable)
+    container.dispatchEvent(
+      new MouseEvent('pointerup', { clientX: sortX, clientY: sortY, button: 0, shiftKey: true }),
+    )
+    expect(onHeaderSortClick).toHaveBeenCalledTimes(1)
+    expect(onHeaderSortClick.mock.calls[0]?.[0]).toMatchObject({
+      field: 'name',
+      colIndex: 1,
+      additive: true,
+    })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 0, row: 0 } },
+    ])
+
+    // 2) 点击菜单按钮热区：触发 onHeaderMenuClick 并携带按钮精确锚点矩形，不破坏选区
+    const menuX = col1Left + menuRegion.rect.x + menuRegion.rect.width / 2
+    const menuY = menuRegion.rect.y + menuRegion.rect.height / 2
+    container.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: menuX, clientY: menuY, button: 0 }),
+    )
+    container.dispatchEvent(
+      new MouseEvent('pointerup', { clientX: menuX, clientY: menuY, button: 0 }),
+    )
+    expect(onHeaderMenuClick).toHaveBeenCalledTimes(1)
+    expect(onHeaderMenuClick.mock.calls[0]?.[0]).toMatchObject({
+      columnKey: 'name',
+      colIndex: 1,
+      rect: {
+        x: col1Left + menuRegion.rect.x,
+        y: menuRegion.rect.y,
+        width: menuRegion.rect.width,
+        height: menuRegion.rect.height,
+      },
+      headerRect: {
+        x: col1Left,
+        y: 0,
+        width: 140,
+        height: table.headerHeight,
+      },
+    })
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 0, row: 0 }, end: { col: 0, row: 0 } },
+    ])
+
+    // 3) 点击列头本体：仅选中整列，不触发排序与菜单回调
+    const bodyHeaderX = col1Left + 24
+    const bodyHeaderY = table.headerHeight / 2
+    container.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: bodyHeaderX, clientY: bodyHeaderY, button: 0 }),
+    )
+    container.dispatchEvent(
+      new MouseEvent('pointerup', { clientX: bodyHeaderX, clientY: bodyHeaderY, button: 0 }),
+    )
+    expect(onHeaderSortClick).toHaveBeenCalledTimes(1)
+    expect(onHeaderMenuClick).toHaveBeenCalledTimes(1)
+    expect(table.getSelection().ranges).toEqual([
+      { start: { col: 1, row: 0 }, end: { col: 1, row: 1 } },
+    ])
 
     adapter.destroy()
   })
 
-  it('点击列头触发 onHeaderColumnClick（shift 附加排序），行号带/checkbox 列/列边界热区/拖拽不触发', () => {
-    const onHeaderColumnClick = vi.fn<(field: string, meta: { additive: boolean }) => void>()
-    const { container, adapter } = mountGrid({ onHeaderColumnClick })
+  it('全区域右键事件透传 body / col-header / row-header，携带视口坐标、目标与多格选区范围', () => {
+    const onContextMenu = vi.fn<(info: SmartGridContextMenuInfo) => void>()
+    const { container, adapter } = mountGrid({ onContextMenu })
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+      left: 120,
+      top: 40,
+      right: 920,
+      bottom: 540,
+      width: 800,
+      height: 500,
+      x: 120,
+      y: 40,
+      toJSON: () => ({}),
+    })
+
     const table = adapter.getTable()
-    const headerY = table.headerHeight / 2
-    // name 列（col=1）视口中心：行表头宽 + 内容坐标 left + 半宽
-    const nameX = table.rowHeaderWidth + 100 + 70
+    // 选中多格区域 (col 0..1, row 0..1)
+    table.selectCells([{ start: { col: 0, row: 0 }, end: { col: 1, row: 1 } }])
 
-    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: nameX, clientY: headerY }))
-    container.dispatchEvent(new MouseEvent('click', { clientX: nameX, clientY: headerY }))
-    expect(onHeaderColumnClick).toHaveBeenCalledTimes(1)
-    expect(onHeaderColumnClick).toHaveBeenLastCalledWith('name', { additive: false })
-
-    // shift+点击 → additive
-    container.dispatchEvent(
-      new MouseEvent('pointerdown', { clientX: nameX, clientY: headerY, shiftKey: true }),
-    )
-    container.dispatchEvent(
-      new MouseEvent('click', { clientX: nameX, clientY: headerY, shiftKey: true }),
-    )
-    expect(onHeaderColumnClick).toHaveBeenLastCalledWith('name', { additive: true })
-    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
-
-    // 行表头/角格带不触发
-    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: 10, clientY: headerY }))
-    container.dispatchEvent(new MouseEvent('click', { clientX: 10, clientY: headerY }))
-    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
-
-    // checkbox 列（col=6，left=690）不参与点击排序
-    const checkboxX = table.rowHeaderWidth + 690 + 40
-    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: checkboxX, clientY: headerY }))
-    container.dispatchEvent(new MouseEvent('click', { clientX: checkboxX, clientY: headerY }))
-    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
-
-    // 列边界拖拽热区（±4px）让位给列宽调整
-    const boundaryX = table.rowHeaderWidth + 100 + 2
-    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: boundaryX, clientY: headerY }))
-    container.dispatchEvent(new MouseEvent('click', { clientX: boundaryX, clientY: headerY }))
-    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
-
-    // 拖拽位移超过阈值不触发
-    container.dispatchEvent(new MouseEvent('pointerdown', { clientX: nameX, clientY: headerY }))
-    container.dispatchEvent(new MouseEvent('click', { clientX: nameX + 30, clientY: headerY }))
-    expect(onHeaderColumnClick).toHaveBeenCalledTimes(2)
-
-    adapter.destroy()
-  })
-
-  it('右键列头触发 onHeaderContextMenu 并带列头视口矩形，行号带与表体不触发', () => {
-    const onHeaderContextMenu =
-      vi.fn<
-        (info: {
-          column: SmartColumn
-          rect: { x: number; y: number; width: number; height: number }
-        }) => void
-      >()
-    const { container, adapter } = mountGrid({ onHeaderContextMenu })
-    const table = adapter.getTable()
-    const headerY = table.headerHeight / 2
-    const nameX = table.rowHeaderWidth + 100 + 70
-
-    const menuEvent = new MouseEvent('contextmenu', {
-      clientX: nameX,
-      clientY: headerY,
+    // 1) body 单元格右键
+    const cellRect = table.getCellRelativeRect(1, 0)!
+    const bodyClientX = 120 + cellRect.x + 20
+    const bodyClientY = 40 + cellRect.y + 15
+    const bodyEvent = new MouseEvent('contextmenu', {
+      clientX: bodyClientX,
+      clientY: bodyClientY,
       cancelable: true,
     })
-    container.dispatchEvent(menuEvent)
-    expect(onHeaderContextMenu).toHaveBeenCalledTimes(1)
-    const info = onHeaderContextMenu.mock.calls[0]![0]
-    expect(info.column.key).toBe('name')
-    expect(info.rect.height).toBe(table.headerHeight)
-    expect(info.rect.y).toBeGreaterThanOrEqual(0)
-    expect(menuEvent.defaultPrevented).toBe(true)
+    container.dispatchEvent(bodyEvent)
+    expect(bodyEvent.defaultPrevented).toBe(true)
+    expect(onContextMenu).toHaveBeenCalledTimes(1)
+    expect(onContextMenu.mock.calls[0]?.[0]).toMatchObject({
+      region: 'body',
+      x: bodyClientX,
+      y: bodyClientY,
+      cell: { col: 1, row: 0 },
+      colIndex: 1,
+      rowIndex: 0,
+      column: expect.objectContaining({ key: 'name' }),
+      record: expect.objectContaining({ _id: 'rec-1' }),
+      selection: {
+        recordIds: ['rec-1', 'rec-2'],
+        columnKeys: ['code', 'name'],
+      },
+    })
 
-    // 行号带与表体区右键不触发
+    // 2) col-header 右键
+    const colHeaderClientX = 120 + table.rowHeaderWidth + 100 + 30
+    const colHeaderClientY = 40 + table.headerHeight / 2
     container.dispatchEvent(
-      new MouseEvent('contextmenu', { clientX: 10, clientY: headerY, cancelable: true }),
+      new MouseEvent('contextmenu', {
+        clientX: colHeaderClientX,
+        clientY: colHeaderClientY,
+        cancelable: true,
+      }),
+    )
+    expect(onContextMenu).toHaveBeenCalledTimes(2)
+    expect(onContextMenu.mock.calls[1]?.[0]).toMatchObject({
+      region: 'col-header',
+      x: colHeaderClientX,
+      y: colHeaderClientY,
+      cell: null,
+      colIndex: 1,
+      rowIndex: null,
+      column: expect.objectContaining({ key: 'name' }),
+      record: null,
+    })
+
+    // 3) row-header 右键（第 2 行 row=1）
+    const row1Rect = table.getCellRelativeRect(0, 1)!
+    const rowHeaderClientX = 120 + table.rowHeaderWidth / 2
+    const rowHeaderClientY = 40 + row1Rect.y + row1Rect.height / 2
+    container.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        clientX: rowHeaderClientX,
+        clientY: rowHeaderClientY,
+        cancelable: true,
+      }),
+    )
+    expect(onContextMenu).toHaveBeenCalledTimes(3)
+    expect(onContextMenu.mock.calls[2]?.[0]).toMatchObject({
+      region: 'row-header',
+      x: rowHeaderClientX,
+      y: rowHeaderClientY,
+      cell: null,
+      colIndex: null,
+      rowIndex: 1,
+      column: null,
+      record: expect.objectContaining({ _id: 'rec-2' }),
+    })
+
+    adapter.destroy()
+  })
+
+  it('融合多层次样式渲染（条件格式 > 单元格 > 列级），支持原地配置更新与列宽拖拽写回', () => {
+    const onColWidthChange = vi.fn<(info: SmartGridColWidthChangeInfo) => void>()
+    const { container, adapter } = mountGrid({
+      view: {
+        frozenColCount: 1,
+        rowHeight: 'standard',
+        columnStyles: {
+          name: {
+            headerBgColor: '#eef2ff',
+            headerTextColor: '#1d4ed8',
+            bgColor: '#f8fafc',
+            textColor: '#334155',
+            align: 'center',
+          },
+          owner: {
+            align: 'right',
+          },
+        },
+        cellStyles: {
+          'rec-1': {
+            name: { bgColor: '#fef9c3', textColor: '#854d0e' },
+          },
+        },
+        conditionalFormats: [
+          {
+            id: 'cf_delivered',
+            field: 'status',
+            operator: 'eq',
+            value: '已交付',
+            scope: 'row',
+            bgColor: '#fef2f2',
+            textColor: '#991b1b',
+          },
+        ],
+      },
+      onColWidthChange,
+    })
+
+    const table = adapter.getTable()
+    expect(table.getFrozenColCount()).toBe(1)
+
+    // 列头样式生效
+    expect(table.styleAt(1, -1)).toMatchObject({
+      background: '#eef2ff',
+      color: '#1d4ed8',
+      textAlign: 'center',
+    })
+
+    // rec-1.name：单元格自定义覆盖列级样式，同时继承列级 align
+    expect(table.getCellStyle(1, 0)).toMatchObject({
+      background: '#fef9c3',
+      color: '#854d0e',
+      textAlign: 'center',
+    })
+
+    // rec-2.name：整行条件格式覆盖列级底色与字色
+    expect(table.getCellStyle(1, 1)).toMatchObject({
+      background: '#fef2f2',
+      color: '#991b1b',
+      textAlign: 'center',
+    })
+
+    // 富媒体 person 单元格与水平右对齐及颜色协调绘制
+    const personRenderer = table.options.resolveCellRenderer?.(2, 1)
+    const personSpy = createMockRenderContext()
+    personRenderer?.({
+      ctx: personSpy.ctx,
+      col: 2,
+      row: 1,
+      width: 110,
+      height: 38,
+      text: '李四',
+      value: '李四',
+      style: table.getCellStyle(2, 1),
+    })
+    expect(personSpy.arcs).toBe(1)
+    expect(personSpy.texts).toEqual(['四', '李四'])
+
+    // 原地更新冻结列与行高，不重建 ListTable 实例
+    adapter.setFrozenColCount(2)
+    expect(adapter.getTable()).toBe(table)
+    expect(table.getFrozenColCount()).toBe(2)
+
+    adapter.setRowHeight('comfortable')
+    expect(adapter.getTable()).toBe(table)
+    expect(table.getRowHeight(0)).toBe(52)
+
+    // 原地更新列宽与样式（可见列键序未变不重建 ListTable）
+    adapter.setViewPresentation({
+      frozenColCount: 2,
+      rowHeight: 'compact',
+      columnWidths: { name: 210 },
+      columnStyles: {
+        name: { bgColor: '#ecfdf5', textColor: '#065f46', align: 'right' },
+      },
+    })
+    expect(adapter.getTable()).toBe(table)
+    expect(table.getColWidth(1)).toBe(210)
+    expect(table.getRowHeight(0)).toBe(32)
+    expect(table.getCellStyle(1, 0)).toMatchObject({
+      background: '#ecfdf5',
+      color: '#065f46',
+      textAlign: 'right',
+    })
+
+    // setColumnOrder 重排列顺序并隐藏列
+    adapter.setColumnOrder(['name', 'code'], ['owner', 'status'])
+    const visibleKeys = adapter.getVisibleColumns().map((c) => c.key)
+    expect(visibleKeys.slice(0, 2)).toEqual(['name', 'code'])
+    expect(visibleKeys).not.toContain('owner')
+    expect(visibleKeys).not.toContain('status')
+
+    // 模拟列 0 右边界拖拽调整列宽写回 onColWidthChange
+    const currentTable = adapter.getTable()
+    const col0RightX = currentTable.rowHeaderWidth + currentTable.getColWidth(0)
+    const headerY = currentTable.headerHeight / 2
+    container.dispatchEvent(
+      new MouseEvent('pointerdown', { clientX: col0RightX, clientY: headerY, button: 0 }),
     )
     container.dispatchEvent(
-      new MouseEvent('contextmenu', { clientX: nameX, clientY: 200, cancelable: true }),
+      new MouseEvent('pointermove', { clientX: col0RightX + 30, clientY: headerY, button: 0 }),
     )
-    expect(onHeaderContextMenu).toHaveBeenCalledTimes(1)
+    container.dispatchEvent(
+      new MouseEvent('pointerup', { clientX: col0RightX + 30, clientY: headerY, button: 0 }),
+    )
+    expect(onColWidthChange).toHaveBeenCalledTimes(1)
+    expect(onColWidthChange.mock.calls[0]?.[0]).toMatchObject({
+      columnKey: 'name',
+      colIndex: 0,
+      width: 240,
+    })
 
     adapter.destroy()
   })

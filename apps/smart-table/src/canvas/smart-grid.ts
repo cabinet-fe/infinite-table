@@ -1,26 +1,60 @@
-// 智能表格画布适配层：封装 @infinitable/table 的 ListTable，提供富媒体列渲染、
-// 数字格式化、checkbox 点击切换、VLOOKUP 冲突角标与消歧触发、水印插件挂载与容器自适应。
+// 智能表格画布适配层：封装 @infinitable/table 的 ListTable，提供原生底部冻结汇总行、
+// 列头排序/菜单按钮热区隔离、全区域右键菜单定位、多层次样式合并渲染与视图配置原地更新。
 
 import {
   EditorRegistry,
   ListTable,
+  type CellAddress,
   type CellChangeEvent,
   type CellLink,
   type CellRenderer,
   type CellRenderTarget,
+  type CellStyle,
+  type ColHeaderClickEvent,
+  type ColHeaderHitRegion,
   type ColumnDefine,
+  type TableContextMenuEvent,
   type TableModel,
+  type BottomCellClickEvent,
 } from '@infinitable/table'
 import { createWatermarkPlugin, type WatermarkHandle } from '@infinitable/plugins'
-import { roundRectPath, type Region, type RenderContext } from '@infinitable/render'
+import { roundRectPath, type Region, type RenderContext, type Size } from '@infinitable/render'
 
+import {
+  computeSummaries,
+  formatSummaryValue,
+  type SummaryCellResult,
+} from '../domain/query-engine'
+import {
+  createViewStyleResolver,
+  resolveRowHeightPx,
+  resolveVisibleColumns,
+  type ViewStyleResolver,
+} from '../domain/style-engine'
 import type {
+  CellTextAlign,
   LookupConflictInfo,
+  RowHeightPreset,
   SelectOption,
   SmartColumn,
   SmartRecord,
+  SmartView,
   SortRule,
+  SummaryType,
 } from '../shared/schema'
+
+/** 视图呈现与样式配置切片（驱动列显隐/顺序/宽、冻结列、行高与三层样式合并） */
+export type SmartGridViewPresentation = Pick<
+  SmartView,
+  | 'columnOrder'
+  | 'hiddenColumns'
+  | 'columnWidths'
+  | 'frozenColCount'
+  | 'rowHeight'
+  | 'columnStyles'
+  | 'cellStyles'
+  | 'conditionalFormats'
+>
 
 /** 冲突角标点击回调入参（rect 为视口坐标） */
 export interface SmartGridConflictClickInfo {
@@ -38,19 +72,80 @@ export interface SmartGridRichEditInfo {
   value: unknown
 }
 
-/** 汇总栏单个列的几何镜像（left 为画布内容坐标，滚动由消费方自行扣除） */
-export interface FooterColumnLayout {
+/** 底部汇总格点击回调入参（rect 为视口坐标） */
+export interface SmartGridSummaryClickInfo {
+  column: SmartColumn
+  columnKey: string
+  colIndex: number
+  summaryType: SummaryType
+  rect: Region
+}
+
+/** 列头显式排序按钮点击回调入参（rect 为按钮视口坐标） */
+export interface SmartGridHeaderSortClickInfo {
+  column: SmartColumn
   field: string
-  left: number
+  colIndex: number
+  additive: boolean
+  rect: Region
+}
+
+/** 列头显式菜单按钮点击回调入参（rect 为按钮视口坐标，headerRect 为整列头格视口坐标） */
+export interface SmartGridHeaderMenuClickInfo {
+  column: SmartColumn
+  columnKey: string
+  colIndex: number
+  rect: Region
+  headerRect: Region
+}
+
+/** 选区单个矩形范围（同时提供格坐标与解析后的行 ID / 列键） */
+export interface SmartGridSelectionRange {
+  start: CellAddress
+  end: CellAddress
+  recordIds: string[]
+  columnKeys: string[]
+}
+
+/** 当前画布选区快照 */
+export interface SmartGridSelectionInfo {
+  ranges: SmartGridSelectionRange[]
+  recordIds: string[]
+  columnKeys: string[]
+  focus: CellAddress | null
+}
+
+/** 全区域右键菜单回调入参（body / col-header / row-header） */
+export interface SmartGridContextMenuInfo {
+  region: 'body' | 'col-header' | 'row-header'
+  /** 浏览器视口坐标 */
+  x: number
+  y: number
+  /** 目标矩形在浏览器视口中的位置（格/列头/行头矩形；空白处为点击点 0x0 矩形） */
+  rect: Region
+  /** 命中格坐标（仅 body 命中数据格时非空） */
+  cell: CellAddress | null
+  colIndex: number | null
+  rowIndex: number | null
+  column: SmartColumn | null
+  record: SmartRecord | null
+  selection: SmartGridSelectionInfo
+}
+
+/** 列宽拖拽写回回调入参 */
+export interface SmartGridColWidthChangeInfo {
+  column: SmartColumn
+  columnKey: string
+  colIndex: number
   width: number
 }
 
-/** 汇总栏布局快照：行表头宽、列几何、滚动条预留厚与内容总宽（全部取自引擎布局） */
-export interface FooterLayout {
-  rowHeaderWidth: number
-  scrollbarSize: number
-  contentWidth: number
-  columns: FooterColumnLayout[]
+/** setData 附加配置参数 */
+export interface SmartGridSetDataExtra {
+  view?: SmartGridViewPresentation
+  summaries?: Record<string, SummaryType>
+  summaryResults?: Record<string, SummaryCellResult>
+  totalCount?: number
 }
 
 /** SmartGridAdapter 构造配置 */
@@ -62,28 +157,61 @@ export interface SmartGridOptions {
   readonly?: boolean
   dpr?: number
   sortRules?: readonly SortRule[]
+  /** 视图呈现与样式配置（列显隐/顺序/宽、冻结列、行高、多层次样式） */
+  view?: SmartGridViewPresentation
+  /** 列汇总配置（columnKey -> SummaryType） */
+  summaries?: Record<string, SummaryType>
+  /** 预计算汇总结果（未传时按 records / visibleColumns / summaries 自动计算） */
+  summaryResults?: Record<string, SummaryCellResult>
+  /** 过滤前总记录数（用于底部行头展示 `共 N 条` 或 `筛选/总数`；缺省等于 records.length） */
+  totalCount?: number
+  /** 是否显示原生底部冻结汇总行（缺省 true） */
+  showSummaryRow?: boolean
   onCellValueChange?: (recordId: string, fieldKey: string, newValue: unknown) => void
   onConflictClick?: (info: SmartGridConflictClickInfo) => void
   onRichCellEdit?: (info: SmartGridRichEditInfo) => void
   onValidationError?: (message: string) => void
   onScrollChange?: (scrollLeft: number, scrollTop: number) => void
   onRowSelectionChange?: (recordIds: string[]) => void
-  onHeaderColumnClick?: (field: string, meta: { additive: boolean }) => void
-  /** 列头右键（仅数据列）：抛列定义与列头视口矩形，供宿主挂字段设置面板 */
-  onHeaderContextMenu?: (info: { column: SmartColumn; rect: Region }) => void
-  onFooterLayoutChange?: (layout: FooterLayout) => void
+  /** 点击列头显式排序按钮 */
+  onHeaderSortClick?: (info: SmartGridHeaderSortClickInfo) => void
+  /** 点击列头显式菜单按钮 */
+  onHeaderMenuClick?: (info: SmartGridHeaderMenuClickInfo) => void
+  /** 点击底部汇总行数据格 */
+  onSummaryCellClick?: (info: SmartGridSummaryClickInfo) => void
+  /** 全区域右键菜单（body / col-header / row-header） */
+  onContextMenu?: (info: SmartGridContextMenuInfo) => void
+  /** 列宽拖拽结束写回 */
+  onColWidthChange?: (info: SmartGridColWidthChangeInfo) => void
 }
 
 /** 点击判定位移阈值（与引擎链接单击/透视表组格单击同口径） */
 const CLICK_SLOP = 10
-/** 列边界列宽拖拽热区半宽（与引擎 resize 命中阈值同口径，热区内点击不触发排序） */
-const RESIZE_HOT_PX = 4
 const DEFAULT_WIDTH = 800
 const DEFAULT_HEIGHT = 500
 const DEFAULT_ROW_HEIGHT = 38
 const DEFAULT_HEADER_HEIGHT = 38
+const DEFAULT_BOTTOM_ROW_HEIGHT = 36
+const DEFAULT_ROW_HEADER_WIDTH = 64
+const MIN_ROW_HEIGHT_PX = 24
 const DEFAULT_WATERMARK_TEXT = '智能表格 · 内部数据'
 const AVATAR_PALETTE = ['#3370ff', '#00b42a', '#ff7d00', '#722ed1', '#eb2f96', '#0fc6c2'] as const
+
+const HEADER_BTN_WIDTH = 18
+const HEADER_BTN_HEIGHT = 20
+const HEADER_BTN_GAP = 2
+// 右侧留 6px 边距，避开列边界 ±4px resize 热区
+const HEADER_BTN_RIGHT_PAD = 6
+
+const SUMMARY_SHORT_LABELS: Record<SummaryType, string> = {
+  none: '',
+  sum: '求和',
+  avg: '均值',
+  max: '最大',
+  min: '最小',
+  count: '计数',
+  filled_rate: '填充率',
+}
 
 /** 自定义表格数据模型：内部持有记录浅拷贝防原地变异，支持静默回滚与快照读取 */
 class SmartTableModel implements TableModel {
@@ -168,16 +296,6 @@ export function formatSmartColumnTitle(col: SmartColumn): string {
     return `ƒx ${col.title}`
   }
   return col.title
-}
-
-/** 按当前排序规则取列头方向指示：首规则实心箭头、次级规则空心箭头 */
-function sortIndicatorFor(sortRules: readonly SortRule[], field: string): string {
-  const index = sortRules.findIndex((rule) => rule.field === field)
-  if (index < 0) {
-    return ''
-  }
-  const asc = sortRules[index]!.direction === 'asc'
-  return index === 0 ? (asc ? ' ▲' : ' ▼') : asc ? ' △' : ' ▽'
 }
 
 /** 任意基础值安全转文本（避免对象退化为 [object Object]） */
@@ -309,65 +427,34 @@ function isColumnEditable(col: SmartColumn | undefined, hasRichCellEdit: boolean
   )
 }
 
-/** 生成 ListTable 列定义（标题按当前排序规则追加方向指示） */
-function toColumnDefine(
-  col: SmartColumn,
-  hasRichCellEdit: boolean,
-  sortRules: readonly SortRule[],
-): ColumnDefine {
-  const isNumeric = col.type === 'number' || col.numberFormat !== undefined
+function defaultColumnAlign(col: SmartColumn): CellTextAlign | undefined {
+  if (col.type === 'checkbox') {
+    return 'center'
+  }
+  if (col.type === 'number' || col.numberFormat !== undefined) {
+    return 'right'
+  }
+  return undefined
+}
+
+/** 生成 ListTable 列定义 */
+function toColumnDefine(col: SmartColumn, hasRichCellEdit: boolean): ColumnDefine {
   const base: ColumnDefine = {
     field: col.key,
-    title: formatSmartColumnTitle(col) + sortIndicatorFor(sortRules, col.key),
+    title: formatSmartColumnTitle(col),
     width: col.width,
   }
+  const defaultAlign = defaultColumnAlign(col)
   if (col.type === 'checkbox') {
     base.cellType = 'checkbox'
-    base.style = { textAlign: 'center' }
-  } else if (isNumeric) {
-    base.style = { textAlign: 'right' }
+  }
+  if (defaultAlign) {
+    base.style = { textAlign: defaultAlign }
   }
   if (isColumnEditable(col, hasRichCellEdit)) {
     base.editor = 'text'
   }
   return base
-}
-
-/** 判断两组排序规则是否一致（不一致时列头箭头需重建列定义刷新） */
-function sortRulesEqual(a: readonly SortRule[], b: readonly SortRule[]): boolean {
-  if (a === b) return true
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]!.field !== b[i]!.field || a[i]!.direction !== b[i]!.direction) {
-      return false
-    }
-  }
-  return true
-}
-
-/** 判断两组列定义是否在结构或展示配置上完全一致（一致时可原地刷新行数据而不重建实例） */
-function columnsEqual(a: readonly SmartColumn[], b: readonly SmartColumn[]): boolean {
-  if (a.length !== b.length) {
-    return false
-  }
-  for (let i = 0; i < a.length; i++) {
-    const ca = a[i]!
-    const cb = b[i]!
-    if (
-      ca.key !== cb.key ||
-      ca.title !== cb.title ||
-      ca.type !== cb.type ||
-      ca.width !== cb.width ||
-      ca.isUniqueKey !== cb.isUniqueKey ||
-      ca.numberFormat !== cb.numberFormat ||
-      ca.formulaExpr !== cb.formulaExpr ||
-      !selectOptionsEqual(ca.options, cb.options) ||
-      !lookupConfigEqual(ca.lookupConfig, cb.lookupConfig)
-    ) {
-      return false
-    }
-  }
-  return true
 }
 
 function selectOptionsEqual(
@@ -403,6 +490,30 @@ function lookupConfigEqual(
   )
 }
 
+/** 判断可见列结构是否一致（不含 width，width 变化可原地 setColWidths 不重建实例） */
+function columnsSchemaEqual(a: readonly SmartColumn[], b: readonly SmartColumn[]): boolean {
+  if (a.length !== b.length) {
+    return false
+  }
+  for (let i = 0; i < a.length; i++) {
+    const ca = a[i]!
+    const cb = b[i]!
+    if (
+      ca.key !== cb.key ||
+      ca.title !== cb.title ||
+      ca.type !== cb.type ||
+      ca.isUniqueKey !== cb.isUniqueKey ||
+      ca.numberFormat !== cb.numberFormat ||
+      ca.formulaExpr !== cb.formulaExpr ||
+      !selectOptionsEqual(ca.options, cb.options) ||
+      !lookupConfigEqual(ca.lookupConfig, cb.lookupConfig)
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 /** 按姓名哈希选取稳定的头像颜色 */
 function pickAvatarColor(name: string): string {
   let hash = 0
@@ -412,7 +523,7 @@ function pickAvatarColor(name: string): string {
   return AVATAR_PALETTE[hash % AVATAR_PALETTE.length]!
 }
 
-/** 头像缩写：中文姓名取首字或末字，其余取首字母大写 */
+/** 头像缩写：中文姓名取末字，其余取首字母大写 */
 function avatarInitial(name: string): string {
   const trimmed = name.trim()
   if (!trimmed) return ''
@@ -422,20 +533,18 @@ function avatarInitial(name: string): string {
   return trimmed.slice(0, 1).toUpperCase()
 }
 
-/** 单行单格省略号截断绘制 */
-function drawClippedText(
+/** 测量并计算省略号截断文本与实际渲染宽度 */
+function clipTextToWidth(
   ctx: RenderContext,
   text: string,
-  x: number,
-  baselineY: number,
   maxWidth: number,
-): void {
+): { text: string; width: number } {
   if (maxWidth <= 0 || !text) {
-    return
+    return { text: '', width: 0 }
   }
-  if (ctx.measureText(text).width <= maxWidth) {
-    ctx.fillText(text, x, baselineY)
-    return
+  const fullWidth = ctx.measureText(text).width
+  if (fullWidth <= maxWidth) {
+    return { text, width: fullWidth }
   }
   const ellipsis = '…'
   let lo = 0
@@ -448,10 +557,78 @@ function drawClippedText(
       hi = mid - 1
     }
   }
-  ctx.fillText(text.slice(0, lo) + ellipsis, x, baselineY)
+  const clipped = text.slice(0, lo) + ellipsis
+  return { text: clipped, width: ctx.measureText(clipped).width }
 }
 
-/** 绘制 select 圆角彩色标签胶囊 */
+/** 在指定水平区域内按对齐方式绘制单行省略号截断文本 */
+function drawAlignedClippedText(
+  ctx: RenderContext,
+  text: string,
+  left: number,
+  maxWidth: number,
+  baselineY: number,
+  align?: CellTextAlign,
+): void {
+  const clipped = clipTextToWidth(ctx, text, maxWidth)
+  if (!clipped.text) {
+    return
+  }
+  let x = left
+  if (align === 'center') {
+    x = left + Math.max(0, (maxWidth - clipped.width) / 2)
+  } else if (align === 'right') {
+    x = left + Math.max(0, maxWidth - clipped.width)
+  }
+  ctx.fillText(clipped.text, x, baselineY)
+}
+
+/** 计算列头右侧按钮热区（列头自绘与交互命中单源共享） */
+function computeHeaderRegions(size: Size): ColHeaderHitRegion[] {
+  const y = Math.max(0, Math.round((size.height - HEADER_BTN_HEIGHT) / 2))
+  const menuX = size.width - HEADER_BTN_RIGHT_PAD - HEADER_BTN_WIDTH
+  if (size.width >= 52) {
+    const sortX = menuX - HEADER_BTN_GAP - HEADER_BTN_WIDTH
+    return [
+      {
+        id: 'sort',
+        rect: { x: sortX, y, width: HEADER_BTN_WIDTH, height: HEADER_BTN_HEIGHT },
+        cursor: 'pointer',
+      },
+      {
+        id: 'menu',
+        rect: { x: menuX, y, width: HEADER_BTN_WIDTH, height: HEADER_BTN_HEIGHT },
+        cursor: 'pointer',
+      },
+    ]
+  }
+  if (size.width >= 28) {
+    return [
+      {
+        id: 'menu',
+        rect: { x: menuX, y, width: HEADER_BTN_WIDTH, height: HEADER_BTN_HEIGHT },
+        cursor: 'pointer',
+      },
+    ]
+  }
+  return []
+}
+
+/** 按当前排序规则取列头按钮图标与激活状态 */
+function sortButtonGlyph(
+  sortRules: readonly SortRule[],
+  field: string,
+): { glyph: string; active: boolean } {
+  const index = sortRules.findIndex((rule) => rule.field === field)
+  if (index < 0) {
+    return { glyph: '⇅', active: false }
+  }
+  const asc = sortRules[index]!.direction === 'asc'
+  const glyph = index === 0 ? (asc ? '▲' : '▼') : asc ? '△' : '▽'
+  return { glyph, active: true }
+}
+
+/** 绘制 select 圆角彩色标签胶囊（支持 align 与未命中枚举时的文字色继承） */
 function createSelectRenderer(col: SmartColumn): CellRenderer {
   return ({ ctx, width, height, text, style }: CellRenderTarget) => {
     const label = text.trim()
@@ -460,7 +637,7 @@ function createSelectRenderer(col: SmartColumn): CellRenderer {
     }
     const matched = col.options?.find((opt) => opt.label === label)
     const bgColor = matched?.color ?? '#eef0f3'
-    const fgColor = matched?.textColor ?? '#1f2329'
+    const fgColor = matched?.textColor ?? style.color ?? '#1f2329'
     const fontSize = style.fontSize ?? 12
     ctx.font = `500 ${fontSize}px sans-serif`
     const padX = 8
@@ -471,7 +648,12 @@ function createSelectRenderer(col: SmartColumn): CellRenderer {
     if (pillW <= 0) {
       return
     }
-    const pillX = 8
+    let pillX = 8
+    if (style.textAlign === 'center') {
+      pillX = Math.max(8, (width - pillW) / 2)
+    } else if (style.textAlign === 'right') {
+      pillX = Math.max(8, width - 8 - pillW)
+    }
     const pillY = (height - pillH) / 2
     roundRectPath(ctx, pillX, pillY, pillW, pillH, pillH / 2)
     ctx.fillStyle = bgColor
@@ -484,19 +666,33 @@ function createSelectRenderer(col: SmartColumn): CellRenderer {
     const innerMaxW = Math.max(0, pillW - padX * 2)
     const textX = measured <= innerMaxW ? pillX + (pillW - measured) / 2 : pillX + padX
     const baselineY = pillY + pillH / 2 + Math.round(fontSize / 3)
-    drawClippedText(ctx, label, textX, baselineY, innerMaxW)
+    drawAlignedClippedText(ctx, label, textX, innerMaxW, baselineY)
     ctx.restore()
   }
 }
 
-/** 绘制 person 彩色圆形头像 + 姓名 */
+/** 绘制 person 彩色圆形头像 + 姓名（协调水平对齐与文字色） */
 const renderPersonCell: CellRenderer = ({ ctx, width, height, text, style, font }) => {
   const name = text.trim()
   if (!name) {
     return
   }
+  const fontSize = style.fontSize ?? 12
+  const textFont = font ?? `${fontSize}px sans-serif`
+  ctx.font = textFont
+  const nameW = ctx.measureText(name).width
+
   const radius = Math.min(10, Math.max(6, (height - 10) / 2))
-  const cx = 8 + radius
+  const gap = 6
+  const groupW = Math.min(Math.max(0, width - 16), radius * 2 + gap + nameW)
+  let startX = 8
+  if (style.textAlign === 'center') {
+    startX = Math.max(8, (width - groupW) / 2)
+  } else if (style.textAlign === 'right') {
+    startX = Math.max(8, width - 8 - groupW)
+  }
+
+  const cx = startX + radius
   const cy = height / 2
   ctx.beginPath()
   ctx.arc(cx, cy, radius, 0, Math.PI * 2)
@@ -510,17 +706,16 @@ const renderPersonCell: CellRenderer = ({ ctx, width, height, text, style, font 
   const initialW = ctx.measureText(initial).width
   ctx.fillText(initial, cx - initialW / 2, cy + 3.5)
 
-  const fontSize = style.fontSize ?? 12
-  ctx.font = font ?? `${fontSize}px sans-serif`
+  ctx.font = textFont
   ctx.fillStyle = style.color ?? '#1f2329'
-  const textX = cx + radius + 6
+  const textX = cx + radius + gap
   const maxW = Math.max(0, width - textX - 8)
   const baselineY = height / 2 + Math.round(fontSize / 3)
-  drawClippedText(ctx, name, textX, baselineY, maxW)
+  drawAlignedClippedText(ctx, name, textX, maxW, baselineY)
 }
 
-/** 绘制 progress 圆角轨道 + 进度条 + 右侧百分比文字 */
-const renderProgressCell: CellRenderer = ({ ctx, width, height, value }) => {
+/** 绘制 progress 圆角轨道 + 进度条 + 右侧百分比文字（协调文字色） */
+const renderProgressCell: CellRenderer = ({ ctx, width, height, value, style }) => {
   const raw = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(raw)) {
     return
@@ -548,11 +743,11 @@ const renderProgressCell: CellRenderer = ({ ctx, width, height, value }) => {
     ctx.fill()
   }
 
-  ctx.fillStyle = '#4b5563'
+  ctx.fillStyle = style.color ?? '#4b5563'
   ctx.fillText(label, width - 8 - labelW, height / 2 + 4)
 }
 
-/** 绘制带重名冲突/已锁定角标的 lookup 单元格（窄列自动切换紧凑文案与最大宽度限制） */
+/** 绘制带重名冲突/已锁定角标的 lookup 单元格（窄列自动切换紧凑文案与对齐） */
 function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRenderer {
   return ({ ctx, width, height, text, style, font }) => {
     const isCompact = width < 155
@@ -580,7 +775,14 @@ function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRendere
     if (text && textMaxW > 4) {
       ctx.font = font ?? `${fontSize}px sans-serif`
       ctx.fillStyle = style.color ?? '#1f2329'
-      drawClippedText(ctx, text, 8, height / 2 + Math.round(fontSize / 3), textMaxW)
+      drawAlignedClippedText(
+        ctx,
+        text,
+        8,
+        textMaxW,
+        height / 2 + Math.round(fontSize / 3),
+        style.textAlign,
+      )
     }
 
     if (badgeW < 12) {
@@ -596,12 +798,12 @@ function createLookupConflictRenderer(conflict: LookupConflictInfo): CellRendere
     ctx.clip()
     ctx.font = '11px sans-serif'
     ctx.fillStyle = badgeFg
-    drawClippedText(
+    drawAlignedClippedText(
       ctx,
       badgeText,
       badgeX + badgePadX,
-      badgeY + badgeH / 2 + 3.5,
       badgeW - badgePadX * 2,
+      badgeY + badgeH / 2 + 3.5,
     )
     ctx.restore()
   }
@@ -648,25 +850,60 @@ function isEditingDomTarget(target: EventTarget | null): boolean {
   return el.isContentEditable === true
 }
 
-/** 智能表格画布适配器：持有 ListTable 与自定义 TableModel，支持原地数据刷新与交互桥接 */
+function toCellStyleOverride(resolved: {
+  bgColor?: string
+  textColor?: string
+  align?: CellTextAlign
+}): CellStyle | null {
+  if (
+    resolved.bgColor === undefined &&
+    resolved.textColor === undefined &&
+    resolved.align === undefined
+  ) {
+    return null
+  }
+  const style: CellStyle = {}
+  if (resolved.bgColor !== undefined) {
+    style.background = resolved.bgColor
+  }
+  if (resolved.textColor !== undefined) {
+    style.color = resolved.textColor
+  }
+  if (resolved.align !== undefined) {
+    style.textAlign = resolved.align
+  }
+  return style
+}
+
+/** 智能表格画布适配器：持有 ListTable 与自定义 TableModel，支持原生底部汇总行、热区隔离、右键菜单与样式合并 */
 export class SmartGridAdapter {
   private readonly container: HTMLElement
   private readonly dpr: number | undefined
   private readonly readonlyMode: boolean
+  private readonly showSummaryRow: boolean
   private readonly onCellValueChange: SmartGridOptions['onCellValueChange']
   private readonly onConflictClick: SmartGridOptions['onConflictClick']
   private readonly onRichCellEdit: SmartGridOptions['onRichCellEdit']
   private readonly onValidationError: SmartGridOptions['onValidationError']
   private readonly onScrollChange: SmartGridOptions['onScrollChange']
   private readonly onRowSelectionChange: SmartGridOptions['onRowSelectionChange']
-  private readonly onHeaderColumnClick: SmartGridOptions['onHeaderColumnClick']
-  private readonly onHeaderContextMenu: SmartGridOptions['onHeaderContextMenu']
-  private readonly onFooterLayoutChange: SmartGridOptions['onFooterLayoutChange']
+  private readonly onHeaderSortClick: SmartGridOptions['onHeaderSortClick']
+  private readonly onHeaderMenuClick: SmartGridOptions['onHeaderMenuClick']
+  private readonly onSummaryCellClick: SmartGridOptions['onSummaryCellClick']
+  private readonly onContextMenu: SmartGridOptions['onContextMenu']
+  private readonly onColWidthChange: SmartGridOptions['onColWidthChange']
 
-  private columns: readonly SmartColumn[]
+  private allColumns: readonly SmartColumn[]
+  private visibleColumns: SmartColumn[]
   private records: readonly SmartRecord[]
+  private totalCount: number
   private sortRules: readonly SortRule[]
   private conflictsByRow: Map<string, Map<string, LookupConflictInfo>> | undefined
+  private viewPresentation: SmartGridViewPresentation
+  private styleResolver: ViewStyleResolver
+  private summaries: Record<string, SummaryType>
+  private computedSummaries: Record<string, SummaryCellResult>
+  private rowHeightPx: number
 
   private readonly editorRegistry: EditorRegistry
   private readonly model: SmartTableModel
@@ -683,25 +920,36 @@ export class SmartGridAdapter {
     this.container = options.container
     this.dpr = options.dpr
     this.readonlyMode = options.readonly ?? false
+    this.showSummaryRow = options.showSummaryRow ?? true
     this.onCellValueChange = options.onCellValueChange
     this.onConflictClick = options.onConflictClick
     this.onRichCellEdit = options.onRichCellEdit
     this.onValidationError = options.onValidationError
     this.onScrollChange = options.onScrollChange
     this.onRowSelectionChange = options.onRowSelectionChange
-    this.onHeaderColumnClick = options.onHeaderColumnClick
-    this.onHeaderContextMenu = options.onHeaderContextMenu
-    this.onFooterLayoutChange = options.onFooterLayoutChange
+    this.onHeaderSortClick = options.onHeaderSortClick
+    this.onHeaderMenuClick = options.onHeaderMenuClick
+    this.onSummaryCellClick = options.onSummaryCellClick
+    this.onContextMenu = options.onContextMenu
+    this.onColWidthChange = options.onColWidthChange
 
-    this.columns = options.columns
+    this.allColumns = options.columns
     this.records = options.records
+    this.totalCount = options.totalCount ?? options.records.length
     this.sortRules = options.sortRules ?? []
     this.conflictsByRow = options.conflictsByRow
+    this.viewPresentation = options.view ? { ...options.view } : {}
+    this.visibleColumns = resolveVisibleColumns(this.allColumns, this.viewPresentation)
+    this.styleResolver = createViewStyleResolver(this.visibleColumns, this.viewPresentation)
+    this.rowHeightPx = resolveRowHeightPx(this.viewPresentation.rowHeight)
+    this.summaries = options.summaries ? { ...options.summaries } : {}
+    this.computedSummaries =
+      options.summaryResults ?? computeSummaries(this.records, this.visibleColumns, this.summaries)
 
     this.editorRegistry = new EditorRegistry()
     this.editorRegistry.registerEditor('text', {})
 
-    this.model = new SmartTableModel(this.columns, this.records)
+    this.model = new SmartTableModel(this.visibleColumns, this.records)
     this.watermarkPlugin = createWatermarkPlugin({
       enabled: false,
       text: DEFAULT_WATERMARK_TEXT,
@@ -712,47 +960,216 @@ export class SmartGridAdapter {
     this.bindResizeObserver()
   }
 
-  /** 原地更新列结构与行数据：列定义/排序指示未变时走 TableModel + setRowCount/refreshCell 不重建画布 */
+  /** 原地更新列结构、行数据、排序、汇总与视图配置（可见列序列未变时原地刷新不重建画布） */
   setData(
     columns: readonly SmartColumn[],
     records: readonly SmartRecord[],
     conflictsByRow?: Map<string, Map<string, LookupConflictInfo>>,
     sortRules?: readonly SortRule[],
+    extra?: SmartGridSetDataExtra,
   ): void {
     if (this.destroyed) {
       return
     }
-    // 必须在覆写 this.records / this.model.setData 之前读取旧行数：
-    // ListTable.rowCount 在模型形态下实时代理 model.rowCount，模型先改再读会导致 prevRowCount === nextRowCount
     const prevRowCount = this.records.length
     const nextRowCount = records.length
-    const schemaChanged = !columnsEqual(this.columns, columns)
-    const nextSortRules = sortRules ?? this.sortRules
-    const sortChanged = !sortRulesEqual(this.sortRules, nextSortRules)
-    this.columns = columns
-    this.records = records
-    this.sortRules = nextSortRules
-    this.conflictsByRow = conflictsByRow
-    this.model.setData(columns, records)
 
-    if (schemaChanged || sortChanged) {
+    this.allColumns = columns
+    this.records = records
+    this.totalCount = extra?.totalCount ?? records.length
+    this.conflictsByRow = conflictsByRow
+    if (sortRules !== undefined) {
+      this.sortRules = sortRules
+    }
+    if (extra?.view !== undefined) {
+      this.viewPresentation = { ...extra.view }
+    }
+    if (extra?.summaries !== undefined) {
+      this.summaries = { ...extra.summaries }
+    }
+
+    const nextVisibleColumns = resolveVisibleColumns(this.allColumns, this.viewPresentation)
+    const nextRowHeightPx = resolveRowHeightPx(this.viewPresentation.rowHeight)
+    const schemaChanged = !columnsSchemaEqual(this.visibleColumns, nextVisibleColumns)
+
+    this.visibleColumns = nextVisibleColumns
+    this.styleResolver = createViewStyleResolver(this.visibleColumns, this.viewPresentation)
+    this.rowHeightPx = nextRowHeightPx
+    this.computedSummaries =
+      extra?.summaryResults ?? computeSummaries(this.records, this.visibleColumns, this.summaries)
+    this.model.setData(this.visibleColumns, this.records)
+
+    if (schemaChanged) {
       this.rebuildListTable()
       return
     }
 
     this.table.batchUpdate(() => {
+      this.syncPresentationInPlace(nextVisibleColumns, nextRowHeightPx)
       if (prevRowCount !== nextRowCount) {
         this.table.setRowCount(nextRowCount)
-      } else {
-        const { rows } = this.table.getBodyVisibleCellRange()
-        const endRow = Math.min(nextRowCount, rows.end)
-        for (let r = rows.start; r < endRow; r++) {
-          for (let c = 0; c < this.columns.length; c++) {
-            this.table.refreshCell(c, r)
+        if (nextRowCount > prevRowCount && this.rowHeightPx !== this.table.rowHeight) {
+          for (let r = prevRowCount; r < nextRowCount; r++) {
+            this.table.setRowHeight(r, this.rowHeightPx)
           }
         }
+      } else {
+        this.refreshVisibleBodyCells()
+      }
+      this.table.refreshColHeaders()
+      if (this.showSummaryRow) {
+        this.table.refreshBottomRow(0)
       }
     })
+  }
+
+  /** 原地更新视图呈现与样式配置（列显隐/顺序/宽、冻结列、行高与多层次样式） */
+  setViewPresentation(view: SmartGridViewPresentation): void {
+    if (this.destroyed) {
+      return
+    }
+    this.viewPresentation = { ...view }
+    const nextVisibleColumns = resolveVisibleColumns(this.allColumns, this.viewPresentation)
+    const nextRowHeightPx = resolveRowHeightPx(this.viewPresentation.rowHeight)
+    const schemaChanged = !columnsSchemaEqual(this.visibleColumns, nextVisibleColumns)
+
+    this.visibleColumns = nextVisibleColumns
+    this.styleResolver = createViewStyleResolver(this.visibleColumns, this.viewPresentation)
+    this.rowHeightPx = nextRowHeightPx
+    this.model.setData(this.visibleColumns, this.records)
+
+    if (schemaChanged) {
+      this.rebuildListTable()
+      return
+    }
+
+    this.table.batchUpdate(() => {
+      this.syncPresentationInPlace(nextVisibleColumns, nextRowHeightPx)
+      this.refreshVisibleBodyCells()
+      this.table.refreshColHeaders()
+      if (this.showSummaryRow) {
+        this.table.refreshBottomRow(0)
+      }
+    })
+  }
+
+  /** 更新列顺序与隐藏列配置 */
+  setColumnOrder(columnOrder: string[], hiddenColumns?: string[]): void {
+    this.setViewPresentation({
+      ...this.viewPresentation,
+      columnOrder,
+      ...(hiddenColumns !== undefined ? { hiddenColumns } : {}),
+    })
+  }
+
+  /** 原地设置左侧冻结列数 */
+  setFrozenColCount(count: number): void {
+    if (this.destroyed) {
+      return
+    }
+    const clamped = Math.max(0, Math.min(this.visibleColumns.length, Math.floor(count)))
+    this.viewPresentation = { ...this.viewPresentation, frozenColCount: clamped }
+    this.table.setFrozenColCount(clamped)
+  }
+
+  /** 原地设置行高（支持预设档位或像素值） */
+  setRowHeight(presetOrPx: RowHeightPreset | number): void {
+    if (this.destroyed) {
+      return
+    }
+    const nextPx =
+      typeof presetOrPx === 'number'
+        ? Math.max(MIN_ROW_HEIGHT_PX, Math.round(presetOrPx))
+        : resolveRowHeightPx(presetOrPx)
+    if (typeof presetOrPx !== 'number') {
+      this.viewPresentation = { ...this.viewPresentation, rowHeight: presetOrPx }
+    }
+    this.rowHeightPx = nextPx
+    this.applyRowHeightInPlace(nextPx)
+  }
+
+  /** 原地更新排序规则并刷新列头按钮状态 */
+  setSortRules(sortRules: readonly SortRule[]): void {
+    if (this.destroyed) {
+      return
+    }
+    this.sortRules = sortRules
+    this.table.refreshColHeaders()
+  }
+
+  /** 原地更新底部汇总配置与计数，局部刷新底部冻结行 */
+  setSummaries(
+    summaries: Record<string, SummaryType>,
+    totalCount?: number,
+    summaryResults?: Record<string, SummaryCellResult>,
+  ): void {
+    if (this.destroyed) {
+      return
+    }
+    this.summaries = { ...summaries }
+    if (totalCount !== undefined) {
+      this.totalCount = totalCount
+    }
+    this.computedSummaries =
+      summaryResults ?? computeSummaries(this.records, this.visibleColumns, this.summaries)
+    if (this.showSummaryRow) {
+      this.table.refreshBottomRow(0)
+    }
+  }
+
+  /** 获取当前画布选区（坐标段 + 解析后的行 ID 与列键） */
+  getSelectionInfo(): SmartGridSelectionInfo {
+    const snapshot = this.table.getSelection()
+    const ranges: SmartGridSelectionRange[] = []
+    const allRecordIds = new Set<string>()
+    const allColumnKeys = new Set<string>()
+
+    for (const range of snapshot.ranges) {
+      const minRow = Math.max(0, Math.min(range.start.row, range.end.row))
+      const maxRow = Math.min(this.records.length - 1, Math.max(range.start.row, range.end.row))
+      const minCol = Math.max(0, Math.min(range.start.col, range.end.col))
+      const maxCol = Math.min(
+        this.visibleColumns.length - 1,
+        Math.max(range.start.col, range.end.col),
+      )
+
+      const recordIds: string[] = []
+      for (let r = minRow; r <= maxRow; r++) {
+        const record = this.records[r]
+        if (record) {
+          recordIds.push(record._id)
+          allRecordIds.add(record._id)
+        }
+      }
+
+      const columnKeys: string[] = []
+      for (let c = minCol; c <= maxCol; c++) {
+        const colDef = this.visibleColumns[c]
+        if (colDef) {
+          columnKeys.push(colDef.key)
+          allColumnKeys.add(colDef.key)
+        }
+      }
+
+      ranges.push({
+        start: { col: minCol, row: minRow },
+        end: { col: maxCol, row: maxRow },
+        recordIds,
+        columnKeys,
+      })
+    }
+
+    return {
+      ranges,
+      recordIds: Array.from(allRecordIds),
+      columnKeys: Array.from(allColumnKeys),
+      focus: snapshot.focus ? { ...snapshot.focus } : null,
+    }
+  }
+
+  /** 获取当前可见列定义（已应用显隐、顺序与列宽覆盖） */
+  getVisibleColumns(): readonly SmartColumn[] {
+    return this.visibleColumns
   }
 
   /** 获取内部数据记录快照（浅拷贝，避免外部引用污染模型） */
@@ -766,7 +1183,7 @@ export class SmartGridAdapter {
       return
     }
     const row = this.records.findIndex((record) => record._id === recordId)
-    const col = this.columns.findIndex((column) => column.key === fieldKey)
+    const col = this.visibleColumns.findIndex((column) => column.key === fieldKey)
     if (row < 0 || col < 0) {
       return
     }
@@ -780,7 +1197,7 @@ export class SmartGridAdapter {
       return null
     }
     const row = this.records.findIndex((record) => record._id === recordId)
-    const col = this.columns.findIndex((column) => column.key === fieldKey)
+    const col = this.visibleColumns.findIndex((column) => column.key === fieldKey)
     if (row < 0 || col < 0) {
       return null
     }
@@ -790,7 +1207,7 @@ export class SmartGridAdapter {
 
   /** 滚动使目标记录行（可选指定列）完整进入可视区 */
   scrollToRecord(recordId: string, fieldKey?: string): void {
-    if (this.destroyed || this.columns.length === 0) {
+    if (this.destroyed || this.visibleColumns.length === 0) {
       return
     }
     const row = this.records.findIndex((record) => record._id === recordId)
@@ -799,12 +1216,12 @@ export class SmartGridAdapter {
     }
     let col = this.table.getBodyVisibleCellRange().cols.start
     if (fieldKey !== undefined) {
-      const targetCol = this.columns.findIndex((column) => column.key === fieldKey)
+      const targetCol = this.visibleColumns.findIndex((column) => column.key === fieldKey)
       if (targetCol >= 0) {
         col = targetCol
       }
     }
-    col = Math.max(0, Math.min(this.columns.length - 1, col))
+    col = Math.max(0, Math.min(this.visibleColumns.length - 1, col))
     this.table.scrollToCell({ col, row })
     this.emitScrollChange(this.table.getScrollLeft(), this.table.getScrollTop())
   }
@@ -818,30 +1235,6 @@ export class SmartGridAdapter {
       enabled,
       ...(text !== undefined ? { text } : {}),
     })
-  }
-
-  /** 汇总栏布局快照：行表头宽、列内容坐标几何、滚动条预留厚与内容总宽（引擎布局直读，不自行累加列宽） */
-  getFooterLayout(): FooterLayout {
-    return this.buildFooterLayout(this.table)
-  }
-
-  private buildFooterLayout(table: ListTable): FooterLayout {
-    const offsets = table.geometryState.colOffsets
-    return {
-      rowHeaderWidth: table.rowHeaderWidth,
-      scrollbarSize: table.theme.interaction.scrollbarSize,
-      contentWidth: table.contentWidth,
-      columns: this.columns.map((col, i) => ({
-        field: col.key,
-        left: offsets[i] ?? 0,
-        width: table.getColWidth(i),
-      })),
-    }
-  }
-
-  /** 构造/重建期间 this.table 尚未赋值，传入正在装配的 table 实例 */
-  private emitFooterLayout(table: ListTable = this.table): void {
-    this.onFooterLayoutChange?.(this.buildFooterLayout(table))
   }
 
   /** 获取水印插件句柄 */
@@ -873,21 +1266,30 @@ export class SmartGridAdapter {
     const width = this.container.clientWidth || DEFAULT_WIDTH
     const height = this.container.clientHeight || DEFAULT_HEIGHT
     const hasRichCellEdit = Boolean(this.onRichCellEdit)
+    const frozenColCount = Math.max(
+      0,
+      Math.min(this.visibleColumns.length, this.viewPresentation.frozenColCount ?? 0),
+    )
+
     const table = new ListTable({
       width,
       height,
-      rowHeight: DEFAULT_ROW_HEIGHT,
+      rowHeight: this.rowHeightPx,
       headerHeight: DEFAULT_HEADER_HEIGHT,
-      columns: this.columns.map((col) => toColumnDefine(col, hasRichCellEdit, this.sortRules)),
+      rowHeaderWidth: DEFAULT_ROW_HEADER_WIDTH,
+      frozenColCount,
+      frozenBottomRowCount: this.showSummaryRow ? 1 : 0,
+      bottomRowHeight: DEFAULT_BOTTOM_ROW_HEIGHT,
+      columns: this.visibleColumns.map((col) => toColumnDefine(col, hasRichCellEdit)),
       model: this.model,
       editorRegistry: this.editorRegistry,
       editCellOnEnter: true,
-      // 关闭选区右下角填充柄（柄绘制/命中/十字光标随引擎联动关闭），选区交互保持
       fillHandle: false,
       plugins: [this.watermarkPlugin],
       theme: {
         rowHeight: DEFAULT_ROW_HEIGHT,
         headerHeight: DEFAULT_HEADER_HEIGHT,
+        rowHeaderWidth: DEFAULT_ROW_HEADER_WIDTH,
         body: {
           font: '13px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
           fontSize: 13,
@@ -926,21 +1328,36 @@ export class SmartGridAdapter {
         ...(this.dpr !== undefined ? { dpr: this.dpr } : {}),
       },
       resolveDisplayValue: (col, _row, value) =>
-        formatSmartCellDisplayValue(this.columns[col], value),
+        formatSmartCellDisplayValue(this.visibleColumns[col], value),
+      resolveCellStyle: (col, row) => this.resolveBodyCellStyle(col, row),
       resolveCellRenderer: (col, row) => this.resolveRenderer(col, row),
+      resolveColHeaderStyle: (col) => this.resolveHeaderCellStyle(col),
+      resolveColHeaderRenderer: (col) => this.resolveHeaderRenderer(col),
+      resolveColHeaderRegions: (_col, size) => computeHeaderRegions(size),
+      resolveBottomRowHeaderStyle: () => ({
+        background: '#f7f8fa',
+        color: '#4e5969',
+        fontSize: 11,
+        fontWeight: 500,
+        textAlign: 'center',
+      }),
+      resolveBottomRowHeaderRenderer: () => this.resolveSummaryRowHeaderRenderer(),
+      resolveBottomCellStyle: (col) => this.resolveSummaryCellStyle(col),
+      resolveBottomCellRenderer: (col) => this.resolveSummaryCellRenderer(col),
       resolveCellImage: (col, row) =>
-        parseCellImage(this.columns[col], this.model.getCellValue(col, row)),
+        parseCellImage(this.visibleColumns[col], this.model.getCellValue(col, row)),
       resolveCellLink: (col, row) =>
-        parseCellLink(this.columns[col], this.model.getCellValue(col, row)),
+        parseCellLink(this.visibleColumns[col], this.model.getCellValue(col, row)),
       resolveEditable: (col) =>
-        !this.readonlyMode && isColumnEditable(this.columns[col], hasRichCellEdit),
+        !this.readonlyMode && isColumnEditable(this.visibleColumns[col], hasRichCellEdit),
     })
 
     this.tableUnsubscribers.push(
       table.onCellChange((change) => this.handleTableCellChange(change)),
       table.onScrollFrame((state) => this.emitScrollChange(state.left, state.top)),
-      // 列宽拖拽结束即刻推送新布局，保持汇总栏与画布列对齐
-      table.onColResizeEnd(() => this.emitFooterLayout()),
+      table.onColResizeEnd(({ col, width: colWidth }) => this.handleColResizeEnd(col, colWidth)),
+      table.onColHeaderClick((event) => this.handleColHeaderClick(event)),
+      table.onBottomCellClick((event) => this.handleBottomCellClick(event)),
       table.onSelectionChange((snapshot) => {
         if (!this.onRowSelectionChange) {
           return
@@ -960,8 +1377,11 @@ export class SmartGridAdapter {
       }),
     )
 
-    // 建表即推送一次布局快照（构造与重建路径共用），汇总栏随列定义就位
-    this.emitFooterLayout(table)
+    if (this.onContextMenu) {
+      this.tableUnsubscribers.push(
+        table.onContextMenu((event) => this.handleTableContextMenu(event)),
+      )
+    }
 
     return table
   }
@@ -984,8 +1404,204 @@ export class SmartGridAdapter {
     this.table.destroy()
   }
 
+  private syncPresentationInPlace(
+    nextVisibleColumns: readonly SmartColumn[],
+    nextRowHeightPx: number,
+  ): void {
+    const widthUpdates = new Map<number, number>()
+    for (let i = 0; i < nextVisibleColumns.length; i++) {
+      const nextWidth = nextVisibleColumns[i]!.width
+      if (this.table.getColWidth(i) !== nextWidth) {
+        widthUpdates.set(i, nextWidth)
+      }
+    }
+    if (widthUpdates.size > 0) {
+      this.table.setColWidths(widthUpdates)
+    }
+
+    const nextFrozen = Math.max(
+      0,
+      Math.min(nextVisibleColumns.length, this.viewPresentation.frozenColCount ?? 0),
+    )
+    if (this.table.getFrozenColCount() !== nextFrozen) {
+      this.table.setFrozenColCount(nextFrozen)
+    }
+
+    this.applyRowHeightInPlace(nextRowHeightPx)
+  }
+
+  private applyRowHeightInPlace(nextPx: number): void {
+    if (nextPx === this.table.rowHeight) {
+      this.table.resetRowHeights()
+      return
+    }
+    if (this.records.length === 0) {
+      return
+    }
+    const heights = new Map<number, number>()
+    for (let r = 0; r < this.records.length; r++) {
+      heights.set(r, nextPx)
+    }
+    this.table.setRowHeights(heights)
+  }
+
+  private refreshVisibleBodyCells(): void {
+    const { rows } = this.table.getBodyVisibleCellRange()
+    const endRow = Math.min(this.records.length, rows.end)
+    for (let r = rows.start; r < endRow; r++) {
+      for (let c = 0; c < this.visibleColumns.length; c++) {
+        this.table.refreshCell(c, r)
+      }
+    }
+  }
+
+  private resolveBodyCellStyle(col: number, row: number): CellStyle | null {
+    const colDef = this.visibleColumns[col]
+    const record = this.records[row]
+    if (!colDef || !record) {
+      return null
+    }
+    return toCellStyleOverride(this.styleResolver.resolveCell(record, colDef.key))
+  }
+
+  private resolveHeaderCellStyle(col: number): CellStyle | null {
+    const colDef = this.visibleColumns[col]
+    if (!colDef) {
+      return null
+    }
+    return toCellStyleOverride(this.styleResolver.resolveHeader(colDef.key))
+  }
+
+  private resolveHeaderRenderer(col: number): CellRenderer | null {
+    const colDef = this.visibleColumns[col]
+    if (!colDef) {
+      return null
+    }
+    return ({ ctx, width, height, style, font }: CellRenderTarget) => {
+      const regions = computeHeaderRegions({ width, height })
+      const leftPad = 8
+      const rightBound = regions.length > 0 ? regions[0]!.rect.x - 4 : width - 8
+      const titleMaxW = Math.max(0, rightBound - leftPad)
+
+      const fontSize = style.fontSize ?? 12
+      ctx.font = font ?? `600 ${fontSize}px sans-serif`
+      ctx.fillStyle = style.color ?? '#4e5969'
+      const baselineY = height / 2 + Math.round(fontSize / 3)
+      drawAlignedClippedText(
+        ctx,
+        formatSmartColumnTitle(colDef),
+        leftPad,
+        titleMaxW,
+        baselineY,
+        style.textAlign,
+      )
+
+      const sortRegion = regions.find((r) => r.id === 'sort')
+      if (sortRegion) {
+        const { glyph, active } = sortButtonGlyph(this.sortRules, colDef.key)
+        const r = sortRegion.rect
+        if (active) {
+          roundRectPath(ctx, r.x, r.y, r.width, r.height, 4)
+          ctx.fillStyle = '#ebf1ff'
+          ctx.fill()
+        }
+        ctx.font = '600 10px sans-serif'
+        ctx.fillStyle = active ? '#3370ff' : '#9aa1ab'
+        const glyphW = ctx.measureText(glyph).width
+        ctx.fillText(glyph, r.x + (r.width - glyphW) / 2, r.y + r.height / 2 + 3.5)
+      }
+
+      const menuRegion = regions.find((r) => r.id === 'menu')
+      if (menuRegion) {
+        const r = menuRegion.rect
+        const glyph = '⋯'
+        ctx.font = '600 12px sans-serif'
+        ctx.fillStyle = '#646a73'
+        const glyphW = ctx.measureText(glyph).width
+        ctx.fillText(glyph, r.x + (r.width - glyphW) / 2, r.y + r.height / 2 + 4)
+      }
+    }
+  }
+
+  private resolveSummaryRowHeaderRenderer(): CellRenderer {
+    return ({ ctx, width, height, style }: CellRenderTarget) => {
+      const countText =
+        this.records.length === this.totalCount
+          ? `共 ${this.records.length} 条`
+          : `${this.records.length}/${this.totalCount}`
+      const fontSize = style.fontSize ?? 11
+      ctx.font = `500 ${fontSize}px sans-serif`
+      ctx.fillStyle = style.color ?? '#4e5969'
+      drawAlignedClippedText(
+        ctx,
+        countText,
+        4,
+        Math.max(0, width - 8),
+        height / 2 + Math.round(fontSize / 3),
+        'center',
+      )
+    }
+  }
+
+  private resolveSummaryCellStyle(col: number): CellStyle | null {
+    const colDef = this.visibleColumns[col]
+    if (!colDef) {
+      return null
+    }
+    const headerAlign = this.styleResolver.resolveHeader(colDef.key).align
+    const align = headerAlign ?? defaultColumnAlign(colDef) ?? 'left'
+    return {
+      background: '#f7f8fa',
+      color: '#1f2329',
+      fontSize: 12,
+      textAlign: align,
+    }
+  }
+
+  private resolveSummaryCellRenderer(col: number): CellRenderer | null {
+    const colDef = this.visibleColumns[col]
+    if (!colDef) {
+      return null
+    }
+    const summaryType = this.summaries[colDef.key] ?? 'none'
+    if (summaryType === 'none') {
+      return null
+    }
+    const label = SUMMARY_SHORT_LABELS[summaryType]
+    const result = this.computedSummaries[colDef.key]
+    const valueText = result?.text ?? formatSummaryValue(null, summaryType, colDef.numberFormat)
+
+    return ({ ctx, width, height, style }: CellRenderTarget) => {
+      const innerW = Math.max(0, width - 16)
+      if (innerW <= 0) {
+        return
+      }
+      const baselineY = height / 2 + 4
+      ctx.font = '600 12px sans-serif'
+      const valW = ctx.measureText(valueText).width
+      ctx.font = '11px sans-serif'
+      const labelW = ctx.measureText(label).width
+
+      if (style.textAlign === 'right' && innerW >= labelW + valW + 10) {
+        ctx.font = '11px sans-serif'
+        ctx.fillStyle = '#86909c'
+        ctx.fillText(label, 8, baselineY)
+
+        ctx.font = '600 12px sans-serif'
+        ctx.fillStyle = style.color ?? '#1f2329'
+        ctx.fillText(valueText, width - 8 - valW, baselineY)
+        return
+      }
+
+      const fullText = innerW >= labelW + valW + 8 ? `${label} ${valueText}` : valueText
+      ctx.font = '600 12px sans-serif'
+      ctx.fillStyle = style.color ?? '#1f2329'
+      drawAlignedClippedText(ctx, fullText, 8, innerW, baselineY, style.textAlign)
+    }
+  }
+
   private resolveRenderer(col: number, row: number): CellRenderer | null {
-    const colDef = this.columns[col]
+    const colDef = this.visibleColumns[col]
     if (!colDef) {
       return null
     }
@@ -1017,7 +1633,7 @@ export class SmartGridAdapter {
   }
 
   private handleTableCellChange(change: CellChangeEvent): void {
-    const colDef = this.columns[change.col]
+    const colDef = this.visibleColumns[change.col]
     const record = this.records[change.row]
     if (!colDef || !record) {
       return
@@ -1034,6 +1650,150 @@ export class SmartGridAdapter {
       this.table.refreshCell(change.col, change.row)
     }
     this.onCellValueChange?.(record._id, colDef.key, result.value)
+  }
+
+  private handleColResizeEnd(col: number, width: number): void {
+    const colDef = this.visibleColumns[col]
+    if (!colDef) {
+      return
+    }
+    colDef.width = width
+    this.viewPresentation = {
+      ...this.viewPresentation,
+      columnWidths: {
+        ...this.viewPresentation.columnWidths,
+        [colDef.key]: width,
+      },
+    }
+    this.onColWidthChange?.({
+      column: colDef,
+      columnKey: colDef.key,
+      colIndex: col,
+      width,
+    })
+  }
+
+  private handleColHeaderClick(event: ColHeaderClickEvent): void {
+    const colDef = this.visibleColumns[event.col]
+    if (!colDef) {
+      return
+    }
+    if (event.hitId === 'sort') {
+      this.onHeaderSortClick?.({
+        column: colDef,
+        field: colDef.key,
+        colIndex: event.col,
+        additive: event.originalEvent.shiftKey ?? false,
+        rect: this.toViewportRect(event.hitRect ?? event.rect),
+      })
+      return
+    }
+    if (event.hitId === 'menu') {
+      this.onHeaderMenuClick?.({
+        column: colDef,
+        columnKey: colDef.key,
+        colIndex: event.col,
+        rect: this.toViewportRect(event.hitRect ?? event.rect),
+        headerRect: this.toViewportRect(event.rect),
+      })
+    }
+  }
+
+  private handleBottomCellClick(event: BottomCellClickEvent): void {
+    const colDef = this.visibleColumns[event.col]
+    if (!colDef || !this.onSummaryCellClick) {
+      return
+    }
+    this.onSummaryCellClick({
+      column: colDef,
+      columnKey: colDef.key,
+      colIndex: event.col,
+      summaryType: this.summaries[colDef.key] ?? 'none',
+      rect: this.toViewportRect(event.rect),
+    })
+  }
+
+  private handleTableContextMenu(event: TableContextMenuEvent): void {
+    if (!this.onContextMenu) {
+      return
+    }
+    const containerRect = this.container.getBoundingClientRect()
+    const viewportX = containerRect.left + event.x
+    const viewportY = containerRect.top + event.y
+    const selection = this.getSelectionInfo()
+
+    if (event.region === 'col-header') {
+      const colIndex = this.resolveColIndexAt(event.x)
+      const column = colIndex !== null ? (this.visibleColumns[colIndex] ?? null) : null
+      const rect =
+        colIndex !== null
+          ? this.getHeaderViewportRect(colIndex)
+          : { x: viewportX, y: viewportY, width: 0, height: 0 }
+      this.onContextMenu({
+        region: 'col-header',
+        x: viewportX,
+        y: viewportY,
+        rect,
+        cell: null,
+        colIndex,
+        rowIndex: null,
+        column,
+        record: null,
+        selection,
+      })
+      return
+    }
+
+    if (event.region === 'row-header') {
+      const rowIndex = this.resolveRowIndexAt(event.y)
+      const record =
+        rowIndex !== null
+          ? (this.model.getRecordSnapshot(rowIndex) ?? this.records[rowIndex] ?? null)
+          : null
+      const rect =
+        rowIndex !== null
+          ? this.getRowHeaderViewportRect(rowIndex, viewportX, viewportY)
+          : { x: viewportX, y: viewportY, width: 0, height: 0 }
+      this.onContextMenu({
+        region: 'row-header',
+        x: viewportX,
+        y: viewportY,
+        rect,
+        cell: null,
+        colIndex: null,
+        rowIndex,
+        column: null,
+        record,
+        selection,
+      })
+      return
+    }
+
+    const cell = event.cell
+    const colIndex = cell ? cell.col : null
+    const rowIndex = cell ? cell.row : null
+    const column = colIndex !== null ? (this.visibleColumns[colIndex] ?? null) : null
+    const record =
+      rowIndex !== null
+        ? (this.model.getRecordSnapshot(rowIndex) ?? this.records[rowIndex] ?? null)
+        : null
+    const cellRect = cell ? this.table.getCellRelativeRect(cell.col, cell.row) : null
+    const rect = cellRect
+      ? this.toViewportRect(cellRect)
+      : { x: viewportX, y: viewportY, width: 0, height: 0 }
+
+    this.onContextMenu({
+      region: 'body',
+      x: viewportX,
+      y: viewportY,
+      rect,
+      cell,
+      colIndex,
+      rowIndex,
+      column,
+      record,
+      selection,
+    })
   }
 
   private toViewportRect(cellRect: Region): Region {
@@ -1065,48 +1825,30 @@ export class SmartGridAdapter {
     )
   }
 
-  /**
-   * 列头命中解析：行表头/角格、checkbox 列与列边界拖拽热区（±RESIZE_HOT_PX，与引擎
-   * resize 命中同口径）不命中；命中数据列返回其索引与列定义。
-   */
-  private resolveHeaderColumnAt(x: number): { index: number; colDef: SmartColumn } | null {
-    if (x < this.table.rowHeaderWidth) {
+  private resolveColIndexAt(x: number): number | null {
+    const table = this.table
+    if (x < table.rowHeaderWidth || x >= table.rowHeaderWidth + table.viewportWidth) {
       return null
     }
-    const table = this.table
     const rel = x - table.rowHeaderWidth
     const contentX = rel < table.geometryState.frozenColsWidth ? rel : rel + table.getScrollLeft()
     const offsets = table.geometryState.colOffsets
     for (let i = 0; i < offsets.length - 1; i++) {
-      if (contentX < offsets[i]! || contentX >= offsets[i + 1]!) {
-        continue
+      if (contentX >= offsets[i]! && contentX < offsets[i + 1]!) {
+        return i
       }
-      const colDef = this.columns[i]
-      if (!colDef || colDef.type === 'checkbox') {
-        return null
-      }
-      // 落在列边界热区（列宽拖拽把手）让位给 resize
-      const distToEdges = Math.min(contentX - offsets[i]!, offsets[i + 1]! - contentX)
-      if (distToEdges <= RESIZE_HOT_PX) {
-        return null
-      }
-      return { index: i, colDef }
     }
     return null
   }
 
-  /** 列头单击命中数据列时按 shiftKey 抛 additive 点击排序回调 */
-  private handleHeaderColumnClick(x: number, additive: boolean): void {
-    if (!this.onHeaderColumnClick) {
-      return
+  private resolveRowIndexAt(y: number): number | null {
+    if (this.visibleColumns.length === 0) {
+      return null
     }
-    const hit = this.resolveHeaderColumnAt(x)
-    if (hit) {
-      this.onHeaderColumnClick(hit.colDef.key, { additive })
-    }
+    const hit = this.table.getCellAtRelativePosition(this.table.rowHeaderWidth + 1, y)
+    return hit ? hit.row : null
   }
 
-  /** 列头单元格在浏览器视口中的矩形（列头恒在可视区，直接由列几何换算） */
   private getHeaderViewportRect(index: number): Region {
     const table = this.table
     const offsets = table.geometryState.colOffsets
@@ -1119,6 +1861,25 @@ export class SmartGridAdapter {
       width: (offsets[index + 1] ?? contentX + table.getColWidth(index)) - contentX,
       height: table.headerHeight,
     })
+  }
+
+  private getRowHeaderViewportRect(rowIndex: number, fallbackX: number, fallbackY: number): Region {
+    const cellRect =
+      this.visibleColumns.length > 0 ? this.table.getCellRelativeRect(0, rowIndex) : null
+    if (cellRect) {
+      return this.toViewportRect({
+        x: 0,
+        y: cellRect.y,
+        width: this.table.rowHeaderWidth,
+        height: cellRect.height,
+      })
+    }
+    return {
+      x: fallbackX,
+      y: fallbackY,
+      width: this.table.rowHeaderWidth,
+      height: this.table.getRowHeight(rowIndex),
+    }
   }
 
   private bindContainerEvents(): void {
@@ -1138,11 +1899,6 @@ export class SmartGridAdapter {
       const rect = this.container.getBoundingClientRect()
       const x = event.clientX - rect.left
       const y = event.clientY - rect.top
-      // 列头带优先路由：未拖拽的单击经引擎几何换算列 field 抛给宿主做点击排序
-      if (y < this.table.headerHeight) {
-        this.handleHeaderColumnClick(x, event.shiftKey)
-        return
-      }
       if (!this.isInsideBodyDrawRange(x, y)) {
         return
       }
@@ -1150,7 +1906,7 @@ export class SmartGridAdapter {
       if (!cell) {
         return
       }
-      const colDef = this.columns[cell.col]
+      const colDef = this.visibleColumns[cell.col]
       const record = this.model.getRecordSnapshot(cell.row) ?? this.records[cell.row]
       if (!colDef || !record) {
         return
@@ -1173,7 +1929,7 @@ export class SmartGridAdapter {
             x,
             y,
             width: colDef.width,
-            height: DEFAULT_ROW_HEIGHT,
+            height: this.rowHeightPx,
           }
           this.onConflictClick?.({
             record,
@@ -1199,7 +1955,7 @@ export class SmartGridAdapter {
       if (!cell) {
         return
       }
-      const colDef = this.columns[cell.col]
+      const colDef = this.visibleColumns[cell.col]
       const record = this.model.getRecordSnapshot(cell.row) ?? this.records[cell.row]
       if (!colDef || !record || (colDef.type !== 'select' && colDef.type !== 'date')) {
         return
@@ -1208,7 +1964,7 @@ export class SmartGridAdapter {
         x,
         y,
         width: colDef.width,
-        height: DEFAULT_ROW_HEIGHT,
+        height: this.rowHeightPx,
       }
       this.onRichCellEdit({
         record,
@@ -1216,23 +1972,6 @@ export class SmartGridAdapter {
         rect: this.toViewportRect(cellRect),
         value: this.model.getCellValue(cell.col, cell.row),
       })
-    }
-
-    const onContextMenu = (event: MouseEvent): void => {
-      if (!this.onHeaderContextMenu) {
-        return
-      }
-      const rect = this.container.getBoundingClientRect()
-      const y = event.clientY - rect.top
-      if (y >= this.table.headerHeight) {
-        return
-      }
-      const hit = this.resolveHeaderColumnAt(event.clientX - rect.left)
-      if (!hit) {
-        return
-      }
-      event.preventDefault()
-      this.onHeaderContextMenu({ column: hit.colDef, rect: this.getHeaderViewportRect(hit.index) })
     }
 
     const onWheel = (event: WheelEvent): void => {
@@ -1265,13 +2004,11 @@ export class SmartGridAdapter {
     this.container.addEventListener('pointerdown', onPointerDown)
     this.container.addEventListener('click', onClick)
     this.container.addEventListener('dblclick', onDblClick)
-    this.container.addEventListener('contextmenu', onContextMenu)
     this.container.addEventListener('wheel', onWheel, { passive: false })
     this.containerDisposers.push(() => {
       this.container.removeEventListener('pointerdown', onPointerDown)
       this.container.removeEventListener('click', onClick)
       this.container.removeEventListener('dblclick', onDblClick)
-      this.container.removeEventListener('contextmenu', onContextMenu)
       this.container.removeEventListener('wheel', onWheel)
     })
   }

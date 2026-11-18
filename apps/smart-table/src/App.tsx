@@ -14,11 +14,7 @@ import {
   updateRecord,
   updateTableMeta,
 } from './api'
-import {
-  SmartGridAdapter,
-  type FooterLayout,
-  type SmartGridConflictClickInfo,
-} from './canvas/smart-grid'
+import { SmartGridAdapter, type SmartGridConflictClickInfo } from './canvas/smart-grid'
 import { SmartPivotAdapter } from './canvas/smart-pivot'
 import { CellEditorPopover, type RichCellEditInfo } from './components/CellEditorPopover'
 import { DisambiguatePopover } from './components/DisambiguatePopover'
@@ -29,7 +25,6 @@ import { LookupFieldPanel } from './components/LookupFieldPanel'
 import { LookupWizardModal } from './components/LookupWizardModal'
 import { PivotConfigBar } from './components/PivotConfigBar'
 import { Sidebar } from './components/Sidebar'
-import { SummaryFooter } from './components/SummaryFooter'
 import { ToastHost, type ToastItem, type ToastType } from './components/Toast'
 import { Toolbar } from './components/Toolbar'
 import { ViewTabs } from './components/ViewTabs'
@@ -45,7 +40,6 @@ import type {
   SmartTableMeta,
   SmartView,
   SortRule,
-  SummaryType,
 } from './shared/schema'
 
 function buildDefaultPivotConfig(columns: readonly SmartColumn[]): SmartPivotConfig {
@@ -195,8 +189,6 @@ export function App() {
   const [activeConflict, setActiveConflict] = useState<SmartGridConflictClickInfo | null>(null)
   const [activeCellEdit, setActiveCellEdit] = useState<RichCellEditInfo | null>(null)
   const [drillEvent, setDrillEvent] = useState<PivotCellDrillEvent | null>(null)
-  const [gridScrollLeft, setGridScrollLeft] = useState(0)
-  const [footerLayout, setFooterLayout] = useState<FooterLayout | null>(null)
 
   const canvasContainerRef = useRef<HTMLDivElement | null>(null)
   const gridAdapterRef = useRef<SmartGridAdapter | null>(null)
@@ -294,7 +286,6 @@ export function App() {
     setActiveCellEdit(null)
     setDrillEvent(null)
     setFieldSettings(null)
-    setGridScrollLeft(0)
   }, [])
 
   const handleSelectTable = useCallback(
@@ -407,7 +398,6 @@ export function App() {
     onRowSelectionChange: (ids: string[]) => setSelectedRecordIds(ids),
     onRichCellEdit: (info: RichCellEditInfo) => setActiveCellEdit(info),
     onValidationError: (msg: string) => pushToast('error', msg),
-    onScrollChange: (scrollLeft: number) => setGridScrollLeft(scrollLeft),
     onCellDrill: (ev: PivotCellDrillEvent) => setDrillEvent(ev),
     onHeaderColumnSort: (field: string, meta: { additive: boolean }) =>
       handleHeaderColumnSort(field, meta),
@@ -423,7 +413,6 @@ export function App() {
     onRowSelectionChange: (ids: string[]) => setSelectedRecordIds(ids),
     onRichCellEdit: (info: RichCellEditInfo) => setActiveCellEdit(info),
     onValidationError: (msg: string) => pushToast('error', msg),
-    onScrollChange: (scrollLeft: number) => setGridScrollLeft(scrollLeft),
     onCellDrill: (ev: PivotCellDrillEvent) => setDrillEvent(ev),
     onHeaderColumnSort: (field: string, meta: { additive: boolean }) =>
       handleHeaderColumnSort(field, meta),
@@ -435,16 +424,14 @@ export function App() {
   }
 
   const viewIdentity = activeTable && activeView ? `${activeTable.meta.id}:${activeView.id}` : ''
-  const pivotGrandTotal =
-    activeView?.type === 'pivot' ? (activeView.pivotConfig?.showGrandTotal ?? true) : true
-  const viewKey = activeView ? `${viewIdentity}:${activeView.type}:${pivotGrandTotal}` : ''
+  const viewKey = activeView ? `${viewIdentity}:${activeView.type}` : ''
 
   // 视图标识变化时清空瞬态选中与浮层状态
   useEffect(() => {
     clearViewTransientState()
   }, [viewIdentity, clearViewTransientState])
 
-  // 当切换表、视图或透视总计配置时创建/销毁对应画布实例
+  // 当切换表或视图类型时创建/销毁对应画布实例
   useEffect(() => {
     const container = canvasContainerRef.current
     if (!container || !activeTable || !activeView) {
@@ -463,6 +450,10 @@ export function App() {
         records: pipeline.displayRecords,
         conflictsByRow: pipeline.conflictsByRow,
         sortRules: activeView.sortRules,
+        view: activeView,
+        summaries: activeView.summaries ?? activeTable.meta.summaries,
+        summaryResults: pipeline.summaries,
+        totalCount: pipeline.allComputedRecords.length,
         onCellValueChange: (recordId, fieldKey, newValue) => {
           void handlersRef.current
             .onCellValueChange(recordId, { [fieldKey]: newValue })
@@ -472,10 +463,13 @@ export function App() {
         onRowSelectionChange: (ids) => handlersRef.current.onRowSelectionChange(ids),
         onRichCellEdit: (info) => handlersRef.current.onRichCellEdit(info),
         onValidationError: (msg) => handlersRef.current.onValidationError(msg),
-        onScrollChange: (scrollLeft) => handlersRef.current.onScrollChange(scrollLeft),
-        onHeaderColumnClick: (field, meta) => handlersRef.current.onHeaderColumnSort(field, meta),
-        onHeaderContextMenu: (info) => handlersRef.current.onHeaderContextMenu(info),
-        onFooterLayoutChange: (layout) => setFooterLayout(layout),
+        onHeaderSortClick: (info) =>
+          handlersRef.current.onHeaderColumnSort(info.field, { additive: info.additive }),
+        onContextMenu: (info) => {
+          if (info.region === 'col-header' && info.column) {
+            handlersRef.current.onHeaderContextMenu({ column: info.column, rect: info.rect })
+          }
+        },
       })
       adapter.setWatermark(watermarkEnabled, `${activeTable.meta.name} · 内部数据`)
       gridAdapterRef.current = adapter
@@ -509,7 +503,7 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewKey])
 
-  // 数据/配置变化时原地刷新画布，不闪烁重建（sortRules 变化经适配器重建列定义刷新列头箭头）
+  // 数据/配置变化时原地刷新画布，不闪烁重建
   useEffect(() => {
     if (!activeTable || !activeView) return
     if (activeView.type === 'table') {
@@ -518,6 +512,12 @@ export function App() {
         pipeline.displayRecords,
         pipeline.conflictsByRow,
         activeView.sortRules,
+        {
+          view: activeView,
+          summaries: activeView.summaries ?? activeTable.meta.summaries,
+          summaryResults: pipeline.summaries,
+          totalCount: pipeline.allComputedRecords.length,
+        },
       )
     } else if (activeView.type === 'pivot') {
       const pivotConfig =
@@ -528,7 +528,14 @@ export function App() {
         config: pivotConfig,
       })
     }
-  }, [activeTable, activeView, pipeline.displayRecords, pipeline.conflictsByRow])
+  }, [
+    activeTable,
+    activeView,
+    pipeline.displayRecords,
+    pipeline.conflictsByRow,
+    pipeline.summaries,
+    pipeline.allComputedRecords.length,
+  ])
 
   // 水印开关同步到当前激活画布
   useEffect(() => {
@@ -1012,24 +1019,6 @@ export function App() {
             </div>
           )}
         </div>
-
-        {activeView.type === 'table' && footerLayout && (
-          <SummaryFooter
-            columns={activeTable.meta.columns}
-            layout={footerLayout}
-            rowCount={pipeline.displayRecords.length}
-            totalCount={pipeline.allComputedRecords.length}
-            summaries={activeTable.meta.summaries}
-            computedSummaries={pipeline.summaries}
-            gridScrollLeft={gridScrollLeft}
-            onChangeColumnSummary={(colKey, summaryType: SummaryType) => {
-              void handleSaveMeta(activeTable.meta.id, {
-                ...activeTable.meta,
-                summaries: { ...activeTable.meta.summaries, [colKey]: summaryType },
-              }).catch(() => {})
-            }}
-          />
-        )}
       </main>
 
       {showLookupWizard && (

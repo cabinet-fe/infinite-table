@@ -2,10 +2,22 @@
 // 左侧计数标签精确占行表头宽带，汇总格按画布内容坐标随横向滚动逐像素对齐
 
 import { useMemo } from 'react'
-import type { FooterLayout } from '../canvas/smart-grid'
 import type { SummaryCellResult } from '../domain/query-engine'
 import type { SmartColumn, SummaryType } from '../shared/schema'
 import { CustomSelect, type CustomSelectOption } from './CustomSelect'
+
+export interface FooterColumnLayout {
+  field: string
+  left: number
+  width: number
+}
+
+export interface FooterLayout {
+  rowHeaderWidth: number
+  scrollbarSize: number
+  contentWidth: number
+  columns: FooterColumnLayout[]
+}
 
 export interface SummaryFooterProps {
   columns: readonly SmartColumn[]
