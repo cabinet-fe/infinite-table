@@ -7,9 +7,11 @@ import {
   Columns3,
   Database,
   Download,
+  ExternalLink,
   Eye,
   Filter,
   KeyRound,
+  Link2,
   Plus,
   SlidersHorizontal,
   Sparkles,
@@ -22,6 +24,7 @@ import {
 import { formatSmartCellDisplayValue } from '../canvas/smart-grid'
 import { isEmptyCellValue, scalarToText } from '../domain/utils'
 import {
+  buildEntryShareUrl,
   buildRecordsXlsxBytes,
   formatRecordsAsCsv,
   triggerBrowserDownload,
@@ -40,6 +43,31 @@ import { ConfirmModal } from './ConfirmModal'
 import { CustomSelect } from './CustomSelect'
 import { ViewTypeIcon } from './Sidebar'
 import type { ToastType } from './Toast'
+
+/** 导出当前可见列与记录为 CSV / XLSX 文件（供主工作台 Toolbar 与独立录入端共用） */
+export async function exportRecordsAsFile(
+  format: 'csv' | 'xlsx',
+  baseName: string,
+  columns: readonly SmartColumn[],
+  records: readonly SmartRecord[],
+): Promise<string> {
+  if (format === 'csv') {
+    const csv = formatRecordsAsCsv(columns, records, (col, val) =>
+      formatSmartCellDisplayValue(col, val),
+    )
+    triggerBrowserDownload(`${baseName}.csv`, csv, 'text/csv;charset=utf-8')
+    return `已导出 ${records.length} 条记录到 CSV`
+  }
+  const bytes = await buildRecordsXlsxBytes(baseName, columns, records, (col, val) =>
+    formatSmartCellDisplayValue(col, val),
+  )
+  triggerBrowserDownload(
+    `${baseName}.xlsx`,
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  return `已导出 ${records.length} 条记录到 Excel`
+}
 
 export interface ToolbarProps {
   mode: AppMode
@@ -68,6 +96,9 @@ export interface ToolbarProps {
   onCreateAppFromTable: () => void
   onJumpToFirstConflict: () => void
   onToggleWatermark: () => void
+  onOpenEntryPage?: () => void
+  onCopyEntryLink?: () => Promise<void> | void
+  onJumpToDatasource?: (tableId: string) => void
   onNotify: (type: ToastType, message: string) => void
 }
 
@@ -114,6 +145,9 @@ export function Toolbar({
   onCreateAppFromTable,
   onJumpToFirstConflict,
   onToggleWatermark,
+  onOpenEntryPage,
+  onCopyEntryLink,
+  onJumpToDatasource,
   onNotify,
 }: ToolbarProps) {
   const isOperator = mode === 'operator'
@@ -295,30 +329,37 @@ export function Toolbar({
     setExporting(true)
     const baseName = activeView ? `${activeView.name}` : tableMeta.name
     try {
-      if (format === 'csv') {
-        const csv = formatRecordsAsCsv(visibleColumns, displayRecords, (col, val) =>
-          formatSmartCellDisplayValue(col, val),
-        )
-        triggerBrowserDownload(`${baseName}.csv`, csv, 'text/csv;charset=utf-8')
-        onNotify('success', `已导出 ${displayRecords.length} 条记录到 CSV`)
-      } else {
-        const bytes = await buildRecordsXlsxBytes(
-          baseName,
-          visibleColumns,
-          displayRecords,
-          (col, val) => formatSmartCellDisplayValue(col, val),
-        )
-        triggerBrowserDownload(
-          `${baseName}.xlsx`,
-          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
-        onNotify('success', `已导出 ${displayRecords.length} 条记录到 Excel`)
-      }
+      const msg = await exportRecordsAsFile(format, baseName, visibleColumns, displayRecords)
+      onNotify('success', msg)
     } catch (error) {
       onNotify('error', error instanceof Error ? error.message : '导出失败')
     } finally {
       setExporting(false)
+    }
+  }
+
+  function handleOpenEntryPage() {
+    if (onOpenEntryPage) {
+      onOpenEntryPage()
+      return
+    }
+    const url = buildEntryShareUrl(window.location.href, tableMeta.id)
+    window.open(url, '_blank', 'noopener')
+  }
+
+  async function handleCopyEntryLink() {
+    if (onCopyEntryLink) {
+      await onCopyEntryLink()
+      return
+    }
+    const url = buildEntryShareUrl(window.location.href, tableMeta.id)
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+      }
+      onNotify('success', '已复制数据录入链接')
+    } catch {
+      onNotify('error', '复制失败，请手动复制录入链接')
     }
   }
 
@@ -605,15 +646,28 @@ export function Toolbar({
                 <span>字段管理</span>
               </button>
             )}
+          </>
+        )}
 
+        {isOperator && isDatasource && tableMeta.kind === 'normal' && (
+          <>
             <button
               type="button"
               disabled={busy}
-              onClick={onOpenLookupWizard}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+              onClick={handleOpenEntryPage}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>VLOOKUP</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+              <span>打开录入页</span>
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleCopyEntryLink()}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              <span>复制录入链接</span>
             </button>
           </>
         )}
@@ -628,6 +682,49 @@ export function Toolbar({
             <Plus className="h-3.5 w-3.5" />
             <span>新建智能表格</span>
           </button>
+        )}
+
+        {isOperator && !isDatasource && (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenAddColumn}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>新增公式列</span>
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenColumnManager}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+              <span>派生列管理</span>
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenLookupWizard}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>VLOOKUP</span>
+            </button>
+            {onJumpToDatasource && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onJumpToDatasource(tableMeta.id)}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <Database className="h-3.5 w-3.5" />
+                <span>数据源</span>
+              </button>
+            )}
+          </>
         )}
 
         {isOperator && !isDatasource && (

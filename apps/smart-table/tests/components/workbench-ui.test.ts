@@ -7,7 +7,9 @@
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { AddColumnModal } from '../../src/components/AddColumnModal'
 import { AppViewTabs } from '../../src/components/AppViewTabs'
+import { ColumnManagerModal } from '../../src/components/ColumnManagerModal'
 import { GridPopupMenu, type GridMenuActionId } from '../../src/components/GridPopupMenu'
 import { Sidebar } from '../../src/components/Sidebar'
 import { SummaryMenuPopover } from '../../src/components/SummaryMenuPopover'
@@ -483,5 +485,324 @@ describe('ViewConfigDrawer 统一视图配置交互', () => {
     expect(onUpdateView).toHaveBeenCalledWith({
       cellStyles: { r1: { amount: { bgColor: '#fef2f2', textColor: '#991b1b' } } },
     })
+  })
+})
+
+describe('数据源中心 vs 智能表格分层 UI 重构', () => {
+  test('Toolbar 在 datasource 模式移除 VLOOKUP，normal 表露出打开录入页/复制录入链接，app 运维态露出公式/派生列/数据源入口', () => {
+    const onOpenEntryPage = vi.fn<() => void>()
+    const onCopyEntryLink = vi.fn<() => void>()
+    const onJumpToDatasource = vi.fn<(tableId: string) => void>()
+
+    const handle = mountComponent(
+      createElement(Toolbar, {
+        mode: 'operator',
+        targetKind: 'datasource',
+        tableMeta: TABLES[0]!.meta,
+        visibleColumns: COLUMNS,
+        allComputedRecords: RECORDS,
+        displayRecords: RECORDS,
+        unresolvedConflictCount: 0,
+        selectedRecordIds: [],
+        watermarkEnabled: false,
+        configDrawerOpen: false,
+        onToggleMode: noop,
+        onUpdateFilters: noop,
+        onToggleConfigDrawer: noop,
+        onAddRow: noopAsync,
+        onDeleteSelectedRows: noopAsync,
+        onOpenAddColumn: noop,
+        onOpenColumnManager: noop,
+        onOpenLookupWizard: noop,
+        onCreateAppFromTable: noop,
+        onJumpToFirstConflict: noop,
+        onToggleWatermark: noop,
+        onOpenEntryPage,
+        onCopyEntryLink,
+        onNotify: noop,
+      }),
+    )
+
+    expect(handle.container.textContent).not.toContain('VLOOKUP')
+    expect(handle.container.textContent).toContain('新增列')
+    expect(handle.container.textContent).toContain('字段管理')
+    expect(handle.container.textContent).toContain('打开录入页')
+    expect(handle.container.textContent).toContain('复制录入链接')
+    expect(handle.container.textContent).toContain('新建智能表格')
+
+    const openEntryBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('打开录入页'),
+    )!
+    const copyEntryBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('复制录入链接'),
+    )!
+    act(() => {
+      openEntryBtn.click()
+      copyEntryBtn.click()
+    })
+    expect(onOpenEntryPage).toHaveBeenCalledTimes(1)
+    expect(onCopyEntryLink).toHaveBeenCalledTimes(1)
+
+    // advanced 数据源表不露出打开/复制录入页及新增列
+    handle.rerender(
+      createElement(Toolbar, {
+        mode: 'operator',
+        targetKind: 'datasource',
+        tableMeta: TABLES[1]!.meta,
+        visibleColumns: TABLES[1]!.meta.columns,
+        allComputedRecords: [],
+        displayRecords: [],
+        unresolvedConflictCount: 0,
+        selectedRecordIds: [],
+        watermarkEnabled: false,
+        configDrawerOpen: false,
+        onToggleMode: noop,
+        onUpdateFilters: noop,
+        onToggleConfigDrawer: noop,
+        onAddRow: noopAsync,
+        onDeleteSelectedRows: noopAsync,
+        onOpenAddColumn: noop,
+        onOpenColumnManager: noop,
+        onOpenLookupWizard: noop,
+        onCreateAppFromTable: noop,
+        onJumpToFirstConflict: noop,
+        onToggleWatermark: noop,
+        onNotify: noop,
+      }),
+    )
+    expect(handle.container.textContent).not.toContain('打开录入页')
+    expect(handle.container.textContent).not.toContain('复制录入链接')
+    expect(handle.container.textContent).not.toContain('新增列')
+
+    // app 运维态露出新增公式列、派生列管理、VLOOKUP 与数据源跳转入口
+    handle.rerender(
+      createElement(Toolbar, {
+        mode: 'operator',
+        targetKind: 'app',
+        tableMeta: TABLES[0]!.meta,
+        activeView: VIEWS[0],
+        visibleColumns: COLUMNS,
+        allComputedRecords: RECORDS,
+        displayRecords: RECORDS,
+        unresolvedConflictCount: 0,
+        selectedRecordIds: [],
+        watermarkEnabled: false,
+        configDrawerOpen: false,
+        onToggleMode: noop,
+        onUpdateFilters: noop,
+        onToggleConfigDrawer: noop,
+        onAddRow: noopAsync,
+        onDeleteSelectedRows: noopAsync,
+        onOpenAddColumn: noop,
+        onOpenColumnManager: noop,
+        onOpenLookupWizard: noop,
+        onCreateAppFromTable: noop,
+        onJumpToFirstConflict: noop,
+        onToggleWatermark: noop,
+        onJumpToDatasource,
+        onNotify: noop,
+      }),
+    )
+    expect(handle.container.textContent).toContain('新增公式列')
+    expect(handle.container.textContent).toContain('派生列管理')
+    expect(handle.container.textContent).toContain('VLOOKUP')
+    const dsBtn = Array.from(handle.container.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === '数据源',
+    )!
+    act(() => {
+      dsBtn.click()
+    })
+    expect(onJumpToDatasource).toHaveBeenCalledWith('tbl_1')
+  })
+
+  test('AddColumnModal 在 datasource 模式移除 formula 并支持 required/align，在 app 模式聚焦 formula 派生列', async () => {
+    const onSubmit = vi.fn<(col: SmartColumn) => Promise<void>>(noopAsync)
+    const handle = mountComponent(
+      createElement(AddColumnModal, {
+        mode: 'datasource',
+        columns: COLUMNS,
+        onClose: noop,
+        onSubmit,
+      }),
+    )
+
+    // datasource 模式不包含计算公式列选项
+    const typeTrigger = handle.container.querySelector(
+      'button[role="combobox"][aria-label="字段类型"]',
+    ) as HTMLButtonElement
+    act(() => {
+      typeTrigger.click()
+    })
+    const typeOptions = Array.from(document.body.querySelectorAll('[role="option"]')).map(
+      (el) => el.textContent,
+    )
+    expect(typeOptions.some((t) => t?.includes('公式'))).toBe(false)
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+
+    const titleInput = handle.container.querySelector('#st-add-col-title') as HTMLInputElement
+    const reqCheckbox = handle.container.querySelector('input[type="checkbox"]') as HTMLInputElement
+    const rightAlignBtn = handle.container.querySelector(
+      'button[aria-label="右对齐"]',
+    ) as HTMLButtonElement
+
+    act(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      descriptor?.set?.call(titleInput, '签约主体')
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+      titleInput.dispatchEvent(new Event('change', { bubbles: true }))
+      reqCheckbox.click()
+      rightAlignBtn.click()
+    })
+
+    const form = handle.container.querySelector('form')!
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      title: '签约主体',
+      type: 'text',
+      required: true,
+      align: 'right',
+    })
+
+    // app 模式基于 rawColumns + derivedColumns 校验并提交公式列
+    const onAppSubmit = vi.fn<(col: SmartColumn) => Promise<void>>(noopAsync)
+    const derivedCols: SmartColumn[] = [
+      {
+        key: 'lookup_rate',
+        title: '税率',
+        type: 'lookup',
+        width: 100,
+        lookupConfig: {
+          groupId: 'g1',
+          targetTableId: 'tbl_tax',
+          matchRules: [{ sourceField: 'status', targetField: 'status' }],
+          targetReturnField: 'rate',
+          mode: 'one',
+        },
+      },
+    ]
+    handle.rerender(
+      createElement(AddColumnModal, {
+        mode: 'app',
+        columns: COLUMNS,
+        derivedColumns: derivedCols,
+        onClose: noop,
+        onSubmit: onAppSubmit,
+      }),
+    )
+
+    const appTitleInput = handle.container.querySelector('#st-add-col-title') as HTMLInputElement
+    const formulaInput = handle.container.querySelector('#st-formula-expr') as HTMLInputElement
+    act(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      descriptor?.set?.call(appTitleInput, '预计税额')
+      appTitleInput.dispatchEvent(new Event('input', { bubbles: true }))
+      appTitleInput.dispatchEvent(new Event('change', { bubbles: true }))
+      descriptor?.set?.call(formulaInput, '[合同金额] * [税率]')
+      formulaInput.dispatchEvent(new Event('input', { bubbles: true }))
+      formulaInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(handle.container.textContent).toContain('公式语法校验通过')
+
+    const appForm = handle.container.querySelector('form')!
+    await act(async () => {
+      appForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    expect(onAppSubmit).toHaveBeenCalledTimes(1)
+    expect(onAppSubmit.mock.calls[0]?.[0]).toMatchObject({
+      title: '预计税额',
+      type: 'formula',
+      formulaExpr: '[合同金额] * [税率]',
+    })
+  })
+
+  test('ColumnManagerModal 在 datasource 与 app 模式下分别管理原始字段配置与派生列', async () => {
+    const onUpdateColumn = vi.fn<(k: string, p: Partial<SmartColumn>) => Promise<void>>(noopAsync)
+    const onUpdateDerivedColumn =
+      vi.fn<(k: string, p: Partial<SmartColumn>) => Promise<void>>(noopAsync)
+    const onJumpToDatasource = vi.fn<() => void>()
+
+    const handle = mountComponent(
+      createElement(ColumnManagerModal, {
+        mode: 'datasource',
+        tableKind: 'normal',
+        columns: COLUMNS,
+        onClose: noop,
+        onRenameColumn: noopAsync,
+        onUpdateColumn,
+        onDeleteColumn: noopAsync,
+      }),
+    )
+
+    const statusReq = handle.container.querySelector(
+      'input[aria-label="状态 必填"]',
+    ) as HTMLInputElement
+    const amountCenterBtn = handle.container.querySelector(
+      'button[aria-label="合同金额 居中对齐"]',
+    ) as HTMLButtonElement
+
+    await act(async () => {
+      statusReq.click()
+      amountCenterBtn.click()
+    })
+    expect(onUpdateColumn).toHaveBeenCalledWith('status', { required: true })
+    expect(onUpdateColumn).toHaveBeenCalledWith('amount', { align: 'center' })
+
+    // 展开单选列配色编辑器
+    const paletteBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('选项配色'),
+    )!
+    act(() => {
+      paletteBtn.click()
+    })
+    expect(handle.container.textContent).toContain('添加选项')
+
+    // 切换至 app 派生列管理模式
+    const derivedCols: SmartColumn[] = [
+      {
+        key: 'f_double',
+        title: '双倍金额',
+        type: 'formula',
+        width: 120,
+        formulaExpr: '[合同金额] * 2',
+      },
+    ]
+    handle.rerender(
+      createElement(ColumnManagerModal, {
+        mode: 'app',
+        tableKind: 'normal',
+        columns: COLUMNS,
+        derivedColumns: derivedCols,
+        onClose: noop,
+        onRenameColumn: noopAsync,
+        onDeleteColumn: noopAsync,
+        onUpdateDerivedColumn,
+        onJumpToDatasource,
+      }),
+    )
+
+    expect(handle.container.textContent).toContain('智能表格派生列管理')
+    const derivedTitleInput = handle.container.querySelector(
+      'input[aria-label="派生列 双倍金额 名称"]',
+    ) as HTMLInputElement
+    expect(derivedTitleInput.value).toBe('双倍金额')
+    const formulaInput = handle.container.querySelector(
+      'input[aria-label="公式列 双倍金额 表达式"]',
+    ) as HTMLInputElement
+    expect(formulaInput.value).toBe('[合同金额] * 2')
+    expect(handle.container.textContent).toContain('底层数据源原始列（只读')
+
+    const jumpBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('前往数据源中心管理'),
+    )!
+    act(() => {
+      jumpBtn.click()
+    })
+    expect(onJumpToDatasource).toHaveBeenCalledTimes(1)
   })
 })

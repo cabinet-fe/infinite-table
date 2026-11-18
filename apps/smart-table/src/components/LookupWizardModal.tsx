@@ -2,20 +2,27 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Plus, Sparkles, Trash2, X } from 'lucide-react'
-import { createLookupColumnsFromWizard, previewLookupStats } from '../domain/lookup-engine'
+import {
+  createLookupColumnsFromWizard,
+  getEligibleLookupSourceColumns,
+  getEligibleLookupTargetColumns,
+  previewLookupStats,
+} from '../domain/lookup-engine'
 import type { TableBundle } from '../shared/api-types'
-import type {
-  LookupMatchRule,
-  LookupMode,
-  LookupRollupAgg,
-  SmartColumn,
-  SmartColumnType,
-  SmartRecord,
+import {
+  mergeSmartColumns,
+  type LookupMatchRule,
+  type LookupMode,
+  type LookupRollupAgg,
+  type SmartColumn,
+  type SmartColumnType,
+  type SmartRecord,
 } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
 
 export interface LookupWizardModalProps {
   sourceTable: TableBundle
+  derivedColumns?: readonly SmartColumn[]
   sourceComputedRecords: readonly SmartRecord[]
   allTables: readonly TableBundle[]
   onClose: () => void
@@ -55,6 +62,7 @@ const TYPE_TAG_MAP: Record<SmartColumnType, string> = {
 
 export function LookupWizardModal({
   sourceTable,
+  derivedColumns,
   sourceComputedRecords,
   allTables,
   onClose,
@@ -65,11 +73,27 @@ export function LookupWizardModal({
   const [targetTableId, setTargetTableId] = useState(targetCandidates[0]?.meta.id ?? '')
   const [mode, setMode] = useState<LookupMode>('one')
 
+  const effectiveSourceColumns = useMemo(
+    () =>
+      derivedColumns !== undefined
+        ? mergeSmartColumns(sourceTable.meta.columns, derivedColumns)
+        : sourceTable.meta.columns,
+    [sourceTable.meta.columns, derivedColumns],
+  )
   const targetBundle = targetCandidates.find((t) => t.meta.id === targetTableId)
+  const targetRawCols = useMemo(
+    () => getEligibleLookupTargetColumns(targetBundle?.meta.columns ?? []),
+    [targetBundle],
+  )
+  const eligibleSourceCols = useMemo(
+    () => getEligibleLookupSourceColumns(effectiveSourceColumns),
+    [effectiveSourceColumns],
+  )
 
   const [matchRules, setMatchRules] = useState<LookupMatchRule[]>(() => {
-    const sCol = sourceTable.meta.columns[0]?.key ?? ''
-    const tCol = targetCandidates[0]?.meta.columns[0]?.key ?? ''
+    const sCol = eligibleSourceCols[0]?.key ?? ''
+    const tCol =
+      getEligibleLookupTargetColumns(targetCandidates[0]?.meta.columns ?? [])[0]?.key ?? ''
     return sCol && tCol ? [{ sourceField: sCol, targetField: tCol }] : []
   })
 
@@ -93,8 +117,8 @@ export function LookupWizardModal({
   function handleSelectTargetTable(nextId: string) {
     setTargetTableId(nextId)
     const nextBundle = targetCandidates.find((t) => t.meta.id === nextId)
-    const sCol = sourceTable.meta.columns[0]?.key ?? ''
-    const tCol = nextBundle?.meta.columns[0]?.key ?? ''
+    const sCol = eligibleSourceCols[0]?.key ?? ''
+    const tCol = getEligibleLookupTargetColumns(nextBundle?.meta.columns ?? [])[0]?.key ?? ''
     setMatchRules(sCol && tCol ? [{ sourceField: sCol, targetField: tCol }] : [])
     setReturnSelections([])
     setRollupField('')
@@ -103,7 +127,7 @@ export function LookupWizardModal({
 
   function prepareStep3Defaults() {
     if (!targetBundle) return
-    const cols = targetBundle.meta.columns.filter((c) => c.key !== '_id')
+    const cols = targetRawCols.filter((c) => c.key !== '_id')
     if (returnSelections.length === 0) {
       setReturnSelections(
         cols.map((c, idx) => ({
@@ -115,9 +139,7 @@ export function LookupWizardModal({
       )
     }
     if (!rollupField) {
-      const numericCol =
-        cols.find((c) => c.type === 'number' || c.type === 'progress' || c.type === 'formula') ??
-        cols[0]
+      const numericCol = cols.find((c) => c.type === 'number' || c.type === 'progress') ?? cols[0]
       if (numericCol) {
         setRollupField(numericCol.key)
         setRollupTitle(`${numericCol.title}汇总`)
@@ -137,8 +159,15 @@ export function LookupWizardModal({
   }
 
   function addRule() {
-    const sCol = sourceTable.meta.columns[0]?.key ?? ''
-    const tCol = targetBundle?.meta.columns[0]?.key ?? ''
+    const usedSourceFields = new Set(matchRules.map((r) => r.sourceField))
+    const usedTargetFields = new Set(matchRules.map((r) => r.targetField))
+    const sCol =
+      eligibleSourceCols.find((c) => c.type !== 'lookup' && !usedSourceFields.has(c.key))?.key ??
+      eligibleSourceCols.find((c) => !usedSourceFields.has(c.key))?.key ??
+      eligibleSourceCols[0]?.key ??
+      ''
+    const tCol =
+      targetRawCols.find((c) => !usedTargetFields.has(c.key))?.key ?? targetRawCols[0]?.key ?? ''
     if (!sCol || !tCol) return
     setMatchRules((prev) => [...prev, { sourceField: sCol, targetField: tCol }])
   }
@@ -150,7 +179,8 @@ export function LookupWizardModal({
 
   async function handleFinish() {
     if (!targetBundle || matchRules.length === 0) return
-    const cols = targetBundle.meta.columns
+    const cols = targetRawCols
+    const existingKeys = effectiveSourceColumns.map((c) => c.key)
 
     let newColumns: SmartColumn[] = []
     if (mode === 'one') {
@@ -162,6 +192,7 @@ export function LookupWizardModal({
         targetTableId: targetBundle.meta.id,
         matchRules,
         mode: 'one',
+        existingKeys,
         returnFields: checkedItems.map((s) => {
           const metaCol = cols.find((c) => c.key === s.field)
           return {
@@ -188,6 +219,7 @@ export function LookupWizardModal({
         targetTableId: targetBundle.meta.id,
         matchRules,
         mode: 'rollup',
+        existingKeys,
         returnFields: [
           {
             field: rollupField,
@@ -218,19 +250,19 @@ export function LookupWizardModal({
       ? checkedCount > 0 && !hasEmptyCheckedTitle
       : Boolean(rollupField && rollupTitle.trim())
 
-  const sourceColOptions = sourceTable.meta.columns.map((c) => ({
+  const sourceColOptions = eligibleSourceCols.map((c) => ({
     value: c.key,
     label: `本表 · ${c.title}`,
     hint: TYPE_TAG_MAP[c.type],
   }))
 
-  const targetColOptions = (targetBundle?.meta.columns ?? []).map((c) => ({
+  const targetColOptions = targetRawCols.map((c) => ({
     value: c.key,
     label: `${targetBundle?.meta.name ?? '目标'} · ${c.title}`,
     hint: TYPE_TAG_MAP[c.type],
   }))
 
-  const rollupFieldOptions = (targetBundle?.meta.columns ?? [])
+  const rollupFieldOptions = targetRawCols
     .filter((c) => c.key !== '_id')
     .map((c) => ({
       value: c.key,
@@ -330,7 +362,7 @@ export function LookupWizardModal({
                       </div>
                       <div className="mt-1 truncate text-[11px] text-slate-500">
                         {t.meta.description ||
-                          `${t.records.length} 条记录 · ${t.meta.columns.length} 列`}
+                          `${t.records.length} 条记录 · ${getEligibleLookupTargetColumns(t.meta.columns).length} 列`}
                       </div>
                     </button>
                   ))}
@@ -547,7 +579,7 @@ export function LookupWizardModal({
                   options={rollupFieldOptions}
                   onChange={(nextField) => {
                     setRollupField(nextField)
-                    const col = targetBundle?.meta.columns.find((c) => c.key === nextField)
+                    const col = targetRawCols.find((c) => c.key === nextField)
                     if (col) setRollupTitle(`${col.title}汇总`)
                   }}
                 />

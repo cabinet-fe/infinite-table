@@ -4,7 +4,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Plus, Settings, Trash2, X } from 'lucide-react'
 import type { Region } from '@infinitable/render'
-import { previewLookupStats } from '../domain/lookup-engine'
+import {
+  getEligibleLookupSourceColumns,
+  getEligibleLookupTargetColumns,
+  previewLookupStats,
+} from '../domain/lookup-engine'
 import {
   appendLookupRule,
   applyLookupManageChanges,
@@ -19,7 +23,7 @@ import {
   updateLookupRule,
 } from '../domain/lookup-manage'
 import type { TableBundle } from '../shared/api-types'
-import type { SmartColumn, SmartRecord } from '../shared/schema'
+import { mergeSmartColumns, type SmartColumn, type SmartRecord } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
 import { ROLLUP_AGG_OPTIONS } from './LookupWizardModal'
 
@@ -27,6 +31,7 @@ export interface LookupFieldPanelProps {
   columnKey: string
   rect: Region
   sourceTable: TableBundle
+  derivedColumns?: readonly SmartColumn[]
   sourceComputedRecords: readonly SmartRecord[]
   allTables: readonly TableBundle[]
   onClose: () => void
@@ -38,18 +43,26 @@ export function LookupFieldPanel({
   columnKey,
   rect,
   sourceTable,
+  derivedColumns,
   sourceComputedRecords,
   allTables,
   onClose,
   onSave,
   onDeleteColumn,
 }: LookupFieldPanelProps) {
+  const effectiveSourceColumns = useMemo(
+    () =>
+      derivedColumns !== undefined
+        ? mergeSmartColumns(sourceTable.meta.columns, derivedColumns)
+        : sourceTable.meta.columns,
+    [sourceTable.meta.columns, derivedColumns],
+  )
   const tablesById = useMemo(
     () => new Map(allTables.map((bundle) => [bundle.meta.id, bundle])),
     [allTables],
   )
   const [draft, setDraft] = useState(() =>
-    createLookupManageDraft(sourceTable.meta.columns, tablesById),
+    createLookupManageDraft(effectiveSourceColumns, tablesById),
   )
   const [submitting, setSubmitting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -73,19 +86,43 @@ export function LookupFieldPanel({
   }
 
   const targetBundle = tablesById.get(group.targetTableId)
-  const targetColumns = (targetBundle?.meta.columns ?? []).filter((c) => c.key !== '_id')
+  const eligibleSourceCols = getEligibleLookupSourceColumns(effectiveSourceColumns, group.groupId)
+  const eligibleSourceKeySet = new Set(eligibleSourceCols.map((c) => c.key))
+  const targetColumns = getEligibleLookupTargetColumns(targetBundle?.meta.columns ?? []).filter(
+    (c) => c.key !== '_id',
+  )
   const targetFieldOptions = targetColumns.map((c) => ({ value: c.key, label: c.title }))
   const stats = targetBundle
     ? previewLookupStats(sourceComputedRecords, targetBundle.records, group.matchRules)
     : { matchedRows: 0, conflictRows: 0, unmatchedRows: 0 }
-  const error = lookupDraftError(draft)
+  const error = lookupDraftError(draft, effectiveSourceColumns, tablesById)
   const dirty = isLookupDraftDirty(draft)
+
+  function handleAppendRule() {
+    if (!group) return
+    const usedSourceFields = new Set(group.matchRules.map((r) => r.sourceField))
+    const usedTargetFields = new Set(group.matchRules.map((r) => r.targetField))
+    const nextSource =
+      eligibleSourceCols.find((c) => c.type !== 'lookup' && !usedSourceFields.has(c.key))?.key ??
+      eligibleSourceCols.find((c) => !usedSourceFields.has(c.key))?.key ??
+      eligibleSourceCols[0]?.key ??
+      ''
+    const nextTarget =
+      targetColumns.find((c) => !usedTargetFields.has(c.key))?.key ?? targetColumns[0]?.key ?? ''
+    if (!nextSource || !nextTarget) return
+    setDraft((prev) =>
+      appendLookupRule(prev, group.groupId, {
+        sourceField: nextSource,
+        targetField: nextTarget,
+      }),
+    )
+  }
 
   async function handleSave() {
     if (error || !dirty) return
     const nextColumns = applyLookupManageChanges(
-      sourceTable.meta.columns,
-      buildLookupManageChanges(draft, sourceTable.meta.columns, tablesById),
+      effectiveSourceColumns,
+      buildLookupManageChanges(draft, effectiveSourceColumns, tablesById),
     )
     setSubmitting(true)
     try {
@@ -177,16 +214,11 @@ export function LookupFieldPanel({
               </label>
               <button
                 type="button"
-                disabled={submitting}
-                onClick={() =>
-                  setDraft((prev) =>
-                    appendLookupRule(prev, group.groupId, {
-                      sourceField: sourceTable.meta.columns[0]?.key ?? '',
-                      targetField: targetColumns[0]?.key ?? '',
-                    }),
-                  )
+                disabled={
+                  submitting || eligibleSourceCols.length === 0 || targetColumns.length === 0
                 }
-                className="inline-flex h-6 items-center gap-0.5 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-700 hover:bg-slate-50"
+                onClick={handleAppendRule}
+                className="inline-flex h-6 items-center gap-0.5 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-40"
               >
                 <Plus className="h-3 w-3" />
                 <span>追加</span>
@@ -194,57 +226,71 @@ export function LookupFieldPanel({
             </div>
 
             <div className="space-y-1.5">
-              {group.matchRules.map((rule, idx) => (
-                <div
-                  key={`${rule.sourceField}-${rule.targetField}-${idx}`}
-                  className="flex items-center gap-1.5"
-                >
-                  <CustomSelect
-                    size="sm"
-                    className="flex-1"
-                    value={rule.sourceField}
-                    ariaLabel="本表匹配字段"
-                    options={sourceTable.meta.columns.map((c) => ({
-                      value: c.key,
-                      label: c.title,
-                    }))}
-                    disabled={submitting}
-                    onChange={(val) =>
-                      setDraft((prev) =>
-                        updateLookupRule(prev, group.groupId, idx, { sourceField: val }),
-                      )
-                    }
-                  />
-                  <span className="text-xs font-semibold text-slate-400">=</span>
-                  <CustomSelect
-                    size="sm"
-                    className="flex-1"
-                    value={rule.targetField}
-                    ariaLabel="目标表匹配字段"
-                    options={(targetBundle?.meta.columns ?? []).map((c) => ({
-                      value: c.key,
-                      label: c.title,
-                    }))}
-                    disabled={submitting}
-                    onChange={(val) =>
-                      setDraft((prev) =>
-                        updateLookupRule(prev, group.groupId, idx, { targetField: val }),
-                      )
-                    }
-                  />
-                  {group.matchRules.length > 1 && (
-                    <button
-                      type="button"
+              {group.matchRules.map((rule, idx) => {
+                const legacyCol =
+                  rule.sourceField && !eligibleSourceKeySet.has(rule.sourceField)
+                    ? effectiveSourceColumns.find((c) => c.key === rule.sourceField)
+                    : undefined
+                const sourceOptions = [
+                  ...eligibleSourceCols.map((c) => ({ value: c.key, label: c.title })),
+                  ...(rule.sourceField && !eligibleSourceKeySet.has(rule.sourceField)
+                    ? [
+                        {
+                          value: rule.sourceField,
+                          label: `${legacyCol?.title ?? rule.sourceField}（不可用）`,
+                          disabled: true,
+                        },
+                      ]
+                    : []),
+                ]
+                return (
+                  <div
+                    key={`${rule.sourceField}-${rule.targetField}-${idx}`}
+                    className="flex items-center gap-1.5"
+                  >
+                    <CustomSelect
+                      size="sm"
+                      className="flex-1"
+                      value={rule.sourceField}
+                      ariaLabel="本表匹配字段"
+                      options={sourceOptions}
                       disabled={submitting}
-                      onClick={() => setDraft((prev) => removeLookupRule(prev, group.groupId, idx))}
-                      aria-label="删除此匹配条件"
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                      onChange={(val) =>
+                        setDraft((prev) =>
+                          updateLookupRule(prev, group.groupId, idx, { sourceField: val }),
+                        )
+                      }
+                    />
+                    <span className="text-xs font-semibold text-slate-400">=</span>
+                    <CustomSelect
+                      size="sm"
+                      className="flex-1"
+                      value={rule.targetField}
+                      ariaLabel="目标表匹配字段"
+                      options={targetFieldOptions}
+                      disabled={submitting}
+                      onChange={(val) =>
+                        setDraft((prev) =>
+                          updateLookupRule(prev, group.groupId, idx, { targetField: val }),
+                        )
+                      }
+                    />
+                    {group.matchRules.length > 1 && (
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() =>
+                          setDraft((prev) => removeLookupRule(prev, group.groupId, idx))
+                        }
+                        aria-label="删除此匹配条件"
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
             <div className="grid grid-cols-3 gap-1.5 rounded-lg bg-slate-50 p-2 text-[11px]">
