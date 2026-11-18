@@ -28,8 +28,9 @@ import { runInTransaction } from './db'
  *   （含列样式/选区样式/条件格式/冻结列/汇总的表格、看板、多维透视、KPI+图表仪表盘）
  * - 4：补齐企业员工花名册与供应商名录应用视图，确保 6 张种子表均可在应用视图空间直接浏览
  * - 5：引入独立智能表格层（smart_apps），支持「多数据源 → 多智能表格 → 每表多视图（表格/看板/透视/仪表盘）」三层模型，预置 7 张示范智能表格（含同一数据源衍生多张智能表格）
+ * - 6：升级示范仪表盘视图配置，覆盖 horizontalBar / area / radar 图型与二级分组多系列（含堆叠/Top N）示例
  */
-export const SEED_VERSION = 5
+export const SEED_VERSION = 6
 
 /** 种子内置表 id 集合：smart_tables 中出现集合之外的表即视为用户自建表 */
 const SEED_TABLE_IDS: ReadonlySet<string> = new Set([
@@ -2378,9 +2379,11 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
         charts: [
           {
             id: 'chart_region_contract',
-            title: '各大区合同总额对比',
+            title: '各大区 × 状态合同总额',
             chartType: 'bar',
             dimensionField: 'region',
+            seriesField: 'status',
+            stacked: true,
             measureField: 'contract_amount',
             agg: 'sum',
             sortBy: 'value_desc',
@@ -2396,17 +2399,18 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
           },
           {
             id: 'chart_dept_paid',
-            title: '各部门累计回款排行',
-            chartType: 'bar',
+            title: '各部门累计回款排行 Top 6',
+            chartType: 'horizontalBar',
             dimensionField: 'lookup_emp_dept',
             measureField: 'lookup_paid_sum',
             agg: 'sum',
             sortBy: 'value_desc',
+            limit: 6,
           },
           {
             id: 'chart_delivery_trend',
-            title: '计划交付日期合同分布趋势',
-            chartType: 'line',
+            title: '计划交付日期合同分布面积图',
+            chartType: 'area',
             dimensionField: 'plan_delivery_date',
             measureField: 'contract_amount',
             agg: 'sum',
@@ -2584,9 +2588,10 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
         charts: [
           {
             id: 'chart_pay_month',
-            title: '月度回款金额趋势',
-            chartType: 'line',
+            title: '月度回款金额跨年对比趋势',
+            chartType: 'area',
             dimensionField: 'month',
+            seriesField: 'year',
             measureField: 'amount',
             agg: 'sum',
             sortBy: 'label_asc',
@@ -2603,9 +2608,11 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
           },
           {
             id: 'chart_pay_region',
-            title: '各大区回款总额',
-            chartType: 'bar',
+            title: '各大区 × 结算方式回款对比',
+            chartType: 'horizontalBar',
             dimensionField: 'region',
+            seriesField: 'pay_method',
+            stacked: false,
             measureField: 'amount',
             agg: 'sum',
             sortBy: 'value_desc',
@@ -2654,9 +2661,11 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
         charts: [
           {
             id: 'chart_exec_region',
-            title: '各大区营收贡献排行',
+            title: '各大区跨年营收对比',
             chartType: 'bar',
             dimensionField: 'region',
+            seriesField: 'year',
+            stacked: false,
             measureField: 'amount',
             agg: 'sum',
             sortBy: 'value_desc',
@@ -2669,6 +2678,16 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
             measureField: 'amount',
             agg: 'sum',
             donut: true,
+          },
+          {
+            id: 'chart_exec_month_line',
+            title: '月度营收回款折线趋势',
+            chartType: 'line',
+            dimensionField: 'month',
+            measureField: 'amount',
+            agg: 'sum',
+            sortBy: 'label_asc',
+            span: 2,
           },
         ],
       },
@@ -2878,17 +2897,17 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
         charts: [
           {
             id: 'chart_sup_rating',
-            title: '各主营品类平均评分',
-            chartType: 'bar',
+            title: '各主营品类平均评分雷达图',
+            chartType: 'radar',
             dimensionField: 'main_category',
             measureField: 'rating',
             agg: 'avg',
-            sortBy: 'value_desc',
+            sortBy: 'label_asc',
           },
           {
             id: 'chart_sup_lead',
             title: '各主营品类平均交期',
-            chartType: 'bar',
+            chartType: 'horizontalBar',
             dimensionField: 'main_category',
             measureField: 'lead_days',
             agg: 'avg',

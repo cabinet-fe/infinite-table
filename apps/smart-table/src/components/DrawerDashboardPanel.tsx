@@ -21,6 +21,7 @@ import {
   Trash2,
   TrendingUp,
 } from 'lucide-react'
+import type { ResolvedDashboardKpiIcon } from '../domain/dashboard-engine'
 import { SUMMARY_LABELS } from '../domain/workspace-helpers'
 import type {
   DashboardChartConfig,
@@ -75,15 +76,29 @@ interface KpiIconMeta {
   Icon: ComponentType<{ className?: string }>
 }
 
+/** 解析后 KPI 图标对应的 lucide-react 组件映射 */
+export const KPI_ICON_COMPONENTS: Record<
+  ResolvedDashboardKpiIcon,
+  ComponentType<{ className?: string }>
+> = {
+  hash: Hash,
+  dollar: DollarSign,
+  percent: Percent,
+  trending: TrendingUp,
+  award: Award,
+  layers: Layers,
+  clock: Clock,
+}
+
 const KPI_ICON_OPTIONS: readonly KpiIconMeta[] = [
   { value: 'auto', label: '自动', Icon: Sparkles },
-  { value: 'hash', label: '计数', Icon: Hash },
-  { value: 'dollar', label: '金额', Icon: DollarSign },
-  { value: 'percent', label: '比例', Icon: Percent },
-  { value: 'trending', label: '趋势', Icon: TrendingUp },
-  { value: 'award', label: '峰值', Icon: Award },
-  { value: 'layers', label: '汇总', Icon: Layers },
-  { value: 'clock', label: '时间', Icon: Clock },
+  { value: 'hash', label: '计数', Icon: KPI_ICON_COMPONENTS.hash },
+  { value: 'dollar', label: '金额', Icon: KPI_ICON_COMPONENTS.dollar },
+  { value: 'percent', label: '比例', Icon: KPI_ICON_COMPONENTS.percent },
+  { value: 'trending', label: '趋势', Icon: KPI_ICON_COMPONENTS.trending },
+  { value: 'award', label: '峰值', Icon: KPI_ICON_COMPONENTS.award },
+  { value: 'layers', label: '汇总', Icon: KPI_ICON_COMPONENTS.layers },
+  { value: 'clock', label: '时间', Icon: KPI_ICON_COMPONENTS.clock },
 ]
 
 const CHART_TYPE_LABELS: Record<DashboardChartType, string> = {
@@ -126,7 +141,12 @@ function isNumericColumn(col: SmartColumn): boolean {
   )
 }
 
-function reorderItems<T>(items: readonly T[], fromIndex: number, toIndex: number): T[] {
+/** 不可变调序仪表盘卡片列表 */
+export function reorderDashboardItems<T>(
+  items: readonly T[],
+  fromIndex: number,
+  toIndex: number,
+): T[] {
   if (
     fromIndex < 0 ||
     toIndex < 0 ||
@@ -140,6 +160,53 @@ function reorderItems<T>(items: readonly T[], fromIndex: number, toIndex: number
   const [moved] = next.splice(fromIndex, 1)
   next.splice(toIndex, 0, moved!)
   return next
+}
+
+/** 构造新增 KPI 指标卡默认配置 */
+export function createNextKpiConfig(
+  columns: readonly SmartColumn[],
+  currentCount: number,
+): DashboardKpiConfig {
+  const primaryNum = columns.find(isNumericColumn)
+  const accentColor = KPI_ACCENTS[currentCount % KPI_ACCENTS.length]
+  if (primaryNum) {
+    return {
+      id: `kpi_${Date.now().toString(36)}`,
+      title: `${primaryNum.title}合计`,
+      field: primaryNum.key,
+      agg: 'sum',
+      numberFormat: primaryNum.numberFormat,
+      accentColor,
+    }
+  }
+  return {
+    id: `kpi_${Date.now().toString(36)}`,
+    title: '记录总数',
+    field: '__count__',
+    agg: 'count',
+    accentColor,
+  }
+}
+
+/** 构造新增统计图表默认配置 */
+export function createNextChartConfig(
+  columns: readonly SmartColumn[],
+): DashboardChartConfig | null {
+  const dimCol =
+    columns.find((c) => c.type === 'select') ??
+    columns.find((c) => c.type === 'text' || c.type === 'lookup') ??
+    columns[0]
+  if (!dimCol) return null
+  const primaryNum = columns.find(isNumericColumn)
+  return {
+    id: `chart_${Date.now().toString(36)}`,
+    title: primaryNum ? `按${dimCol.title}统计${primaryNum.title}` : `按${dimCol.title}分布`,
+    chartType: 'bar',
+    dimensionField: dimCol.key,
+    measureField: primaryNum?.key ?? '',
+    agg: primaryNum ? 'sum' : 'count',
+    sortBy: 'value_desc',
+  }
 }
 
 function getColumnTitle(columns: readonly SmartColumn[], fieldKey: string): string {
@@ -968,23 +1035,7 @@ export function DrawerDashboardPanel({
   }))
 
   function addKpi() {
-    const primaryNum = numericCols[0]
-    const nextKpi: DashboardKpiConfig = primaryNum
-      ? {
-          id: `kpi_${Date.now().toString(36)}`,
-          title: `${primaryNum.title}合计`,
-          field: primaryNum.key,
-          agg: 'sum',
-          numberFormat: primaryNum.numberFormat,
-          accentColor: KPI_ACCENTS[config.kpis.length % KPI_ACCENTS.length],
-        }
-      : {
-          id: `kpi_${Date.now().toString(36)}`,
-          title: '记录总数',
-          field: '__count__',
-          agg: 'count',
-          accentColor: KPI_ACCENTS[config.kpis.length % KPI_ACCENTS.length],
-        }
+    const nextKpi = createNextKpiConfig(columns, config.kpis.length)
     onChangeConfig({ ...config, kpis: [...config.kpis, nextKpi] })
   }
 
@@ -998,7 +1049,7 @@ export function DrawerDashboardPanel({
   function moveKpi(fromIdx: number, toIdx: number) {
     onChangeConfig({
       ...config,
-      kpis: reorderItems(config.kpis, fromIdx, toIdx),
+      kpis: reorderDashboardItems(config.kpis, fromIdx, toIdx),
     })
   }
 
@@ -1013,21 +1064,8 @@ export function DrawerDashboardPanel({
   }
 
   function addChart() {
-    const dimCol =
-      columns.find((c) => c.type === 'select') ??
-      columns.find((c) => c.type === 'text' || c.type === 'lookup') ??
-      columns[0]
-    const primaryNum = numericCols[0]
-    if (!dimCol) return
-    const nextChart: DashboardChartConfig = {
-      id: `chart_${Date.now().toString(36)}`,
-      title: primaryNum ? `按${dimCol.title}统计${primaryNum.title}` : `按${dimCol.title}分布`,
-      chartType: 'bar',
-      dimensionField: dimCol.key,
-      measureField: primaryNum?.key ?? '',
-      agg: primaryNum ? 'sum' : 'count',
-      sortBy: 'value_desc',
-    }
+    const nextChart = createNextChartConfig(columns)
+    if (!nextChart) return
     onChangeConfig({ ...config, charts: [...config.charts, nextChart] })
   }
 
@@ -1041,7 +1079,7 @@ export function DrawerDashboardPanel({
   function moveChart(fromIdx: number, toIdx: number) {
     onChangeConfig({
       ...config,
-      charts: reorderItems(config.charts, fromIdx, toIdx),
+      charts: reorderDashboardItems(config.charts, fromIdx, toIdx),
     })
   }
 

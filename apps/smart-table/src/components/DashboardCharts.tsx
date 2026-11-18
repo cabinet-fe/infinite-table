@@ -93,7 +93,8 @@ function resolveChartAriaLabel(chart: DashboardChartResult): string {
   return CHART_ARIA_LABELS[chart.chartType]
 }
 
-function toAlphaColor(color: string, alpha: number): string {
+/** 将颜色值转换为带透明度的 rgba 字符串（仅处理 hex，其余原样返回） */
+export function toAlphaColor(color: string, alpha: number): string {
   const hex = color.trim()
   if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
     const r = Number.parseInt(hex.slice(1, 3), 16)

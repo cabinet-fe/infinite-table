@@ -41,6 +41,7 @@ import { ColumnManagerModal } from './components/ColumnManagerModal'
 import { ConfirmModal } from './components/ConfirmModal'
 import { DashboardView } from './components/DashboardView'
 import { DisambiguatePopover } from './components/DisambiguatePopover'
+import type { DashboardSelectedItem } from './components/DrawerDashboardPanel'
 import { DrillDownDrawer } from './components/DrillDownDrawer'
 import {
   GridPopupMenu,
@@ -171,7 +172,7 @@ function stripDeletedColumnFromMeta(meta: SmartTableMeta, columnKey: string): Sm
   }
 }
 
-function stripDeletedColumnFromView(
+export function stripDeletedColumnFromView(
   view: WorkspaceView,
   columnKey: string,
 ): Partial<WorkspaceView> | null {
@@ -248,15 +249,24 @@ function stripDeletedColumnFromView(
     const d = view.dashboardConfig
     const hasKpiRef = d.kpis.some((kpi) => kpi.field === columnKey)
     const hasChartRef = d.charts.some(
-      (c) => c.dimensionField === columnKey || c.measureField === columnKey,
+      (c) =>
+        c.dimensionField === columnKey ||
+        c.measureField === columnKey ||
+        c.seriesField === columnKey,
     )
     if (hasKpiRef || hasChartRef) {
       changed = true
       patch.dashboardConfig = {
         kpis: d.kpis.filter((kpi) => kpi.field !== columnKey),
-        charts: d.charts.filter(
-          (c) => c.dimensionField !== columnKey && c.measureField !== columnKey,
-        ),
+        charts: d.charts
+          .filter((c) => c.dimensionField !== columnKey && c.measureField !== columnKey)
+          .map((c) => {
+            if (c.seriesField !== columnKey) return c
+            const next = { ...c }
+            delete next.seriesField
+            delete next.stacked
+            return next
+          }),
       }
     }
   }
@@ -305,6 +315,9 @@ export function App() {
   const [configDrawerOpen, setConfigDrawerOpen] = useState(false)
   const [configDrawerTab, setConfigDrawerTab] = useState<ConfigDrawerTab>('fields')
   const [focusedStyleColKey, setFocusedStyleColKey] = useState<string | undefined>(undefined)
+  const [selectedDashboardItem, setSelectedDashboardItem] = useState<DashboardSelectedItem | null>(
+    null,
+  )
 
   const [showLookupWizard, setShowLookupWizard] = useState(false)
   const [showAddColumn, setShowAddColumn] = useState(false)
@@ -479,6 +492,7 @@ export function App() {
   const clearTransientOverlays = useCallback(() => {
     setSelectedRecordIds([])
     setSelectionInfo(EMPTY_SELECTION)
+    setSelectedDashboardItem(null)
     setActiveConflict(null)
     setActiveCellEdit(null)
     setDrillEvent(null)
@@ -1901,6 +1915,24 @@ export function App() {
                 columns={activeTable.meta.columns}
                 records={pipeline.displayRecords}
                 readonly={mode === 'viewer'}
+                selectedItem={mode === 'operator' ? selectedDashboardItem : null}
+                onSelectItem={
+                  mode === 'operator'
+                    ? (item) => {
+                        setSelectedDashboardItem(item)
+                        if (item) {
+                          setConfigDrawerTab('dashboard')
+                          setConfigDrawerOpen(true)
+                        }
+                      }
+                    : undefined
+                }
+                onChangeConfig={
+                  mode === 'operator'
+                    ? (nextDashboard) =>
+                        void handlePatchView(effectiveView.id, { dashboardConfig: nextDashboard })
+                    : undefined
+                }
                 onOpenConfig={
                   mode === 'operator'
                     ? () => {
@@ -1982,10 +2014,15 @@ export function App() {
               selectionInfo={selectionInfo}
               focusedColumnKey={focusedStyleColKey}
               pivotConfig={activePivotConfig}
+              selectedDashboardItem={selectedDashboardItem}
               busy={busy}
               onTabChange={setConfigDrawerTab}
-              onClose={() => setConfigDrawerOpen(false)}
+              onClose={() => {
+                setConfigDrawerOpen(false)
+                setSelectedDashboardItem(null)
+              }}
               onUpdateView={(patch) => void handlePatchView(activeStoredView.id, patch)}
+              onSelectDashboardItem={setSelectedDashboardItem}
               onOpenAddColumn={() => setShowAddColumn(true)}
               onOpenColumnManager={() => setShowColumnManager(true)}
               onOpenLookupWizard={() => setShowLookupWizard(true)}
