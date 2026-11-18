@@ -4,6 +4,9 @@ import type {
   AllAppsResponse,
   AllTablesResponse,
   AllViewsResponse,
+  BatchImportRecordsRequest,
+  BatchImportRecordsResponse,
+  BatchImportRowError,
   CreateAppRequest,
   CreateAppResponse,
   CreateRecordRequest,
@@ -22,18 +25,26 @@ import type { SmartApp, SmartRecord, SmartTableMeta, WorkspaceView } from './sha
 
 export class ApiError extends Error {
   readonly status: number
+  readonly errors?: BatchImportRowError[]
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, errors?: BatchImportRowError[]) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    if (errors !== undefined) {
+      this.errors = errors
+    }
   }
 }
 
-/** 非 2xx 响应统一映射 ApiError（优先取后端 {message}） */
+/** 非 2xx 响应统一映射 ApiError（优先取后端 {message, errors}） */
 async function toApiError(response: Response): Promise<ApiError> {
-  const body = (await response.json().catch(() => null)) as { message?: string } | null
-  return new ApiError(response.status, body?.message ?? `请求失败 (${response.status})`)
+  const body = (await response.json().catch(() => null)) as {
+    message?: string
+    errors?: BatchImportRowError[]
+  } | null
+  const errors = Array.isArray(body?.errors) ? body.errors : undefined
+  return new ApiError(response.status, body?.message ?? `请求失败 (${response.status})`, errors)
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -56,6 +67,10 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 export async function fetchAllTables(): Promise<TableBundle[]> {
   const data = await requestJson<AllTablesResponse>('/api/tables')
   return data.tables
+}
+
+export async function fetchTableBundle(tableId: string): Promise<TableBundle> {
+  return requestJson<TableBundle>(`/api/tables/${encodeURIComponent(tableId)}`)
 }
 
 export async function createTable(payload: CreateTableRequest): Promise<TableBundle> {
@@ -104,6 +119,20 @@ export async function createRecord(
     },
   )
   return data.record
+}
+
+export async function batchAppendRecords(
+  tableId: string,
+  records: Record<string, unknown>[],
+): Promise<BatchImportRecordsResponse> {
+  const body: BatchImportRecordsRequest = { records }
+  return requestJson<BatchImportRecordsResponse>(
+    `/api/tables/${encodeURIComponent(tableId)}/records/batch`,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  )
 }
 
 export async function updateRecord(

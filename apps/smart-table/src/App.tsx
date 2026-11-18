@@ -4,9 +4,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
 import type { Region } from '@infinitable/render'
-import { Filter, Plus, RotateCcw, Table2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Filter, Plus, RotateCcw, Table2 } from 'lucide-react'
 import {
   ApiError,
+  batchAppendRecords,
   createRecord,
   createSmartApp,
   createTable,
@@ -18,6 +19,7 @@ import {
   fetchAllApps,
   fetchAllTables,
   fetchAllViews,
+  fetchTableBundle,
   moveKanbanCard,
   reorderSmartApps,
   reorderWorkspaceViews,
@@ -43,6 +45,7 @@ import { DashboardView } from './components/DashboardView'
 import { DisambiguatePopover } from './components/DisambiguatePopover'
 import type { DashboardSelectedItem } from './components/DrawerDashboardPanel'
 import { DrillDownDrawer } from './components/DrillDownDrawer'
+import { EntryWorkspace } from './components/EntryWorkspace'
 import {
   GridPopupMenu,
   type GridMenuActionId,
@@ -57,7 +60,7 @@ import { SummaryMenuPopover } from './components/SummaryMenuPopover'
 import { ToastHost, type ToastItem, type ToastType } from './components/Toast'
 import { Toolbar } from './components/Toolbar'
 import { ViewConfigDrawer, type ConfigDrawerTab } from './components/ViewConfigDrawer'
-import { appendMatchRuleToLookupGroup } from './domain/lookup-engine'
+import { appendMatchRuleToLookupGroup, getBlockedLookupSourceKeys } from './domain/lookup-engine'
 import { runSmartTablePipeline } from './domain/query-engine'
 import { resolveVisibleColumns } from './domain/style-engine'
 import { scalarToText } from './domain/utils'
@@ -65,8 +68,10 @@ import {
   applyCellStyleToSelection,
   buildDefaultKanbanConfig,
   buildDefaultPivotConfig,
+  buildEntryShareUrl,
   buildModeSearchUrl,
   resolveAppModeFromSearch,
+  resolveEntryTableIdFromSearch,
   toggleHiddenColumn,
   type AppMode,
 } from './domain/workspace-helpers'
@@ -74,20 +79,24 @@ import type {
   CreateAppRequest,
   CreateViewRequest,
   TableBundle,
+  UpdateAppRequest,
   UpdateViewRequest,
 } from './shared/api-types'
-import type {
-  CellStyleConfig,
-  FilterGroup,
-  LookupMatchRule,
-  SelectOption,
-  SmartApp,
-  SmartColumn,
-  SmartRecord,
-  SmartTableMeta,
-  SortRule,
-  SummaryType,
-  WorkspaceView,
+import {
+  filterRawColumns,
+  isDerivedColumn,
+  mergeSmartColumns,
+  type CellStyleConfig,
+  type FilterGroup,
+  type LookupMatchRule,
+  type SelectOption,
+  type SmartApp,
+  type SmartColumn,
+  type SmartRecord,
+  type SmartTableMeta,
+  type SortRule,
+  type SummaryType,
+  type WorkspaceView,
 } from './shared/schema'
 
 interface ViewerFilterOverride {
@@ -113,12 +122,12 @@ function resolvePrimaryKeyValue(meta: SmartTableMeta, suffix: string): string {
 function buildNewRowPayload(meta: SmartTableMeta): Record<string, unknown> {
   const row: Record<string, unknown> = {}
   const suffix = Date.now().toString(36).slice(-4).toUpperCase()
-  const firstTextKey = meta.columns.find(
+  const rawColumns = filterRawColumns(meta.columns)
+  const firstTextKey = rawColumns.find(
     (c) => c.type === 'text' && c.key !== meta.primaryKeyField,
   )?.key
 
-  for (const col of meta.columns) {
-    if (col.type === 'formula' || col.type === 'lookup') continue
+  for (const col of rawColumns) {
     if (meta.primaryKeyField && col.key === meta.primaryKeyField) {
       row[col.key] = resolvePrimaryKeyValue(meta, suffix)
     } else if (col.type === 'checkbox') {
@@ -127,8 +136,16 @@ function buildNewRowPayload(meta: SmartTableMeta): Record<string, unknown> {
       row[col.key] = 0
     } else if (col.type === 'date') {
       row[col.key] = new Date().toISOString().slice(0, 10)
-    } else if (col.type === 'select' && col.options && col.options.length > 0) {
-      row[col.key] = col.options[0]!.label
+    } else if (col.type === 'select') {
+      if (col.options && col.options.length > 0) {
+        row[col.key] = col.options[0]!.label
+      } else {
+        row[col.key] = col.required ? '待选择' : ''
+      }
+    } else if (col.type === 'link') {
+      row[col.key] = col.required ? { url: 'https://example.com', text: '待补充' } : ''
+    } else if (col.type === 'image') {
+      row[col.key] = col.required ? 'https://example.com/placeholder.png' : ''
     } else if (
       col.key === 'name' ||
       col.key === 'project_name' ||
@@ -136,11 +153,50 @@ function buildNewRowPayload(meta: SmartTableMeta): Record<string, unknown> {
       (meta.kind === 'normal' && col.key === firstTextKey)
     ) {
       row[col.key] = `新建记录 ${suffix}`
+    } else if (col.required) {
+      row[col.key] = `${col.title || '记录'} ${suffix}`
     } else {
       row[col.key] = ''
     }
   }
   return row
+}
+
+function buildWorkbenchUrlFromEntry(pathname: string, search: string, hash: string): string {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  params.delete('entry')
+  const qs = params.toString()
+  return `${pathname}${qs ? `?${qs}` : ''}${hash}`
+}
+
+function pruneOrphanedLookupOverrides(
+  overrides: Record<string, Record<string, string>> | undefined,
+  derivedColumns: readonly SmartColumn[],
+): { nextOverrides: Record<string, Record<string, string>>; changed: boolean } {
+  if (!overrides) return { nextOverrides: {}, changed: false }
+  const activeGroupIds = new Set(
+    derivedColumns
+      .filter((col) => col.type === 'lookup' && col.lookupConfig?.mode === 'one')
+      .map((col) => col.lookupConfig!.groupId),
+  )
+  let changed = false
+  const nextOverrides: Record<string, Record<string, string>> = {}
+  for (const [recordId, groupMap] of Object.entries(overrides)) {
+    const nextGroupMap: Record<string, string> = {}
+    for (const [groupId, targetId] of Object.entries(groupMap)) {
+      if (activeGroupIds.has(groupId)) {
+        nextGroupMap[groupId] = targetId
+      } else {
+        changed = true
+      }
+    }
+    if (Object.keys(nextGroupMap).length > 0) {
+      nextOverrides[recordId] = nextGroupMap
+    } else if (Object.keys(groupMap).length > 0) {
+      changed = true
+    }
+  }
+  return { nextOverrides, changed }
 }
 
 /** 列头点击排序循环：该列规则 无→asc→desc→移除；additive 在既有规则上原地循环、不塌缩其它规则 */
@@ -274,19 +330,43 @@ export function stripDeletedColumnFromView(
   return changed ? patch : null
 }
 
-function canRenameColInTable(meta: SmartTableMeta, col: SmartColumn): boolean {
-  if (meta.kind === 'normal') return true
-  return col.type === 'lookup' || col.type === 'formula'
+function canRenameColInTable(
+  meta: SmartTableMeta,
+  col: SmartColumn,
+  targetKind: WorkspaceTarget['kind'],
+): boolean {
+  if (targetKind === 'app') {
+    return isDerivedColumn(col)
+  }
+  return !isDerivedColumn(col) && meta.kind === 'normal'
 }
 
-function canDeleteColInTable(meta: SmartTableMeta, col: SmartColumn): boolean {
-  if (meta.columns.length <= 1) return false
+function canDeleteColInTable(
+  meta: SmartTableMeta,
+  col: SmartColumn,
+  targetKind: WorkspaceTarget['kind'],
+): boolean {
+  if (targetKind === 'app') {
+    return isDerivedColumn(col)
+  }
+  if (isDerivedColumn(col)) return false
+  if (filterRawColumns(meta.columns).length <= 1) return false
   if (col.isUniqueKey || (meta.primaryKeyField && col.key === meta.primaryKeyField)) return false
-  if (meta.kind === 'normal') return true
-  return col.type === 'lookup' || col.type === 'formula'
+  return meta.kind === 'normal'
 }
 
 export function App() {
+  const [entryTableId, setEntryTableId] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? resolveEntryTableIdFromSearch(window.location.search) : null,
+  )
+  const [entryBundle, setEntryBundle] = useState<TableBundle | null>(null)
+  const [entryLoading, setEntryLoading] = useState(() =>
+    typeof window !== 'undefined'
+      ? resolveEntryTableIdFromSearch(window.location.search) !== null
+      : false,
+  )
+  const [entryError, setEntryError] = useState<string | null>(null)
+
   const [mode, setMode] = useState<AppMode>(() =>
     typeof window !== 'undefined' ? resolveAppModeFromSearch(window.location.search) : 'operator',
   )
@@ -371,6 +451,129 @@ export function App() {
     }
   }, [])
 
+  const loadEntryTable = useCallback(
+    async (tableId: string) => {
+      setEntryLoading(true)
+      setEntryError(null)
+      setEntryBundle(null)
+      try {
+        const bundle = await fetchTableBundle(tableId)
+        setEntryBundle(bundle)
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '加载数据录入表失败'
+        setEntryError(msg)
+        pushToast('error', msg)
+      } finally {
+        setEntryLoading(false)
+      }
+    },
+    [pushToast],
+  )
+
+  const handleBackToWorkbench = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      const nextUrl = buildWorkbenchUrlFromEntry(
+        window.location.pathname,
+        window.location.search,
+        window.location.hash,
+      )
+      window.history.replaceState(null, '', nextUrl)
+    }
+    setEntryBundle(null)
+    setEntryError(null)
+    setEntryTableId(null)
+  }, [])
+
+  const handleEntryCreateRecord = useCallback(
+    async (record: Record<string, unknown>) => {
+      if (!entryBundle) return
+      setBusy(true)
+      try {
+        const created = await createRecord(entryBundle.meta.id, record)
+        setEntryBundle((prev) => (prev ? { ...prev, records: [...prev.records, created] } : prev))
+        return created
+      } finally {
+        setBusy(false)
+      }
+    },
+    [entryBundle],
+  )
+
+  const handleEntryUpdateRecord = useCallback(
+    async (recordId: string, patch: Record<string, unknown>) => {
+      if (!entryBundle) return
+      try {
+        const updated = await updateRecord(entryBundle.meta.id, recordId, patch)
+        setEntryBundle((prev) =>
+          prev
+            ? {
+                ...prev,
+                records: prev.records.map((r) => (r._id === recordId ? updated : r)),
+              }
+            : prev,
+        )
+        return updated
+      } catch (error) {
+        setEntryBundle((prev) =>
+          prev ? { ...prev, records: prev.records.map((r) => ({ ...r })) } : prev,
+        )
+        throw error
+      }
+    },
+    [entryBundle],
+  )
+
+  const handleEntryDeleteRecords = useCallback(
+    async (recordIds: string[]) => {
+      if (!entryBundle || recordIds.length === 0) return
+      const tableId = entryBundle.meta.id
+      setBusy(true)
+      try {
+        const results = await Promise.allSettled(recordIds.map((id) => deleteRecord(tableId, id)))
+        const succeededIds = new Set<string>()
+        let failedCount = 0
+        results.forEach((res, idx) => {
+          if (res.status === 'fulfilled') succeededIds.add(recordIds[idx]!)
+          else failedCount += 1
+        })
+        if (succeededIds.size > 0) {
+          setEntryBundle((prev) =>
+            prev
+              ? { ...prev, records: prev.records.filter((r) => !succeededIds.has(r._id)) }
+              : prev,
+          )
+        }
+        if (failedCount > 0) {
+          const msg =
+            succeededIds.size > 0
+              ? `已删除 ${succeededIds.size} 条，另有 ${failedCount} 条删除失败`
+              : `删除失败（${failedCount} 条）`
+          pushToast('error', msg)
+          throw new Error(msg)
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [entryBundle, pushToast],
+  )
+
+  const handleEntryBatchAppendRecords = useCallback(
+    async (records: Record<string, unknown>[]) => {
+      if (!entryBundle) return
+      setBusy(true)
+      try {
+        const res = await batchAppendRecords(entryBundle.meta.id, records)
+        setEntryBundle((prev) =>
+          prev ? { ...prev, records: [...prev.records, ...res.records] } : prev,
+        )
+      } finally {
+        setBusy(false)
+      }
+    },
+    [entryBundle],
+  )
+
   const loadWorkspace = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
@@ -404,8 +607,12 @@ export function App() {
   }, [pushToast])
 
   useEffect(() => {
-    void loadWorkspace()
-  }, [loadWorkspace])
+    if (entryTableId !== null) {
+      void loadEntryTable(entryTableId)
+    } else {
+      void loadWorkspace()
+    }
+  }, [entryTableId, loadEntryTable, loadWorkspace])
 
   const tablesById = useMemo(() => {
     const map = new Map<string, TableBundle>()
@@ -440,6 +647,30 @@ export function App() {
     }
     return tables[0]
   }, [activeTarget, activeStoredView, activeApp, tablesById, tables])
+
+  const activeAppDerivedColumns = useMemo(
+    () => (activeTarget.kind === 'app' ? (activeApp?.derivedColumns ?? []) : []),
+    [activeTarget.kind, activeApp?.derivedColumns],
+  )
+
+  const activeColumns = useMemo(() => {
+    if (!activeTable) return []
+    if (activeTarget.kind === 'datasource') {
+      return filterRawColumns(activeTable.meta.columns)
+    }
+    return mergeSmartColumns(activeTable.meta.columns, activeAppDerivedColumns)
+  }, [activeTable, activeTarget.kind, activeAppDerivedColumns])
+
+  const effectiveTableMeta = useMemo(
+    () => (activeTable ? { ...activeTable.meta, columns: activeColumns } : undefined),
+    [activeTable, activeColumns],
+  )
+
+  const effectiveTableBundle = useMemo(
+    () =>
+      activeTable && effectiveTableMeta ? { ...activeTable, meta: effectiveTableMeta } : undefined,
+    [activeTable, effectiveTableMeta],
+  )
 
   // 应用了查看态临时筛选/排序后的有效视图对象
   const effectiveView: WorkspaceView | undefined = useMemo(() => {
@@ -480,14 +711,27 @@ export function App() {
         summaries: {},
       }
     }
-    return runSmartTablePipeline(activeTable.meta, activeTable.records, tablesById, pipelineView)
-  }, [activeTable, tablesById, pipelineView])
+    const appContext =
+      activeTarget.kind === 'app' && activeApp
+        ? {
+            derivedColumns: activeAppDerivedColumns,
+            lookupOverrides: activeApp.lookupOverrides ?? {},
+          }
+        : undefined
+    return runSmartTablePipeline(
+      activeTable.meta,
+      activeTable.records,
+      tablesById,
+      pipelineView,
+      appContext,
+    )
+  }, [activeTable, activeTarget.kind, activeApp, activeAppDerivedColumns, tablesById, pipelineView])
 
   const visibleColumns = useMemo(() => {
     if (!activeTable) return []
-    if (activeTarget.kind === 'datasource') return [...activeTable.meta.columns]
-    return resolveVisibleColumns(activeTable.meta.columns, effectiveView)
-  }, [activeTable, activeTarget.kind, effectiveView])
+    if (activeTarget.kind === 'datasource') return [...activeColumns]
+    return resolveVisibleColumns(activeColumns, effectiveView)
+  }, [activeTable, activeTarget.kind, activeColumns, effectiveView])
 
   const clearTransientOverlays = useCallback(() => {
     setSelectedRecordIds([])
@@ -573,6 +817,9 @@ export function App() {
       setActiveTarget({ kind: 'datasource', tableId })
       setDatasourceSortRules([])
       setConfigDrawerOpen(false)
+      setShowAddColumn(false)
+      setShowColumnManager(false)
+      setShowLookupWizard(false)
       clearTransientOverlays()
     },
     [mode, clearTransientOverlays],
@@ -588,6 +835,27 @@ export function App() {
         )
       } catch (error) {
         const msg = error instanceof ApiError ? error.message : '保存表结构失败'
+        pushToast('error', msg)
+        throw error
+      } finally {
+        setBusy(false)
+      }
+    },
+    [pushToast],
+  )
+
+  const handleSaveSmartApp = useCallback(
+    async (appId: string, patch: UpdateAppRequest, successToast?: string): Promise<SmartApp> => {
+      setBusy(true)
+      try {
+        const saved = await updateSmartApp(appId, patch)
+        setApps((prev) => prev.map((a) => (a.id === appId ? saved : a)))
+        if (successToast) {
+          pushToast('success', successToast)
+        }
+        return saved
+      } catch (error) {
+        const msg = error instanceof ApiError ? error.message : '保存智能表格配置失败'
         pushToast('error', msg)
         throw error
       } finally {
@@ -673,8 +941,7 @@ export function App() {
     async (recordId: string, targetLaneKey: string) => {
       if (!activeTable || !activeStoredView || mode === 'viewer') return
       const tableId = activeTable.meta.id
-      const kanbanCfg =
-        activeStoredView.kanbanConfig ?? buildDefaultKanbanConfig(activeTable.meta.columns)
+      const kanbanCfg = activeStoredView.kanbanConfig ?? buildDefaultKanbanConfig(activeColumns)
       const field = kanbanCfg.groupByField
       let previousRecord: SmartRecord | undefined
 
@@ -731,9 +998,9 @@ export function App() {
 
   const focusAndOpenConflict = useCallback(
     (adapter: SmartGridAdapter, recordId: string, colKey: string) => {
-      if (!activeTable) return
+      if (!activeTable || activeTarget.kind !== 'app') return
       const rec = pipeline.displayRecords.find((r) => r._id === recordId)
-      const col = activeTable.meta.columns.find((c) => c.key === colKey)
+      const col = activeColumns.find((c) => c.key === colKey)
       const groupId = col?.lookupConfig?.groupId
       const conflict =
         rec && groupId ? pipeline.conflictsByRow.get(rec._id)?.get(groupId) : undefined
@@ -750,7 +1017,13 @@ export function App() {
         setActiveConflict({ record: rec, column: col, conflict, rect })
       })
     },
-    [activeTable, pipeline.conflictsByRow, pipeline.displayRecords],
+    [
+      activeTable,
+      activeTarget.kind,
+      activeColumns,
+      pipeline.conflictsByRow,
+      pipeline.displayRecords,
+    ],
   )
 
   const handleUpdateFilters = useCallback(
@@ -839,8 +1112,12 @@ export function App() {
         sortRules: curSortRules,
         frozenColCount,
         visibleColumnCount: visibleColumns.length,
-        canRenameColumn: params.column ? canRenameColInTable(meta, params.column) : false,
-        canDeleteColumn: params.column ? canDeleteColInTable(meta, params.column) : false,
+        canRenameColumn: params.column
+          ? canRenameColInTable(meta, params.column, activeTarget.kind)
+          : false,
+        canDeleteColumn: params.column
+          ? canDeleteColInTable(meta, params.column, activeTarget.kind)
+          : false,
         hasSelectionCellStyles,
         isDatasourceMode: isDs,
       }
@@ -853,6 +1130,31 @@ export function App() {
       mode,
       visibleColumns.length,
     ],
+  )
+
+  const handleColWidthChange = useCallback(
+    (info: { columnKey: string; width: number }) => {
+      if (mode !== 'operator') return
+      if (activeTarget.kind === 'app' && activeStoredView) {
+        void handlePatchView(activeStoredView.id, {
+          columnWidths: {
+            ...activeStoredView.columnWidths,
+            [info.columnKey]: info.width,
+          },
+        })
+        return
+      }
+      if (activeTarget.kind === 'datasource' && activeTable) {
+        const nextColumns = filterRawColumns(activeTable.meta.columns).map((col) =>
+          col.key === info.columnKey ? { ...col, width: info.width } : col,
+        )
+        void handleSaveMeta(activeTable.meta.id, {
+          ...activeTable.meta,
+          columns: nextColumns,
+        }).catch(() => {})
+      }
+    },
+    [mode, activeTarget.kind, activeStoredView, activeTable, handlePatchView, handleSaveMeta],
   )
 
   // 用 ref 持有最新回调，避免重建画布
@@ -885,16 +1187,7 @@ export function App() {
     onSummaryCellClick: (info: SmartGridSummaryClickInfo) => {
       if (mode === 'operator') setSummaryMenu(info)
     },
-    onColWidthChange: (info: { columnKey: string; width: number }) => {
-      if (mode === 'operator' && activeTarget.kind === 'app' && activeStoredView) {
-        void handlePatchView(activeStoredView.id, {
-          columnWidths: {
-            ...activeStoredView.columnWidths,
-            [info.columnKey]: info.width,
-          },
-        })
-      }
-    },
+    onColWidthChange: handleColWidthChange,
     onContextMenu: (info: {
       region: 'body' | 'col-header' | 'row-header'
       x: number
@@ -937,16 +1230,7 @@ export function App() {
     onSummaryCellClick: (info) => {
       if (mode === 'operator') setSummaryMenu(info)
     },
-    onColWidthChange: (info) => {
-      if (mode === 'operator' && activeTarget.kind === 'app' && activeStoredView) {
-        void handlePatchView(activeStoredView.id, {
-          columnWidths: {
-            ...activeStoredView.columnWidths,
-            [info.columnKey]: info.width,
-          },
-        })
-      }
-    },
+    onColWidthChange: handleColWidthChange,
     onContextMenu: (info) => {
       const ctx = buildMenuContext(info)
       if (ctx) setPopupMenu(ctx)
@@ -988,7 +1272,7 @@ export function App() {
 
       const adapter = new SmartGridAdapter({
         container,
-        columns: activeTable.meta.columns,
+        columns: activeColumns,
         records: pipeline.displayRecords,
         conflictsByRow: pipeline.conflictsByRow,
         readonly: mode === 'viewer',
@@ -1030,11 +1314,10 @@ export function App() {
     }
 
     if (activeRenderKind === 'pivot' && effectiveView) {
-      const pivotConfig =
-        effectiveView.pivotConfig ?? buildDefaultPivotConfig(activeTable.meta.columns)
+      const pivotConfig = effectiveView.pivotConfig ?? buildDefaultPivotConfig(activeColumns)
       const pivotAdapter = new SmartPivotAdapter({
         container,
-        columns: activeTable.meta.columns,
+        columns: activeColumns,
         records: pipeline.displayRecords,
         config: pivotConfig,
         onCellDrill: (ev) => handlersRef.current.onCellDrill(ev),
@@ -1059,7 +1342,7 @@ export function App() {
         ? activeTable.meta.summaries
         : (effectiveView?.summaries ?? activeTable.meta.summaries)
       gridAdapterRef.current?.setData(
-        activeTable.meta.columns,
+        activeColumns,
         pipeline.displayRecords,
         pipeline.conflictsByRow,
         curSort,
@@ -1071,16 +1354,16 @@ export function App() {
         },
       )
     } else if (activeRenderKind === 'pivot' && effectiveView) {
-      const pivotConfig =
-        effectiveView.pivotConfig ?? buildDefaultPivotConfig(activeTable.meta.columns)
+      const pivotConfig = effectiveView.pivotConfig ?? buildDefaultPivotConfig(activeColumns)
       pivotAdapterRef.current?.update({
-        columns: activeTable.meta.columns,
+        columns: activeColumns,
         records: pipeline.displayRecords,
         config: pivotConfig,
       })
     }
   }, [
     activeTable,
+    activeColumns,
     activeRenderKind,
     activeTarget.kind,
     effectiveView,
@@ -1410,28 +1693,112 @@ export function App() {
     }
   }
 
+  function cleanupViewsForDeletedColumns(
+    targetViews: readonly WorkspaceView[],
+    deletedKeys: readonly string[],
+  ) {
+    for (const view of targetViews) {
+      let current = view
+      let dirty = false
+      const combinedPatch: Partial<WorkspaceView> = {}
+      for (const columnKey of deletedKeys) {
+        const patch = stripDeletedColumnFromView(current, columnKey)
+        if (patch) {
+          dirty = true
+          Object.assign(combinedPatch, patch)
+          current = { ...current, ...patch } as WorkspaceView
+        }
+      }
+      if (dirty) {
+        void handlePatchView(view.id, combinedPatch)
+      }
+    }
+  }
+
   async function handleAddColumns(newColumns: SmartColumn[]) {
     if (!activeTable) return
+    if (activeTarget.kind === 'app') {
+      if (!activeApp) return
+      const validDerived = newColumns.filter(isDerivedColumn)
+      if (validDerived.length === 0) return
+      const nextDerived = [...(activeApp.derivedColumns ?? []), ...validDerived]
+      const hint = validDerived.some((col) => col.type === 'lookup')
+        ? '，右键关联列头可随时编辑'
+        : ''
+      await handleSaveSmartApp(
+        activeApp.id,
+        { derivedColumns: nextDerived },
+        `已添加 ${validDerived.length} 个派生列${hint}`,
+      )
+      return
+    }
+
+    if (activeTable.meta.kind !== 'normal') {
+      pushToast('error', '进阶 SQL 主数据表禁止新增原始字段列')
+      return
+    }
+    const validRaw = filterRawColumns(newColumns)
+    if (validRaw.length === 0) return
     const nextSummaries = { ...activeTable.meta.summaries }
-    for (const col of newColumns) {
+    for (const col of validRaw) {
       if (!(col.key in nextSummaries)) {
-        nextSummaries[col.key] = col.type === 'number' || col.type === 'formula' ? 'sum' : 'none'
+        nextSummaries[col.key] = col.type === 'number' ? 'sum' : 'none'
       }
     }
     await handleSaveMeta(activeTable.meta.id, {
       ...activeTable.meta,
-      columns: [...activeTable.meta.columns, ...newColumns],
+      columns: [...filterRawColumns(activeTable.meta.columns), ...validRaw],
       summaries: nextSummaries,
     })
-    const hint = newColumns.some((col) => col.type === 'lookup') ? '，右键关联列头可随时编辑' : ''
-    pushToast('success', `已添加 ${newColumns.length} 个字段列${hint}`)
+    pushToast('success', `已添加 ${validRaw.length} 个字段列`)
+  }
+
+  async function handleUpdateRawColumn(columnKey: string, patch: Partial<SmartColumn>) {
+    if (!activeTable || activeTarget.kind !== 'datasource') return
+    const nextColumns = filterRawColumns(activeTable.meta.columns).map((col) => {
+      if (col.key !== columnKey) return col
+      const updated: SmartColumn = { ...col, ...patch }
+      if ('align' in patch && patch.align === undefined) {
+        delete updated.align
+      }
+      if ('required' in patch && !patch.required) {
+        delete updated.required
+      }
+      return updated
+    })
+    await handleSaveMeta(activeTable.meta.id, {
+      ...activeTable.meta,
+      columns: nextColumns,
+    })
+    pushToast('success', '字段配置已更新')
+  }
+
+  async function handleUpdateDerivedColumn(columnKey: string, patch: Partial<SmartColumn>) {
+    if (!activeApp || activeTarget.kind !== 'app') return
+    const nextDerived = (activeApp.derivedColumns ?? []).map((col) => {
+      if (col.key !== columnKey) return col
+      return { ...col, ...patch }
+    })
+    await handleSaveSmartApp(activeApp.id, { derivedColumns: nextDerived }, '派生列配置已更新')
   }
 
   async function handleRenameColumn(columnKey: string, nextTitle: string) {
     if (!activeTable) return
+    if (activeTarget.kind === 'app') {
+      if (!activeApp || !activeAppDerivedColumns.some((c) => c.key === columnKey)) {
+        pushToast('error', '智能表格不可修改数据源原始字段，请前往数据源中心操作')
+        return
+      }
+      await handleUpdateDerivedColumn(columnKey, { title: nextTitle })
+      return
+    }
+    if (activeTable.meta.kind !== 'normal') {
+      pushToast('error', '进阶 SQL 主数据表禁止重命名物理列')
+      return
+    }
     await handleSaveMeta(activeTable.meta.id, {
       ...activeTable.meta,
-      columns: activeTable.meta.columns.map((c) =>
+      columns: filterRawColumns(activeTable.meta.columns).map((c) =>
         c.key === columnKey ? { ...c, title: nextTitle } : c,
       ),
     })
@@ -1440,19 +1807,49 @@ export function App() {
 
   async function handleDeleteColumn(columnKey: string) {
     if (!activeTable) return
+    if (activeTarget.kind === 'app') {
+      if (!activeApp || !activeAppDerivedColumns.some((c) => c.key === columnKey)) {
+        pushToast('error', '智能表格不可删除数据源原始字段，请前往数据源中心操作')
+        return
+      }
+      const nextDerived = activeAppDerivedColumns.filter((c) => c.key !== columnKey)
+      const { nextOverrides, changed } = pruneOrphanedLookupOverrides(
+        activeApp.lookupOverrides,
+        nextDerived,
+      )
+      await handleSaveSmartApp(
+        activeApp.id,
+        {
+          derivedColumns: nextDerived,
+          ...(changed ? { lookupOverrides: nextOverrides } : {}),
+        },
+        '派生列已删除',
+      )
+      cleanupViewsForDeletedColumns(
+        views.filter((v) => v.appId === activeApp.id),
+        [columnKey],
+      )
+      return
+    }
+
+    if (activeTable.meta.kind !== 'normal') {
+      pushToast('error', '进阶 SQL 主数据表禁止删除物理列')
+      return
+    }
     const tableId = activeTable.meta.id
     const nextMeta = stripDeletedColumnFromMeta(activeTable.meta, columnKey)
     await handleSaveMeta(tableId, nextMeta)
-    for (const v of views) {
-      if (v.tableId !== tableId) continue
-      const patch = stripDeletedColumnFromView(v, columnKey)
-      if (patch) void handlePatchView(v.id, patch)
-    }
+    cleanupViewsForDeletedColumns(
+      views.filter((v) => v.tableId === tableId),
+      [columnKey],
+    )
     pushToast('success', '字段列已删除')
   }
 
   async function handleCreateSelectOption(columnKey: string, option: SelectOption) {
-    if (!activeTable) return
+    if (!activeTable || activeTarget.kind !== 'datasource' || activeTable.meta.kind !== 'normal') {
+      return
+    }
     const targetCol = activeTable.meta.columns.find((c) => c.key === columnKey)
     if (!targetCol) return
     const existing = targetCol.options ?? []
@@ -1470,44 +1867,64 @@ export function App() {
     groupId: string,
     targetRecordId: string,
   ) {
-    if (!activeTable) return
-    const record = activeTable.records.find((r) => r._id === recordId)
-    await handleUpdateRecord(recordId, {
-      _lookupOverrides: {
-        ...record?._lookupOverrides,
+    if (!activeApp || activeTarget.kind !== 'app') return
+    const currentOverrides = activeApp.lookupOverrides ?? {}
+    const nextOverrides: Record<string, Record<string, string>> = {
+      ...currentOverrides,
+      [recordId]: {
+        ...currentOverrides[recordId],
         [groupId]: targetRecordId,
       },
-    })
+    }
+    await handleSaveSmartApp(activeApp.id, { lookupOverrides: nextOverrides }, '已锁定关联目标行')
   }
 
   async function handleAppendMatchRule(groupId: string, rule: LookupMatchRule) {
-    if (!activeTable) return
-    const nextCols = appendMatchRuleToLookupGroup(activeTable.meta.columns, groupId, rule)
-    await handleSaveMeta(activeTable.meta.id, { ...activeTable.meta, columns: nextCols })
-    pushToast('success', '已追加联合匹配条件')
+    if (!activeApp || activeTarget.kind !== 'app') return
+    if (getBlockedLookupSourceKeys(activeColumns, groupId).has(rule.sourceField)) {
+      const msg = '不能将关联带出字段或公式字段作为匹配条件'
+      pushToast('error', msg)
+      throw new Error(msg)
+    }
+    const nextCols = appendMatchRuleToLookupGroup(activeColumns, groupId, rule)
+    const nextDerived = nextCols.filter(isDerivedColumn)
+    await handleSaveSmartApp(activeApp.id, { derivedColumns: nextDerived }, '已追加联合匹配条件')
   }
 
   async function handleSaveLookupColumns(nextColumns: SmartColumn[]) {
-    if (!activeTable) return
-    let nextMeta = activeTable.meta
-    const nextKeys = new Set(nextColumns.map((c) => c.key))
-    for (const col of activeTable.meta.columns) {
-      if (!nextKeys.has(col.key)) {
-        nextMeta = stripDeletedColumnFromMeta(nextMeta, col.key)
-      }
+    if (!activeApp || activeTarget.kind !== 'app') return
+    const prevDerived = activeAppDerivedColumns
+    const nextDerived = nextColumns.filter(isDerivedColumn)
+    const nextKeys = new Set(nextDerived.map((c) => c.key))
+    const deletedKeys = prevDerived.filter((c) => !nextKeys.has(c.key)).map((c) => c.key)
+    const { nextOverrides, changed } = pruneOrphanedLookupOverrides(
+      activeApp.lookupOverrides,
+      nextDerived,
+    )
+    await handleSaveSmartApp(
+      activeApp.id,
+      {
+        derivedColumns: nextDerived,
+        ...(changed ? { lookupOverrides: nextOverrides } : {}),
+      },
+      '关联字段设置已保存',
+    )
+    if (deletedKeys.length > 0) {
+      cleanupViewsForDeletedColumns(
+        views.filter((v) => v.appId === activeApp.id),
+        deletedKeys,
+      )
     }
-    await handleSaveMeta(activeTable.meta.id, { ...nextMeta, columns: nextColumns })
-    pushToast('success', '关联字段设置已保存')
   }
 
   function handleJumpToFirstConflict() {
-    if (!activeTable || mode === 'viewer') return
+    if (!activeTable || activeTarget.kind !== 'app' || mode === 'viewer') return
     for (const rec of pipeline.displayRecords) {
       const rowMap = pipeline.conflictsByRow.get(rec._id)
       if (!rowMap) continue
       for (const [groupId, info] of rowMap.entries()) {
         if (!info.isResolved) {
-          const col = activeTable.meta.columns.find(
+          const col = activeColumns.find(
             (c) => c.type === 'lookup' && c.lookupConfig?.groupId === groupId,
           )
           if (col && gridAdapterRef.current) {
@@ -1600,7 +2017,7 @@ export function App() {
       case 'hide_col':
         if (activeStoredView && column) {
           const nextHidden = toggleHiddenColumn(
-            activeTable.meta.columns,
+            activeColumns,
             activeStoredView.hiddenColumns,
             column.key,
           )
@@ -1730,8 +2147,7 @@ export function App() {
       case 'duplicate_row':
         if (record) {
           const copy: Record<string, unknown> = {}
-          for (const col of activeTable.meta.columns) {
-            if (col.type === 'formula' || col.type === 'lookup') continue
+          for (const col of filterRawColumns(activeTable.meta.columns)) {
             if (activeTable.meta.primaryKeyField && col.key === activeTable.meta.primaryKeyField) {
               copy[col.key] = resolvePrimaryKeyValue(
                 activeTable.meta,
@@ -1754,6 +2170,73 @@ export function App() {
         }
         break
     }
+  }
+
+  if (entryTableId !== null) {
+    if (entryLoading) {
+      return (
+        <div className="flex h-screen flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
+          <div
+            className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600"
+            aria-hidden="true"
+          />
+          <div className="text-xs">正在加载独立数据录入端...</div>
+          <ToastHost toasts={toasts} onDismiss={dismissToast} />
+        </div>
+      )
+    }
+
+    if (!entryBundle || entryBundle.meta.kind !== 'normal') {
+      const reason = !entryBundle
+        ? entryError || `数据表「${entryTableId}」不存在或无法访问。`
+        : `数据表「${entryBundle.meta.name}」为 SQL 主数据表，不支持独立数据录入页，请前往数据源中心维护。`
+      return (
+        <div className="flex h-screen flex-col items-center justify-center bg-slate-50 p-6">
+          <div className="flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <AlertTriangle className="mb-3 h-7 w-7 text-amber-500" />
+            <div className="text-sm font-semibold text-slate-900">独立数据录入端不可用</div>
+            <div className="mt-1.5 text-xs leading-relaxed text-slate-500">{reason}</div>
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleBackToWorkbench}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>返回工作台</span>
+              </button>
+              {!entryBundle && (
+                <button
+                  type="button"
+                  onClick={() => void loadEntryTable(entryTableId)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>重试</span>
+                </button>
+              )}
+            </div>
+          </div>
+          <ToastHost toasts={toasts} onDismiss={dismissToast} />
+        </div>
+      )
+    }
+
+    return (
+      <>
+        <ToastHost toasts={toasts} onDismiss={dismissToast} />
+        <EntryWorkspace
+          bundle={entryBundle}
+          busy={busy}
+          onCreateRecord={handleEntryCreateRecord}
+          onUpdateRecord={handleEntryUpdateRecord}
+          onDeleteRecords={handleEntryDeleteRecords}
+          onBatchAppendRecords={handleEntryBatchAppendRecords}
+          onBackToWorkbench={handleBackToWorkbench}
+          onNotify={pushToast}
+        />
+      </>
+    )
   }
 
   if (loading) {
@@ -1791,14 +2274,15 @@ export function App() {
     )
   }
 
-  const activePivotConfig =
-    effectiveView?.pivotConfig ?? buildDefaultPivotConfig(activeTable.meta.columns)
+  const activePivotConfig = effectiveView?.pivotConfig ?? buildDefaultPivotConfig(activeColumns)
   const hasActiveFilters = Boolean(
     effectiveView &&
     (effectiveView.filterGroup.conditions.length > 0 ||
       Object.values(effectiveView.quickFilterValues ?? {}).some((v) => v.length > 0)),
   )
   const showGridEmptyOverlay = activeRenderKind === 'grid' && pipeline.displayRecords.length === 0
+  const workbenchTableMeta = effectiveTableMeta ?? activeTable.meta
+  const workbenchTableBundle = effectiveTableBundle ?? activeTable
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
@@ -1830,7 +2314,7 @@ export function App() {
           <AppViewTabs
             mode={mode}
             app={activeApp}
-            bundle={activeTable}
+            bundle={workbenchTableBundle}
             views={activeAppViews}
             activeViewId={activeStoredView?.id ?? ''}
             busy={busy}
@@ -1846,7 +2330,7 @@ export function App() {
         <Toolbar
           mode={mode}
           targetKind={activeTarget.kind}
-          tableMeta={activeTable.meta}
+          tableMeta={workbenchTableMeta}
           activeView={effectiveView}
           visibleColumns={visibleColumns}
           allComputedRecords={pipeline.allComputedRecords}
@@ -1884,6 +2368,24 @@ export function App() {
           }
           onJumpToFirstConflict={handleJumpToFirstConflict}
           onToggleWatermark={() => setWatermarkEnabled((v) => !v)}
+          onOpenEntryPage={() => {
+            if (activeTable.meta.kind !== 'normal' || typeof window === 'undefined') return
+            const url = buildEntryShareUrl(window.location.href, activeTable.meta.id)
+            window.open(url, '_blank', 'noopener')
+          }}
+          onCopyEntryLink={async () => {
+            if (activeTable.meta.kind !== 'normal' || typeof window === 'undefined') return
+            const url = buildEntryShareUrl(window.location.href, activeTable.meta.id)
+            try {
+              if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(url)
+              }
+              pushToast('success', '已复制数据录入链接')
+            } catch {
+              pushToast('error', '复制失败，请手动复制录入链接')
+            }
+          }}
+          onJumpToDatasource={mode === 'operator' ? handleSelectTable : undefined}
           onNotify={pushToast}
         />
 
@@ -1893,7 +2395,7 @@ export function App() {
             {activeRenderKind === 'kanban' && effectiveView ? (
               <KanbanView
                 view={effectiveView}
-                columns={activeTable.meta.columns}
+                columns={activeColumns}
                 records={pipeline.displayRecords}
                 readonly={mode === 'viewer'}
                 primaryKeyField={activeTable.meta.primaryKeyField}
@@ -1912,7 +2414,7 @@ export function App() {
             ) : activeRenderKind === 'dashboard' && effectiveView ? (
               <DashboardView
                 view={effectiveView}
-                columns={activeTable.meta.columns}
+                columns={activeColumns}
                 records={pipeline.displayRecords}
                 readonly={mode === 'viewer'}
                 selectedItem={mode === 'operator' ? selectedDashboardItem : null}
@@ -2010,7 +2512,7 @@ export function App() {
               open={configDrawerOpen}
               activeTab={configDrawerTab}
               view={activeStoredView}
-              tableMeta={activeTable.meta}
+              tableMeta={workbenchTableMeta}
               selectionInfo={selectionInfo}
               focusedColumnKey={focusedStyleColKey}
               pivotConfig={activePivotConfig}
@@ -2052,32 +2554,50 @@ export function App() {
       )}
 
       {/* 运维弹窗与浮层 */}
-      {mode === 'operator' && showAddColumn && (
-        <AddColumnModal
-          columns={activeTable.meta.columns}
-          onClose={() => setShowAddColumn(false)}
-          onSubmit={(col) => handleAddColumns([col])}
-        />
-      )}
+      {mode === 'operator' &&
+        showAddColumn &&
+        (activeTarget.kind === 'app' || activeTable.meta.kind === 'normal') && (
+          <AddColumnModal
+            mode={activeTarget.kind}
+            columns={filterRawColumns(activeTable.meta.columns)}
+            derivedColumns={activeTarget.kind === 'app' ? activeAppDerivedColumns : undefined}
+            onClose={() => setShowAddColumn(false)}
+            onSubmit={(col) => handleAddColumns([col])}
+          />
+        )}
 
       {mode === 'operator' && showColumnManager && (
         <ColumnManagerModal
+          mode={activeTarget.kind}
           tableKind={activeTable.meta.kind}
           primaryKeyField={activeTable.meta.primaryKeyField}
-          columns={activeTable.meta.columns}
+          columns={filterRawColumns(activeTable.meta.columns)}
+          derivedColumns={activeTarget.kind === 'app' ? activeAppDerivedColumns : undefined}
           busy={busy}
           onClose={() => setShowColumnManager(false)}
           onRenameColumn={handleRenameColumn}
+          onUpdateColumn={activeTarget.kind === 'datasource' ? handleUpdateRawColumn : undefined}
           onDeleteColumn={handleDeleteColumn}
           onEditLookupColumn={(columnKey, anchor) =>
             setFieldSettings({ columnKey, rect: anchor.getBoundingClientRect() })
           }
+          onUpdateDerivedColumn={
+            activeTarget.kind === 'app' ? handleUpdateDerivedColumn : undefined
+          }
+          onOpenAddFormula={activeTarget.kind === 'app' ? () => setShowAddColumn(true) : undefined}
+          onOpenLookupWizard={
+            activeTarget.kind === 'app' ? () => setShowLookupWizard(true) : undefined
+          }
+          onJumpToDatasource={
+            activeTarget.kind === 'app' ? () => handleSelectTable(activeTable.meta.id) : undefined
+          }
         />
       )}
 
-      {mode === 'operator' && showLookupWizard && (
+      {mode === 'operator' && activeTarget.kind === 'app' && showLookupWizard && (
         <LookupWizardModal
           sourceTable={activeTable}
+          derivedColumns={activeAppDerivedColumns}
           sourceComputedRecords={pipeline.allComputedRecords}
           allTables={tables}
           onClose={() => setShowLookupWizard(false)}
@@ -2086,14 +2606,16 @@ export function App() {
       )}
 
       {mode === 'operator' &&
+        activeTarget.kind === 'app' &&
         fieldSettings &&
-        activeTable.meta.columns.some(
+        activeAppDerivedColumns.some(
           (col) => col.key === fieldSettings.columnKey && col.type === 'lookup',
         ) && (
           <LookupFieldPanel
             columnKey={fieldSettings.columnKey}
             rect={fieldSettings.rect}
             sourceTable={activeTable}
+            derivedColumns={activeAppDerivedColumns}
             sourceComputedRecords={pipeline.allComputedRecords}
             allTables={tables}
             onClose={() => setFieldSettings(null)}
@@ -2113,7 +2635,7 @@ export function App() {
       {drillEvent && activeRenderKind === 'pivot' && (
         <DrillDownDrawer
           drillEvent={drillEvent}
-          columns={activeTable.meta.columns}
+          columns={activeColumns}
           allComputedRecords={pipeline.allComputedRecords}
           conflictsByRow={pipeline.conflictsByRow}
           pivotConfig={activePivotConfig}
@@ -2131,10 +2653,10 @@ export function App() {
         />
       )}
 
-      {mode === 'operator' && activeConflict && (
+      {mode === 'operator' && activeTarget.kind === 'app' && activeConflict && (
         <DisambiguatePopover
           conflictInfo={activeConflict}
-          sourceColumns={activeTable.meta.columns}
+          sourceColumns={activeColumns}
           targetBundle={tablesById.get(activeConflict.conflict.targetTableId)}
           onClose={() => setActiveConflict(null)}
           onSelectCandidate={handleSelectConflictCandidate}
@@ -2145,7 +2667,9 @@ export function App() {
       {mode === 'operator' && activeCellEdit && (
         <CellEditorPopover
           editInfo={activeCellEdit}
-          allowCreateSelectOption={activeTable.meta.kind === 'normal'}
+          allowCreateSelectOption={
+            activeTarget.kind === 'datasource' && activeTable.meta.kind === 'normal'
+          }
           onClose={() => setActiveCellEdit(null)}
           onCommit={(recordId, fieldKey, value) =>
             handleUpdateRecord(recordId, { [fieldKey]: value })
@@ -2156,8 +2680,12 @@ export function App() {
 
       <ConfirmModal
         open={confirmDeleteCol !== null}
-        title="确认删除字段列"
-        description={`确定要删除字段「${confirmDeleteCol?.title ?? ''}」吗？相关筛选、排序与汇总配置将同步移除。`}
+        title={activeTarget.kind === 'app' ? '确认删除派生列' : '确认删除字段列'}
+        description={
+          activeTarget.kind === 'app'
+            ? `确定要删除当前智能表格的派生列「${confirmDeleteCol?.title ?? ''}」吗？当前应用各视图中的引用将同步清理，不会影响底层数据源表。`
+            : `确定要删除字段「${confirmDeleteCol?.title ?? ''}」吗？相关筛选、排序与汇总配置将同步移除。`
+        }
         confirmText="删除字段"
         busy={busy}
         onCancel={() => setConfirmDeleteCol(null)}
