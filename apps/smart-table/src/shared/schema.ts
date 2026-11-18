@@ -246,8 +246,21 @@ export interface SmartView {
   dashboardConfig?: DashboardConfig
 }
 
-/** 独立应用视图模型（应用视图空间的核心实体，显式绑定数据源表 tableId） */
+/** 独立智能表格应用（基于底层数据源表创建，每张智能表格内置多个视图） */
+export interface SmartApp {
+  id: string
+  name: string
+  description?: string
+  /** 绑定的数据源表 ID */
+  tableId: string
+  /** 智能表格列表中的排序序号 */
+  sortOrder: number
+  updatedAt?: string
+}
+
+/** 独立应用视图模型（归属于某张智能表格 appId，绑定数据源表 tableId） */
 export interface WorkspaceView extends SmartView {
+  appId: string
   tableId: string
   sortOrder: number
   updatedAt?: string

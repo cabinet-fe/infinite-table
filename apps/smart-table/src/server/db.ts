@@ -82,8 +82,19 @@ CREATE TABLE IF NOT EXISTS smart_tables (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS smart_apps (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_smart_apps_order ON smart_apps(sort_order);
+
 CREATE TABLE IF NOT EXISTS workspace_views (
   id TEXT PRIMARY KEY,
+  app_id TEXT REFERENCES smart_apps(id) ON DELETE CASCADE,
   table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   type TEXT NOT NULL,
@@ -92,6 +103,7 @@ CREATE TABLE IF NOT EXISTS workspace_views (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_views_order ON workspace_views(sort_order);
+CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);
 
 CREATE TABLE IF NOT EXISTS smart_table_records (
   id TEXT NOT NULL,
@@ -171,6 +183,63 @@ function migrateLegacySchema(db: Database): void {
   if (!paymentCols.some((c) => c.name === 'region')) {
     db.exec("ALTER TABLE biz_payments ADD COLUMN region TEXT NOT NULL DEFAULT '';")
   }
+
+  const viewCols = db.query('PRAGMA table_info(workspace_views)').all() as { name: string }[]
+  if (!viewCols.some((c) => c.name === 'app_id')) {
+    db.exec(
+      'ALTER TABLE workspace_views ADD COLUMN app_id TEXT REFERENCES smart_apps(id) ON DELETE CASCADE;',
+    )
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);',
+    )
+  }
+}
+
+/** 将未归属 app_id 的历史视图自动按数据源表分组挂接到对应的智能表格应用 */
+function backfillAppsForOrphanViews(db: Database): void {
+  const orphanRows = db
+    .query(
+      "SELECT DISTINCT v.table_id, t.name AS table_name, t.updated_at FROM workspace_views v JOIN smart_tables t ON t.id = v.table_id WHERE v.app_id IS NULL OR v.app_id = '' ORDER BY t.rowid ASC",
+    )
+    .all() as { table_id: string; table_name: string; updated_at: string }[]
+  if (orphanRows.length === 0) return
+
+  runInTransaction(db, () => {
+    const orderRow = db
+      .query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM smart_apps')
+      .get() as { next_order: number } | undefined | null
+    let nextOrder = orderRow?.next_order ?? 0
+    const findExistingApp = db.query(
+      'SELECT id FROM smart_apps WHERE table_id = ? ORDER BY sort_order ASC, rowid ASC LIMIT 1',
+    )
+    const insertApp = db.query(
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    const attachViews = db.query(
+      "UPDATE workspace_views SET app_id = ? WHERE table_id = ? AND (app_id IS NULL OR app_id = '')",
+    )
+
+    for (const row of orphanRows) {
+      const existing = findExistingApp.get(row.table_id) as { id: string } | undefined | null
+      let appId = existing?.id
+      if (!appId) {
+        appId = `app_${row.table_id}`
+        while (db.query('SELECT 1 FROM smart_apps WHERE id = ?').get(appId)) {
+          appId = `app_${crypto.randomUUID().slice(0, 8)}`
+        }
+        insertApp.run(
+          appId,
+          row.table_name,
+          null,
+          row.table_id,
+          nextOrder,
+          row.updated_at || new Date().toISOString(),
+        )
+        nextOrder += 1
+      }
+      attachViews.run(appId, row.table_id)
+    }
+  })
 }
 
 /**
@@ -185,17 +254,21 @@ function migrateLegacyViewsToWorkspace(db: Database): void {
   if (existingCount && existingCount.cnt > 0) return
 
   const tableRows = db
-    .query('SELECT id, views_json, updated_at FROM smart_tables ORDER BY rowid ASC')
-    .all() as { id: string; views_json: string; updated_at: string }[]
+    .query('SELECT id, name, views_json, updated_at FROM smart_tables ORDER BY rowid ASC')
+    .all() as { id: string; name: string; views_json: string; updated_at: string }[]
   if (tableRows.length === 0) return
 
   const usedIds = new Set<string>()
+  const insertAppStmt = db.query(
+    'INSERT OR IGNORE INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+  )
   const insertStmt = db.query(
-    'INSERT INTO workspace_views (id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   )
 
   runInTransaction(db, () => {
     let sortOrder = 0
+    let appOrder = 0
     for (const row of tableRows) {
       let parsedViews: unknown
       try {
@@ -204,6 +277,17 @@ function migrateLegacyViewsToWorkspace(db: Database): void {
         continue
       }
       if (!Array.isArray(parsedViews)) continue
+
+      const appId = `app_${row.id}`
+      insertAppStmt.run(
+        appId,
+        row.name,
+        null,
+        row.id,
+        appOrder,
+        row.updated_at || new Date().toISOString(),
+      )
+      appOrder += 1
 
       for (const rawView of parsedViews) {
         if (!isPlainObject(rawView)) continue
@@ -249,6 +333,7 @@ function migrateLegacyViewsToWorkspace(db: Database): void {
 
         insertStmt.run(
           viewId,
+          appId,
           row.id,
           viewName,
           viewType,
@@ -276,6 +361,7 @@ export function openDatabase(path: string): Database {
   if (!hadWorkspaceViews) {
     migrateLegacyViewsToWorkspace(db)
   }
+  backfillAppsForOrphanViews(db)
   return db
 }
 

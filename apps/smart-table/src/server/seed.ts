@@ -10,6 +10,7 @@
 // 存 PRAGMA user_version；ensureSeeded 依据它对旧库自愈重种（见文件尾部）。
 import type { Database } from 'bun:sqlite'
 import type {
+  SmartApp,
   SmartColumn,
   SmartRecord,
   SmartView,
@@ -26,8 +27,9 @@ import { runInTransaction } from './db'
  * - 3：新增独立应用视图空间（workspace_views），预置跨 6 表的四类示范应用视图
  *   （含列样式/选区样式/条件格式/冻结列/汇总的表格、看板、多维透视、KPI+图表仪表盘）
  * - 4：补齐企业员工花名册与供应商名录应用视图，确保 6 张种子表均可在应用视图空间直接浏览
+ * - 5：引入独立智能表格层（smart_apps），支持「多数据源 → 多智能表格 → 每表多视图（表格/看板/透视/仪表盘）」三层模型，预置 7 张示范智能表格（含同一数据源衍生多张智能表格）
  */
-export const SEED_VERSION = 4
+export const SEED_VERSION = 5
 
 /** 种子内置表 id 集合：smart_tables 中出现集合之外的表即视为用户自建表 */
 const SEED_TABLE_IDS: ReadonlySet<string> = new Set([
@@ -2127,10 +2129,65 @@ const TICKET_RECORDS: SmartRecord[] = [
   },
 ]
 
+function buildDemoSmartApps(): SmartApp[] {
+  return [
+    {
+      id: 'app_projects',
+      name: '项目运营管理台',
+      description: '全周期项目跟进、交付看板、部门透视与经营仪表盘',
+      tableId: 'tbl_projects',
+      sortOrder: 0,
+    },
+    {
+      id: 'app_payments',
+      name: '财务回款与对账中心',
+      description: '基于客户回款 SQL 物理表的流水台账、多维透视与趋势分析',
+      tableId: 'tbl_payments',
+      sortOrder: 1,
+    },
+    {
+      id: 'app_exec_revenue',
+      name: '管理层营收洞察',
+      description: '复用客户回款数据源构建的高管视角专题分析表',
+      tableId: 'tbl_payments',
+      sortOrder: 2,
+    },
+    {
+      id: 'app_tickets',
+      name: '售后工单与 SLA 中心',
+      description: '工单推进看板与 SLA 违约预警台账',
+      tableId: 'tbl_tickets',
+      sortOrder: 3,
+    },
+    {
+      id: 'app_inventory',
+      name: '供应链库存与采购台账',
+      description: '安全库存缺口预警、仓库透视与补货台账',
+      tableId: 'tbl_inventory',
+      sortOrder: 4,
+    },
+    {
+      id: 'app_employees',
+      name: '企业组织与花名册',
+      description: '企业主数据人员名录与部门职级分布透视',
+      tableId: 'tbl_employees',
+      sortOrder: 5,
+    },
+    {
+      id: 'app_suppliers',
+      name: '核心供应商名录',
+      description: '优质供应商评分高亮名录与评分分析看板',
+      tableId: 'tbl_suppliers',
+      sortOrder: 6,
+    },
+  ]
+}
+
 function buildDemoWorkspaceViews(): WorkspaceView[] {
   return [
     {
       id: 'wv_projects_table',
+      appId: 'app_projects',
       tableId: 'tbl_projects',
       name: '项目跟进总台账',
       type: 'table',
@@ -2226,6 +2283,7 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
     },
     {
       id: 'wv_projects_kanban',
+      appId: 'app_projects',
       tableId: 'tbl_projects',
       name: '项目交付状态看板',
       type: 'kanban',
@@ -2250,6 +2308,7 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
     },
     {
       id: 'wv_projects_pivot',
+      appId: 'app_projects',
       tableId: 'tbl_projects',
       name: '部门 × 状态业绩透视',
       type: 'pivot',
@@ -2272,6 +2331,7 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
     },
     {
       id: 'wv_exec_dashboard',
+      appId: 'app_projects',
       tableId: 'tbl_projects',
       name: '项目经营总览仪表盘',
       type: 'dashboard',
@@ -2357,6 +2417,7 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
     },
     {
       id: 'wv_tickets_kanban',
+      appId: 'app_tickets',
       tableId: 'tbl_tickets',
       name: '客户工单处理看板',
       type: 'kanban',
@@ -2381,11 +2442,84 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
       },
     },
     {
+      id: 'wv_tickets_table',
+      appId: 'app_tickets',
+      tableId: 'tbl_tickets',
+      name: '工单 SLA 明细台账',
+      type: 'table',
+      sortOrder: 5,
+      description: '售后工单响应时效明细，自动高亮高优先级与 SLA 预警工单',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['ticket_status', 'priority'],
+      sortRules: [{ field: 'created_date', direction: 'desc' }],
+      frozenColCount: 2,
+      rowHeight: 'standard',
+      columnStyles: {
+        sla_progress: { align: 'center' },
+      },
+      conditionalFormats: [
+        {
+          id: 'cf_ticket_p0',
+          name: 'P0 紧急工单整行提示',
+          enabled: true,
+          field: 'priority',
+          operator: 'eq',
+          value: 'P0-紧急',
+          scope: 'row',
+          bgColor: '#fef2f2',
+          textColor: '#991b1b',
+        },
+      ],
+      summaries: {
+        ticket_id: 'count',
+        sla_progress: 'avg',
+      },
+    },
+    {
+      id: 'wv_payments_table',
+      appId: 'app_payments',
+      tableId: 'tbl_payments',
+      name: '回款流水明细表',
+      type: 'table',
+      sortOrder: 6,
+      description: '客户回款物理表实时对账明细，支持大区筛选与大额回款高亮',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['year', 'region', 'pay_method'],
+      sortRules: [{ field: 'pay_date', direction: 'desc' }],
+      frozenColCount: 2,
+      rowHeight: 'standard',
+      columnStyles: {
+        amount: {
+          align: 'right',
+          headerBgColor: '#ecfdf5',
+          headerTextColor: '#047857',
+        },
+      },
+      conditionalFormats: [
+        {
+          id: 'cf_pay_large',
+          name: '单笔 30 万以上大额回款高亮',
+          enabled: true,
+          field: 'amount',
+          operator: 'gte',
+          value: 300000,
+          scope: 'cell',
+          bgColor: '#dcfce7',
+          textColor: '#166534',
+        },
+      ],
+      summaries: {
+        pay_id: 'count',
+        amount: 'sum',
+      },
+    },
+    {
       id: 'wv_payments_pivot',
+      appId: 'app_payments',
       tableId: 'tbl_payments',
       name: '年度 × 大区回款透视',
       type: 'pivot',
-      sortOrder: 5,
+      sortOrder: 7,
       description: '基于客户回款 SQL 物理表的年度×月度×大区多维透视分析',
       filterGroup: { conjunction: 'and', conditions: [] },
       quickFilterFields: ['year', 'pay_method'],
@@ -2403,10 +2537,11 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
     },
     {
       id: 'wv_payments_dashboard',
+      appId: 'app_payments',
       tableId: 'tbl_payments',
       name: '回款流水趋势仪表盘',
       type: 'dashboard',
-      sortOrder: 6,
+      sortOrder: 8,
       description: '回款流水指标总览与月度趋势/结算方式分布',
       filterGroup: { conjunction: 'and', conditions: [] },
       quickFilterFields: ['year', 'region'],
@@ -2479,11 +2614,94 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
       },
     },
     {
+      id: 'wv_exec_rev_dashboard',
+      appId: 'app_exec_revenue',
+      tableId: 'tbl_payments',
+      name: '大区营收对比看板',
+      type: 'dashboard',
+      sortOrder: 9,
+      description: '管理层专享视图：聚焦大区与年度营收目标达成分析',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['year'],
+      sortRules: [],
+      dashboardConfig: {
+        kpis: [
+          {
+            id: 'kpi_rev_total',
+            title: '累计营收回款',
+            field: 'amount',
+            agg: 'sum',
+            numberFormat: 'currency',
+            accentColor: '#1d4ed8',
+          },
+          {
+            id: 'kpi_rev_avg',
+            title: '平均客单回款',
+            field: 'amount',
+            agg: 'avg',
+            numberFormat: 'currency',
+            accentColor: '#0f766e',
+          },
+          {
+            id: 'kpi_rev_cnt',
+            title: '回款订单数',
+            field: 'pay_id',
+            agg: 'count',
+            suffix: '笔',
+            accentColor: '#7c3aed',
+          },
+        ],
+        charts: [
+          {
+            id: 'chart_exec_region',
+            title: '各大区营收贡献排行',
+            chartType: 'bar',
+            dimensionField: 'region',
+            measureField: 'amount',
+            agg: 'sum',
+            sortBy: 'value_desc',
+          },
+          {
+            id: 'chart_exec_year',
+            title: '年度回款占比',
+            chartType: 'pie',
+            dimensionField: 'year',
+            measureField: 'amount',
+            agg: 'sum',
+            donut: true,
+          },
+        ],
+      },
+    },
+    {
+      id: 'wv_exec_rev_table',
+      appId: 'app_exec_revenue',
+      tableId: 'tbl_payments',
+      name: '重点客户回款清单',
+      type: 'table',
+      sortOrder: 10,
+      description: '仅保留客户、大区与回款金额核心列的高管精简清单',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['region', 'year'],
+      sortRules: [{ field: 'amount', direction: 'desc' }],
+      hiddenColumns: ['pay_id', 'month'],
+      frozenColCount: 1,
+      rowHeight: 'comfortable',
+      columnStyles: {
+        amount: { align: 'right', bgColor: '#f8fafc' },
+      },
+      summaries: {
+        customer_name: 'count',
+        amount: 'sum',
+      },
+    },
+    {
       id: 'wv_inventory_table',
+      appId: 'app_inventory',
       tableId: 'tbl_inventory',
       name: '库存补货预警台账',
       type: 'table',
-      sortOrder: 7,
+      sortOrder: 11,
       description: '供应链库存与采购台账：缺口公式列 + 需补货整行条件格式高亮',
       filterGroup: { conjunction: 'and', conditions: [] },
       quickFilterFields: ['category', 'warehouse_region', 'formula_restock_alert'],
@@ -2518,11 +2736,34 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
       },
     },
     {
+      id: 'wv_inventory_pivot',
+      appId: 'app_inventory',
+      tableId: 'tbl_inventory',
+      name: '仓库 × 品类库存透视',
+      type: 'pivot',
+      sortOrder: 12,
+      description: '各仓库大区与物料分类库存分布交叉透视',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['formula_restock_alert'],
+      sortRules: [],
+      pivotConfig: {
+        rowDimensions: ['warehouse_region'],
+        columnDimensions: ['category'],
+        measures: [
+          { key: 'm_cur', title: '现有库存', field: 'current_stock', agg: 'sum' },
+          { key: 'm_gap', title: '补货缺口', field: 'formula_stock_gap', agg: 'sum' },
+        ],
+        showGrandTotal: true,
+        collapsible: true,
+      },
+    },
+    {
       id: 'wv_employees_table',
+      appId: 'app_employees',
       tableId: 'tbl_employees',
       name: '企业员工花名册',
       type: 'table',
-      sortOrder: 8,
+      sortOrder: 13,
       description: '企业主数据 SQL 物理表视图：按部门/大区/职级快速筛选（含同名「张三」示例）',
       filterGroup: { conjunction: 'and', conditions: [] },
       quickFilterFields: ['dept', 'region', 'level'],
@@ -2542,11 +2783,31 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
       },
     },
     {
+      id: 'wv_employees_pivot',
+      appId: 'app_employees',
+      tableId: 'tbl_employees',
+      name: '部门 × 职级编制透视',
+      type: 'pivot',
+      sortOrder: 14,
+      description: '跨部门与职级人员编制分布透视',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['region'],
+      sortRules: [],
+      pivotConfig: {
+        rowDimensions: ['dept'],
+        columnDimensions: ['level'],
+        measures: [{ key: 'm_emp_cnt', title: '人数', field: '', agg: 'count' }],
+        showGrandTotal: true,
+        collapsible: true,
+      },
+    },
+    {
       id: 'wv_suppliers_table',
+      appId: 'app_suppliers',
       tableId: 'tbl_suppliers',
       name: '核心供应商名录',
       type: 'table',
-      sortOrder: 9,
+      sortOrder: 15,
       description: '供应链主数据视图：高评分供应商高亮与标准交期汇总',
       filterGroup: { conjunction: 'and', conditions: [] },
       quickFilterFields: ['main_category'],
@@ -2576,6 +2837,66 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
         lead_days: 'avg',
       },
     },
+    {
+      id: 'wv_suppliers_dashboard',
+      appId: 'app_suppliers',
+      tableId: 'tbl_suppliers',
+      name: '供应商绩效看板',
+      type: 'dashboard',
+      sortOrder: 16,
+      description: '供应商评分与交期效率仪表盘',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['main_category'],
+      sortRules: [],
+      dashboardConfig: {
+        kpis: [
+          {
+            id: 'kpi_sup_cnt',
+            title: '合作供应商数',
+            field: 'supplier_id',
+            agg: 'count',
+            suffix: '家',
+            accentColor: '#2563eb',
+          },
+          {
+            id: 'kpi_sup_rating',
+            title: '平均评分',
+            field: 'rating',
+            agg: 'avg',
+            numberFormat: 'decimal',
+            accentColor: '#15803d',
+          },
+          {
+            id: 'kpi_sup_lead',
+            title: '平均交期天数',
+            field: 'lead_days',
+            agg: 'avg',
+            suffix: '天',
+            accentColor: '#d97706',
+          },
+        ],
+        charts: [
+          {
+            id: 'chart_sup_rating',
+            title: '各主营品类平均评分',
+            chartType: 'bar',
+            dimensionField: 'main_category',
+            measureField: 'rating',
+            agg: 'avg',
+            sortBy: 'value_desc',
+          },
+          {
+            id: 'chart_sup_lead',
+            title: '各主营品类平均交期',
+            chartType: 'bar',
+            dimensionField: 'main_category',
+            measureField: 'lead_days',
+            agg: 'avg',
+            sortBy: 'value_asc',
+          },
+        ],
+      },
+    },
   ]
 }
 
@@ -2593,6 +2914,7 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
     } else {
       db.exec(`
         DELETE FROM workspace_views;
+        DELETE FROM smart_apps;
         DELETE FROM smart_table_records;
         DELETE FROM smart_tables;
         DELETE FROM biz_employees;
@@ -2731,13 +3053,20 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       TICKET_RECORDS,
     )
 
-    // 7. 预置独立应用视图空间示范视图（覆盖表格/看板/透视/仪表盘四类）
+    // 7. 预置独立智能表格（smart_apps）与每张表内的多种示范视图（workspace_views）
+    const insertAppStmt = db.query(
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    for (const app of buildDemoSmartApps()) {
+      insertAppStmt.run(app.id, app.name, app.description ?? null, app.tableId, app.sortOrder, now)
+    }
+
     const insertViewStmt = db.query(
-      'INSERT INTO workspace_views (id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
     for (const view of buildDemoWorkspaceViews()) {
-      const { id, tableId, name, type, sortOrder, updatedAt: _ua, ...config } = view
-      insertViewStmt.run(id, tableId, name, type, sortOrder, JSON.stringify(config), now)
+      const { id, appId, tableId, name, type, sortOrder, updatedAt: _ua, ...config } = view
+      insertViewStmt.run(id, appId, tableId, name, type, sortOrder, JSON.stringify(config), now)
     }
   })
 }

@@ -61,6 +61,7 @@ const RECORDS: SmartRecord[] = [
 
 const KANBAN_VIEW: WorkspaceView = {
   id: 'v_kanban',
+  appId: 'app_1',
   tableId: 'tbl_1',
   name: '项目看板',
   type: 'kanban',
@@ -78,6 +79,7 @@ const KANBAN_VIEW: WorkspaceView = {
 
 const DASHBOARD_VIEW: WorkspaceView = {
   id: 'v_dash',
+  appId: 'app_1',
   tableId: 'tbl_1',
   name: '经营仪表盘',
   type: 'dashboard',
@@ -476,10 +478,11 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
 
     const { container } = mountComponent(createElement(App))
 
-    // 等待初始加载完成（默认首个视图为表格视图）
+    // 等待初始加载完成（左侧智能表格列表 + 顶部当前智能表格多视图 Tab 栏）
     await vi.waitFor(() => {
+      expect(container.textContent).toContain('项目运营管理台')
       expect(container.textContent).toContain('项目跟进总台账')
-      expect(container.textContent).toContain('应用视图空间')
+      expect(container.querySelector('[aria-label="当前智能表格视图"]')).not.toBeNull()
     })
 
     // 切换至看板视图并拖拽 rec_prj_001 至「已交付」
@@ -530,7 +533,7 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
     expect(container.querySelector('[data-testid="dashboard-view"]')).not.toBeNull()
     expect(container.querySelector('[data-kpi-id="kpi_prj_count"]')?.textContent).toContain('16个')
 
-    // 切换至查看态：数据源中心隐藏，视图配置按钮隐藏
+    // 切换至查看态：数据源中心隐藏，视图配置按钮隐藏，仍可在多张智能表格间切换
     const viewerBtn = Array.from(container.querySelectorAll('button')).find(
       (b) => b.textContent === '查看态',
     )!
@@ -539,6 +542,16 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
     })
     expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
     expect(container.textContent).not.toContain('配置仪表盘')
+    expect(container.textContent).not.toContain('数据源：')
+
+    const revAppBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('管理层营收洞察'),
+    )!
+    act(() => {
+      revAppBtn.click()
+    })
+    expect(container.textContent).toContain('大区营收对比看板')
+    expect(container.textContent).toContain('重点客户回款清单')
 
     db.close()
   })

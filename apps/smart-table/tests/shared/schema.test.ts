@@ -53,6 +53,7 @@ describe('shared schema extensions', () => {
 
     const view: WorkspaceView = {
       id: 'view_1',
+      appId: 'app_1',
       tableId: 'tbl_projects',
       name: '示例视图',
       type: 'table',

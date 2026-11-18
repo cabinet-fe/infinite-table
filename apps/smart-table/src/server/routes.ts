@@ -2,14 +2,18 @@
 import type { Database } from 'bun:sqlite'
 import type { Context, Hono } from 'hono'
 import type {
+  AllAppsResponse,
   AllTablesResponse,
   AllViewsResponse,
+  CreateAppRequest,
   CreateRecordRequest,
   CreateTableRequest,
   CreateViewRequest,
   ImportCommitRequest,
   KanbanMoveCardRequest,
+  ReorderAppsRequest,
   ReorderViewsRequest,
+  UpdateAppRequest,
   UpdateRecordRequest,
   UpdateTableMetaRequest,
   UpdateViewRequest,
@@ -29,12 +33,18 @@ import {
 import { commitImport } from './import'
 import { seedSmartTableDemo } from './seed'
 import {
+  createSmartApp,
   createWorkspaceView,
+  deleteSmartApp,
   deleteWorkspaceView,
+  getSmartApp,
   getWorkspaceView,
+  listSmartApps,
   listWorkspaceViews,
   moveKanbanCard,
+  reorderSmartApps,
   reorderWorkspaceViews,
+  updateSmartApp,
   updateWorkspaceView,
 } from './views-store'
 
@@ -82,14 +92,27 @@ function isImportCommitBody(body: unknown): body is ImportCommitRequest {
   return Array.isArray(body.columns) && Array.isArray(body.rows)
 }
 
+function isCreateAppBody(body: unknown): body is CreateAppRequest {
+  if (!isPlainObject(body)) return false
+  if (typeof body.name !== 'string' || body.name.trim() === '') return false
+  if (typeof body.tableId !== 'string' || body.tableId.trim() === '') return false
+  if (body.description !== undefined && typeof body.description !== 'string') return false
+  return true
+}
+
+function isReorderAppsBody(body: unknown): body is ReorderAppsRequest {
+  return isPlainObject(body) && Array.isArray(body.appIds)
+}
+
 function isCreateViewBody(body: unknown): body is CreateViewRequest {
   if (!isPlainObject(body)) return false
+  const hasAppId = typeof body.appId === 'string' && body.appId.trim() !== ''
+  const hasTableId = typeof body.tableId === 'string' && body.tableId.trim() !== ''
   return (
     typeof body.name === 'string' &&
     body.name.trim() !== '' &&
     typeof body.type === 'string' &&
-    typeof body.tableId === 'string' &&
-    body.tableId.trim() !== ''
+    (hasAppId || hasTableId)
   )
 }
 
@@ -232,6 +255,72 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     }
   })
 
+  app.get('/api/apps', (c) => {
+    const response: AllAppsResponse = { apps: listSmartApps(db) }
+    return c.json(response)
+  })
+
+  app.post('/api/apps', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isCreateAppBody(body)) {
+      return c.json({ message: '请求体不合法：需提供非空 name 与 tableId' }, 400)
+    }
+    try {
+      const created = createSmartApp(db, body)
+      return c.json(created, 201)
+    } catch (error) {
+      return handleRouteError(c, error, '智能表格冲突')
+    }
+  })
+
+  app.put('/api/apps/reorder', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isReorderAppsBody(body)) {
+      return c.json({ message: '请求体不合法：需提供 appIds 数组' }, 400)
+    }
+    try {
+      const apps = reorderSmartApps(db, body.appIds)
+      return c.json({ apps })
+    } catch (error) {
+      return handleRouteError(c, error, '智能表格重排失败')
+    }
+  })
+
+  app.get('/api/apps/:id', (c) => {
+    const found = getSmartApp(db, c.req.param('id'))
+    if (!found) {
+      return c.json({ message: '智能表格不存在' }, 404)
+    }
+    return c.json({ app: found })
+  })
+
+  const handleUpdateSmartApp = async (c: Context, appId: string) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isPlainObject(body)) {
+      return c.json({ message: '请求体不合法：需提供智能表格更新对象' }, 400)
+    }
+    try {
+      const updated = updateSmartApp(db, appId, body as UpdateAppRequest)
+      if (!updated) {
+        return c.json({ message: '智能表格不存在' }, 404)
+      }
+      return c.json({ app: updated })
+    } catch (error) {
+      return handleRouteError(c, error, '智能表格更新失败')
+    }
+  }
+
+  app.put('/api/apps/:id', (c) => handleUpdateSmartApp(c, c.req.param('id')))
+  app.patch('/api/apps/:id', (c) => handleUpdateSmartApp(c, c.req.param('id')))
+
+  app.delete('/api/apps/:id', (c) => {
+    const deleted = deleteSmartApp(db, c.req.param('id'))
+    if (!deleted) {
+      return c.json({ message: '智能表格不存在' }, 404)
+    }
+    return c.json({ ok: true })
+  })
+
   app.get('/api/views', (c) => {
     const response: AllViewsResponse = { views: listWorkspaceViews(db) }
     return c.json(response)
@@ -240,7 +329,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
   app.post('/api/views', async (c) => {
     const body = await c.req.json().catch(() => null)
     if (!isCreateViewBody(body)) {
-      return c.json({ message: '请求体不合法：需提供非空 name、type 与 tableId' }, 400)
+      return c.json({ message: '请求体不合法：需提供非空 name、type 与 appId/tableId' }, 400)
     }
     try {
       const view = createWorkspaceView(db, body)
@@ -324,6 +413,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     seedSmartTableDemo(db, { force: true })
     const response: AllTablesResponse = {
       tables: listTableBundles(db),
+      apps: listSmartApps(db),
       views: listWorkspaceViews(db),
     }
     return c.json(response)

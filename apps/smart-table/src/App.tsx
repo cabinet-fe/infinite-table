@@ -8,17 +8,22 @@ import { Filter, Plus, RotateCcw, Table2 } from 'lucide-react'
 import {
   ApiError,
   createRecord,
+  createSmartApp,
   createTable,
   createWorkspaceView,
   deleteRecord,
+  deleteSmartApp,
   deleteTable,
   deleteWorkspaceView,
+  fetchAllApps,
   fetchAllTables,
   fetchAllViews,
   moveKanbanCard,
+  reorderSmartApps,
   reorderWorkspaceViews,
   resetDemoSeedWorkspace,
   updateRecord,
+  updateSmartApp,
   updateTableMeta,
   updateWorkspaceView,
 } from './api'
@@ -30,6 +35,7 @@ import {
 } from './canvas/smart-grid'
 import { SmartPivotAdapter } from './canvas/smart-pivot'
 import { AddColumnModal } from './components/AddColumnModal'
+import { AppViewTabs } from './components/AppViewTabs'
 import { CellEditorPopover, type RichCellEditInfo } from './components/CellEditorPopover'
 import { ColumnManagerModal } from './components/ColumnManagerModal'
 import { ConfirmModal } from './components/ConfirmModal'
@@ -63,12 +69,18 @@ import {
   toggleHiddenColumn,
   type AppMode,
 } from './domain/workspace-helpers'
-import type { CreateViewRequest, TableBundle, UpdateViewRequest } from './shared/api-types'
+import type {
+  CreateAppRequest,
+  CreateViewRequest,
+  TableBundle,
+  UpdateViewRequest,
+} from './shared/api-types'
 import type {
   CellStyleConfig,
   FilterGroup,
   LookupMatchRule,
   SelectOption,
+  SmartApp,
   SmartColumn,
   SmartRecord,
   SmartTableMeta,
@@ -269,8 +281,13 @@ export function App() {
     typeof window !== 'undefined' ? resolveAppModeFromSearch(window.location.search) : 'operator',
   )
   const [tables, setTables] = useState<TableBundle[]>([])
+  const [apps, setApps] = useState<SmartApp[]>([])
   const [views, setViews] = useState<WorkspaceView[]>([])
-  const [activeTarget, setActiveTarget] = useState<WorkspaceTarget>({ kind: 'view', viewId: '' })
+  const [activeTarget, setActiveTarget] = useState<WorkspaceTarget>({
+    kind: 'app',
+    appId: '',
+    viewId: '',
+  })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -302,7 +319,7 @@ export function App() {
   const [summaryMenu, setSummaryMenu] = useState<SmartGridSummaryClickInfo | null>(null)
   const [popupMenu, setPopupMenu] = useState<GridMenuContext | null>(null)
   const [confirmDeleteCol, setConfirmDeleteCol] = useState<SmartColumn | null>(null)
-  const [createViewDraftRequest, setCreateViewDraftRequest] = useState<{
+  const [createAppDraftRequest, setCreateAppDraftRequest] = useState<{
     tableId: string
     nonce: number
   } | null>(null)
@@ -312,6 +329,7 @@ export function App() {
   const pivotAdapterRef = useRef<SmartPivotAdapter | null>(null)
   const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const pendingConflictJumpRef = useRef<{ recordId: string; colKey: string } | null>(null)
+  const lastViewByAppRef = useRef<Map<string, string>>(new Map())
 
   const dismissToast = useCallback((id: string) => {
     const timer = toastTimersRef.current.get(id)
@@ -344,11 +362,22 @@ export function App() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [tableList, viewList] = await Promise.all([fetchAllTables(), fetchAllViews()])
+      const [tableList, appList, viewList] = await Promise.all([
+        fetchAllTables(),
+        fetchAllApps(),
+        fetchAllViews(),
+      ])
       setTables(tableList)
+      setApps(appList)
       setViews(viewList)
-      if (viewList[0]) {
-        setActiveTarget({ kind: 'view', viewId: viewList[0].id })
+      const firstApp = appList[0]
+      if (firstApp) {
+        const firstView = viewList.find((v) => v.appId === firstApp.id) ?? viewList[0]
+        setActiveTarget({
+          kind: 'app',
+          appId: firstApp.id,
+          viewId: firstView?.id ?? '',
+        })
       } else if (tableList[0]) {
         setActiveTarget({ kind: 'datasource', tableId: tableList[0].meta.id })
       }
@@ -371,10 +400,20 @@ export function App() {
     return map
   }, [tables])
 
+  const activeApp = useMemo(() => {
+    if (activeTarget.kind !== 'app') return undefined
+    return apps.find((a) => a.id === activeTarget.appId) ?? apps[0]
+  }, [activeTarget, apps])
+
+  const activeAppViews = useMemo(() => {
+    if (!activeApp) return []
+    return views.filter((v) => v.appId === activeApp.id)
+  }, [activeApp, views])
+
   const activeStoredView = useMemo(() => {
-    if (activeTarget.kind !== 'view') return undefined
-    return views.find((v) => v.id === activeTarget.viewId) ?? views[0]
-  }, [activeTarget, views])
+    if (activeTarget.kind !== 'app') return undefined
+    return activeAppViews.find((v) => v.id === activeTarget.viewId) ?? activeAppViews[0]
+  }, [activeTarget, activeAppViews])
 
   const activeTable = useMemo(() => {
     if (activeTarget.kind === 'datasource') {
@@ -383,8 +422,11 @@ export function App() {
     if (activeStoredView) {
       return tablesById.get(activeStoredView.tableId) ?? tables[0]
     }
+    if (activeApp) {
+      return tablesById.get(activeApp.tableId) ?? tables[0]
+    }
     return tables[0]
-  }, [activeTarget, activeStoredView, tablesById, tables])
+  }, [activeTarget, activeStoredView, activeApp, tablesById, tables])
 
   // 应用了查看态临时筛选/排序后的有效视图对象
   const effectiveView: WorkspaceView | undefined = useMemo(() => {
@@ -466,25 +508,49 @@ export function App() {
         setShowColumnManager(false)
         setShowImportModal(false)
         if (activeTarget.kind === 'datasource') {
-          const boundView = views.find((v) => v.tableId === activeTarget.tableId) ?? views[0]
-          if (boundView) {
-            setActiveTarget({ kind: 'view', viewId: boundView.id })
+          const boundApp = apps.find((a) => a.tableId === activeTarget.tableId) ?? apps[0]
+          if (boundApp) {
+            const firstView = views.find((v) => v.appId === boundApp.id)
+            setActiveTarget({
+              kind: 'app',
+              appId: boundApp.id,
+              viewId: firstView?.id ?? '',
+            })
           }
         }
       } else {
         setViewerFilterOverride(null)
       }
     },
-    [mode, activeTarget, views, clearTransientOverlays],
+    [mode, activeTarget, apps, views, clearTransientOverlays],
+  )
+
+  const handleSelectApp = useCallback(
+    (appId: string) => {
+      const appViews = views.filter((v) => v.appId === appId)
+      const rememberedId = lastViewByAppRef.current.get(appId)
+      const nextView =
+        (rememberedId ? appViews.find((v) => v.id === rememberedId) : undefined) ?? appViews[0]
+      setActiveTarget({
+        kind: 'app',
+        appId,
+        viewId: nextView?.id ?? '',
+      })
+      setViewerFilterOverride(null)
+      clearTransientOverlays()
+    },
+    [views, clearTransientOverlays],
   )
 
   const handleSelectView = useCallback(
     (viewId: string) => {
-      setActiveTarget({ kind: 'view', viewId })
+      if (!activeApp) return
+      lastViewByAppRef.current.set(activeApp.id, viewId)
+      setActiveTarget({ kind: 'app', appId: activeApp.id, viewId })
       setViewerFilterOverride(null)
       clearTransientOverlays()
     },
-    [clearTransientOverlays],
+    [activeApp, clearTransientOverlays],
   )
 
   const handleSelectTable = useCallback(
@@ -806,7 +872,7 @@ export function App() {
       if (mode === 'operator') setSummaryMenu(info)
     },
     onColWidthChange: (info: { columnKey: string; width: number }) => {
-      if (mode === 'operator' && activeTarget.kind === 'view' && activeStoredView) {
+      if (mode === 'operator' && activeTarget.kind === 'app' && activeStoredView) {
         void handlePatchView(activeStoredView.id, {
           columnWidths: {
             ...activeStoredView.columnWidths,
@@ -858,7 +924,7 @@ export function App() {
       if (mode === 'operator') setSummaryMenu(info)
     },
     onColWidthChange: (info) => {
-      if (mode === 'operator' && activeTarget.kind === 'view' && activeStoredView) {
+      if (mode === 'operator' && activeTarget.kind === 'app' && activeStoredView) {
         void handlePatchView(activeStoredView.id, {
           columnWidths: {
             ...activeStoredView.columnWidths,
@@ -884,7 +950,7 @@ export function App() {
 
   const canvasMountKey =
     activeTable && (activeRenderKind === 'grid' || activeRenderKind === 'pivot')
-      ? `${activeTarget.kind}:${activeTarget.kind === 'view' ? (effectiveView?.id ?? '') : activeTable.meta.id}:${activeRenderKind}:${mode}`
+      ? `${activeTarget.kind}:${activeTarget.kind === 'app' ? (effectiveView?.id ?? '') : activeTable.meta.id}:${activeRenderKind}:${mode}`
       : ''
 
   // 创建/销毁 Grid 或 Pivot 画布实例
@@ -1017,13 +1083,91 @@ export function App() {
     pivotAdapterRef.current?.setWatermark(watermarkEnabled, `${activeTable.meta.name} · 透视分析`)
   }, [watermarkEnabled, activeTable])
 
+  // ---- 智能表格（SmartApp）CRUD ----
+  async function handleCreateApp(payload: CreateAppRequest) {
+    setBusy(true)
+    try {
+      const created = await createSmartApp(payload)
+      setApps((prev) => [...prev, created.app])
+      setViews((prev) => [...prev, created.defaultView])
+      lastViewByAppRef.current.set(created.app.id, created.defaultView.id)
+      setActiveTarget({
+        kind: 'app',
+        appId: created.app.id,
+        viewId: created.defaultView.id,
+      })
+      clearTransientOverlays()
+      pushToast('success', `已新建智能表格「${created.app.name}」`)
+    } catch (error) {
+      const msg = error instanceof ApiError ? error.message : '新建智能表格失败'
+      pushToast('error', msg)
+      throw error
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRenameApp(appId: string, nextName: string) {
+    try {
+      const updated = await updateSmartApp(appId, { name: nextName })
+      setApps((prev) => prev.map((a) => (a.id === appId ? updated : a)))
+      pushToast('success', `智能表格已重命名为「${updated.name}」`)
+    } catch (error) {
+      const msg = error instanceof ApiError ? error.message : '重命名智能表格失败'
+      pushToast('error', msg)
+      throw error
+    }
+  }
+
+  async function handleDeleteApp(appId: string) {
+    if (apps.length <= 1) return
+    setBusy(true)
+    try {
+      await deleteSmartApp(appId)
+      const remainingApps = apps.filter((a) => a.id !== appId)
+      const remainingViews = views.filter((v) => v.appId !== appId)
+      setApps(remainingApps)
+      setViews(remainingViews)
+      lastViewByAppRef.current.delete(appId)
+      if (activeTarget.kind === 'app' && activeTarget.appId === appId) {
+        const nextApp = remainingApps[0]
+        if (nextApp) {
+          const nextView = remainingViews.find((v) => v.appId === nextApp.id)
+          setActiveTarget({
+            kind: 'app',
+            appId: nextApp.id,
+            viewId: nextView?.id ?? '',
+          })
+        }
+      }
+      clearTransientOverlays()
+      pushToast('success', '智能表格已删除')
+    } catch (error) {
+      const msg = error instanceof ApiError ? error.message : '删除智能表格失败'
+      pushToast('error', msg)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleReorderApps(appIds: string[]) {
+    try {
+      const reordered = await reorderSmartApps(appIds)
+      setApps(reordered)
+    } catch (error) {
+      const msg = error instanceof ApiError ? error.message : '智能表格排序失败'
+      pushToast('error', msg)
+    }
+  }
+
   // ---- 视图 CRUD ----
   async function handleCreateView(payload: CreateViewRequest) {
     setBusy(true)
     try {
       const created = await createWorkspaceView(payload)
       setViews((prev) => [...prev, created])
-      setActiveTarget({ kind: 'view', viewId: created.id })
+      lastViewByAppRef.current.set(created.appId, created.id)
+      setActiveTarget({ kind: 'app', appId: created.appId, viewId: created.id })
       clearTransientOverlays()
       pushToast('success', `已新建视图「${created.name}」`)
     } catch (error) {
@@ -1041,14 +1185,25 @@ export function App() {
   }
 
   async function handleDeleteView(viewId: string) {
-    if (views.length <= 1) return
+    const targetView = views.find((v) => v.id === viewId)
+    if (!targetView) return
+    const siblingViews = views.filter((v) => v.appId === targetView.appId)
+    if (siblingViews.length <= 1) return
     setBusy(true)
     try {
       await deleteWorkspaceView(viewId)
       const remaining = views.filter((v) => v.id !== viewId)
       setViews(remaining)
-      if (activeTarget.kind === 'view' && activeTarget.viewId === viewId) {
-        if (remaining[0]) setActiveTarget({ kind: 'view', viewId: remaining[0].id })
+      if (activeTarget.kind === 'app' && activeTarget.viewId === viewId) {
+        const nextSibling = remaining.find((v) => v.appId === targetView.appId)
+        if (nextSibling) {
+          lastViewByAppRef.current.set(targetView.appId, nextSibling.id)
+          setActiveTarget({
+            kind: 'app',
+            appId: targetView.appId,
+            viewId: nextSibling.id,
+          })
+        }
       }
       clearTransientOverlays()
       pushToast('success', '视图已删除')
@@ -1108,25 +1263,33 @@ export function App() {
     try {
       await deleteTable(tableId)
       const remainingTables = tables.filter((b) => b.meta.id !== tableId)
+      const remainingApps = apps.filter((a) => a.tableId !== tableId)
       const remainingViews = views.filter((v) => v.tableId !== tableId)
       setTables(remainingTables)
+      setApps(remainingApps)
       setViews(remainingViews)
 
+      const fallbackToFirstAppOrTable = () => {
+        const nextApp = remainingApps[0]
+        if (nextApp) {
+          const nextView = remainingViews.find((v) => v.appId === nextApp.id)
+          setActiveTarget({
+            kind: 'app',
+            appId: nextApp.id,
+            viewId: nextView?.id ?? '',
+          })
+        } else if (remainingTables[0]) {
+          setActiveTarget({ kind: 'datasource', tableId: remainingTables[0].meta.id })
+        }
+      }
+
       if (activeTarget.kind === 'datasource' && activeTarget.tableId === tableId) {
-        if (remainingViews[0]) {
-          setActiveTarget({ kind: 'view', viewId: remainingViews[0].id })
-        } else if (remainingTables[0]) {
-          setActiveTarget({ kind: 'datasource', tableId: remainingTables[0].meta.id })
-        }
+        fallbackToFirstAppOrTable()
       } else if (
-        activeTarget.kind === 'view' &&
-        !remainingViews.some((v) => v.id === activeTarget.viewId)
+        activeTarget.kind === 'app' &&
+        !remainingApps.some((a) => a.id === activeTarget.appId)
       ) {
-        if (remainingViews[0]) {
-          setActiveTarget({ kind: 'view', viewId: remainingViews[0].id })
-        } else if (remainingTables[0]) {
-          setActiveTarget({ kind: 'datasource', tableId: remainingTables[0].meta.id })
-        }
+        fallbackToFirstAppOrTable()
       }
       clearTransientOverlays()
       pushToast('success', '数据表已删除')
@@ -1144,9 +1307,17 @@ export function App() {
     try {
       const fresh = await resetDemoSeedWorkspace()
       setTables(fresh.tables)
+      setApps(fresh.apps)
       setViews(fresh.views)
-      if (fresh.views[0]) {
-        setActiveTarget({ kind: 'view', viewId: fresh.views[0].id })
+      lastViewByAppRef.current.clear()
+      const firstApp = fresh.apps[0]
+      if (firstApp) {
+        const firstView = fresh.views.find((v) => v.appId === firstApp.id) ?? fresh.views[0]
+        setActiveTarget({
+          kind: 'app',
+          appId: firstApp.id,
+          viewId: firstView?.id ?? '',
+        })
       } else if (fresh.tables[0]) {
         setActiveTarget({ kind: 'datasource', tableId: fresh.tables[0].meta.id })
       }
@@ -1621,16 +1792,17 @@ export function App() {
 
       <Sidebar
         mode={mode}
+        apps={apps}
         views={views}
         tables={tables}
         activeTarget={activeTarget}
         busy={busy}
-        createViewDraftRequest={createViewDraftRequest}
-        onSelectView={handleSelectView}
-        onCreateView={handleCreateView}
-        onRenameView={handleRenameView}
-        onDeleteView={handleDeleteView}
-        onReorderViews={handleReorderViews}
+        createAppDraftRequest={createAppDraftRequest}
+        onSelectApp={handleSelectApp}
+        onCreateApp={handleCreateApp}
+        onRenameApp={handleRenameApp}
+        onDeleteApp={handleDeleteApp}
+        onReorderApps={handleReorderApps}
         onSelectTable={handleSelectTable}
         onCreateNormalTable={handleCreateNormalTable}
         onRenameTable={handleRenameTable}
@@ -1640,6 +1812,23 @@ export function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {activeTarget.kind === 'app' && activeApp && (
+          <AppViewTabs
+            mode={mode}
+            app={activeApp}
+            bundle={activeTable}
+            views={activeAppViews}
+            activeViewId={activeStoredView?.id ?? ''}
+            busy={busy}
+            onSelectView={handleSelectView}
+            onCreateView={handleCreateView}
+            onRenameView={handleRenameView}
+            onDeleteView={handleDeleteView}
+            onReorderViews={handleReorderViews}
+            onJumpToDatasource={mode === 'operator' ? handleSelectTable : undefined}
+          />
+        )}
+
         <Toolbar
           mode={mode}
           targetKind={activeTarget.kind}
@@ -1676,8 +1865,8 @@ export function App() {
           onOpenAddColumn={() => setShowAddColumn(true)}
           onOpenColumnManager={() => setShowColumnManager(true)}
           onOpenLookupWizard={() => setShowLookupWizard(true)}
-          onCreateViewFromTable={() =>
-            setCreateViewDraftRequest({ tableId: activeTable.meta.id, nonce: Date.now() })
+          onCreateAppFromTable={() =>
+            setCreateAppDraftRequest({ tableId: activeTable.meta.id, nonce: Date.now() })
           }
           onJumpToFirstConflict={handleJumpToFirstConflict}
           onToggleWatermark={() => setWatermarkEnabled((v) => !v)}
@@ -1783,8 +1972,8 @@ export function App() {
             )}
           </div>
 
-          {/* 统一右侧滑出式视图配置抽屉（仅运维配置态 + 应用视图模式） */}
-          {mode === 'operator' && activeTarget.kind === 'view' && activeStoredView && (
+          {/* 统一右侧滑出式视图配置抽屉（仅运维配置态 + 智能表格视图模式） */}
+          {mode === 'operator' && activeTarget.kind === 'app' && activeStoredView && (
             <ViewConfigDrawer
               open={configDrawerOpen}
               activeTab={configDrawerTab}

@@ -281,17 +281,19 @@ export function buildDefaultDashboardConfig(columns: readonly SmartColumn[]): Da
   return { kpis, charts }
 }
 
-/** 根据目标表与视图类型构造新建应用视图请求体 */
+/** 根据所属智能表格（或数据源表）与视图类型构造新建应用视图请求体 */
 export function buildDefaultViewPayload(
   name: string,
   type: SmartViewType,
   bundle: TableBundle,
+  appId?: string,
 ): CreateViewRequest {
   const columns = bundle.meta.columns
   const quickField = columns.find((c) => c.type === 'select')?.key
   const base: CreateViewRequest = {
     name: name.trim(),
     type,
+    ...(appId ? { appId } : {}),
     tableId: bundle.meta.id,
     filterGroup: { conjunction: 'and', conditions: [] },
     quickFilterFields: quickField ? [quickField] : [],

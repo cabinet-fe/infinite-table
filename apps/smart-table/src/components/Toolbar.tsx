@@ -43,7 +43,7 @@ import type { ToastType } from './Toast'
 
 export interface ToolbarProps {
   mode: AppMode
-  targetKind: 'view' | 'datasource'
+  targetKind: 'app' | 'datasource'
   tableMeta: SmartTableMeta
   activeView?: SmartView
   visibleColumns: readonly SmartColumn[]
@@ -65,7 +65,7 @@ export interface ToolbarProps {
   onOpenAddColumn: () => void
   onOpenColumnManager: () => void
   onOpenLookupWizard: () => void
-  onCreateViewFromTable: () => void
+  onCreateAppFromTable: () => void
   onJumpToFirstConflict: () => void
   onToggleWatermark: () => void
   onNotify: (type: ToastType, message: string) => void
@@ -111,7 +111,7 @@ export function Toolbar({
   onOpenAddColumn,
   onOpenColumnManager,
   onOpenLookupWizard,
-  onCreateViewFromTable,
+  onCreateAppFromTable,
   onJumpToFirstConflict,
   onToggleWatermark,
   onNotify,
@@ -359,14 +359,8 @@ export function Toolbar({
                 <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100">
                   <ViewTypeIcon type={activeView.type} className="h-3.5 w-3.5" />
                 </span>
-                <h1 className="truncate text-sm font-semibold text-slate-900">{activeView.name}</h1>
-                <span className="hidden shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-500 sm:inline-flex">
-                  {tableMeta.kind === 'advanced' ? (
-                    <Database className="h-3 w-3 text-indigo-500" />
-                  ) : (
-                    <Table2 className="h-3 w-3 text-slate-400" />
-                  )}
-                  <span>{tableMeta.name}</span>
+                <span className="truncate text-xs font-medium text-slate-700">
+                  {activeView.name}
                 </span>
               </>
             )
@@ -628,11 +622,11 @@ export function Toolbar({
           <button
             type="button"
             disabled={busy}
-            onClick={onCreateViewFromTable}
+            onClick={onCreateAppFromTable}
             className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>生成应用视图</span>
+            <span>新建智能表格</span>
           </button>
         )}
 

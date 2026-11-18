@@ -1,6 +1,13 @@
 // 独立应用视图（WorkspaceView）SQLite 持久化、参数校验与看板写回封装
 import type { Database } from 'bun:sqlite'
-import type { CreateViewRequest, TableBundle, UpdateViewRequest } from '../shared/api-types'
+import type {
+  CreateAppRequest,
+  CreateAppResponse,
+  CreateViewRequest,
+  TableBundle,
+  UpdateAppRequest,
+  UpdateViewRequest,
+} from '../shared/api-types'
 import type {
   CellStyleConfig,
   ColumnStyleConfig,
@@ -9,6 +16,7 @@ import type {
   FilterGroup,
   KanbanConfig,
   RowHeightPreset,
+  SmartApp,
   SmartPivotConfig,
   SmartRecord,
   SmartViewType,
@@ -25,8 +33,18 @@ import {
   updateTableRecord,
 } from './db'
 
+interface SmartAppRow {
+  id: string
+  name: string
+  description: string | null
+  table_id: string
+  sort_order: number
+  updated_at: string
+}
+
 interface WorkspaceViewRow {
   id: string
+  app_id: string | null
   table_id: string
   name: string
   type: SmartViewType
@@ -176,11 +194,194 @@ function validatePlainMap<T>(value: unknown, label: string): T {
   return value as T
 }
 
+function parseSmartAppRow(row: SmartAppRow): SmartApp {
+  return {
+    id: row.id,
+    name: row.name,
+    ...(row.description ? { description: row.description } : {}),
+    tableId: row.table_id,
+    sortOrder: row.sort_order,
+    updatedAt: row.updated_at,
+  }
+}
+
+function readSmartAppRow(db: Database, appId: string): SmartAppRow | null {
+  const row = db
+    .query(
+      'SELECT id, name, description, table_id, sort_order, updated_at FROM smart_apps WHERE id = ?',
+    )
+    .get(appId) as SmartAppRow | undefined | null
+  return row ?? null
+}
+
+/** 列出所有独立智能表格应用（按 sort_order 升序） */
+export function listSmartApps(db: Database): SmartApp[] {
+  const rows = db
+    .query(
+      'SELECT id, name, description, table_id, sort_order, updated_at FROM smart_apps ORDER BY sort_order ASC, rowid ASC',
+    )
+    .all() as SmartAppRow[]
+  return rows.map(parseSmartAppRow)
+}
+
+/** 按 ID 获取单个智能表格应用 */
+export function getSmartApp(db: Database, appId: string): SmartApp | null {
+  const row = readSmartAppRow(db, appId)
+  return row ? parseSmartAppRow(row) : null
+}
+
+/** 新建智能表格应用（自动附带一个默认表格视图，开箱即用） */
+export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppResponse {
+  if (typeof req.name !== 'string' || req.name.trim() === '') {
+    throw new ValidationError('智能表格名称 name 不能为空')
+  }
+  if (typeof req.tableId !== 'string' || req.tableId.trim() === '') {
+    throw new ValidationError('必须指定绑定的数据源 tableId')
+  }
+  const name = req.name.trim()
+  const tableId = req.tableId.trim()
+  const description = req.description?.trim() || undefined
+
+  return runInTransaction(db, () => {
+    ensureTableExists(db, tableId)
+
+    const orderRow = db
+      .query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM smart_apps')
+      .get() as { next_order: number } | undefined | null
+    const sortOrder = orderRow?.next_order ?? 0
+    const appId = `app_${crypto.randomUUID().slice(0, 8)}`
+    const now = new Date().toISOString()
+
+    db.query(
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(appId, name, description ?? null, tableId, sortOrder, now)
+
+    const app: SmartApp = {
+      id: appId,
+      name,
+      ...(description ? { description } : {}),
+      tableId,
+      sortOrder,
+      updatedAt: now,
+    }
+
+    const defaultView = createWorkspaceView(db, {
+      appId,
+      tableId,
+      name: '数据明细视图',
+      type: 'table',
+      frozenColCount: 1,
+      rowHeight: 'standard',
+    })
+
+    return { app, defaultView }
+  })
+}
+
+/** 更新智能表格名称或描述 */
+export function updateSmartApp(
+  db: Database,
+  appId: string,
+  patch: UpdateAppRequest,
+): SmartApp | null {
+  return runInTransaction(db, () => {
+    const existing = readSmartAppRow(db, appId)
+    if (!existing) return null
+
+    let nextName = existing.name
+    if (patch.name !== undefined) {
+      if (typeof patch.name !== 'string' || patch.name.trim() === '') {
+        throw new ValidationError('智能表格名称 name 不能为空')
+      }
+      nextName = patch.name.trim()
+    }
+
+    let nextDesc = existing.description
+    if ('description' in patch) {
+      if (patch.description === undefined || patch.description === null) {
+        nextDesc = null
+      } else if (typeof patch.description === 'string') {
+        nextDesc = patch.description.trim() || null
+      } else {
+        throw new ValidationError('description 必须为字符串')
+      }
+    }
+
+    let nextSortOrder = existing.sort_order
+    if (patch.sortOrder !== undefined) {
+      if (typeof patch.sortOrder !== 'number' || !Number.isInteger(patch.sortOrder)) {
+        throw new ValidationError('sortOrder 必须为整数')
+      }
+      nextSortOrder = patch.sortOrder
+    }
+
+    const now = new Date().toISOString()
+    db.query(
+      'UPDATE smart_apps SET name = ?, description = ?, sort_order = ?, updated_at = ? WHERE id = ?',
+    ).run(nextName, nextDesc, nextSortOrder, now, appId)
+
+    return {
+      id: appId,
+      name: nextName,
+      ...(nextDesc ? { description: nextDesc } : {}),
+      tableId: existing.table_id,
+      sortOrder: nextSortOrder,
+      updatedAt: now,
+    }
+  })
+}
+
+/** 批量重排智能表格顺序 */
+export function reorderSmartApps(db: Database, appIds: readonly string[]): SmartApp[] {
+  if (!Array.isArray(appIds) || appIds.length === 0) {
+    throw new ValidationError('appIds 必须为非空数组')
+  }
+  const seen = new Set<string>()
+  for (const id of appIds) {
+    if (typeof id !== 'string' || id.trim() === '') {
+      throw new ValidationError('appIds 中存在无效 ID')
+    }
+    if (seen.has(id)) {
+      throw new ValidationError(`appIds 中存在重复 ID: "${id}"`)
+    }
+    seen.add(id)
+  }
+
+  return runInTransaction(db, () => {
+    const allApps = listSmartApps(db)
+    const byId = new Map(allApps.map((a) => [a.id, a]))
+    for (const id of appIds) {
+      if (!byId.has(id)) {
+        throw new ValidationError(`智能表格不存在: "${id}"`)
+      }
+    }
+    const orderedIds = [...appIds]
+    for (const app of allApps) {
+      if (!seen.has(app.id)) orderedIds.push(app.id)
+    }
+
+    const now = new Date().toISOString()
+    const stmt = db.query('UPDATE smart_apps SET sort_order = ?, updated_at = ? WHERE id = ?')
+    orderedIds.forEach((id, idx) => {
+      stmt.run(idx, now, id)
+    })
+
+    return listSmartApps(db)
+  })
+}
+
+/** 删除智能表格（级联删除其下全部视图） */
+export function deleteSmartApp(db: Database, appId: string): boolean {
+  const result = db.query('DELETE FROM smart_apps WHERE id = ?').run(appId)
+  return result.changes > 0
+}
+
 function parseWorkspaceViewRow(row: WorkspaceViewRow): WorkspaceView {
   const config = JSON.parse(row.config_json) as WorkspaceViewConfig
   return {
     ...config,
     id: row.id,
+    appId: row.app_id ?? `app_${row.table_id}`,
     tableId: row.table_id,
     name: row.name,
     type: row.type,
@@ -195,7 +396,7 @@ function parseWorkspaceViewRow(row: WorkspaceViewRow): WorkspaceView {
 function readWorkspaceViewRow(db: Database, viewId: string): WorkspaceViewRow | null {
   const row = db
     .query(
-      'SELECT id, table_id, name, type, sort_order, config_json, updated_at FROM workspace_views WHERE id = ?',
+      'SELECT id, app_id, table_id, name, type, sort_order, config_json, updated_at FROM workspace_views WHERE id = ?',
     )
     .get(viewId) as WorkspaceViewRow | undefined | null
   return row ?? null
@@ -205,7 +406,7 @@ function readWorkspaceViewRow(db: Database, viewId: string): WorkspaceViewRow | 
 export function listWorkspaceViews(db: Database): WorkspaceView[] {
   const rows = db
     .query(
-      'SELECT id, table_id, name, type, sort_order, config_json, updated_at FROM workspace_views ORDER BY sort_order ASC, rowid ASC',
+      'SELECT id, app_id, table_id, name, type, sort_order, config_json, updated_at FROM workspace_views ORDER BY sort_order ASC, rowid ASC',
     )
     .all() as WorkspaceViewRow[]
   return rows.map(parseWorkspaceViewRow)
@@ -282,13 +483,56 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
   if (typeof req.name !== 'string' || req.name.trim() === '') {
     throw new ValidationError('视图名称 name 不能为空')
   }
-  if (typeof req.tableId !== 'string' || req.tableId.trim() === '') {
-    throw new ValidationError('必须指定绑定的数据源 tableId')
-  }
   const type = validateViewType(req.type)
-  const tableId = req.tableId.trim()
 
   return runInTransaction(db, () => {
+    let appId = req.appId?.trim() || ''
+    let tableId = req.tableId?.trim() || ''
+
+    if (appId) {
+      const app = readSmartAppRow(db, appId)
+      if (!app) {
+        throw new ValidationError(`所属智能表格不存在: "${appId}"`)
+      }
+      if (tableId && tableId !== app.table_id) {
+        throw new ValidationError(
+          `视图绑定的数据源 "${tableId}" 与所属智能表格 "${app.table_id}" 不一致`,
+        )
+      }
+      tableId = app.table_id
+    } else {
+      if (!tableId) {
+        throw new ValidationError('必须指定所属智能表格 appId 或数据源 tableId')
+      }
+      ensureTableExists(db, tableId)
+      const existingApp = db
+        .query(
+          'SELECT id FROM smart_apps WHERE table_id = ? ORDER BY sort_order ASC, rowid ASC LIMIT 1',
+        )
+        .get(tableId) as { id: string } | undefined | null
+      if (existingApp) {
+        appId = existingApp.id
+      } else {
+        const tableRow = db.query('SELECT name FROM smart_tables WHERE id = ?').get(tableId) as {
+          name: string
+        }
+        const orderRow = db
+          .query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM smart_apps')
+          .get() as { next_order: number } | undefined | null
+        appId = `app_${crypto.randomUUID().slice(0, 8)}`
+        db.query(
+          'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).run(
+          appId,
+          tableRow.name,
+          null,
+          tableId,
+          orderRow?.next_order ?? 0,
+          new Date().toISOString(),
+        )
+      }
+    }
+
     ensureTableExists(db, tableId)
 
     const orderRow = db
@@ -307,12 +551,13 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
     const now = new Date().toISOString()
 
     db.query(
-      'INSERT INTO workspace_views (id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, tableId, req.name.trim(), type, sortOrder, JSON.stringify(config), now)
+      'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(id, appId, tableId, req.name.trim(), type, sortOrder, JSON.stringify(config), now)
 
     return {
       ...config,
       id,
+      appId,
       tableId,
       name: req.name.trim(),
       type,
@@ -348,6 +593,18 @@ export function updateWorkspaceView(
       nextType = validateViewType(patch.type)
     }
 
+    let nextAppId = existingRow.app_id ?? `app_${existingRow.table_id}`
+    if (patch.appId !== undefined) {
+      if (typeof patch.appId !== 'string' || patch.appId.trim() === '') {
+        throw new ValidationError('appId 不能为空')
+      }
+      const targetApp = readSmartAppRow(db, patch.appId.trim())
+      if (!targetApp) {
+        throw new ValidationError(`所属智能表格不存在: "${patch.appId}"`)
+      }
+      nextAppId = targetApp.id
+    }
+
     let nextTableId = existingRow.table_id
     if (patch.tableId !== undefined) {
       if (typeof patch.tableId !== 'string' || patch.tableId.trim() === '') {
@@ -367,12 +624,22 @@ export function updateWorkspaceView(
 
     const now = new Date().toISOString()
     db.query(
-      'UPDATE workspace_views SET table_id = ?, name = ?, type = ?, sort_order = ?, config_json = ?, updated_at = ? WHERE id = ?',
-    ).run(nextTableId, nextName, nextType, nextSortOrder, JSON.stringify(nextConfig), now, viewId)
+      'UPDATE workspace_views SET app_id = ?, table_id = ?, name = ?, type = ?, sort_order = ?, config_json = ?, updated_at = ? WHERE id = ?',
+    ).run(
+      nextAppId,
+      nextTableId,
+      nextName,
+      nextType,
+      nextSortOrder,
+      JSON.stringify(nextConfig),
+      now,
+      viewId,
+    )
 
     return {
       ...nextConfig,
       id: viewId,
+      appId: nextAppId,
       tableId: nextTableId,
       name: nextName,
       type: nextType,

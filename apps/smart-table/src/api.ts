@@ -1,19 +1,24 @@
 // 智能表格前端 REST API 客户端
 
 import type {
+  AllAppsResponse,
   AllTablesResponse,
   AllViewsResponse,
+  CreateAppRequest,
+  CreateAppResponse,
   CreateRecordRequest,
   CreateTableRequest,
   CreateViewRequest,
   ImportCommitRequest,
   KanbanMoveCardRequest,
+  ReorderAppsRequest,
   ReorderViewsRequest,
   TableBundle,
+  UpdateAppRequest,
   UpdateTableMetaRequest,
   UpdateViewRequest,
 } from './shared/api-types'
-import type { SmartRecord, SmartTableMeta, WorkspaceView } from './shared/schema'
+import type { SmartApp, SmartRecord, SmartTableMeta, WorkspaceView } from './shared/schema'
 
 export class ApiError extends Error {
   readonly status: number
@@ -125,6 +130,41 @@ export async function deleteRecord(tableId: string, recordId: string): Promise<v
   )
 }
 
+export async function fetchAllApps(): Promise<SmartApp[]> {
+  const data = await requestJson<AllAppsResponse>('/api/apps')
+  return data.apps
+}
+
+export async function createSmartApp(payload: CreateAppRequest): Promise<CreateAppResponse> {
+  return requestJson<CreateAppResponse>('/api/apps', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateSmartApp(appId: string, patch: UpdateAppRequest): Promise<SmartApp> {
+  const data = await requestJson<{ app: SmartApp }>(`/api/apps/${encodeURIComponent(appId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+  return data.app
+}
+
+export async function reorderSmartApps(appIds: string[]): Promise<SmartApp[]> {
+  const body: ReorderAppsRequest = { appIds }
+  const data = await requestJson<AllAppsResponse>('/api/apps/reorder', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+  return data.apps
+}
+
+export async function deleteSmartApp(appId: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/apps/${encodeURIComponent(appId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function fetchAllViews(): Promise<WorkspaceView[]> {
   const data = await requestJson<AllViewsResponse>('/api/views')
   return data.views
@@ -198,12 +238,13 @@ export async function resetDemoSeed(): Promise<TableBundle[]> {
 
 export async function resetDemoSeedWorkspace(): Promise<{
   tables: TableBundle[]
+  apps: SmartApp[]
   views: WorkspaceView[]
 }> {
   const data = await requestJson<AllTablesResponse>('/api/reset-seed', {
     method: 'POST',
   })
-  return { tables: data.tables, views: data.views ?? [] }
+  return { tables: data.tables, apps: data.apps ?? [], views: data.views ?? [] }
 }
 
 /** 进阶导入提交（SQL 物理表）：文件解析在前端完成，这里只提交列配置与行数据 */

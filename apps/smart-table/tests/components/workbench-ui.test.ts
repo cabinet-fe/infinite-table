@@ -7,6 +7,7 @@
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { AppViewTabs } from '../../src/components/AppViewTabs'
 import { GridPopupMenu, type GridMenuActionId } from '../../src/components/GridPopupMenu'
 import { Sidebar } from '../../src/components/Sidebar'
 import { SummaryMenuPopover } from '../../src/components/SummaryMenuPopover'
@@ -16,6 +17,7 @@ import type { AppMode } from '../../src/domain/workspace-helpers'
 import type { TableBundle } from '../../src/shared/api-types'
 import type {
   CellStyleConfig,
+  SmartApp,
   SmartColumn,
   SmartRecord,
   SummaryType,
@@ -70,9 +72,25 @@ const TABLES: TableBundle[] = [
   },
 ]
 
+const APPS: SmartApp[] = [
+  {
+    id: 'app_1',
+    name: '项目运营台账表',
+    tableId: 'tbl_1',
+    sortOrder: 0,
+  },
+  {
+    id: 'app_2',
+    name: '员工档案应用',
+    tableId: 'tbl_sql',
+    sortOrder: 1,
+  },
+]
+
 const VIEWS: WorkspaceView[] = [
   {
     id: 'v_table',
+    appId: 'app_1',
     tableId: 'tbl_1',
     name: '项目台账',
     type: 'table',
@@ -86,6 +104,7 @@ const VIEWS: WorkspaceView[] = [
   },
   {
     id: 'v_pivot',
+    appId: 'app_1',
     tableId: 'tbl_1',
     name: '项目透视',
     type: 'pivot',
@@ -136,19 +155,20 @@ afterEach(() => {
   }
 })
 
-describe('Sidebar 双板块与双态隔离', () => {
-  test('运维态同时展示应用视图空间与数据源中心（自建普通表 + SQL 物理表）及新建/导入/重置入口', () => {
+describe('Sidebar 与 AppViewTabs 双态隔离', () => {
+  test('运维态同时展示智能表格列表与数据源中心（自建普通表 + SQL 物理表）及新建/导入/重置入口', () => {
     const { container } = mountComponent(
       createElement(Sidebar, {
         mode: 'operator',
+        apps: APPS,
         views: VIEWS,
         tables: TABLES,
-        activeTarget: { kind: 'view', viewId: 'v_table' },
-        onSelectView: noop,
-        onCreateView: noopAsync,
-        onRenameView: noopAsync,
-        onDeleteView: noopAsync,
-        onReorderViews: noopAsync,
+        activeTarget: { kind: 'app', appId: 'app_1', viewId: 'v_table' },
+        onSelectApp: noop,
+        onCreateApp: noopAsync,
+        onRenameApp: noopAsync,
+        onDeleteApp: noopAsync,
+        onReorderApps: noopAsync,
         onSelectTable: noop,
         onCreateNormalTable: noopAsync,
         onRenameTable: noopAsync,
@@ -158,46 +178,100 @@ describe('Sidebar 双板块与双态隔离', () => {
       }),
     )
 
-    expect(container.querySelector('[aria-label="应用视图空间"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="数据源中心"]')).not.toBeNull()
-    expect(container.textContent).toContain('项目台账')
-    expect(container.textContent).toContain('项目管理表')
+    expect(container.textContent).toContain('项目运营台账表')
+    expect(container.textContent).toContain('2 视图')
+    expect(container.textContent).toContain('数据源：项目管理表')
     expect(container.textContent).toContain('员工主数据')
     expect(container.textContent).toContain('重置演示数据')
   })
 
-  test('用户查看态严格隐藏数据源中心、新建/重命名/删除视图及重置演示数据', () => {
-    const onSelectView = vi.fn<(viewId: string) => void>()
+  test('用户查看态严格隐藏数据源中心、数据源来源提示、新建智能表格与重置演示数据', () => {
+    const onSelectApp = vi.fn<(appId: string) => void>()
     const { container } = mountComponent(
       createElement(Sidebar, {
         mode: 'viewer',
+        apps: APPS,
         views: VIEWS,
         tables: TABLES,
-        activeTarget: { kind: 'view', viewId: 'v_table' },
+        activeTarget: { kind: 'app', appId: 'app_1', viewId: 'v_table' },
+        onSelectApp,
+        onCreateApp: noopAsync,
+        onRenameApp: noopAsync,
+        onDeleteApp: noopAsync,
+        onReorderApps: noopAsync,
+        onSelectTable: noop,
+        onCreateNormalTable: noopAsync,
+        onRenameTable: noopAsync,
+        onDeleteTable: noopAsync,
+        onOpenImport: noop,
+        onResetSeed: noopAsync,
+      }),
+    )
+
+    expect(container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
+    expect(container.textContent).not.toContain('数据源：')
+    expect(container.textContent).not.toContain('重置演示数据')
+    expect(container.querySelector('[title="基于数据源新建智能表格"]')).toBeNull()
+
+    const secondAppBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('员工档案应用'),
+    )!
+    act(() => {
+      secondAppBtn.click()
+    })
+    expect(onSelectApp).toHaveBeenCalledWith('app_2')
+  })
+
+  test('AppViewTabs 在当前智能表格内展示多种视图，用户查看态隐藏新建/删除/数据源入口', () => {
+    const onSelectView = vi.fn<(viewId: string) => void>()
+    const handle = mountComponent(
+      createElement(AppViewTabs, {
+        mode: 'operator',
+        app: APPS[0]!,
+        bundle: TABLES[0]!,
+        views: VIEWS,
+        activeViewId: 'v_table',
         onSelectView,
         onCreateView: noopAsync,
         onRenameView: noopAsync,
         onDeleteView: noopAsync,
         onReorderViews: noopAsync,
-        onSelectTable: noop,
-        onCreateNormalTable: noopAsync,
-        onRenameTable: noopAsync,
-        onDeleteTable: noopAsync,
-        onOpenImport: noop,
-        onResetSeed: noopAsync,
+        onJumpToDatasource: noop,
       }),
     )
 
-    expect(container.querySelector('[aria-label="应用视图空间"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
-    expect(container.textContent).not.toContain('重置演示数据')
-    expect(container.querySelector('[title="新建应用视图"]')).toBeNull()
+    expect(handle.container.textContent).toContain('项目运营台账表')
+    expect(handle.container.textContent).toContain('项目台账')
+    expect(handle.container.textContent).toContain('项目透视')
+    expect(handle.container.textContent).toContain('新建视图')
+    expect(handle.container.textContent).toContain('项目管理表')
 
-    const pivotBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+    handle.rerender(
+      createElement(AppViewTabs, {
+        mode: 'viewer',
+        app: APPS[0]!,
+        bundle: TABLES[0]!,
+        views: VIEWS,
+        activeViewId: 'v_table',
+        onSelectView,
+        onCreateView: noopAsync,
+        onRenameView: noopAsync,
+        onDeleteView: noopAsync,
+        onReorderViews: noopAsync,
+        onJumpToDatasource: noop,
+      }),
+    )
+
+    expect(handle.container.textContent).not.toContain('新建视图')
+    expect(handle.container.textContent).not.toContain('项目管理表')
+    const pivotTab = Array.from(handle.container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('项目透视'),
     )!
     act(() => {
-      pivotBtn.click()
+      pivotTab.click()
     })
     expect(onSelectView).toHaveBeenCalledWith('v_pivot')
   })
@@ -209,7 +283,7 @@ describe('Toolbar 双态交互隔离', () => {
     const { container } = mountComponent(
       createElement(Toolbar, {
         mode: 'viewer',
-        targetKind: 'view',
+        targetKind: 'app',
         tableMeta: TABLES[0]!.meta,
         activeView: VIEWS[0],
         visibleColumns: COLUMNS,
@@ -227,7 +301,7 @@ describe('Toolbar 双态交互隔离', () => {
         onOpenAddColumn: noop,
         onOpenColumnManager: noop,
         onOpenLookupWizard: noop,
-        onCreateViewFromTable: noop,
+        onCreateAppFromTable: noop,
         onJumpToFirstConflict: noop,
         onToggleWatermark: noop,
         onNotify: noop,

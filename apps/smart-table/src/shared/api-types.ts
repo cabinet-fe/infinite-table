@@ -1,6 +1,7 @@
 // 前后端 REST 接口请求/响应契约
 
 import type {
+  SmartApp,
   SmartRecord,
   SmartTableMeta,
   SmartView,
@@ -16,7 +17,29 @@ export interface TableBundle {
 
 export interface AllTablesResponse {
   tables: TableBundle[]
+  apps?: SmartApp[]
   views?: WorkspaceView[]
+}
+
+export interface AllAppsResponse {
+  apps: SmartApp[]
+}
+
+export interface CreateAppRequest {
+  name: string
+  tableId: string
+  description?: string
+}
+
+export interface CreateAppResponse {
+  app: SmartApp
+  defaultView: WorkspaceView
+}
+
+export type UpdateAppRequest = Partial<Pick<SmartApp, 'name' | 'description' | 'sortOrder'>>
+
+export interface ReorderAppsRequest {
+  appIds: string[]
 }
 
 export interface AllViewsResponse {
@@ -26,7 +49,10 @@ export interface AllViewsResponse {
 export interface CreateViewRequest {
   name: string
   type: SmartViewType
-  tableId: string
+  /** 所属智能表格 ID（推荐必传；未传时按 tableId 自动匹配或创建所属智能表格） */
+  appId?: string
+  /** 绑定的数据源表 ID（传 appId 时可省略，由服务端自动对齐所属智能表格的数据源） */
+  tableId?: string
   description?: string
   filterGroup?: SmartView['filterGroup']
   quickFilterFields?: string[]

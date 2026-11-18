@@ -1,5 +1,5 @@
 // 左侧双板块导航栏：
-// 1. 「应用视图空间」：跨表组织视图，按 table/kanban/pivot/dashboard 展示图标；运维态支持新建/重命名/调序/删除，用户查看态仅切换只读浏览。
+// 1. 「智能表格」：展示多张独立智能表格（每张绑定一个数据源并自带多个视图）；运维态支持新建/重命名/调序/删除，用户查看态仅切换只读浏览且不暴露数据源。
 // 2. 「数据源中心」：普通自建表 + SQL 物理表分组，管理表结构与原始数据，支持新建/Excel导入/重置演示数据（仅运维态可见）。
 
 import { useEffect, useMemo, useState } from 'react'
@@ -11,6 +11,7 @@ import {
   Database,
   FileSpreadsheet,
   Kanban,
+  Layers,
   LayoutDashboard,
   Pencil,
   Plus,
@@ -19,28 +20,29 @@ import {
   TableProperties,
   Trash2,
 } from 'lucide-react'
-import { buildDefaultViewPayload, type AppMode } from '../domain/workspace-helpers'
-import type { CreateViewRequest, TableBundle } from '../shared/api-types'
-import type { SmartViewType, WorkspaceView } from '../shared/schema'
+import type { AppMode } from '../domain/workspace-helpers'
+import type { CreateAppRequest, TableBundle } from '../shared/api-types'
+import type { SmartApp, SmartViewType, WorkspaceView } from '../shared/schema'
 import { ConfirmModal } from './ConfirmModal'
 import { CustomSelect } from './CustomSelect'
 
 export type WorkspaceTarget =
-  | { kind: 'view'; viewId: string }
+  | { kind: 'app'; appId: string; viewId: string }
   | { kind: 'datasource'; tableId: string }
 
 export interface SidebarProps {
   mode: AppMode
+  apps: readonly SmartApp[]
   views: readonly WorkspaceView[]
   tables: readonly TableBundle[]
   activeTarget: WorkspaceTarget
   busy?: boolean
-  createViewDraftRequest?: { tableId: string; nonce: number } | null
-  onSelectView: (viewId: string) => void
-  onCreateView: (payload: CreateViewRequest) => Promise<void>
-  onRenameView: (viewId: string, nextName: string) => Promise<void>
-  onDeleteView: (viewId: string) => Promise<void>
-  onReorderViews: (viewIds: string[]) => Promise<void>
+  createAppDraftRequest?: { tableId: string; nonce: number } | null
+  onSelectApp: (appId: string) => void
+  onCreateApp: (payload: CreateAppRequest) => Promise<void>
+  onRenameApp: (appId: string, nextName: string) => Promise<void>
+  onDeleteApp: (appId: string) => Promise<void>
+  onReorderApps: (appIds: string[]) => Promise<void>
   onSelectTable: (tableId: string) => void
   onCreateNormalTable: (name: string, description?: string) => Promise<void>
   onRenameTable: (tableId: string, nextName: string) => Promise<void>
@@ -48,13 +50,6 @@ export interface SidebarProps {
   onOpenImport: () => void
   onResetSeed: () => Promise<void>
 }
-
-const VIEW_TYPE_OPTIONS: { value: SmartViewType; label: string }[] = [
-  { value: 'table', label: '表格视图 (Table)' },
-  { value: 'kanban', label: '看板视图 (Kanban)' },
-  { value: 'pivot', label: '透视分析 (Pivot)' },
-  { value: 'dashboard', label: '统计仪表盘 (Dashboard)' },
-]
 
 export function ViewTypeIcon({
   type,
@@ -77,16 +72,17 @@ export function ViewTypeIcon({
 
 export function Sidebar({
   mode,
+  apps,
   views,
   tables,
   activeTarget,
   busy = false,
-  createViewDraftRequest,
-  onSelectView,
-  onCreateView,
-  onRenameView,
-  onDeleteView,
-  onReorderViews,
+  createAppDraftRequest,
+  onSelectApp,
+  onCreateApp,
+  onRenameApp,
+  onDeleteApp,
+  onReorderApps,
   onSelectTable,
   onCreateNormalTable,
   onRenameTable,
@@ -96,14 +92,14 @@ export function Sidebar({
 }: SidebarProps) {
   const isOperator = mode === 'operator'
 
-  // 应用视图空间创建/重命名/删除状态
-  const [creatingView, setCreatingView] = useState(false)
-  const [newViewName, setNewViewName] = useState('')
-  const [newViewType, setNewViewType] = useState<SmartViewType>('table')
-  const [newViewTableId, setNewViewTableId] = useState('')
-  const [renamingViewId, setRenamingViewId] = useState<string | null>(null)
-  const [renameViewDraft, setRenameViewDraft] = useState('')
-  const [confirmDeleteView, setConfirmDeleteView] = useState<WorkspaceView | null>(null)
+  // 智能表格创建/重命名/删除状态
+  const [creatingApp, setCreatingApp] = useState(false)
+  const [newAppName, setNewAppName] = useState('')
+  const [newAppDesc, setNewAppDesc] = useState('')
+  const [newAppTableId, setNewAppTableId] = useState('')
+  const [renamingAppId, setRenamingAppId] = useState<string | null>(null)
+  const [renameAppDraft, setRenameAppDraft] = useState('')
+  const [confirmDeleteApp, setConfirmDeleteApp] = useState<SmartApp | null>(null)
 
   // 数据源中心状态
   const [creatingTable, setCreatingTable] = useState(false)
@@ -120,70 +116,82 @@ export function Sidebar({
     () => new Map(tables.map((b) => [b.meta.id, b.meta.name])),
     [tables],
   )
+  const viewCountByAppId = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const v of views) {
+      counts.set(v.appId, (counts.get(v.appId) ?? 0) + 1)
+    }
+    return counts
+  }, [views])
   const normalTables = useMemo(() => tables.filter((t) => t.meta.kind === 'normal'), [tables])
   const advancedTables = useMemo(() => tables.filter((t) => t.meta.kind === 'advanced'), [tables])
 
-  // 当默认选中表变化时确保新建视图弹窗有有效默认表
+  // 默认选中数据源表
   useEffect(() => {
-    if (!newViewTableId || !tables.some((t) => t.meta.id === newViewTableId)) {
-      setNewViewTableId(tables[0]?.meta.id ?? '')
+    if (!newAppTableId || !tables.some((t) => t.meta.id === newAppTableId)) {
+      setNewAppTableId(tables[0]?.meta.id ?? '')
     }
-  }, [tables, newViewTableId])
+  }, [tables, newAppTableId])
 
-  // 从数据源工具栏「+ 生成应用视图」唤起新建视图表单
+  // 从数据源工具栏「基于此数据源新建智能表格」唤起创建表单
   useEffect(() => {
-    if (!createViewDraftRequest || !isOperator) return
-    setCreatingView(true)
-    setNewViewTableId(createViewDraftRequest.tableId)
-    setNewViewName('')
-  }, [createViewDraftRequest, isOperator])
+    if (!createAppDraftRequest || !isOperator) return
+    setCreatingApp(true)
+    setNewAppTableId(createAppDraftRequest.tableId)
+    setNewAppName('')
+    setNewAppDesc('')
+  }, [createAppDraftRequest, isOperator])
 
   // 切入只读查看态时自动退出内联编辑态
   useEffect(() => {
     if (!isOperator) {
-      setCreatingView(false)
+      setCreatingApp(false)
       setCreatingTable(false)
-      setRenamingViewId(null)
+      setRenamingAppId(null)
       setRenamingTableId(null)
     }
   }, [isOperator])
 
-  async function handleCreateViewSubmit(event: React.FormEvent) {
+  async function handleCreateAppSubmit(event: React.FormEvent) {
     event.preventDefault()
-    const trimmed = newViewName.trim()
-    const targetBundle = tables.find((t) => t.meta.id === newViewTableId) ?? tables[0]
-    if (!trimmed || !targetBundle) return
+    const trimmed = newAppName.trim()
+    const targetTableId = newAppTableId || tables[0]?.meta.id
+    if (!trimmed || !targetTableId) return
     try {
-      const payload = buildDefaultViewPayload(trimmed, newViewType, targetBundle)
-      await onCreateView(payload)
-      setNewViewName('')
-      setCreatingView(false)
+      await onCreateApp({
+        name: trimmed,
+        tableId: targetTableId,
+        ...(newAppDesc.trim() ? { description: newAppDesc.trim() } : {}),
+      })
+      setNewAppName('')
+      setNewAppDesc('')
+      setCreatingApp(false)
     } catch {
       // 错误由上层 Toast 展示
     }
   }
 
-  async function commitRenameView(view: WorkspaceView) {
-    const trimmed = renameViewDraft.trim()
-    if (!trimmed || trimmed === view.name) {
-      setRenamingViewId(null)
+  async function commitRenameApp(app: SmartApp) {
+    const trimmed = renameAppDraft.trim()
+    if (!trimmed || trimmed === app.name) {
+      setRenamingAppId(null)
       return
     }
     try {
-      await onRenameView(view.id, trimmed)
-      setRenamingViewId(null)
+      await onRenameApp(app.id, trimmed)
+      setRenamingAppId(null)
     } catch {
       // 保留编辑态便于重试
     }
   }
 
-  async function handleMoveView(index: number, delta: -1 | 1) {
+  async function handleMoveApp(index: number, delta: -1 | 1) {
     const targetIdx = index + delta
-    if (targetIdx < 0 || targetIdx >= views.length) return
-    const nextIds = views.map((v) => v.id)
+    if (targetIdx < 0 || targetIdx >= apps.length) return
+    const nextIds = apps.map((a) => a.id)
     const [moved] = nextIds.splice(index, 1)
     nextIds.splice(targetIdx, 0, moved!)
-    await onReorderViews(nextIds)
+    await onReorderApps(nextIds)
   }
 
   async function handleCreateTableSubmit(event: React.FormEvent) {
@@ -236,24 +244,24 @@ export function Sidebar({
 
       {/* 导航滚动区 */}
       <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-5">
-        {/* 板块一：应用视图空间 */}
-        <section aria-label="应用视图空间">
+        {/* 板块一：智能表格列表（每张表内置多视图） */}
+        <section aria-label="智能表格">
           <div className="mb-1.5 flex items-center justify-between px-1.5">
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                应用视图空间
+                智能表格
               </span>
               <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[10px] font-medium text-slate-500">
-                {views.length}
+                {apps.length}
               </span>
             </div>
             {isOperator && (
               <button
                 type="button"
                 disabled={busy || tables.length === 0}
-                onClick={() => setCreatingView((v) => !v)}
+                onClick={() => setCreatingApp((v) => !v)}
                 className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                title="新建应用视图"
+                title="基于数据源新建智能表格"
               >
                 <Plus className="h-3 w-3" />
                 <span>新建</span>
@@ -261,79 +269,79 @@ export function Sidebar({
             )}
           </div>
 
-          {isOperator && creatingView && (
+          {isOperator && creatingApp && (
             <form
-              onSubmit={(e) => void handleCreateViewSubmit(e)}
+              onSubmit={(e) => void handleCreateAppSubmit(e)}
               className="mb-2 space-y-2 rounded-lg border border-blue-200 bg-blue-50/40 p-2.5"
             >
               <input
                 type="text"
                 className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                placeholder="视图名称，如：华东项目看板"
-                value={newViewName}
-                onChange={(e) => setNewViewName(e.target.value)}
+                placeholder="智能表格名称，如：华东大区业绩台账"
+                value={newAppName}
+                onChange={(e) => setNewAppName(e.target.value)}
                 autoFocus
               />
               <CustomSelect
                 size="xs"
                 className="w-full"
-                value={newViewType}
-                ariaLabel="视图类型"
-                options={VIEW_TYPE_OPTIONS}
-                onChange={(val) => setNewViewType(val)}
-              />
-              <CustomSelect
-                size="xs"
-                className="w-full"
-                value={newViewTableId}
-                ariaLabel="绑定数据源表"
+                value={newAppTableId}
+                ariaLabel="选择数据源"
                 options={tables.map((t) => ({ value: t.meta.id, label: t.meta.name }))}
-                onChange={(val) => setNewViewTableId(val)}
+                onChange={(val) => setNewAppTableId(val)}
+              />
+              <input
+                type="text"
+                className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                placeholder="业务用途说明（可选）"
+                value={newAppDesc}
+                onChange={(e) => setNewAppDesc(e.target.value)}
               />
               <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setCreatingView(false)}
+                  onClick={() => setCreatingApp(false)}
                   className="h-6 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-50"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  disabled={busy || !newViewName.trim()}
+                  disabled={busy || !newAppName.trim()}
                   className="h-6 rounded bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
                 >
-                  创建视图
+                  创建智能表格
                 </button>
               </div>
             </form>
           )}
 
           <ul className="space-y-0.5">
-            {views.map((view, idx) => {
-              const active = activeTarget.kind === 'view' && activeTarget.viewId === view.id
-              const isRenaming = renamingViewId === view.id
-              const sourceTableName = tableNameById.get(view.tableId) ?? view.tableId
+            {apps.map((app, idx) => {
+              const active = activeTarget.kind === 'app' && activeTarget.appId === app.id
+              const isRenaming = renamingAppId === app.id
+              const sourceTableName = tableNameById.get(app.tableId) ?? app.tableId
+              const viewCount = viewCountByAppId.get(app.id) ?? 0
 
               return (
-                <li key={view.id}>
+                <li key={app.id}>
                   {isRenaming ? (
                     <div className="px-1 py-0.5">
                       <input
                         type="text"
                         className="h-7 w-full rounded-md border border-blue-500 bg-white px-2 text-xs text-slate-800 focus:outline-none"
-                        value={renameViewDraft}
+                        value={renameAppDraft}
                         autoFocus
-                        onChange={(e) => setRenameViewDraft(e.target.value)}
+                        onChange={(e) => setRenameAppDraft(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault()
-                            void commitRenameView(view)
+                            void commitRenameApp(app)
                           } else if (e.key === 'Escape') {
-                            setRenamingViewId(null)
+                            setRenamingAppId(null)
                           }
                         }}
-                        onBlur={() => void commitRenameView(view)}
+                        onBlur={() => void commitRenameApp(app)}
                       />
                     </div>
                   ) : (
@@ -344,93 +352,106 @@ export function Sidebar({
                     >
                       <button
                         type="button"
-                        onClick={() => onSelectView(view.id)}
+                        onClick={() => onSelectApp(app.id)}
                         onDoubleClick={() => {
                           if (!isOperator) return
-                          setRenamingViewId(view.id)
-                          setRenameViewDraft(view.name)
+                          setRenamingAppId(app.id)
+                          setRenameAppDraft(app.name)
                         }}
                         className="flex min-w-0 flex-1 items-center gap-2 text-left"
                       >
-                        <span className="shrink-0">
-                          <ViewTypeIcon type={view.type} />
-                        </span>
+                        <Layers
+                          className={`h-3.5 w-3.5 shrink-0 ${
+                            active ? 'text-blue-600' : 'text-slate-400'
+                          }`}
+                        />
                         <span className="min-w-0 flex-1">
                           <span
                             className={`block truncate text-xs ${active ? 'font-semibold' : 'font-medium'}`}
-                            title={view.name}
+                            title={app.name}
                           >
-                            {view.name}
+                            {app.name}
                           </span>
-                          <span className="block truncate text-[10px] text-slate-400">
-                            {sourceTableName}
-                          </span>
+                          {isOperator && (
+                            <span className="block truncate text-[10px] text-slate-400">
+                              数据源：{sourceTableName}
+                            </span>
+                          )}
                         </span>
                       </button>
 
-                      {isOperator && (
-                        <div className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                          {idx > 0 && (
+                      <div className="ml-1 flex shrink-0 items-center gap-1">
+                        <span
+                          className={`rounded px-1.5 py-0.2 text-[10px] ${
+                            active ? 'bg-blue-100/80 text-blue-700' : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {viewCount} 视图
+                        </span>
+                        {isOperator && (
+                          <div className="hidden items-center gap-0.5 group-hover:flex">
+                            {idx > 0 && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                title="上移智能表格"
+                                aria-label={`上移 ${app.name}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void handleMoveApp(idx, -1)
+                                }}
+                                className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
+                              >
+                                <ArrowUp className="h-3 w-3" />
+                              </button>
+                            )}
+                            {idx < apps.length - 1 && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                title="下移智能表格"
+                                aria-label={`下移 ${app.name}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void handleMoveApp(idx, 1)
+                                }}
+                                className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
+                              >
+                                <ArrowDown className="h-3 w-3" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={busy}
-                              title="上移视图"
-                              aria-label={`上移视图 ${view.name}`}
+                              title="重命名智能表格"
+                              aria-label={`重命名 ${app.name}`}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                void handleMoveView(idx, -1)
+                                setRenamingAppId(app.id)
+                                setRenameAppDraft(app.name)
                               }}
                               className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
                             >
-                              <ArrowUp className="h-3 w-3" />
+                              <Pencil className="h-3 w-3" />
                             </button>
-                          )}
-                          {idx < views.length - 1 && (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              title="下移视图"
-                              aria-label={`下移视图 ${view.name}`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void handleMoveView(idx, 1)
-                              }}
-                              className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                            >
-                              <ArrowDown className="h-3 w-3" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            disabled={busy}
-                            title="重命名视图"
-                            aria-label={`重命名视图 ${view.name}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setRenamingViewId(view.id)
-                              setRenameViewDraft(view.name)
-                            }}
-                            className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                          {views.length > 1 && (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              title="删除视图"
-                              aria-label={`删除视图 ${view.name}`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setConfirmDeleteView(view)
-                              }}
-                              className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      )}
+                            {apps.length > 1 && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                title="删除智能表格"
+                                aria-label={`删除 ${app.name}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setConfirmDeleteApp(app)
+                                }}
+                                className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </li>
@@ -737,16 +758,16 @@ export function Sidebar({
       )}
 
       <ConfirmModal
-        open={confirmDeleteView !== null}
-        title="确认删除视图"
-        description={`确定要删除应用视图「${confirmDeleteView?.name ?? ''}」吗？视图内的筛选、样式与配置将一并移除。`}
-        confirmText="删除视图"
+        open={confirmDeleteApp !== null}
+        title="确认删除智能表格"
+        description={`确定要删除智能表格「${confirmDeleteApp?.name ?? ''}」吗？其下全部视图与配置将一并移除，底层数据源表不会受影响。`}
+        confirmText="删除智能表格"
         busy={busy}
-        onCancel={() => setConfirmDeleteView(null)}
+        onCancel={() => setConfirmDeleteApp(null)}
         onConfirm={async () => {
-          if (!confirmDeleteView) return
-          await onDeleteView(confirmDeleteView.id)
-          setConfirmDeleteView(null)
+          if (!confirmDeleteApp) return
+          await onDeleteApp(confirmDeleteApp.id)
+          setConfirmDeleteApp(null)
         }}
       />
 
@@ -755,8 +776,8 @@ export function Sidebar({
         title="确认删除数据表"
         description={
           confirmDeleteTable?.meta.kind === 'advanced'
-            ? `确定要删除进阶表「${confirmDeleteTable?.meta.name ?? ''}」及其物理表与全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？关联视图也将同步清理，此操作不可撤销。`
-            : `确定要删除普通表「${confirmDeleteTable?.meta.name ?? ''}」及其全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？关联视图也将同步清理，此操作不可撤销。`
+            ? `确定要删除进阶表「${confirmDeleteTable?.meta.name ?? ''}」及其物理表与全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？基于此表构建的智能表格及视图也将同步清理，此操作不可撤销。`
+            : `确定要删除普通表「${confirmDeleteTable?.meta.name ?? ''}」及其全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？基于此表构建的智能表格及视图也将同步清理，此操作不可撤销。`
         }
         confirmText="删除数据表"
         busy={busy}
@@ -772,7 +793,7 @@ export function Sidebar({
       <ConfirmModal
         open={confirmResetOpen}
         title="重置演示数据"
-        description="将清空当前所有自定义表、视图与修改记录，并恢复到初始预置演示数据。确认继续吗？"
+        description="将清空当前所有自定义数据源、智能表格、视图与修改记录，并恢复到初始预置演示数据。确认继续吗？"
         confirmText="确认重置"
         busy={busy}
         onCancel={() => setConfirmResetOpen(false)}

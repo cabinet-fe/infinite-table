@@ -7,7 +7,12 @@ import { describe, expect, test } from 'vitest'
 import { openDatabase } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import { SEED_VERSION, seedSmartTableDemo } from '../../src/server/seed'
-import type { AllTablesResponse, AllViewsResponse } from '../../src/shared/api-types'
+import type {
+  AllAppsResponse,
+  AllTablesResponse,
+  AllViewsResponse,
+  CreateAppResponse,
+} from '../../src/shared/api-types'
 import type { SmartRecord, WorkspaceView } from '../../src/shared/schema'
 
 function createSeededTestEnv() {
@@ -123,16 +128,66 @@ describe('旧库 smart_tables.views_json 到 workspace_views 的平滑迁移', (
 })
 
 describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 / 看板写回', () => {
-  test('种子初始化预置四类示范应用视图且含样式/条件格式/冻结列/看板/仪表盘配置', async () => {
+  test('种子初始化预置多张智能表格与四类示范应用视图且含样式/条件格式/冻结列/看板/仪表盘配置', async () => {
     const { db, app } = createSeededTestEnv()
     const versionRow = db.query('PRAGMA user_version').get() as { user_version: number }
     expect(versionRow.user_version).toBe(SEED_VERSION)
-    expect(SEED_VERSION).toBeGreaterThanOrEqual(3)
+    expect(SEED_VERSION).toBeGreaterThanOrEqual(5)
+
+    const appsRes = await app.request('/api/apps')
+    expect(appsRes.status).toBe(200)
+    const { apps } = (await appsRes.json()) as AllAppsResponse
+    expect(apps.length).toBeGreaterThanOrEqual(7)
 
     const viewsRes = await app.request('/api/views')
     expect(viewsRes.status).toBe(200)
     const { views } = (await viewsRes.json()) as AllViewsResponse
-    expect(views.length).toBeGreaterThanOrEqual(10)
+    expect(views.length).toBeGreaterThanOrEqual(15)
+    expect(views.every((v) => Boolean(v.appId))).toBe(true)
+
+    // 验证同一数据源可被多张不同业务智能表格复用
+    const paymentApps = apps.filter((a) => a.tableId === 'tbl_payments')
+    expect(paymentApps.length).toBeGreaterThanOrEqual(2)
+
+    // 验证多视图归属于同一张智能表格
+    const projectViews = views.filter((v) => v.appId === 'app_projects')
+    expect(new Set(projectViews.map((v) => v.type))).toEqual(
+      new Set(['table', 'kanban', 'pivot', 'dashboard']),
+    )
+
+    // 测试新建智能表格 + 追加视图 + 级联删除智能表格不影响底层数据源
+    const createAppRes = await app.request('/api/apps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '自定义项目子表',
+        tableId: 'tbl_projects',
+        description: '验证新建智能表格',
+      }),
+    })
+    expect(createAppRes.status).toBe(201)
+    const createdAppBody = (await createAppRes.json()) as CreateAppResponse
+    expect(createdAppBody.app.tableId).toBe('tbl_projects')
+    expect(createdAppBody.defaultView.appId).toBe(createdAppBody.app.id)
+
+    const addViewRes = await app.request('/api/views', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appId: createdAppBody.app.id,
+        name: '子表看板',
+        type: 'kanban',
+      }),
+    })
+    expect(addViewRes.status).toBe(201)
+    const addedView = ((await addViewRes.json()) as { view: WorkspaceView }).view
+    expect(addedView.appId).toBe(createdAppBody.app.id)
+    expect(addedView.tableId).toBe('tbl_projects')
+
+    const delAppRes = await app.request(`/api/apps/${createdAppBody.app.id}`, { method: 'DELETE' })
+    expect(delAppRes.status).toBe(200)
+    const tablesAfter = (await (await app.request('/api/tables')).json()) as AllTablesResponse
+    expect(tablesAfter.tables.some((t) => t.meta.id === 'tbl_projects')).toBe(true)
 
     const coveredTables = new Set(views.map((v) => v.tableId))
     expect(coveredTables).toEqual(
