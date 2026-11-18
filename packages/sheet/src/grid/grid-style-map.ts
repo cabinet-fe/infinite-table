@@ -1,7 +1,7 @@
 import type { CellBorderEdge, CellStyle as EngineCellStyle } from '@infinitable/grid'
 
 import type { CellAddress } from '../core/address'
-import type { BorderLineStyle, BorderSide, CellStyle as SheetCellStyle } from '../core/style/types'
+import type { BorderLineStyle, BorderSide, SheetCellStyle } from '../core/style/types'
 import { SHEET_CELL_PADDING, SHEET_DEFAULT_ROW_HEIGHT } from './grid-theme'
 
 /** 引擎边框线型（core 公共面未独立导出，经 CellBorderEdge.style 携带） */

@@ -11,11 +11,11 @@ import type {
 import { writeCsv } from 'hucre/csv'
 import { writeXlsx } from 'hucre/xlsx'
 
-import { iterateRange, type CellRange } from '../address'
+import { iterateRange, type SheetRange } from '../address'
 import { SHEET_DEFAULT_ROW_HEIGHT } from '../defaults'
 import type { SheetImage } from '../image'
 import type { Sheet } from '../sheet'
-import { BORDER_SIDES, type CellStyle, type NumFmt } from '../style/types'
+import { BORDER_SIDES, type SheetCellStyle, type NumFmt } from '../style/types'
 import type { Workbook } from '../workbook'
 
 /**
@@ -90,7 +90,7 @@ export function numFmtToXlsx(numFmt: NumFmt): string {
 }
 
 /** 模型样式 → hucre 单元格样式（fill / border / font / alignment / numFmt；无边宽字段） */
-export function styleToHucre(style: CellStyle): HucreCellStyle {
+export function styleToHucre(style: SheetCellStyle): HucreCellStyle {
   const hucre: HucreCellStyle = {}
   if (style.fill?.color) {
     hucre.fill = { type: 'pattern', pattern: 'solid', fgColor: { rgb: style.fill.color.slice(1) } }
@@ -204,7 +204,7 @@ function cellToHucreCell(
  */
 function materializeMergeCoverStyles(
   sheet: Sheet,
-  merges: readonly CellRange[],
+  merges: readonly SheetRange[],
   cells: Map<string, Partial<HucreCell>>,
 ): void {
   for (const range of merges) {

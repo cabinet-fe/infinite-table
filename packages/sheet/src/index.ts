@@ -6,7 +6,7 @@
 // grid 适配层（SheetGrid）随本包主入口一并具名导出（spec 口径：完整 sheet API 单入口）。
 
 export {
-  cellKey,
+  addressKey,
   colIndexToName,
   colNameToIndex,
   parseAddress,
@@ -20,7 +20,7 @@ export {
   boundingBox,
   iterateRange,
   type CellAddress,
-  type CellRange,
+  type SheetRange,
 } from './core/address'
 
 // 显示链纯投影（P8 打印供数起公开）：导出/打印类适配经此消费，与屏上渲染共用
@@ -84,9 +84,9 @@ export {
   type VerticalAlign,
   type CellFont,
   type CellAlign,
-  type CellStyle,
+  type SheetCellStyle,
   type StyleId,
-  type CellStylePatch,
+  type SheetCellStylePatch,
   type NumFmt,
 } from './core/style/types'
 
@@ -107,7 +107,7 @@ export {
   type MergeResult,
 } from './core/merge-manager'
 
-export { SelectionModel, type SelectionState } from './core/selection'
+export { SelectionModel, type SheetSelectionState } from './core/selection'
 
 export {
   computeFillTargetRange,
@@ -218,15 +218,6 @@ export {
   type ImageInput,
   type ImageFitMode,
 } from './core/image'
-
-export { exportWorkbookXlsx, exportSheetXlsx, exportSheetCsv } from './core/io/export'
-
-export {
-  importXlsx,
-  importCsv,
-  replaceWorkbookWithSnapshots,
-  type SheetReplaceItem,
-} from './core/io/import'
 
 export { TypedEventEmitter } from './core/events'
 

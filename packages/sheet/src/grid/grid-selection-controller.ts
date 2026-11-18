@@ -1,9 +1,9 @@
 import { normalizeRange, type RangeBounds, type SelectionSnapshot } from '@infinitable/grid'
 import type { TableEngine } from '@infinitable/table'
 
-import { createRange, type CellAddress, type CellRange } from '../core/address'
+import { createRange, type CellAddress, type SheetRange } from '../core/address'
 import { computeFillTargetRange, generateFill, type FillDirection } from '../core/fill'
-import type { SelectionState } from '../core/selection'
+import type { SheetSelectionState } from '../core/selection'
 import type { Sheet } from '../core/sheet'
 
 /** 选区拦截回调元信息：shiftKey 为本次按下/手势携带的 shift 修饰键，extend 表示
@@ -17,13 +17,13 @@ export interface GridSelectionControllerOptions {
   /** 整表只读：禁用填充柄写入口（选区照常） */
   isReadonly?: boolean
   interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
-  onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
+  onSelectionIntercept?: (range: SheetRange, meta: SelectionInterceptMeta) => void
   /** 引擎容器：引用拾取手势接线（pointerdown 起手置位 / window 抬手收敛） */
   container?: HTMLElement
 }
 
 /** 引擎选区段 → 模型区域（min/max 归一，闭区间） */
-function boundsToSheetRange(bounds: RangeBounds): CellRange {
+function boundsToSheetRange(bounds: RangeBounds): SheetRange {
   return {
     start: { row: bounds.minRow, col: bounds.minCol },
     end: { row: bounds.maxRow, col: bounds.maxCol },
@@ -31,7 +31,7 @@ function boundsToSheetRange(bounds: RangeBounds): CellRange {
 }
 
 /** 快照末段 → 模型区域（画布选区写模型的取段口径：末段为最新交互段） */
-function lastSnapshotRange(snapshot: SelectionSnapshot): CellRange | null {
+function lastSnapshotRange(snapshot: SelectionSnapshot): SheetRange | null {
   const last = snapshot.ranges[snapshot.ranges.length - 1]
   if (!last) return null
   return boundsToSheetRange(normalizeRange(last))
@@ -74,17 +74,17 @@ export class GridSelectionController {
   private readonly table: TableEngine
   private readonly isReadonly: boolean
   private readonly interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
-  private readonly onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
+  private readonly onSelectionIntercept?: (range: SheetRange, meta: SelectionInterceptMeta) => void
   private readonly container?: HTMLElement
   /** 引用拾取手势期（pointerdown 起手 → pointerup 收敛）：选区变更只记录不回交 */
   private picking = false
   /** 手势期最新拦截范围（引擎连续发射，抬手取末值） */
-  private gestureRange: CellRange | null = null
+  private gestureRange: SheetRange | null = null
   /** 手势期 shift 修饰键（pointerdown 时定格）：抬手收敛判定 extend 用 */
   private gestureShift = false
   /** 最近一次回交宿主的拦截范围：shift+点选扩展的锚点来源（拾取期画布选区被回推为
    * 被编辑格、不含拾取段，引擎缺省锚点取不到「上次拾取的锚点」，由本类自持） */
-  private lastPickedRange: CellRange | null = null
+  private lastPickedRange: SheetRange | null = null
   /** 画布选区回写模型的自传播期：由此引发的 selection-change 回推不滚动视口
    *  （画布侧选区本就来自可视交互/宿主 canvas API，焦点可见性由引擎原生路径
    *  自理；程序化整列选区的焦点落段末，回推若滚动会把视口拉走——右键列头
@@ -169,7 +169,7 @@ export class GridSelectionController {
   }
 
   /** 模型选区 → 画布（applyExternalSelection 不广播防回环）；不可见活动格滚动可见 */
-  pushSelectionToTable(state: SelectionState, options: { scroll?: boolean } = {}): void {
+  pushSelectionToTable(state: SheetSelectionState, options: { scroll?: boolean } = {}): void {
     let range =
       state.ranges[0] ??
       (state.activeCell ? { start: state.activeCell, end: state.activeCell } : null)
@@ -202,7 +202,7 @@ export class GridSelectionController {
   /** 画布选区写模型时整行/整列选区的活动格（落在用户交互的行/列上，Excel 语义） */
   private resolveSelectionActive(
     snapshot: SelectionSnapshot,
-    range: CellRange,
+    range: SheetRange,
   ): CellAddress | undefined {
     const bounds = normalizeRange({
       start: { col: range.start.col, row: range.start.row },
@@ -234,7 +234,7 @@ export class GridSelectionController {
   }
 
   /** 引用选择拦截：宿主 hook 命中即拦截画布选区回写并抛拦截区域（记录为 shift 扩展锚点） */
-  private tryInterceptSelection(range: CellRange, meta: SelectionInterceptMeta = {}): boolean {
+  private tryInterceptSelection(range: SheetRange, meta: SelectionInterceptMeta = {}): boolean {
     if (!this.interceptSelection?.(meta)) return false
     this.lastPickedRange = range
     this.onSelectionIntercept?.(range, meta)

@@ -1,3 +1,5 @@
+import { cellKey } from '@infinitable/grid'
+
 /**
  * A1 地址系统（纯函数）。
  *
@@ -12,21 +14,14 @@ export interface CellAddress {
 }
 
 /** 单元格区域（闭区间，start 左上角，end 右下角） */
-export interface CellRange {
+export interface SheetRange {
   start: CellAddress
   end: CellAddress
 }
 
-/**
- * cellKey 的列基数（2^20）。
- * key = row * COL_KEY_BASE + col，要求 col < COL_KEY_BASE；
- * JS 安全整数范围内可容纳约 8.5e9 行，远超实际使用。
- */
-const COL_KEY_BASE = 2 ** 20
-
-/** 地址 → 数值 key（Map 索引用） */
-export function cellKey(addr: CellAddress): number {
-  return addr.row * COL_KEY_BASE + addr.col
+/** 地址 → 数值 key（Map 索引用，复用 @infinitable/grid 统一 2^21 基数） */
+export function addressKey(addr: CellAddress): number {
+  return cellKey(addr.col, addr.row)
 }
 
 /** 列号（0-based）→ 列名：0 → 'A'，25 → 'Z'，26 → 'AA' */
@@ -70,7 +65,7 @@ export function formatAddress(addr: CellAddress): string {
 }
 
 /** 由两个角点构造规范化区域（start ≤ end） */
-export function createRange(a: CellAddress, b: CellAddress): CellRange {
+export function createRange(a: CellAddress, b: CellAddress): SheetRange {
   return {
     start: { row: Math.min(a.row, b.row), col: Math.min(a.col, b.col) },
     end: { row: Math.max(a.row, b.row), col: Math.max(a.col, b.col) },
@@ -78,7 +73,7 @@ export function createRange(a: CellAddress, b: CellAddress): CellRange {
 }
 
 /** 解析区域记法：'B2' 或 'B2:D5'（兼容绝对引用）；非法返回 null */
-export function parseRange(text: string): CellRange | null {
+export function parseRange(text: string): SheetRange | null {
   const parts = text.trim().split(':')
   if (parts.length > 2) return null
   const start = parseAddress(parts[0]!)
@@ -90,7 +85,7 @@ export function parseRange(text: string): CellRange | null {
 }
 
 /** 区域 → 记法：单格 → 'B2'，多格 → 'B2:D5' */
-export function formatRange(range: CellRange): string {
+export function formatRange(range: SheetRange): string {
   const start = formatAddress(range.start)
   if (range.start.row === range.end.row && range.start.col === range.end.col) return start
   return `${start}:${formatAddress(range.end)}`
@@ -102,12 +97,12 @@ function addressesEqual(a: CellAddress, b: CellAddress): boolean {
 }
 
 /** 区域相等 */
-export function rangesEqual(a: CellRange, b: CellRange): boolean {
+export function rangesEqual(a: SheetRange, b: SheetRange): boolean {
   return addressesEqual(a.start, b.start) && addressesEqual(a.end, b.end)
 }
 
 /** 两区域是否相交 */
-export function rangesIntersect(a: CellRange, b: CellRange): boolean {
+export function rangesIntersect(a: SheetRange, b: SheetRange): boolean {
   return (
     a.start.row <= b.end.row &&
     a.end.row >= b.start.row &&
@@ -117,7 +112,7 @@ export function rangesIntersect(a: CellRange, b: CellRange): boolean {
 }
 
 /** 区域是否包含地址 */
-export function rangeContainsAddress(range: CellRange, addr: CellAddress): boolean {
+export function rangeContainsAddress(range: SheetRange, addr: CellAddress): boolean {
   return (
     addr.row >= range.start.row &&
     addr.row <= range.end.row &&
@@ -127,12 +122,12 @@ export function rangeContainsAddress(range: CellRange, addr: CellAddress): boole
 }
 
 /** 区域是否完整包含另一区域 */
-export function rangeContainsRange(outer: CellRange, inner: CellRange): boolean {
+export function rangeContainsRange(outer: SheetRange, inner: SheetRange): boolean {
   return rangeContainsAddress(outer, inner.start) && rangeContainsAddress(outer, inner.end)
 }
 
 /** 一组区域的最小包围盒（至少传入一个区域） */
-export function boundingBox(ranges: readonly [CellRange, ...CellRange[]]): CellRange {
+export function boundingBox(ranges: readonly [SheetRange, ...SheetRange[]]): SheetRange {
   let minRow = Infinity
   let minCol = Infinity
   let maxRow = -Infinity
@@ -147,7 +142,7 @@ export function boundingBox(ranges: readonly [CellRange, ...CellRange[]]): CellR
 }
 
 /** 按行主序遍历区域内的所有地址 */
-export function* iterateRange(range: CellRange): Generator<CellAddress, void, undefined> {
+export function* iterateRange(range: SheetRange): Generator<CellAddress, void, undefined> {
   for (let row = range.start.row; row <= range.end.row; row++) {
     for (let col = range.start.col; col <= range.end.col; col++) {
       yield { row, col }

@@ -3,7 +3,7 @@
 
 import type { Region } from '@infinitable/render'
 
-import type { CellRef } from './types'
+import type { CellAddress } from './types'
 
 import {
   normalizeRange,
@@ -20,9 +20,9 @@ export interface FillDragState {
   /** 柄所在的选区段 */
   range: SelectionRange
   /** 拖拽起点（锚定段右下角格） */
-  origin: CellRef
+  origin: CellAddress
   /** 轴锁定后的当前终点格 */
-  current: CellRef
+  current: CellAddress
   /** 最新指针位置（视口坐标；边缘驻留时帧循环据此续算终点） */
   pointer: { x: number; y: number }
   /** 边缘自动滚动速度（px/帧；指针不在边缘区为 0） */
@@ -108,7 +108,11 @@ export type FillHandleDoubleClickListener = (event: FillHandleDoubleClickEvent) 
  * 副轴夹回锚定段跨度内——柄方点骑在角点上，裸命中会落到右/下一格，
  * 且拖拽中的横向漂移不应产生侧向填充。
  */
-export function clampToAnchorAxis(origin: CellRef, current: CellRef, anchor: RangeBounds): CellRef {
+export function clampToAnchorAxis(
+  origin: CellAddress,
+  current: CellAddress,
+  anchor: RangeBounds,
+): CellAddress {
   let col = current.col
   let row = current.row
   if (Math.abs(current.row - origin.row) >= Math.abs(current.col - origin.col)) {
@@ -122,8 +126,8 @@ export function clampToAnchorAxis(origin: CellRef, current: CellRef, anchor: Ran
 /** 轴锁定后的拖拽目标范围：始终为 origin..current 的 min/max 序 */
 export function resolveFillTarget(
   anchor: RangeBounds,
-  origin: CellRef,
-  current: CellRef,
+  origin: CellAddress,
+  current: CellAddress,
 ): RangeBounds {
   const locked = clampToAnchorAxis(origin, current, anchor)
   return {

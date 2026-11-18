@@ -1,4 +1,4 @@
-import { cellKey, type CellAddress } from '../address'
+import { addressKey, type CellAddress } from '../address'
 import { cellDataEqual, isEmptyCellData, type CellData } from '../cell-store'
 import { normalizeStyle } from '../style/style-pool'
 import {
@@ -9,8 +9,8 @@ import {
   type BorderEdge,
   type CellAlign,
   type CellFont,
-  type CellStyle,
-  type CellStylePatch,
+  type SheetCellStyle,
+  type SheetCellStylePatch,
 } from '../style/types'
 import type { CellPatch, Command, CommandResult } from './types'
 
@@ -31,8 +31,8 @@ function mergeNullableFields<T extends object>(
 /** SetCellStyleCommand 的批量项（一次调用 = 一个 undo 单元） */
 export interface SetCellStyleItem {
   addr: CellAddress
-  /** 部分样式合并（见 CellStylePatch 语义）；与 clear 互斥，缺省 = 无操作 */
-  partial?: CellStylePatch
+  /** 部分样式合并（见 SheetCellStylePatch 语义）；与 clear 互斥，缺省 = 无操作 */
+  partial?: SheetCellStylePatch
   /** 清除该格样式（删除 s 字段）；与 partial 互斥，clear 优先 */
   clear?: boolean
 }
@@ -55,17 +55,17 @@ export interface SetCellStyleParams {
  * - 合并结果为空 → undefined（调用方删除 s 字段）
  */
 export function mergeCellStyle(
-  before: CellStyle | undefined,
-  partial: CellStylePatch,
-): CellStyle | undefined {
-  const merged: CellStyle = {}
+  before: SheetCellStyle | undefined,
+  partial: SheetCellStylePatch,
+): SheetCellStyle | undefined {
+  const merged: SheetCellStyle = {}
   if (partial.fill !== undefined) {
     merged.fill = partial.fill.color ? { color: partial.fill.color } : undefined
   } else if (before?.fill) {
     merged.fill = { ...before.fill }
   }
   if (partial.border !== undefined) {
-    const border: NonNullable<CellStyle['border']> = {}
+    const border: NonNullable<SheetCellStyle['border']> = {}
     // 未列出的边保留既有值（边级合并，不再是重定义整个边集合）
     for (const side of BORDER_SIDES) {
       const existing = before?.border?.[side]
@@ -141,7 +141,7 @@ export const SetCellStyleCommand: Command<SetCellStyleParams> = {
     for (const item of params.items) {
       // 样式只存锚点格（被覆盖格无数据）；同一锚点的重复项合并为一个补丁
       const anchor = ctx.sheet.merges.resolveAnchor(item.addr)
-      const key = cellKey(anchor)
+      const key = addressKey(anchor)
       if (seen.has(key)) continue
       seen.add(key)
 

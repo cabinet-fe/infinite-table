@@ -25,8 +25,8 @@ import {
   BORDER_STYLE_WIDTH,
   Sheet,
   type CellAddress,
-  type CellRange,
-  type CellStylePatch,
+  type SheetCellStylePatch,
+  type SheetRange,
 } from '@infinitable/sheet'
 
 import { FormDoc } from '../domain/form-doc'
@@ -168,7 +168,7 @@ const NESTED_LEDGER_EXPRESSION = `rows.reduce((orders, row) => {
 
 const cell = (row: number, col: number): CellAddress => ({ row, col })
 
-const span = (row: number, colFrom: number, colTo: number): CellRange => ({
+const span = (row: number, colFrom: number, colTo: number): SheetRange => ({
   start: cell(row, colFrom),
   end: cell(row, colTo),
 })
@@ -179,24 +179,33 @@ const thinEdge = {
   color: '#000000',
 } as const
 
-const bordered: CellStylePatch = {
+const bordered: SheetCellStylePatch = {
   border: { top: thinEdge, right: thinEdge, bottom: thinEdge, left: thinEdge },
 }
-const centered: CellStylePatch = { align: { horizontal: 'center', vertical: 'middle' } }
-const leftAligned: CellStylePatch = { align: { horizontal: 'left', vertical: 'middle' } }
-const rightAligned: CellStylePatch = { align: { horizontal: 'right', vertical: 'middle' } }
-const bold: CellStylePatch = { font: { bold: true } }
-const headerFill: CellStylePatch = { fill: { color: '#eef2f7' } }
-const fixed2: CellStylePatch = { numFmt: { type: 'fixed', digits: 2 } }
-const cnUpper: CellStylePatch = { numFmt: { type: 'cnUpper' } }
+const centered: SheetCellStylePatch = { align: { horizontal: 'center', vertical: 'middle' } }
+const leftAligned: SheetCellStylePatch = { align: { horizontal: 'left', vertical: 'middle' } }
+const rightAligned: SheetCellStylePatch = { align: { horizontal: 'right', vertical: 'middle' } }
+const bold: SheetCellStylePatch = { font: { bold: true } }
+const headerFill: SheetCellStylePatch = { fill: { color: '#eef2f7' } }
+const fixed2: SheetCellStylePatch = { numFmt: { type: 'fixed', digits: 2 } }
+const cnUpper: SheetCellStylePatch = { numFmt: { type: 'cnUpper' } }
 
-function paint(doc: FormDoc, target: CellAddress | CellRange, patches: CellStylePatch[]): void {
+function paint(
+  doc: FormDoc,
+  target: CellAddress | SheetRange,
+  patches: SheetCellStylePatch[],
+): void {
   const range = 'start' in target ? target : { start: target, end: target }
   for (const patch of patches) doc.sheet.setCellStyle(range, patch)
 }
 
 /** 静态文本格：值 + 样式 */
-function putText(doc: FormDoc, at: CellAddress, text: string, ...patches: CellStylePatch[]): void {
+function putText(
+  doc: FormDoc,
+  at: CellAddress,
+  text: string,
+  ...patches: SheetCellStylePatch[]
+): void {
   paint(doc, at, patches)
   doc.sheet.setCellValue(at, text)
 }
@@ -230,7 +239,7 @@ function putBinding(
   doc: FormDoc,
   at: CellAddress,
   binding: FormCellBinding,
-  ...patches: CellStylePatch[]
+  ...patches: SheetCellStylePatch[]
 ): void {
   paint(doc, at, patches)
   doc.setCellBinding(at, binding)
@@ -241,7 +250,7 @@ function putFunction(
   doc: FormDoc,
   at: CellAddress,
   fn: FormCellFunction,
-  ...patches: CellStylePatch[]
+  ...patches: SheetCellStylePatch[]
 ): void {
   paint(doc, at, patches)
   doc.setCellFunction(at, fn)
@@ -250,9 +259,9 @@ function putFunction(
 /** 合并区静态文本：样式铺整区（边界边框供合并合成）→ 锚点值 → 合并 */
 function mergeText(
   doc: FormDoc,
-  region: CellRange,
+  region: SheetRange,
   text: string,
-  ...patches: CellStylePatch[]
+  ...patches: SheetCellStylePatch[]
 ): void {
   paint(doc, region, patches)
   doc.sheet.setCellValue(region.start, text)
@@ -262,9 +271,9 @@ function mergeText(
 /** 合并区绑定（锚点承载 sidecar，随明细展开按份复制） */
 function mergeBinding(
   doc: FormDoc,
-  region: CellRange,
+  region: SheetRange,
   binding: FormCellBinding,
-  ...patches: CellStylePatch[]
+  ...patches: SheetCellStylePatch[]
 ): void {
   paint(doc, region, patches)
   doc.setCellBinding(region.start, binding)
@@ -274,9 +283,9 @@ function mergeBinding(
 /** 合并区函数格（锚点承载 sidecar；小计/合计行标签常用） */
 function mergeFunction(
   doc: FormDoc,
-  region: CellRange,
+  region: SheetRange,
   fn: FormCellFunction,
-  ...patches: CellStylePatch[]
+  ...patches: SheetCellStylePatch[]
 ): void {
   paint(doc, region, patches)
   doc.setCellFunction(region.start, fn)
@@ -313,7 +322,7 @@ function geometry(doc: FormDoc, rowHeights: number[], colWidths: number[]): void
 // ─── 列表样：按客户分组的销售明细清单 ────────────────────────────────────────
 
 /** 列表列定义：数据集字段 → 明细行样式（9 列宽合计 686px ≤ A4 纵向可用页宽） */
-const LIST_COLUMNS: readonly [string, CellStylePatch[]][] = [
+const LIST_COLUMNS: readonly [string, SheetCellStylePatch[]][] = [
   ['order_no', []],
   ['order_date', [centered]],
   ['customer', []],

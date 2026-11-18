@@ -1,12 +1,12 @@
 import {
+  addressKey,
   boundingBox,
-  cellKey,
   createRange,
   iterateRange,
   rangeContainsAddress,
   rangesIntersect,
   type CellAddress,
-  type CellRange,
+  type SheetRange,
 } from './address'
 import { sanitizeMerges, warnMergeConflicts } from '@infinitable/grid'
 
@@ -21,7 +21,7 @@ function bucketOfRow(row: number): number {
   return Math.max(0, Math.floor(row / ROW_BUCKET_SIZE))
 }
 
-function rangeCellCount(range: CellRange): number {
+function rangeCellCount(range: SheetRange): number {
   return (range.end.row - range.start.row + 1) * (range.end.col - range.start.col + 1)
 }
 
@@ -29,7 +29,7 @@ function rangeCellCount(range: CellRange): number {
  * 合并单元格管理器（只管几何，不管数据）。
  *
  * - 锚点恒为区域左上角，数据只存在锚点格（数据搬迁由 Sheet 编排）
- * - merges：anchorKey → CellRange
+ * - merges：anchorKey → SheetRange
  * - coverIndex：小合并区（<= 64 格）coveredCellKey（不含锚点自身）→ anchorKey，O(1) 查询
  * - largeBuckets / hugeMerges：大合并区（> 64 格）按 256 行分桶索引，避免 O(spanRows * spanCols) 写入
  */
@@ -43,7 +43,10 @@ export type MergedCellKind = 'normal' | 'merged-anchor' | 'merged-covered'
  * 合并区不再打断恢复与渲染（engine 侧 MergeCellMap 对重叠仍 fail-fast）。
  * undo/redo 回放的快照来自干净状态，此处为无冲突直通。
  */
-export function sanitizeSnapshotMerges(merges: readonly CellRange[], source: string): CellRange[] {
+export function sanitizeSnapshotMerges(
+  merges: readonly SheetRange[],
+  source: string,
+): SheetRange[] {
   const sanitized = sanitizeMerges(
     merges.map((range) => ({
       startCol: range.start.col,
@@ -64,30 +67,30 @@ export interface CellInfo {
   /** 锚点地址；普通格为自身 */
   anchor: CellAddress
   /** 所在合并区域；普通格无 */
-  mergeRange?: CellRange
+  mergeRange?: SheetRange
 }
 
 export interface MergeResult {
   /** 最终生效的合并区域（与既有合并相交时取包围盒，可能大于入参） */
-  range: CellRange
+  range: SheetRange
   /** 本次被解除的既有合并 */
-  removed: CellRange[]
+  removed: SheetRange[]
 }
 
 export class MergeManager {
-  private merges = new Map<number, CellRange>()
+  private merges = new Map<number, SheetRange>()
   private coverIndex = new Map<number, number>()
-  private largeMerges = new Map<number, CellRange>()
-  private largeBuckets = new Map<number, Set<CellRange>>()
-  private hugeMerges = new Set<CellRange>()
+  private largeMerges = new Map<number, SheetRange>()
+  private largeBuckets = new Map<number, Set<SheetRange>>()
+  private hugeMerges = new Set<SheetRange>()
 
   /**
    * 计算合并结果（纯查询，不修改状态）：
    * 1. 所有与 range 相交的既有合并将被解除
    * 2. 新区域 = range 与被解除合并的包围盒
    */
-  computeMerge(range: CellRange): MergeResult {
-    const removed: CellRange[] = []
+  computeMerge(range: SheetRange): MergeResult {
+    const removed: SheetRange[] = []
     for (const existing of this.merges.values()) {
       if (rangesIntersect(existing, range)) removed.push(existing)
     }
@@ -100,12 +103,12 @@ export class MergeManager {
    * 精确登记一个合并区域（不做相交解除与包围盒）。
    * 低层接口，供命令系统回放补丁使用；调用方需保证不与既有合并相交。
    */
-  addMerge(range: CellRange): void {
+  addMerge(range: SheetRange): void {
     this.register(range)
   }
 
   /** 精确移除一个合并区域（按锚点匹配）；不存在时为空操作 */
-  removeMerge(range: CellRange): void {
+  removeMerge(range: SheetRange): void {
     this.unregister(range)
   }
 
@@ -116,8 +119,8 @@ export class MergeManager {
   }
 
   /** 所在合并区域（锚点与被覆盖格均可查）；不在任何合并内返回 undefined */
-  getMergeAt(addr: CellAddress): CellRange | undefined {
-    const key = cellKey(addr)
+  getMergeAt(addr: CellAddress): SheetRange | undefined {
+    const key = addressKey(addr)
     const asAnchor = this.merges.get(key)
     if (asAnchor) return asAnchor
     const anchorKey = this.coverIndex.get(key)
@@ -147,7 +150,7 @@ export class MergeManager {
   }
 
   /** 全部合并区域（迭代 merges 的副本） */
-  getMerges(): CellRange[] {
+  getMerges(): SheetRange[] {
     return [...this.merges.values()].map((range) => ({
       start: { ...range.start },
       end: { ...range.end },
@@ -166,13 +169,13 @@ export class MergeManager {
     this.hugeMerges.clear()
   }
 
-  private register(range: CellRange): void {
-    const anchorKey = cellKey(range.start)
+  private register(range: SheetRange): void {
+    const anchorKey = addressKey(range.start)
     this.merges.set(anchorKey, range)
     if (rangeCellCount(range) <= SMALL_MERGE_CELL_LIMIT) {
       for (const addr of iterateRange(range)) {
         if (addr.row !== range.start.row || addr.col !== range.start.col) {
-          this.coverIndex.set(cellKey(addr), anchorKey)
+          this.coverIndex.set(addressKey(addr), anchorKey)
         }
       }
       return
@@ -194,8 +197,8 @@ export class MergeManager {
     }
   }
 
-  private unregister(range: CellRange): void {
-    const anchorKey = cellKey(range.start)
+  private unregister(range: SheetRange): void {
+    const anchorKey = addressKey(range.start)
     const stored = this.merges.get(anchorKey)
     if (!stored) return
     this.merges.delete(anchorKey)
@@ -213,7 +216,7 @@ export class MergeManager {
     }
     for (const addr of iterateRange(stored)) {
       if (addr.row !== stored.start.row || addr.col !== stored.start.col) {
-        this.coverIndex.delete(cellKey(addr))
+        this.coverIndex.delete(addressKey(addr))
       }
     }
   }

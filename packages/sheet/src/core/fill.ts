@@ -1,7 +1,7 @@
 // 填充生成（填充柄拖拽语义，框架无关纯函数）
 // （迁移自 sheet-core core/fill.ts；公式引用平移改用 @infinitable/formulas 的 shiftFormulaRefs）
 
-import type { CellAddress, CellRange } from './address'
+import type { CellAddress, SheetRange } from './address'
 import { createRange, iterateRange } from './address'
 import type { CellData, CellType } from './cell-store'
 import type { SetCellValueItem } from './command/set-cell-value'
@@ -12,9 +12,9 @@ export type FillDirection = 'top' | 'bottom' | 'left' | 'right'
 
 export interface GenerateFillOptions {
   /** 拖拽前的源选区（模型坐标） */
-  source: CellRange
+  source: SheetRange
   /** 需要写入的目标区（不含源区，模型坐标） */
-  target: CellRange
+  target: SheetRange
   /** 填充方向 */
   direction: FillDirection
   /** 读取源区单元格（原始存储语义） */
@@ -26,10 +26,10 @@ export interface GenerateFillOptions {
  * 算法对齐 VTable 官方 fill-handle 示例（扩展选区含源区，目标为扩展部分）。
  */
 export function computeFillTargetRange(
-  source: CellRange,
+  source: SheetRange,
   direction: FillDirection,
-  expanded: CellRange,
-): CellRange | null {
+  expanded: SheetRange,
+): SheetRange | null {
   const src = createRange(source.start, source.end)
   const exp = createRange(expanded.start, expanded.end)
 

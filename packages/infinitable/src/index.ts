@@ -18,6 +18,7 @@ export {
   SceneNode,
 } from '@infinitable/render'
 export type {
+  CanvasFactory,
   DashLineContext,
   DashPattern,
   FrameTask,
@@ -47,6 +48,7 @@ export {
   REGION_HANDLE_INSET,
   REGION_HANDLE_SIZE,
   REGION_HANDLE_SIZE_ACTIVE,
+  cellKey,
   cursorForEdge,
   extendsTheme,
   floatHandleEdge,
@@ -86,6 +88,7 @@ export type {
 
 // ---- protocol 层（引擎装配协议：四类平级引擎的公共装配契约，纯类型零运行时）----
 export type {
+  CellAddress,
   CellChangeEvent,
   EngineAssembly,
   EngineCapabilities,
@@ -139,6 +142,7 @@ export type {
 // ---- formulas 层（公式引擎：A1 地址 / 解析与求值 / 函数注册表 / 依赖图 / 引用平移）----
 export {
   DependencyGraph,
+  FormulaLookupCache,
   FormulaParseError,
   FORMULA_FUNCTION_CATEGORIES,
   astHasVolatileCall,
@@ -146,6 +150,7 @@ export {
   colLetters,
   createRangeRef,
   evaluate,
+  evaluateAst,
   formulaError,
   formatCellRef,
   formatRangeRef,
@@ -164,9 +169,12 @@ export {
 } from '@infinitable/formulas'
 export type {
   AstNode,
+  CellRef,
   EvalValue,
+  ExactLookupIndex,
   FormulaError,
   FormulaEvalContext,
+  FormulaEvaluateOptions,
   FormulaFunction,
   FormulaFunctionCategory,
   FormulaFunctionInfo,
@@ -213,11 +221,6 @@ export type {
   PrintPluginOptions,
   PrintScaleMode,
   WatermarkHandle,
+  WatermarkPluginOptions,
   WatermarkTextConfig,
 } from '@infinitable/plugins'
-
-// ---- 同名消歧 ----
-// grid 的格坐标 CellRef 与 formulas 的 A1 引用 CellRef 同名：A1 引用保留原名（配
-// parseCellRef/formatCellRef/createRangeRef），格坐标以 GridCellRef 别名导出。
-export type { CellRef } from '@infinitable/formulas'
-export type { CellRef as GridCellRef } from '@infinitable/grid'

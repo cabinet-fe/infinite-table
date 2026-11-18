@@ -6,7 +6,7 @@ import './setup'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import type { CellRange } from '../../src/core/address'
+import type { SheetRange } from '../../src/core/address'
 import { cellX, cellY, createGrid, fire, flushMicrotasks } from './grid-test-utils'
 
 describe('选区双向同步', () => {
@@ -169,7 +169,7 @@ describe('整行/整列选区', () => {
 
 describe('引用选择拦截', () => {
   it('interceptSelection 命中：不落模型选区、回调拦截区域、画布回推模型选区', () => {
-    const onSelectionIntercept = vi.fn<(range: CellRange) => void>()
+    const onSelectionIntercept = vi.fn<(range: SheetRange) => void>()
     const { grid, container, sheet } = createGrid({
       interceptSelection: () => true,
       onSelectionIntercept,
@@ -189,7 +189,7 @@ describe('引用选择拦截', () => {
   })
 
   it('引用拾取拖选手势收敛：抬手一次回交最终区域（不逐事件回交、不落模型选区）', () => {
-    const onSelectionIntercept = vi.fn<(range: CellRange) => void>()
+    const onSelectionIntercept = vi.fn<(range: SheetRange) => void>()
     const { grid, container, sheet } = createGrid({
       interceptSelection: () => true,
       onSelectionIntercept,
@@ -214,7 +214,7 @@ describe('引用选择拦截', () => {
 
   it('shift+点选扩展：锚点恒为首次拾取锚点，抬手回交 extend（连续扩展不重置锚点）', () => {
     const onSelectionIntercept =
-      vi.fn<(range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void>()
+      vi.fn<(range: SheetRange, meta: { shiftKey?: boolean; extend?: boolean }) => void>()
     const { grid, container } = createGrid({
       interceptSelection: () => true,
       onSelectionIntercept,
@@ -248,7 +248,7 @@ describe('引用选择拦截', () => {
 
   it('首次拾取即 shift：无上次拾取锚点，按普通拾取回交（extend=false）', () => {
     const onSelectionIntercept =
-      vi.fn<(range: CellRange, meta: { shiftKey?: boolean; extend?: boolean }) => void>()
+      vi.fn<(range: SheetRange, meta: { shiftKey?: boolean; extend?: boolean }) => void>()
     const { grid, container } = createGrid({
       interceptSelection: () => true,
       onSelectionIntercept,
@@ -266,7 +266,7 @@ describe('引用选择拦截', () => {
   })
 
   it('interceptSelection 收到 shift 修饰键：仅 shift 按下时进入拾取手势', () => {
-    const onSelectionIntercept = vi.fn<(range: CellRange) => void>()
+    const onSelectionIntercept = vi.fn<(range: SheetRange) => void>()
     const { grid, container, sheet } = createGrid({
       interceptSelection: (meta) => meta?.shiftKey === true,
       onSelectionIntercept,

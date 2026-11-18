@@ -5,7 +5,8 @@
 
 import type { RenderImageSource } from '@infinitable/render'
 
-import type { CellRef } from '../types'
+import { cellKey } from '../cell-range'
+import type { CellAddress } from '../types'
 
 const DEFAULT_MAX_CACHE_BYTES = 256 * 1024 * 1024
 const DEFAULT_MAX_CACHE_COUNT = 1000
@@ -47,23 +48,23 @@ export interface ImageLoadEvent {
   url: string
   width: number
   height: number
-  cells: CellRef[]
+  cells: CellAddress[]
 }
 
 export interface ImageErrorEvent {
   url: string
   error: unknown
-  cells: CellRef[]
+  cells: CellAddress[]
 }
 
 type ImageSettledCallback = (state: ImageState) => void
 /** 窗口判定：返回 cell 是否位于「视口+余量」内 */
-type WindowPredicate = (cell: CellRef) => boolean
+type WindowPredicate = (cell: CellAddress) => boolean
 
 type UrlResolver = (raw: string) => string | null
 
 interface EntryRef {
-  cell: CellRef
+  cell: CellAddress
   onSettled?: ImageSettledCallback
 }
 
@@ -72,8 +73,8 @@ interface Entry {
   image?: LoadedImage
   bytes: number
   error?: unknown
-  /** 引用该 URL 的格（key 为 `col:row`） */
-  refs: Map<string, EntryRef>
+  /** 引用该 URL 的格（key 为 cellKey(col, row)） */
+  refs: Map<number, EntryRef>
   /** 加载代际：取消/失效后迟到的加载结果按代际丢弃 */
   generation: number
 }
@@ -95,10 +96,6 @@ function defaultLoadImage(
     img.onerror = () => reject(new Error(`image load failed: ${url}`))
     img.src = url
   })
-}
-
-function cellKey(cell: CellRef): string {
-  return `${cell.col}:${cell.row}`
 }
 
 export class ImageService {
@@ -155,7 +152,7 @@ export class ImageService {
    * 窗口内 idle：发起或排队加载；窗口外：保持 idle 不发起（随 updateWindow 调度）。
    * onSettled 只在请求后异步落定（ready/error）时触发一次。
    */
-  request(url: string, cell: CellRef, onSettled?: ImageSettledCallback): ImageState {
+  request(url: string, cell: CellAddress, onSettled?: ImageSettledCallback): ImageState {
     const resolved = this.resolveUrl(url)
     if (resolved === null) {
       const error = new Error(`invalid image url: ${url}`)
@@ -164,7 +161,7 @@ export class ImageService {
       return 'error'
     }
     const entry = this.ensureEntry(resolved)
-    entry.refs.set(cellKey(cell), { cell, onSettled })
+    entry.refs.set(cellKey(cell.col, cell.row), { cell, onSettled })
     if (entry.state === 'ready') {
       this.touch(resolved, entry)
       return 'ready'
@@ -186,16 +183,17 @@ export class ImageService {
    * 浮动对象引用（request 带 onSettled）生命周期跟随对象本身、不可随窗口裁剪
    * （否则滚回后 onSettled 丢失导致浮动图永不加载），本原语对其不做移除。
    */
-  releaseRef(url: string, cell: CellRef): void {
+  releaseRef(url: string, cell: CellAddress): void {
     const entry = this.entries.get(url)
     if (!entry) {
       return
     }
-    const ref = entry.refs.get(cellKey(cell))
+    const key = cellKey(cell.col, cell.row)
+    const ref = entry.refs.get(key)
     if (!ref || ref.onSettled !== undefined) {
       return
     }
-    entry.refs.delete(cellKey(cell))
+    entry.refs.delete(key)
     if (entry.refs.size === 0 && (entry.state === 'idle' || entry.state === 'error')) {
       this.idleQueue.delete(url)
       this.entries.delete(url)
@@ -234,7 +232,7 @@ export class ImageService {
   }
 
   /** 按 URL 逐出缓存；返回引用它的格（供调用方重绘这些可见 cell） */
-  invalidate(url: string): CellRef[] {
+  invalidate(url: string): CellAddress[] {
     const entry = this.entries.get(url)
     if (!entry) {
       return []
@@ -411,7 +409,7 @@ export class ImageService {
     }
   }
 
-  private emitError(url: string, error: unknown, cells: CellRef[]): void {
+  private emitError(url: string, error: unknown, cells: CellAddress[]): void {
     for (const listener of this.errorListeners) {
       listener({ url, error, cells })
     }

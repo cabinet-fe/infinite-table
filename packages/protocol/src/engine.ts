@@ -7,6 +7,12 @@ import type { RenderContext, RenderHost, Size } from '@infinitable/render'
 import type { GridDataModel, GridReadView, WritableGridDataModel } from './grid'
 import type { EnginePlugin } from './plugin'
 
+/** 0 基单元格坐标 */
+export interface CellAddress {
+  col: number
+  row: number
+}
+
 /** 引擎外框样式 token */
 export interface EngineFrameStyle {
   /** 外框线宽（CSS 像素）；0 不绘制 */

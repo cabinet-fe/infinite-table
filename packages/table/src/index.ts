@@ -50,13 +50,13 @@ export type {
 } from './float/float-object-layer'
 export type {
   CanvasDocSource,
+  CellAddress,
   CellChangeEvent,
   CellChartMedia,
   CellLink,
   CellLinkClickEvent,
   CellLinkHoverEvent,
   CellLinkLeaveEvent,
-  CellRef,
   ColHeaderClickEvent,
   ColHeaderClickListener,
   ColumnDefine,

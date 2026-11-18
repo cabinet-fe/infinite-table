@@ -1,6 +1,6 @@
 // 测试通用夹具：地址/区间构造器。
 // 这些是纯数据字面量的简写，散在各测试文件里逐份复制时，一处改口径其余会悄悄漂移。
-import type { CellAddress, CellRange } from '@infinitable/sheet'
+import type { CellAddress, SheetRange } from '@infinitable/sheet'
 
 import type { FormCellBinding } from '../../../src/shared/template-schema'
 
@@ -8,7 +8,7 @@ import type { FormCellBinding } from '../../../src/shared/template-schema'
 export const ADDR = (row: number, col: number): CellAddress => ({ row, col })
 
 /** 矩形区间（左上 → 右下，含端点） */
-export const RANGE = (r1: number, c1: number, r2: number, c2: number): CellRange => ({
+export const RANGE = (r1: number, c1: number, r2: number, c2: number): SheetRange => ({
   start: { row: r1, col: c1 },
   end: { row: r2, col: c2 },
 })

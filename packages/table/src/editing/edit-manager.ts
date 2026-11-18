@@ -9,7 +9,13 @@ import type { ScrollState } from '@infinitable/grid'
 import type { Region } from '@infinitable/render'
 
 import type { CellEditor, CellEditorSession, EditorRegistry } from '../editor-registry'
-import type { CellChangeEvent, CellRef, ColumnDefine, EditEndEvent, EditStartEvent } from '../types'
+import type {
+  CellAddress,
+  CellChangeEvent,
+  ColumnDefine,
+  EditEndEvent,
+  EditStartEvent,
+} from '../types'
 import {
   createTextEditor,
   type TextEditor,
@@ -121,7 +127,7 @@ export class EditManager {
   }
 
   /** 当前编辑的格；无会话时为 null */
-  editingCell(): CellRef | null {
+  editingCell(): CellAddress | null {
     return this.session ? { col: this.session.col, row: this.session.row } : null
   }
 

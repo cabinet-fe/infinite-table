@@ -1,11 +1,8 @@
 // grid 公共类型：几何/滚动向词汇（格坐标、内建滚动条配置），自 core types.ts 随迁；
 // 表格领域类型（数据供给、列定义、事件载荷等）留在消费侧。
 
-/** 格坐标引用（图片加载窗口、浮动对象锚点共用） */
-export interface CellRef {
-  col: number
-  row: number
-}
+/** 0 基单元格坐标（图片加载窗口、浮动对象锚点、选区等共用） */
+export type { CellAddress } from '@infinitable/protocol'
 
 /** 滚动条形态：'canvas' 画布内建（sky 浮层绘制，缺省旧语义）；'native' 浏览器原生滚动条 */
 export type ScrollbarMode = 'canvas' | 'native'

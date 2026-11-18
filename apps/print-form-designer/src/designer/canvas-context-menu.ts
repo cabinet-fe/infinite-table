@@ -1,7 +1,7 @@
 // 画布右键菜单的菜单项构建（纯函数）：按落点上下文（body / 行头）计算可用项与
 // 禁用原因。菜单呈现归 ui/ContextMenu，动作执行归 DesignerPage——这里只决定
 // 「这一下右键能做什么、为什么不能做」，与 Excel 右键的行为口径对齐。
-import type { CellRange, CellAddress, SheetGridContextMenuInfo } from '@infinitable/sheet'
+import type { CellAddress, SheetGridContextMenuInfo, SheetRange } from '@infinitable/sheet'
 
 import type { ContextMenuItem } from '../ui/ContextMenu'
 import type { FormDoc } from '../domain/form-doc'
@@ -26,7 +26,7 @@ export interface CanvasContextMenuActions {
 }
 
 /** 选区 → 规范矩形（start ≤ end 的闭区间口径） */
-export function selectionRect(range: CellRange): {
+export function selectionRect(range: SheetRange): {
   startRow: number
   endRow: number
   startCol: number
@@ -41,7 +41,7 @@ export function selectionRect(range: CellRange): {
 }
 
 /** 「设置为数据块」的禁用原因：无选区 / 与已有数据块重叠 / 含相对绑定字段的单元格 */
-function createRegionBlockedReason(doc: FormDoc, range: CellRange | null): string | undefined {
+function createRegionBlockedReason(doc: FormDoc, range: SheetRange | null): string | undefined {
   if (!range) {
     return '先在画布上框选一块范围（数据块只为绑数据集或数组型聚合而存在；固定文字直接写在格子里）'
   }
@@ -67,7 +67,7 @@ function regionIndexOfAddr(doc: FormDoc, addr: CellAddress | null): number {
 }
 
 /** 选区与任一合并区相交 */
-function selectionIntersectsMerge(doc: FormDoc, range: CellRange | null): boolean {
+function selectionIntersectsMerge(doc: FormDoc, range: SheetRange | null): boolean {
   if (!range) return false
   const rect = selectionRect(range)
   return doc.sheet.merges.getMerges().some((merge) =>
@@ -89,7 +89,7 @@ function selectionIntersectsMerge(doc: FormDoc, range: CellRange | null): boolea
 export function buildCanvasContextMenu(
   doc: FormDoc,
   info: SheetGridContextMenuInfo,
-  selection: CellRange | null,
+  selection: SheetRange | null,
   actions: CanvasContextMenuActions,
 ): ContextMenuItem[] {
   if (info.kind === 'row-header') {

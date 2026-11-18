@@ -1,7 +1,7 @@
 // 查找纯逻辑（框架无关、无头可测）（迁移自 sheet-core core/find.ts）。
 
 import type { CellAddress } from './address'
-import { cellKey } from './address'
+import { addressKey } from './address'
 import type { Sheet } from './sheet'
 
 /**
@@ -67,7 +67,7 @@ export function findAll(sheet: Sheet, query: string, options: FindOptions = {}):
   }
   // store.entries 按 Map 插入序迭代（首次写入顺序），显式按行主序排序保证
   // findNext/findPrev 的「行主序、到边界循环」语义与文档一致
-  result.sort((a, b) => cellKey(a.addr) - cellKey(b.addr))
+  result.sort((a, b) => addressKey(a.addr) - addressKey(b.addr))
   return result
 }
 
@@ -77,13 +77,13 @@ export function findAll(sheet: Sheet, query: string, options: FindOptions = {}):
  */
 export function findNextFrom(matches: FindMatch[], from: CellAddress): FindMatch | null {
   if (matches.length === 0) return null
-  const fromKey = cellKey(from)
+  const fromKey = addressKey(from)
   let lo = 0
   let hi = matches.length - 1
   let first = -1
   while (lo <= hi) {
     const mid = (lo + hi) >> 1
-    if (cellKey(matches[mid]!.addr) > fromKey) {
+    if (addressKey(matches[mid]!.addr) > fromKey) {
       first = mid
       hi = mid - 1
     } else {
@@ -99,13 +99,13 @@ export function findNextFrom(matches: FindMatch[], from: CellAddress): FindMatch
  */
 export function findPrevFrom(matches: FindMatch[], from: CellAddress): FindMatch | null {
   if (matches.length === 0) return null
-  const fromKey = cellKey(from)
+  const fromKey = addressKey(from)
   let lo = 0
   let hi = matches.length - 1
   let last = -1
   while (lo <= hi) {
     const mid = (lo + hi) >> 1
-    if (cellKey(matches[mid]!.addr) < fromKey) {
+    if (addressKey(matches[mid]!.addr) < fromKey) {
       last = mid
       lo = mid + 1
     } else {

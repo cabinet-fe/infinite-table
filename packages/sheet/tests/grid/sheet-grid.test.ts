@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CellAddress } from '../../src/core/address'
 import type { CellValue } from '../../src/core/cell-store'
 import { Sheet } from '../../src/core/sheet'
-import type { CellStyle } from '../../src/core/style/types'
+import type { SheetCellStyle } from '../../src/core/style/types'
 import type { SheetGridContextMenuInfo } from '../../src/grid/grid-coords'
 import { SHEET_GRID_THEME } from '../../src/grid/grid-theme'
 import { cellX, cellY, createGrid, fire, flushMicrotasks, VIEW_H, VIEW_W } from './grid-test-utils'
@@ -522,7 +522,7 @@ describe('SheetGrid 编辑生命周期与 hooks', () => {
   })
 
   it('resolveCellStyle 按格叠加动态样式（渲染热路径调用，不写 CellData.s）', () => {
-    const resolveCellStyle = vi.fn<() => CellStyle>(() => ({ fill: { color: '#FF0000' } }))
+    const resolveCellStyle = vi.fn<() => SheetCellStyle>(() => ({ fill: { color: '#FF0000' } }))
     const { grid, sheet } = createGrid({ resolveCellStyle })
     try {
       expect(resolveCellStyle).toHaveBeenCalled()

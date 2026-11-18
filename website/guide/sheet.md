@@ -464,14 +464,14 @@ sheet.on('structure-change', () => mount())
 ## 导入导出
 
 ```ts
+import { Sheet } from 'infinitable/sheet'
 import {
-  Sheet,
   exportSheetCsv,
   exportSheetXlsx,
   exportWorkbookXlsx,
   importCsv,
   importXlsx,
-} from 'infinitable/sheet'
+} from 'infinitable/sheet/io'
 
 // xlsx → 新工作簿
 const buffer = await file.arrayBuffer()

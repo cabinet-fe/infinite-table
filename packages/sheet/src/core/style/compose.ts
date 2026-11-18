@@ -5,7 +5,7 @@ import {
   FONT_STYLE_KEYS,
   type CellAlign,
   type CellFont,
-  type CellStyle,
+  type SheetCellStyle,
 } from './types'
 
 /**
@@ -19,13 +19,13 @@ import {
  * - numFmt：字段级——overlay 定义则覆盖，缺省保留 base
  */
 export function composeCellStyles(
-  base: CellStyle | undefined,
-  overlay: CellStyle | undefined,
-): CellStyle | undefined {
+  base: SheetCellStyle | undefined,
+  overlay: SheetCellStyle | undefined,
+): SheetCellStyle | undefined {
   if (!overlay) return base ? normalizeStyle(cloneLayer(base)) : undefined
   if (!base) return normalizeStyle(cloneLayer(overlay))
 
-  const merged: CellStyle = {}
+  const merged: SheetCellStyle = {}
 
   if (overlay.fill !== undefined) {
     if (overlay.fill.color) merged.fill = { color: overlay.fill.color }
@@ -34,7 +34,7 @@ export function composeCellStyles(
   }
 
   if (overlay.border !== undefined || base.border) {
-    const border: NonNullable<CellStyle['border']> = {}
+    const border: NonNullable<SheetCellStyle['border']> = {}
     for (const side of BORDER_SIDES) {
       const edge = overlay.border?.[side] ?? base.border?.[side]
       if (edge) border[side] = { ...edge }
@@ -55,11 +55,11 @@ export function composeCellStyles(
 }
 
 /** 浅拷贝一层样式（fill / 各边 / font / align 独立对象） */
-function cloneLayer(style: CellStyle): CellStyle {
-  const out: CellStyle = {}
+function cloneLayer(style: SheetCellStyle): SheetCellStyle {
+  const out: SheetCellStyle = {}
   if (style.fill) out.fill = { ...style.fill }
   if (style.border) {
-    const border: NonNullable<CellStyle['border']> = {}
+    const border: NonNullable<SheetCellStyle['border']> = {}
     for (const side of BORDER_SIDES) {
       const edge = style.border[side]
       if (edge) border[side] = { ...edge }

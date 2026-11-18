@@ -48,11 +48,11 @@ import { nextActiveCell, revealAxis } from './keyboard-navigation'
 import type { ListTable } from './list-table'
 import { applyHeaderHighlight, editorBorderInsets } from './list-table-scene'
 import type {
+  CellAddress,
   CellLink,
   CellLinkClickEvent,
   CellLinkHoverEvent,
   CellLinkLeaveEvent,
-  CellRef,
   ColHeaderClickEvent,
   ImageLinkClickEvent,
   PointerEventHost,
@@ -280,7 +280,7 @@ function onPointerDown(table: ListTable, event: SceneEvent, fromSkyRoot = false)
   }
 }
 
-function resolveShiftAnchor(table: ListTable, target: CellRef): CellRef | null {
+function resolveShiftAnchor(table: ListTable, target: CellAddress): CellAddress | null {
   const hooked = table.options.resolveShiftSelectAnchor?.(target)
   if (hooked !== undefined) {
     return hooked
@@ -537,7 +537,7 @@ function extendHeaderDrag(table: ListTable, x: number, y: number): void {
   interactionState.selection.updateDragRange(start, end)
 }
 
-function updateFillCurrent(drag: FillDragState, cell: CellRef): void {
+function updateFillCurrent(drag: FillDragState, cell: CellAddress): void {
   drag.current = clampToAnchorAxis(drag.origin, cell, normalizeRange(drag.range))
 }
 
@@ -589,7 +589,11 @@ function scheduleFillEdgeScroll(table: ListTable): void {
   })
 }
 
-function dragExtentRange(table: ListTable, anchor: CellRef, target: CellRef): SelectionRange {
+function dragExtentRange(
+  table: ListTable,
+  anchor: CellAddress,
+  target: CellAddress,
+): SelectionRange {
   const { mergeCells } = table.geometryState
   const a = mergeCells.rangeAt(anchor.col, anchor.row)
   const t = mergeCells.rangeAt(target.col, target.row)
@@ -838,7 +842,7 @@ function toContentY(table: ListTable, y: number): number {
   return rel < table.geometryState.frozenRowsHeight ? rel : rel + table.scroll.state.top
 }
 
-export function cellAt(table: ListTable, x: number, y: number): CellRef | null {
+export function cellAt(table: ListTable, x: number, y: number): CellAddress | null {
   if (x < table.rowHeaderWidth || y < table.headerHeight) {
     return null
   }

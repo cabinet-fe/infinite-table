@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditorRegistry } from '../src/editor-registry'
 import { ListTable } from '../src/list-table'
-import type { CellRef, DataRecord, ListTableOptions, TableContextMenuEvent } from '../src/types'
+import type { CellAddress, DataRecord, ListTableOptions, TableContextMenuEvent } from '../src/types'
 import { createFakeDoc, FakeEditorHost } from './testing/fake-editor-dom'
 import { StubHost } from './testing/stub-host'
 
@@ -216,7 +216,7 @@ describe('ListTable 行列头关闭：contextmenu 落点区域', () => {
       showRowHeader: false,
       showColHeader: false,
     })
-    const seen: Array<{ region: TableContextMenuEvent['region']; cell: CellRef | null }> = []
+    const seen: Array<{ region: TableContextMenuEvent['region']; cell: CellAddress | null }> = []
     table.onContextMenu((event) => seen.push({ region: event.region, cell: event.cell }))
     fireBody(host, 'contextmenu', { x: 150, y: 10 })
     fireBody(host, 'contextmenu', { x: 10, y: 70 })

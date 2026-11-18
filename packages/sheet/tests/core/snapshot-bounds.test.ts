@@ -4,12 +4,12 @@
 // 整条丢弃）。
 import { describe, expect, it } from 'vitest'
 
-import type { CellRange } from '../../src/core/address'
+import type { SheetRange } from '../../src/core/address'
 import { clampSnapshotToBounds, snapshotContentBounds } from '../../src/core/snapshot-bounds'
 import type { SheetSnapshot } from '../../src/core/sheet'
 
 /** 矩形区间（左上 → 右下，含端点） */
-const RANGE = (r1: number, c1: number, r2: number, c2: number): CellRange => ({
+const RANGE = (r1: number, c1: number, r2: number, c2: number): SheetRange => ({
   start: { row: r1, col: c1 },
   end: { row: r2, col: c2 },
 })

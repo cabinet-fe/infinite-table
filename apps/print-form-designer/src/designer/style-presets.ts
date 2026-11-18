@@ -2,8 +2,8 @@
 import {
   BORDER_STYLE_WIDTH,
   type BorderSide,
-  type CellStyle,
-  type CellStylePatch,
+  type SheetCellStyle,
+  type SheetCellStylePatch,
 } from '@infinitable/sheet'
 
 /** 边框预设（四边同线型；none = 四边全清） */
@@ -39,7 +39,7 @@ export const NUM_FMT_QUICK: { value: NumFmtOption; label: string; title: string 
 ]
 
 /** 边框预设 → 样式补丁（none 显式清四边，其余四边同线型） */
-export function borderPatch(option: BorderOption): CellStylePatch {
+export function borderPatch(option: BorderOption): SheetCellStylePatch {
   if (option === 'none') {
     return { border: { top: null, right: null, bottom: null, left: null } }
   }
@@ -48,7 +48,7 @@ export function borderPatch(option: BorderOption): CellStylePatch {
 }
 
 /** 数字格式预设 → 样式补丁 */
-export function numFmtPatch(option: NumFmtOption): CellStylePatch {
+export function numFmtPatch(option: NumFmtOption): SheetCellStylePatch {
   switch (option) {
     case 'date':
       return { numFmt: { type: 'date' } }
@@ -67,7 +67,7 @@ export function numFmtPatch(option: NumFmtOption): CellStylePatch {
  * 既有样式 → 边框预设。四边同线型才算命中；四边全无 = none；
  * 混合形态（只描了三边等）返回 'mixed'，工具条据此显示未选状态。
  */
-export function detectBorderOption(style: CellStyle | undefined): BorderOption | 'mixed' {
+export function detectBorderOption(style: SheetCellStyle | undefined): BorderOption | 'mixed' {
   const edges = BORDER_SIDES.map((side) => style?.border?.[side])
   if (edges.every((edge) => edge === undefined)) return 'none'
   const first = edges[0]
@@ -81,7 +81,7 @@ export function detectBorderOption(style: CellStyle | undefined): BorderOption |
 }
 
 /** 既有样式 → 数字格式预设（fixed 非 2 位小数视为常规） */
-export function detectNumFmtOption(style: CellStyle | undefined): NumFmtOption {
+export function detectNumFmtOption(style: SheetCellStyle | undefined): NumFmtOption {
   const numFmt = style?.numFmt
   if (!numFmt) return 'none'
   switch (numFmt.type) {

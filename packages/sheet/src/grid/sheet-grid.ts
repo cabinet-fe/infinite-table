@@ -23,7 +23,7 @@ import type {
   PainterRegistration,
 } from '@infinitable/protocol'
 
-import type { CellAddress, CellRange } from '../core/address'
+import type { CellAddress, SheetRange } from '../core/address'
 import { colIndexToName } from '../core/address'
 import type { CellImagePayload, CellLinkPayload } from '../core/cell-meta'
 import type { CellValue } from '../core/cell-store'
@@ -64,7 +64,7 @@ export type ResolveCellRenderer = (
 
 /** 公式引用拾取染色框条目：模型区域 + 边框颜色（宿主循环色板逐条指定） */
 export interface SheetGridHighlight {
-  range: CellRange
+  range: SheetRange
   color: string
 }
 
@@ -115,7 +115,7 @@ export interface SheetGridOptions {
   /** 列宽拖拽落定回调（拖拽写模型之后触发；载荷含列索引与最终宽度） */
   onColResizeEnd?: (event: { col: number; width: number }) => void
   interceptSelection?: (meta?: SelectionInterceptMeta) => boolean
-  onSelectionIntercept?: (range: CellRange, meta: SelectionInterceptMeta) => void
+  onSelectionIntercept?: (range: SheetRange, meta: SelectionInterceptMeta) => void
   readonly?: boolean
   /** 是否显示行号列，默认 true */
   showRowHeader?: boolean

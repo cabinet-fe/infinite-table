@@ -1,4 +1,3 @@
-import type { CellRef } from '@infinitable/grid'
 import type { TableEngine, TableContextMenuEvent } from '@infinitable/table'
 
 import type { CellAddress } from '../core/address'
@@ -72,8 +71,8 @@ export function buildContextMenuInfo(
   return { ...point, kind: 'body', addr }
 }
 
-/** 引擎格引用 → 模型地址（行列头 / 空白为 null） */
-function cellRefToAddr(cell: CellRef | null): CellAddress | null {
+/** 引擎格坐标 → 模型地址（行列头 / 空白为 null） */
+function cellRefToAddr(cell: CellAddress | null): CellAddress | null {
   return cell ? { row: cell.row, col: cell.col } : null
 }
 

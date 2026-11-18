@@ -1,20 +1,20 @@
-import { rangesIntersect, type CellAddress, type CellRange } from '../address'
+import { rangesIntersect, type CellAddress, type SheetRange } from '../address'
 import { cellDataEqual, isEmptyCellData, type CellData } from '../cell-store'
 import type { Sheet } from '../sheet'
-import type { CellStyle } from '../style/types'
+import type { SheetCellStyle } from '../style/types'
 import type { CellPatch, Command, CommandResult, MergePatch, Patch } from './types'
 
 export interface MergeCellsParams {
-  range: CellRange
+  range: SheetRange
 }
 
 /** 从已按行主序排列的实存格中合成合并区四边外边框到基础样式 */
 function synthesizeMergeBorder(
   sheet: Sheet,
-  finalRange: CellRange,
+  finalRange: SheetRange,
   entries: readonly [CellAddress, CellData][],
-  baseStyle?: CellStyle,
-): CellStyle | undefined {
+  baseStyle?: SheetCellStyle,
+): SheetCellStyle | undefined {
   const mergedBorder = { ...baseStyle?.border }
   for (const [addr, data] of entries) {
     if (data.s == null) continue
@@ -50,8 +50,8 @@ function synthesizeMergeBorder(
  */
 function collectMergeRangePatches(
   sheet: Sheet,
-  range: CellRange,
-): { finalRange: CellRange; patches: Patch[] } {
+  range: SheetRange,
+): { finalRange: SheetRange; patches: Patch[] } {
   const { range: finalRange, removed } = sheet.merges.computeMerge(range)
 
   // entriesInRange 内层遍历 rowMap 为插入序，按 (row, col) 升序重排以严格满足行主序规则
@@ -115,10 +115,10 @@ function collectMergeRangePatches(
  * 值保留规则同 Excel/univer：行主序第一个有值格的值写入新锚点，其余清空。
  * 边框规则：合成区域边界上的外边框并写入新锚点。
  */
-export const MergeCellsCommand: Command<MergeCellsParams, CellRange> = {
+export const MergeCellsCommand: Command<MergeCellsParams, SheetRange> = {
   id: 'sheet.command.merge-cells',
 
-  handler(ctx, params): CommandResult<CellRange> {
+  handler(ctx, params): CommandResult<SheetRange> {
     const { finalRange, patches } = collectMergeRangePatches(ctx.sheet, params.range)
     for (const patch of patches) ctx.applyPatch(patch, 'redo')
     return { mutations: [{ redo: patches, undo: [...patches].reverse() }], result: finalRange }
@@ -126,7 +126,7 @@ export const MergeCellsCommand: Command<MergeCellsParams, CellRange> = {
 }
 
 export interface UnmergeCellsParams {
-  range: CellRange
+  range: SheetRange
 }
 
 /** 取消合并命令：解除与 range 相交的所有合并；undo 恢复合并记录 */
@@ -147,7 +147,7 @@ export const UnmergeCellsCommand: Command<UnmergeCellsParams> = {
 }
 
 export interface MergeCellsBatchParams {
-  ranges: CellRange[]
+  ranges: SheetRange[]
 }
 
 /**

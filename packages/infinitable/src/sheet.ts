@@ -3,9 +3,9 @@
 // 导出判据与主入口一致（判据、逐项清单与移出项过渡方案见 agent-docs/apis/exports.md）；
 // 符号集合由 tests/public-surface.test.ts 快照冻结，增删导出必须显式改快照。
 // 公式引擎 API 不在此转售——下游如需直接 import '@infinitable/formulas'，
-// 本子路径只覆盖电子表格核心（模型/命令/IO/SheetGrid 适配）。
+// 本子路径只覆盖电子表格核心（模型/命令/SheetGrid 适配；XLSX/CSV IO 拆至 ./sheet/io）。
 export {
-  cellKey,
+  addressKey,
   colIndexToName,
   colNameToIndex,
   parseAddress,
@@ -19,7 +19,7 @@ export {
   boundingBox,
   iterateRange,
   type CellAddress,
-  type CellRange,
+  type SheetRange,
   // 显示链纯投影（P8 打印供数起公开）：缺省行列尺寸 / numFmt 显示文本 / 样式映射
   SHEET_DEFAULT_ROW_HEIGHT,
   SHEET_DEFAULT_COL_WIDTH,
@@ -73,9 +73,9 @@ export {
   type VerticalAlign,
   type CellFont,
   type CellAlign,
-  type CellStyle,
+  type SheetCellStyle,
   type StyleId,
-  type CellStylePatch,
+  type SheetCellStylePatch,
   type NumFmt,
   StylePool,
   composeCellStyles,
@@ -87,7 +87,7 @@ export {
   type CellInfo,
   type MergeResult,
   SelectionModel,
-  type SelectionState,
+  type SheetSelectionState,
   computeFillTargetRange,
   generateFill,
   type FillDirection,
@@ -175,13 +175,6 @@ export {
   type SheetImage,
   type ImageInput,
   type ImageFitMode,
-  exportWorkbookXlsx,
-  exportSheetXlsx,
-  exportSheetCsv,
-  importXlsx,
-  importCsv,
-  replaceWorkbookWithSnapshots,
-  type SheetReplaceItem,
   TypedEventEmitter,
   type CellRenderer,
   type CellRenderTarget,

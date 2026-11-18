@@ -7,8 +7,8 @@ import {
   snapshotContentBounds,
   type CellAddress,
   type CellMetaSnapshotItem,
-  type CellRange,
   type ContentBounds,
+  type SheetRange,
   type SheetSnapshot,
 } from '@infinitable/sheet'
 import {
@@ -470,7 +470,7 @@ export class FormDoc extends TypedEventEmitter<FormDocEvents> {
    * 聚合引用绑定不依赖数据块，不拦。
    */
   createRegionFromRange(
-    range: CellRange,
+    range: SheetRange,
     options: { name?: string; expand?: RegionExpand; source?: RegionSource } = {},
   ): FormRegion {
     const rect = {

@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import * as mainEntry from '../src/index'
 import * as pivotEntry from '../src/pivot'
 import * as sheetEntry from '../src/sheet'
+import * as sheetIoEntry from '../src/sheet-io'
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
@@ -49,6 +50,7 @@ const MAIN_ENTRY_VALUES = [
   'DependencyGraph',
   'EditorRegistry',
   'FORMULA_FUNCTION_CATEGORIES',
+  'FormulaLookupCache',
   'FormulaParseError',
   'ListTable',
   'REGION_EDGE_HIT_PX',
@@ -58,6 +60,7 @@ const MAIN_ENTRY_VALUES = [
   'SceneNode',
   'SheetModel',
   'astHasVolatileCall',
+  'cellKey',
   'collectAstReferences',
   'colLetters',
   'createChartPlugin',
@@ -69,6 +72,7 @@ const MAIN_ENTRY_VALUES = [
   'dashedLine',
   'derivePrintableArea',
   'evaluate',
+  'evaluateAst',
   'extendsTheme',
   'floatHandleEdge',
   'formulaError',
@@ -103,6 +107,7 @@ const MAIN_ENTRY_VALUES = [
 
 const MAIN_ENTRY_TYPES = [
   // render 层
+  'CanvasFactory',
   'DashLineContext',
   'DashPattern',
   'FrameTask',
@@ -124,6 +129,7 @@ const MAIN_ENTRY_TYPES = [
   'Size',
   // grid + protocol + table 层（原 core 公共面拆分：网格内核、装配协议契约与表格主体词汇按定义包直引；清单字母序混排）
   'CanvasDocSource',
+  'CellAddress',
   'CellBorder',
   'CellBorderEdge',
   'CellChangeEvent',
@@ -158,7 +164,6 @@ const MAIN_ENTRY_TYPES = [
   'FloatObject',
   'FloatTransformEndEvent',
   'FloatTransformHandle',
-  'GridCellRef',
   'GridDataModel',
   'GridReadView',
   'HighlightRange',
@@ -193,8 +198,10 @@ const MAIN_ENTRY_TYPES = [
   'AstNode',
   'CellRef',
   'EvalValue',
+  'ExactLookupIndex',
   'FormulaError',
   'FormulaEvalContext',
+  'FormulaEvaluateOptions',
   'FormulaFunction',
   'FormulaFunctionCategory',
   'FormulaFunctionInfo',
@@ -228,6 +235,7 @@ const MAIN_ENTRY_TYPES = [
   'PrintScaleMode',
   'PrintableArea',
   'WatermarkHandle',
+  'WatermarkPluginOptions',
   'WatermarkTextConfig',
 ]
 
@@ -275,10 +283,10 @@ const SHEET_ENTRY_VALUES = [
   'UnmergeCellsCommand',
   'UpdateImageCommand',
   'Workbook',
+  'addressKey',
   'boundingBox',
   'buildBorderPresetItems',
   'cellDataEqual',
-  'cellKey',
   'cellMetaKey',
   'cellMetaKeyFrom',
   'cellMetaPayloadEqual',
@@ -295,9 +303,6 @@ const SHEET_ENTRY_VALUES = [
   'createSnapshotPrintSource',
   'defaultCommandRegistry',
   'deleteSnapshotRows',
-  'exportSheetCsv',
-  'exportSheetXlsx',
-  'exportWorkbookXlsx',
   'findAll',
   'findNext',
   'findNextFrom',
@@ -307,8 +312,6 @@ const SHEET_ENTRY_VALUES = [
   'formatByNumFmt',
   'formatRange',
   'generateFill',
-  'importCsv',
-  'importXlsx',
   'inferCellType',
   'insertSnapshotRows',
   'isEmptyCellData',
@@ -319,7 +322,6 @@ const SHEET_ENTRY_VALUES = [
   'rangeContainsAddress',
   'rangesEqual',
   'rangesIntersect',
-  'replaceWorkbookWithSnapshots',
   'sheetStyleToEngineStyle',
   'snapshotContentBounds',
 ]
@@ -343,12 +345,9 @@ const SHEET_ENTRY_TYPES = [
   'CellMetaPatch',
   'CellMetaSnapshotItem',
   'CellPatch',
-  'CellRange',
   'CellRenderTarget',
   'CellRenderer',
   'CellSnapshotItem',
-  'CellStyle',
-  'CellStylePatch',
   'CellType',
   'CellValue',
   'ClearCellLinkParams',
@@ -398,7 +397,6 @@ const SHEET_ENTRY_TYPES = [
   'ResolveDisplayValue',
   'ScrollbarOptions',
   'SelectionInterceptMeta',
-  'SelectionState',
   'SetAxisStyleItem',
   'SetAxisStyleParams',
   'SetCellFormulaParams',
@@ -408,6 +406,8 @@ const SHEET_ENTRY_TYPES = [
   'SetCellStyleParams',
   'SetCellValueItem',
   'SetCellValueParams',
+  'SheetCellStyle',
+  'SheetCellStylePatch',
   'SheetEvents',
   'SheetGridContextMenuInfo',
   'SheetGridContextMenuKind',
@@ -418,7 +418,8 @@ const SHEET_ENTRY_TYPES = [
   'SheetImage',
   'SheetImageAnchor',
   'SheetImageType',
-  'SheetReplaceItem',
+  'SheetRange',
+  'SheetSelectionState',
   'SheetSnapshot',
   'SnapshotPatch',
   'StructureChange',
@@ -430,6 +431,19 @@ const SHEET_ENTRY_TYPES = [
   'WorkbookEvents',
   'WorkbookOptions',
 ]
+
+// ---- 显式快照：./sheet/io 子路径（XLSX / CSV 导入导出与工作簿快照替换）----
+
+const SHEET_IO_ENTRY_VALUES = [
+  'exportSheetCsv',
+  'exportSheetXlsx',
+  'exportWorkbookXlsx',
+  'importCsv',
+  'importXlsx',
+  'replaceWorkbookWithSnapshots',
+]
+
+const SHEET_IO_ENTRY_TYPES = ['SheetReplaceItem']
 
 describe('infinitable 主入口导出面冻结', () => {
   it('源码不含 export *（星号转售禁令）', () => {
@@ -461,6 +475,22 @@ describe('infinitable ./sheet 子路径导出面冻结', () => {
     const { values, types } = parseNamedExports(readFileSync(join(srcDir, 'sheet.ts'), 'utf8'))
     expect(types).toEqual([...SHEET_ENTRY_TYPES].sort())
     expect(values).toEqual(Object.keys(sheetEntry).sort())
+  })
+})
+
+describe('infinitable ./sheet/io 子路径导出面冻结', () => {
+  it('源码不含 export *（星号转售禁令）', () => {
+    expect(readFileSync(join(srcDir, 'sheet-io.ts'), 'utf8')).not.toContain('export *')
+  })
+
+  it('值导出集合与显式快照一致', () => {
+    expect(Object.keys(sheetIoEntry).sort()).toEqual([...SHEET_IO_ENTRY_VALUES].sort())
+  })
+
+  it('类型导出集合与显式快照一致', () => {
+    const { values, types } = parseNamedExports(readFileSync(join(srcDir, 'sheet-io.ts'), 'utf8'))
+    expect(types).toEqual([...SHEET_IO_ENTRY_TYPES].sort())
+    expect(values).toEqual(Object.keys(sheetIoEntry).sort())
   })
 })
 

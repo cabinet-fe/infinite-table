@@ -118,11 +118,11 @@ import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
 import type {
   CanvasDocSource,
+  CellAddress,
   CellChangeEvent,
   CellLinkClickListener,
   CellLinkHoverListener,
   CellLinkLeaveListener,
-  CellRef,
   ColHeaderClickListener,
   ColumnDefine,
   ContextMenuListener,
@@ -1060,7 +1060,7 @@ export class ListTable implements TableEngine, GridReadView {
     refreshOverlay(this)
   }
 
-  setSelectionAnchor(anchor: CellRef | null): void {
+  setSelectionAnchor(anchor: CellAddress | null): void {
     const { interactionState, geometryState } = this
     if (!anchor) {
       interactionState.selectionAnchor = null
@@ -1301,11 +1301,11 @@ export class ListTable implements TableEngine, GridReadView {
     return cellRectInViewport(this, col, row)
   }
 
-  getCellAtRelativePosition(x: number, y: number): CellRef | null {
+  getCellAtRelativePosition(x: number, y: number): CellAddress | null {
     return cellAt(this, x, y)
   }
 
-  scrollToCell(cell: CellRef): void {
+  scrollToCell(cell: CellAddress): void {
     ensureCellVisible(this, cell.col, cell.row)
   }
 

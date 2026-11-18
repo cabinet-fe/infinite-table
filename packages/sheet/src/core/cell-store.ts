@@ -1,4 +1,4 @@
-import type { CellAddress, CellRange } from './address'
+import type { CellAddress, SheetRange } from './address'
 import type { StyleId } from './style/types'
 
 /**
@@ -150,7 +150,7 @@ export class CellStore {
   }
 
   /** 只遍历区域内真实存在的单元格（行主序；公式区域展开用，空行/空格不分配不访问） */
-  *entriesInRange(range: CellRange): Generator<[CellAddress, CellData], void, undefined> {
+  *entriesInRange(range: SheetRange): Generator<[CellAddress, CellData], void, undefined> {
     for (const [addr, data] of this.peekEntriesInRange(range)) {
       yield [addr, { ...data }]
     }
@@ -160,7 +160,7 @@ export class CellStore {
    * 只读遍历区域内真实存在的单元格（严格行主序，不拷贝 CellData；调用方不得修改返回对象）。
    * 稀疏大行跨度下直接过滤并排序已有行键，避免空行 Map 点查；宽行内同理保证列序。
    */
-  *peekEntriesInRange(range: CellRange): Generator<[CellAddress, CellData], void, undefined> {
+  *peekEntriesInRange(range: SheetRange): Generator<[CellAddress, CellData], void, undefined> {
     const rowSpan = range.end.row - range.start.row + 1
     const colSpan = range.end.col - range.start.col + 1
     if (rowSpan <= 0 || colSpan <= 0 || this.cells.size === 0) return

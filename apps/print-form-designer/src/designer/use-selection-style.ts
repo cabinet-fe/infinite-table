@@ -2,16 +2,16 @@
 // 订阅 sheet 的 selection-change 与 doc 的 history-change（样式命令、快照级行高列宽编辑都走这里）。
 import { useEffect, useState } from 'react'
 
-import type { CellAddress, CellRange, CellStyle } from '@infinitable/sheet'
+import type { CellAddress, SheetCellStyle, SheetRange } from '@infinitable/sheet'
 
 import type { FormDoc } from '../domain/form-doc'
 
 interface SelectionStyleState {
   /** 当前选区首个范围（无选区为 null） */
-  range: CellRange | null
+  range: SheetRange | null
   activeCell: CellAddress | null
   /** 活动格自身样式（原始存储语义；没写过的字段为 undefined） */
-  style: CellStyle | undefined
+  style: SheetCellStyle | undefined
   /** 活动格所在行/列的自定义尺寸（undefined = 用默认值） */
   rowHeight: number | undefined
   colWidth: number | undefined

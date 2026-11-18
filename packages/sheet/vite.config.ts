@@ -1,5 +1,18 @@
-import { createLibConfig } from '../../vite.lib.config'
+import { defineConfig } from 'vite-plus'
 
-// 库构建配置：复用 vite.lib.config.ts 的共享工厂。
-// src 已不引用 @cat-kit/core（仅 tests 直连，vitest 不走 rollup external），无需额外外部化
-export default createLibConfig()
+// 库构建配置：主入口 src/index.ts（dist/sheet.js）与 XLSX/CSV IO 子路径 src/io.ts（dist/io.js）双入口构建。
+export default defineConfig({
+  build: {
+    emptyOutDir: false,
+    lib: {
+      entry: {
+        sheet: 'src/index.ts',
+        io: 'src/io.ts',
+      },
+      formats: ['es'],
+    },
+    rollupOptions: {
+      external: [/^@infinitable\/[a-z-]+$/],
+    },
+  },
+})

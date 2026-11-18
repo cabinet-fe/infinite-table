@@ -142,10 +142,17 @@ const leakedTypes = readdirSync(typesDir, { recursive: true })
 if (leakedTypes.length) fail(`infinitable 类型残留裸导入：${leakedTypes.join('、')}`)
 if (!failed) ok('infinitable dist 五层 re-export 齐备且自包含（JS + 类型）')
 
-// 6) ./sheet 子路径：dist/sheet.js 无头建簿设值求值（捆绑的 table/grid/formulas 一并过电）
+// 6) ./sheet 与 ./sheet/io 子路径：dist/sheet.js 无头建簿设值求值（不含 hucre），
+//    dist/sheet-io.js 独立承载 XLSX/CSV 导入导出并与 ./sheet 共享 Workbook 实例
 const sheetDts = new URL('../packages/infinitable/dist/types/sheet.d.ts', import.meta.url)
 if (!existsSync(sheetDts)) fail('infinitable 缺 ./sheet 子路径类型垫片 dist/types/sheet.d.ts')
+const sheetIoDts = new URL('../packages/infinitable/dist/types/sheet-io.d.ts', import.meta.url)
+if (!existsSync(sheetIoDts))
+  fail('infinitable 缺 ./sheet/io 子路径类型垫片 dist/types/sheet-io.d.ts')
 const sheetModule = await import(new URL('../packages/infinitable/dist/sheet.js', import.meta.url))
+const sheetIoModule = await import(
+  new URL('../packages/infinitable/dist/sheet-io.js', import.meta.url)
+)
 const workbook = new sheetModule.Workbook()
 const active = workbook.activeSheet
 active.setCellValue({ row: 0, col: 0 }, 21)
@@ -153,6 +160,22 @@ active.setCellFormula({ row: 0, col: 1 }, '=A1*2')
 const cell = active.getCellData({ row: 0, col: 1 })
 if (cell?.v !== 42) fail(`infinitable/sheet 求值异常：=A1*2 → ${JSON.stringify(cell)}`)
 else ok('infinitable/sheet 子路径可导入且无头求值正常（=A1*2=42）')
+if (
+  typeof sheetIoModule.exportWorkbookXlsx !== 'function' ||
+  typeof sheetIoModule.importXlsx !== 'function'
+) {
+  fail('infinitable/sheet/io 缺 exportWorkbookXlsx / importXlsx')
+} else {
+  const xlsxBytes = await sheetIoModule.exportWorkbookXlsx(workbook)
+  const importedWb = await sheetIoModule.importXlsx(xlsxBytes)
+  if (!(importedWb instanceof sheetModule.Workbook)) {
+    fail('infinitable/sheet/io 导入产物不是 infinitable/sheet 的 Workbook（类身份分裂）')
+  } else if (importedWb.activeSheet.getCellData({ row: 0, col: 1 })?.v !== 42) {
+    fail('infinitable/sheet/io XLSX round-trip 求值结果异常')
+  } else {
+    ok('infinitable/sheet/io 子路径 XLSX 导入导出 round-trip 与 Workbook instanceof 正常')
+  }
+}
 
 // 7) ./pivot 子路径：dist/pivot.js 无头建透视交叉聚合（捆绑的 table 引擎一并过电）
 const pivotDts = new URL('../packages/infinitable/dist/types/pivot.d.ts', import.meta.url)
@@ -203,6 +226,13 @@ else {
     const source = readFileSync(new URL(entry, distDir), 'utf8')
     if (!source.includes(`"./${engineChunks[0]}"`))
       fail(`${entry} 未消费共享 engine chunk ${engineChunks[0]}（引擎副本分裂）`)
+  }
+  const engineChunkSource = readFileSync(new URL(engineChunks[0], distDir), 'utf8')
+  const pivotEntrySource = readFileSync(new URL('pivot.js', distDir), 'utf8')
+  if (/@cat-kit\/core/.test(engineChunkSource) || /@cat-kit\/core/.test(pivotEntrySource)) {
+    fail('engine chunk 或 pivot.js 残留 @cat-kit/core 依赖（formulas 未从 engine chunk 剥离）')
+  } else {
+    ok('engine chunk 与 pivot.js 彻底脱离 formulas 与 @cat-kit/core')
   }
   if (!failed) ok(`主入口与 ./sheet、./pivot 消费同一 engine chunk（${engineChunks[0]}）`)
 }

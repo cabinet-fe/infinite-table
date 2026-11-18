@@ -34,6 +34,10 @@
       "types": "./dist/types/sheet.d.ts",
       "import": "./dist/sheet.js"
     },
+    "./sheet/io": {
+      "types": "./dist/types/sheet-io.d.ts",
+      "import": "./dist/sheet-io.js"
+    },
     "./pivot": {
       "types": "./dist/types/pivot.d.ts",
       "import": "./dist/pivot.js"

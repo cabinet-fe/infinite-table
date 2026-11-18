@@ -46,11 +46,14 @@ for (const name of INTERNAL) {
  */
 function rewriteBareSpecifiers(source, fromFile) {
   return source.replace(
-    /((?:\bfrom|\bimport)\s*\(?\s*)(['"])@infinitable\/(render|grid|protocol|table|plugins|formulas|sheet|pivot)(?:\/(src\/[\w./-]+))?\2/g,
-    (match, prefix, quote, name, srcPath) => {
-      const target = srcPath
-        ? path.join(typesDir, name, `${srcPath.slice('src/'.length)}.js`)
-        : path.join(typesDir, name, 'index.js')
+    /((?:\bfrom|\bimport)\s*\(?\s*)(['"])@infinitable\/(render|grid|protocol|table|plugins|formulas|sheet|pivot)(?:\/(io|src\/[\w./-]+))?\2/g,
+    (match, prefix, quote, name, subPath) => {
+      const target =
+        subPath === 'io'
+          ? path.join(typesDir, name, 'io.js')
+          : subPath
+            ? path.join(typesDir, name, `${subPath.slice('src/'.length)}.js`)
+            : path.join(typesDir, name, 'index.js')
       let rel = path.relative(path.dirname(fromFile), target).replaceAll('\\', '/')
       if (!rel.startsWith('.')) rel = `./${rel}`
       return `${prefix}${quote}${rel}${quote}`
@@ -64,12 +67,14 @@ for (const file of walkDts(typesDir)) {
   if (rewritten !== source) writeFileSync(file, rewritten)
 }
 
-// 根垫片与 src 同口径：直接取 src/index.ts / src/sheet.ts / src/pivot.ts 源文本改写
-// 裸说明符——三个入口都是纯 re-export（无本地声明），作为 .d.ts 合法；如此 dist
+// 根垫片与 src 同口径：直接取 src/index.ts / src/sheet.ts / src/sheet-io.ts / src/pivot.ts 源文本改写
+// 裸说明符——四个入口都是纯 re-export（无本地声明），作为 .d.ts 合法；如此 dist
 // 类型面与 src 显式导出面恒一致（外部 TS 用户类型可见面 == 运行时面，不再星号放大）。
-for (const entry of ['index', 'sheet', 'pivot']) {
+for (const entry of ['index', 'sheet', 'sheet-io', 'pivot']) {
   const entrySource = readFileSync(path.join(pkgRoot, 'src', `${entry}.ts`), 'utf8')
   const target = path.join(typesDir, `${entry}.d.ts`)
   writeFileSync(target, rewriteBareSpecifiers(entrySource, target))
 }
-console.log(`✓ 类型装配完成：dist/types（${INTERNAL.join(' + ')} + index/sheet/pivot 垫片）`)
+console.log(
+  `✓ 类型装配完成：dist/types（${INTERNAL.join(' + ')} + index/sheet/sheet-io/pivot 垫片）`,
+)

@@ -2,7 +2,7 @@
 // 自 core types.ts 随迁；几何/滚动向词汇（格坐标、滚动条配置）定义在 @infinitable/grid，
 // 此处转出维持既有 import 路径。
 
-import type { CellRange, CellRef, ScrollbarOptions, ThemeOverride } from '@infinitable/grid'
+import type { CellAddress, CellRange, ScrollbarOptions, ThemeOverride } from '@infinitable/grid'
 import type { ImageFit } from '@infinitable/grid'
 import type { ImageServiceOptions, LoadedImage } from '@infinitable/grid'
 import type { RenderCanvas, RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
@@ -12,7 +12,7 @@ import type { CellStyle, ResolveCellStyle } from './cell-style'
 import type { EditorRegistry } from './editor-registry'
 import type { CellChangeEvent, EnginePlugin } from '@infinitable/protocol'
 
-export type { CellRef, ScrollbarMode, ScrollbarOptions } from '@infinitable/grid'
+export type { CellAddress, ScrollbarMode, ScrollbarOptions } from '@infinitable/grid'
 
 /** records 形态的一行数据 */
 export type DataRecord = Record<string, unknown>
@@ -362,7 +362,7 @@ export interface ListTableOptions {
    * 用引擎缺省（画布选区末段 start）；返回 null 不扩展（回落普通点选）。引用拾取等
    * 「画布选区不随拾取流动」的宿主经此自持锚点。
    */
-  resolveShiftSelectAnchor?: (target: CellRef) => CellRef | null | undefined
+  resolveShiftSelectAnchor?: (target: CellAddress) => CellAddress | null | undefined
   /**
    * 交互选区开关：false 时指针/键盘不再驱动选区——表体拖选/点选（含 shift/ctrl
    * 扩展）、行/列头与角点拖选全选、方向键/Tab 移动焦点、填充柄（绘制与命中）
@@ -405,7 +405,7 @@ export interface ListTableOptions {
 /** contextmenu 事件（右键菜单 UI 为非目标，仅保留事件） */
 export interface TableContextMenuEvent {
   /** 命中的数据格；点在行列头/空白处为 null */
-  cell: CellRef | null
+  cell: CellAddress | null
   /**
    * 右键落点区域：'body' 表体 / 'row-header' 行号列 / 'col-header' 列头。
    * 角点（行号列×列头交叉的全选区）归 'body' 且 cell 为 null——右键角点不翻行/列头菜单，

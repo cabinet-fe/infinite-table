@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { normalizeStyle, StylePool } from '../../src/core/style/style-pool'
-import type { BorderEdge, CellStyle } from '../../src/core/style/types'
+import type { BorderEdge, SheetCellStyle } from '../../src/core/style/types'
 
 describe('StylePool', () => {
   it('相同样式 intern 返回同一 id（内容去重）；不同样式不同 id', () => {
@@ -42,7 +42,7 @@ describe('StylePool', () => {
   it('归一化：空样式 / 空 fill / 空 border / 空边被剔除', () => {
     // 空 fill / 空边为刻意的畸形入参（断言归一化健壮性），用断言标注绕过类型收窄
     expect(normalizeStyle({})).toBeUndefined()
-    expect(normalizeStyle({ fill: {} as CellStyle['fill'] })).toBeUndefined()
+    expect(normalizeStyle({ fill: {} as SheetCellStyle['fill'] })).toBeUndefined()
     expect(normalizeStyle({ fill: { color: '' } })).toBeUndefined()
     expect(normalizeStyle({ border: {} })).toBeUndefined()
     expect(normalizeStyle({ border: { top: {} as BorderEdge } })).toBeUndefined()

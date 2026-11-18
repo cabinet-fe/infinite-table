@@ -35,11 +35,11 @@ import type { ChartCellNode } from '../media/chart-cell-node'
 import type { ImageCellNode } from '../media/image-cell-node'
 import type { MediaCache } from '../media/media-cache'
 import type {
+  CellAddress,
   CellChangeEvent,
   CellLinkClickListener,
   CellLinkHoverListener,
   CellLinkLeaveListener,
-  CellRef,
   ColHeaderClickListener,
   ContextMenuListener,
   EditEndEvent,
@@ -164,7 +164,7 @@ export interface TableInteractionState {
   scrollbarHideTimer: ReturnType<typeof setTimeout> | null
   pointerSessionRelease: (() => void) | null
   selecting: boolean
-  dragAnchor: CellRef | null
+  dragAnchor: CellAddress | null
   headerDrag: HeaderDragState | null
   headerHighlightSignature: string
   overlayHadContent: boolean
@@ -173,8 +173,8 @@ export interface TableInteractionState {
   fillDrag: FillDragState | null
   lastFillHandleTap: { key: string; time: number } | null
   fillHandleDoubleTap: boolean
-  linkHover: CellRef | null
-  pointerDownCell: CellRef | null
+  linkHover: CellAddress | null
+  pointerDownCell: CellAddress | null
   pointerDownColHeader: number | null
   lastTap: { col: number; row: number; x: number; y: number; time: number } | null
   pointerDownAt: { x: number; y: number } | null

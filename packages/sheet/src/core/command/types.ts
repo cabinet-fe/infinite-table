@@ -1,4 +1,4 @@
-import type { CellAddress, CellRange } from '../address'
+import type { CellAddress, SheetRange } from '../address'
 import type { CellData } from '../cell-store'
 import type { SheetImage } from '../image'
 import type { Sheet, SheetSnapshot } from '../sheet'
@@ -32,7 +32,7 @@ export interface CellPatch {
 /** 合并记录差量补丁（before/after = 该侧是否存在此合并） */
 export interface MergePatch {
   kind: 'merge'
-  range: CellRange
+  range: SheetRange
   before: boolean
   after: boolean
 }

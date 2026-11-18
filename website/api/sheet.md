@@ -14,10 +14,11 @@ description: infinitable/sheet 公共 API 全量参考：A1 地址、稀疏单�
 - xlsx / csv 导入导出
 - `SheetGrid`：把 `Sheet` 适配到 `@infinitable/table` 的 `ListTable`
 
-所有符号从子路径导入：
+核心模型与视图从 `infinitable/sheet` 导入，XLSX / CSV 导入导出从独立子路径 `infinitable/sheet/io` 导入：
 
 ```ts
-import { Sheet, Workbook, formatAddress, exportWorkbookXlsx } from 'infinitable/sheet'
+import { Sheet, Workbook, formatAddress } from 'infinitable/sheet'
+import { exportWorkbookXlsx, importXlsx } from 'infinitable/sheet/io'
 ```
 
 ::: tip 公式引擎不在本入口转售
@@ -34,27 +35,27 @@ interface CellAddress {
   col: number
 }
 
-interface CellRange {
+interface SheetRange {
   start: CellAddress
   end: CellAddress
 }
 ```
 
-| 函数                   | 签名                                                          | 说明                                              |
-| ---------------------- | ------------------------------------------------------------- | ------------------------------------------------- |
-| `cellKey`              | `(addr: CellAddress) => number`                               | 地址 → 数值 key（`row * 2^20 + col`），Map 索引用 |
-| `colIndexToName`       | `(col: number) => string`                                     | 0 基列号 → 列名；非法抛 `RangeError`              |
-| `colNameToIndex`       | `(name: string) => number`                                    | 列名 → 0 基列号；非法返回 `-1`                    |
-| `parseAddress`         | `(text: string) => CellAddress \| null`                       | 解析 `B2` / `$B$2`；非法返回 `null`               |
-| `formatAddress`        | `(addr: CellAddress) => string`                               | 地址 → A1 记法                                    |
-| `createRange`          | `(a: CellAddress, b: CellAddress) => CellRange`               | 两角点 → 规范化区域                               |
-| `parseRange`           | `(text: string) => CellRange \| null`                         | 解析 `B2` 或 `B2:D5`                              |
-| `formatRange`          | `(range: CellRange) => string`                                | 区域 → 记法；单格输出 `B2`                        |
-| `rangesEqual`          | `(a: CellRange, b: CellRange) => boolean`                     | 区域相等                                          |
-| `rangesIntersect`      | `(a: CellRange, b: CellRange) => boolean`                     | 是否相交                                          |
-| `rangeContainsAddress` | `(range: CellRange, addr: CellAddress) => boolean`            | 区域是否包含地址                                  |
-| `boundingBox`          | `(ranges: readonly [CellRange, ...CellRange[]]) => CellRange` | 最小包围盒；至少传一个区域                        |
-| `iterateRange`         | `(range: CellRange) => Generator<CellAddress>`                | 按行主序遍历区域                                  |
+| 函数                   | 签名                                                             | 说明                                              |
+| ---------------------- | ---------------------------------------------------------------- | ------------------------------------------------- |
+| `addressKey`           | `(addr: CellAddress) => number`                                  | 地址 → 数值 key（`row * 2^21 + col`），Map 索引用 |
+| `colIndexToName`       | `(col: number) => string`                                        | 0 基列号 → 列名；非法抛 `RangeError`              |
+| `colNameToIndex`       | `(name: string) => number`                                       | 列名 → 0 基列号；非法返回 `-1`                    |
+| `parseAddress`         | `(text: string) => CellAddress \| null`                          | 解析 `B2` / `$B$2`；非法返回 `null`               |
+| `formatAddress`        | `(addr: CellAddress) => string`                                  | 地址 → A1 记法                                    |
+| `createRange`          | `(a: CellAddress, b: CellAddress) => SheetRange`                 | 两角点 → 规范化区域                               |
+| `parseRange`           | `(text: string) => SheetRange \| null`                           | 解析 `B2` 或 `B2:D5`                              |
+| `formatRange`          | `(range: SheetRange) => string`                                  | 区域 → 记法；单格输出 `B2`                        |
+| `rangesEqual`          | `(a: SheetRange, b: SheetRange) => boolean`                      | 区域相等                                          |
+| `rangesIntersect`      | `(a: SheetRange, b: SheetRange) => boolean`                      | 是否相交                                          |
+| `rangeContainsAddress` | `(range: SheetRange, addr: CellAddress) => boolean`              | 区域是否包含地址                                  |
+| `boundingBox`          | `(ranges: readonly [SheetRange, ...SheetRange[]]) => SheetRange` | 最小包围盒；至少传一个区域                        |
+| `iterateRange`         | `(range: SheetRange) => Generator<CellAddress>`                  | 按行主序遍历区域                                  |
 
 ```ts
 import { formatAddress, parseRange, iterateRange } from 'infinitable/sheet'
@@ -294,7 +295,7 @@ type NumFmt =
   | { type: 'cnUpper' }
   | { type: 'fixed'; digits: number }
 
-interface CellStyle {
+interface SheetCellStyle {
   fill?: { color: string }
   border?: Partial<Record<BorderSide, BorderEdge>>
   font?: CellFont
@@ -311,12 +312,12 @@ interface CellStyle {
 | `CellFont.size`      | 字号，单位 pt（渲染时 ×4/3 转 px）                                                               |
 | `CellAlign.vertical` | 模型用 `middle`；xlsx 导出映射为 `center`                                                        |
 | `NumFmt`             | 只影响显示：日期、千分位、中文大写金额、固定小数位                                               |
-| `CellStyle`          | 样式池条目；缺省字段表示不设置                                                                   |
+| `SheetCellStyle`     | 样式池条目；缺省字段表示不设置                                                                   |
 
 ### 部分样式补丁
 
 ```ts
-interface CellStylePatch {
+interface SheetCellStylePatch {
   fill?: { color?: string }
   border?: Partial<Record<BorderSide, Partial<BorderEdge> | null>>
   font?: {
@@ -471,23 +472,23 @@ class MergeManager {
 ### SelectionModel
 
 ```ts
-interface SelectionState {
+interface SheetSelectionState {
   activeCell: CellAddress | null
-  ranges: CellRange[]
+  ranges: SheetRange[]
 }
 
 class SelectionModel {
   constructor(
     resolveAnchor: (addr: CellAddress) => CellAddress,
-    resolveRange?: (addr: CellAddress) => CellRange,
+    resolveRange?: (addr: CellAddress) => SheetRange,
   )
   get activeCell(): CellAddress | null
-  get ranges(): CellRange[]
+  get ranges(): SheetRange[]
   selectCell(addr: CellAddress): void
-  selectRange(range: CellRange, active?: CellAddress): void
-  getState(): SelectionState
-  restoreState(state: SelectionState): void
-  on(handler: (state: SelectionState) => void): () => void
+  selectRange(range: SheetRange, active?: CellAddress): void
+  getState(): SheetSelectionState
+  restoreState(state: SheetSelectionState): void
+  on(handler: (state: SheetSelectionState) => void): () => void
 }
 ```
 
@@ -1317,13 +1318,8 @@ xlsx 映射要点：
 - 冻结映射为 `freezePane`；浮动图随导出保留；CSV 忽略图片。
 
 ```ts
-import {
-  Workbook,
-  exportWorkbookXlsx,
-  importXlsx,
-  exportSheetCsv,
-  importCsv,
-} from 'infinitable/sheet'
+import { Workbook } from 'infinitable/sheet'
+import { exportWorkbookXlsx, importXlsx, exportSheetCsv, importCsv } from 'infinitable/sheet/io'
 
 const bytes = await exportWorkbookXlsx(workbook)
 const imported = await importXlsx(bytes, (done, total) => {

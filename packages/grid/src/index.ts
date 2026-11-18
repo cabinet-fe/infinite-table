@@ -57,7 +57,7 @@ export type { RangeBounds, SelectionListener, SelectionRange, SelectionSnapshot 
 export { resolveSharedEdges, strongerEdge } from './shared-edges'
 export { defaultTheme, extendsTheme, opaqueHeaderHighlight, themeCellBase } from './theme'
 export type { FrameStyle, InteractionTokens, TableTheme, ThemeOverride } from './theme'
-export type { CellRef, ScrollbarMode, ScrollbarOptions } from './types'
+export type { CellAddress, ScrollbarMode, ScrollbarOptions } from './types'
 export { PluginHost } from './assembly/plugin-host'
 export { PainterRegistry } from './assembly/painter-registry'
 export {

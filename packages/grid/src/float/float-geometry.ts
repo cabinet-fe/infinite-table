@@ -4,7 +4,7 @@
 import type { Region, Size } from '@infinitable/render'
 
 import type { ResizeEdge } from '../interaction/resize-geometry'
-import type { CellRef } from '../types'
+import type { CellAddress } from '../types'
 
 /** Shift 旋转吸附步进（度） */
 export const FLOAT_ROTATE_SNAP_DEG = 15
@@ -13,8 +13,8 @@ export const MIN_FLOAT_TRANSFORM_SIZE = 8
 
 /** 浮动对象格锚点（from 格 + 像素偏移 → to 格） */
 export interface FloatAnchor {
-  from: CellRef
-  to: CellRef
+  from: CellAddress
+  to: CellAddress
   offsetX: number
   offsetY: number
 }
@@ -28,7 +28,7 @@ export interface FloatGeometry {
    * 视口点 → 数据格（拖拽落点换算用，层坐标口径）；行列头带/空白返回 null（落点回弹）。
    * 缺省时拖拽只在层内跟随，抬起回弹（无落点换算能力）。
    */
-  cellAtPoint?(x: number, y: number): CellRef | null
+  cellAtPoint?(x: number, y: number): CellAddress | null
 }
 
 /** 浮动对象纯几何基型 */

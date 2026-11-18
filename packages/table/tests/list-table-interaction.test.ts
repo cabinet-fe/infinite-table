@@ -13,8 +13,8 @@ import { findCellNode } from './testing/find-cell-node'
 import { RecordingContext } from './testing/recording-context'
 import { StubHost } from './testing/stub-host'
 import type {
+  CellAddress,
   CellChangeEvent,
-  CellRef,
   DataRecord,
   ListTableOptions,
   TableContextMenuEvent,
@@ -989,7 +989,7 @@ describe('ListTable contextmenu 与 onScrollFrame', () => {
     const { host, table } = createTable({ records: [{ name: 'a' }] })
     const seen: Array<{
       region: TableContextMenuEvent['region']
-      cell: CellRef | null
+      cell: CellAddress | null
     }> = []
     table.onContextMenu((event) => seen.push({ region: event.region, cell: event.cell }))
 

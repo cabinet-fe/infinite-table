@@ -15,8 +15,8 @@
  * 邻居 null 边只在邻居确有该边时生成（getStyle 读取现样式），避免无意义补丁项。
  */
 
-import { iterateRange, type CellAddress, type CellRange } from '../address'
-import type { BorderEdge, BorderSide, CellStyle, CellStylePatch } from './types'
+import { iterateRange, type CellAddress, type SheetRange } from '../address'
+import type { BorderEdge, BorderSide, SheetCellStyle, SheetCellStylePatch } from './types'
 
 /** 边框预设 */
 export type BorderPreset = 'outer' | 'inner' | 'all' | 'top' | 'bottom' | 'left' | 'right' | 'none'
@@ -24,7 +24,7 @@ export type BorderPreset = 'outer' | 'inner' | 'all' | 'top' | 'bottom' | 'left'
 /** 预设展开后的补丁项（addr + 边级合并 patch） */
 export interface BorderPresetItem {
   addr: CellAddress
-  patch: CellStylePatch
+  patch: SheetCellStylePatch
 }
 
 /** 对侧边（共享边的另一侧）：top↔bottom、left↔right */
@@ -36,7 +36,7 @@ const OPPOSITE_SIDE: Record<BorderSide, BorderSide> = {
 }
 
 /** 选区外某侧的邻居地址清单（越界侧返回空） */
-function neighborAddresses(range: CellRange, side: BorderSide): CellAddress[] {
+function neighborAddresses(range: SheetRange, side: BorderSide): CellAddress[] {
   const { start, end } = range
   const addrs: CellAddress[] = []
   if (side === 'top' && start.row > 0) {
@@ -56,9 +56,9 @@ function neighborAddresses(range: CellRange, side: BorderSide): CellAddress[] {
  * （null = 边级删除，邻居其余边保留）。
  */
 function buildNeighborNullItems(
-  range: CellRange,
+  range: SheetRange,
   sides: readonly BorderSide[],
-  getStyle: (addr: CellAddress) => CellStyle | undefined,
+  getStyle: (addr: CellAddress) => SheetCellStyle | undefined,
 ): BorderPresetItem[] {
   const items: BorderPresetItem[] = []
   for (const side of sides) {
@@ -81,10 +81,10 @@ function buildNeighborNullItems(
  * @returns 补丁项数组，交给 set-cell-style 命令一次执行 = 单 undo 单元
  */
 export function buildBorderPresetItems(
-  range: CellRange,
+  range: SheetRange,
   preset: BorderPreset,
   edge: BorderEdge,
-  getStyle: (addr: CellAddress) => CellStyle | undefined,
+  getStyle: (addr: CellAddress) => SheetCellStyle | undefined,
 ): BorderPresetItem[] {
   const items: BorderPresetItem[] = []
 
@@ -98,7 +98,7 @@ export function buildBorderPresetItems(
   }
 
   for (const addr of iterateRange(range)) {
-    const border: CellStylePatch['border'] = {}
+    const border: SheetCellStylePatch['border'] = {}
     const onTop = addr.row === range.start.row
     const onBottom = addr.row === range.end.row
     const onLeft = addr.col === range.start.col

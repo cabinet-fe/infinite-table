@@ -65,7 +65,7 @@ export type NumFmt =
   | { type: 'fixed'; digits: number }
 
 /** 单元格样式（样式池条目） */
-export interface CellStyle {
+export interface SheetCellStyle {
   /** 背景填充；缺省 = 无填充 */
   fill?: { color: string }
   /** 四边边框；缺省边 = 无边框 */
@@ -94,7 +94,7 @@ export type StyleId = number
  * - `numFmt` 字段存在即整体替换；`null` = 删除该字段；缺省 = 保留既有
  * - 要表达「重定义整个边集合」（如无边框预设），需显式给出四边（含 `null`）
  */
-export interface CellStylePatch {
+export interface SheetCellStylePatch {
   fill?: { color?: string }
   border?: Partial<Record<BorderSide, Partial<BorderEdge> | null>>
   font?: {

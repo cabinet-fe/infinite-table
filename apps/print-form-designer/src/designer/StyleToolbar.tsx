@@ -1,6 +1,6 @@
 // 格样式工具条（ribbon）：按分组排布样式操作，最右固定「打印」主操作。
 // 控件状态跟随当前选区（useSelectionStyle）：加粗按下态、字号、对齐、数字格式、边框预设。
-import type { CellStylePatch } from '@infinitable/sheet'
+import type { SheetCellStylePatch } from '@infinitable/sheet'
 
 import type { FormDoc } from '../domain/form-doc'
 import {
@@ -56,7 +56,7 @@ export function StyleToolbar({ doc, canUndo, canRedo, onPrint }: Props) {
   const { range, style, rowHeight, colWidth } = useSelectionStyle(doc)
   const disabled = range === null
 
-  const apply = (patch: CellStylePatch): void => {
+  const apply = (patch: SheetCellStylePatch): void => {
     if (range) doc.sheet.setCellStyle(range, patch)
   }
 

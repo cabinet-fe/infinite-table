@@ -32,7 +32,7 @@ import {
   type SheetCellCoord,
 } from '@infinitable/formulas'
 
-import type { CellAddress, CellRange } from './address'
+import type { CellAddress, SheetRange } from './address'
 import type { CellData, CellSnapshotItem, CellType, CellValue } from './cell-store'
 import type { CellPatch } from './command/types'
 import type { Sheet } from './sheet'
@@ -419,7 +419,7 @@ export class FormulaEngine {
       range(ref) {
         const sheet = resolveSheet(ref.sheet ?? defaultSheet)
         if (!sheet) return [formulaError('#REF!')]
-        const range: CellRange = {
+        const range: SheetRange = {
           start: { row: ref.startRow, col: ref.startCol },
           end: { row: ref.endRow, col: ref.endCol },
         }
@@ -436,7 +436,7 @@ export class FormulaEngine {
       sparseVector(ref, along) {
         const sheet = resolveSheet(ref.sheet ?? defaultSheet)
         if (!sheet) return [[0, formulaError('#REF!')]]
-        const sliceRange: CellRange =
+        const sliceRange: SheetRange =
           along === 'column'
             ? {
                 start: { row: ref.startRow, col: ref.startCol },

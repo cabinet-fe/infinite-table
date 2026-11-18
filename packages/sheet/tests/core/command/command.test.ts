@@ -3,8 +3,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { parseRange, type CellAddress } from '../../../src/core/address'
-import type { CellRange } from '../../../src/core/address'
+import { parseRange, type CellAddress, type SheetRange } from '../../../src/core/address'
 import type { CellSnapshotItem } from '../../../src/core/cell-store'
 import { Sheet, type SheetEvents } from '../../../src/core/sheet'
 
@@ -12,7 +11,7 @@ const B2 = { row: 1, col: 1 }
 const C3 = { row: 2, col: 2 }
 
 /** Sheet 状态快照（cells + merges，排序后比较，与写入顺序无关） */
-function snapshotSheet(sheet: Sheet): { cells: CellSnapshotItem[]; merges: CellRange[] } {
+function snapshotSheet(sheet: Sheet): { cells: CellSnapshotItem[]; merges: SheetRange[] } {
   const byAddr = (a: { row: number; col: number }, b: { row: number; col: number }) =>
     a.row - b.row || a.col - b.col
   return {

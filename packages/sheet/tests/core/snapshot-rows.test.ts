@@ -4,12 +4,12 @@
 // 公式引用不平移是模块文档声明的历史口径，此处按实际行为锁死（见 snapshot-rows.ts 头注释）。
 import { describe, expect, it } from 'vitest'
 
-import type { CellRange } from '../../src/core/address'
+import type { SheetRange } from '../../src/core/address'
 import { deleteSnapshotRows, insertSnapshotRows } from '../../src/core/snapshot-rows'
 import type { SheetSnapshot } from '../../src/core/sheet'
 
 /** 矩形区间（左上 → 右下，含端点） */
-const RANGE = (r1: number, c1: number, r2: number, c2: number): CellRange => ({
+const RANGE = (r1: number, c1: number, r2: number, c2: number): SheetRange => ({
   start: { row: r1, col: c1 },
   end: { row: r2, col: c2 },
 })

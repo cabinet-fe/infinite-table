@@ -3,8 +3,8 @@
 // 经本面消费 table 引擎。
 
 import type {
+  CellAddress,
   CellRange,
-  CellRef,
   ImageService,
   SelectionSnapshot,
   TableTheme,
@@ -99,7 +99,7 @@ export interface TableEngine extends EngineAssembly {
   getScrollLeft(): number
   getScrollTop(): number
   /** 滚动到目标格完整可见 */
-  scrollToCell(cell: CellRef): void
+  scrollToCell(cell: CellAddress): void
   /** 画布内容区矩形（扣除行列头后的数据区可绘制范围） */
   getDrawRange(): Region
   /** 当前可视数据格范围（[start, end)，冻结行列并入可视范围） */
@@ -107,7 +107,7 @@ export interface TableEngine extends EngineAssembly {
   /** 数据格视口矩形（CSS 像素）；窗口外返回 null */
   getCellRelativeRect(col: number, row: number): Region | null
   /** 视口坐标命中的数据格；行列头 / 空白返回 null */
-  getCellAtRelativePosition(x: number, y: number): CellRef | null
+  getCellAtRelativePosition(x: number, y: number): CellAddress | null
   /** 是否装配了浏览器原生滚动条（宿主滚轮接线让位判定） */
   readonly usesNativeScrollbar: boolean
 
@@ -127,7 +127,7 @@ export interface TableEngine extends EngineAssembly {
   /** 订阅选区变更；返回退订函数 */
   onSelectionChange(listener: (snapshot: SelectionSnapshot) => void): () => void
   /** 选区锚点（编辑拾取等会话的持续绘制锚；null 清除） */
-  setSelectionAnchor(anchor: CellRef | null): void
+  setSelectionAnchor(anchor: CellAddress | null): void
   /** 宿主高亮区域（公式引用染色框等）；空数组清除 */
   setHighlightRanges(ranges: readonly HighlightRange[]): void
   /** 订阅填充柄拖拽结束事件（填充生成不在内核） */

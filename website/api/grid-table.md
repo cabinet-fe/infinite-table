@@ -7,7 +7,7 @@ description: grid 与 table 两层的公共 API：SheetModel 与 EnginePlugin、
 
 本页覆盖 `infinitable` 主入口中来自 grid 与 table 两层、且不属于 `ListTable` 主类的公共 API：主题、样式、选区与合并原语定义在 `@infinitable/grid`，模型、编辑、媒体与绘制预留位定义在 `@infinitable/table`。`ListTable` 与其构造选项见 [/api/list-table](/api/list-table)。
 
-> 本页签名中的格坐标统一写作 `GridCellRef`（统一入口的消歧别名）。grid 源码内部的类型名为 `CellRef`，字段同为 `{ col, row }`。
+> 本页签名中的 0 基格坐标统一使用 `CellAddress`（`{ col: number; row: number }`，在 `protocol` / `grid` / `table` / `sheet` 间同源共享）。
 
 索引：
 
@@ -361,7 +361,7 @@ export interface RangeBounds {
 
 export interface SelectionSnapshot {
   readonly ranges: readonly SelectionRange[]
-  readonly focus: GridCellRef | null
+  readonly focus: CellAddress | null
 }
 
 export interface HighlightRange {
@@ -374,7 +374,7 @@ export function normalizeRange(range: SelectionRange): RangeBounds
 
 | 类型                       | 说明                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `SelectionRange`（未导出） | `{ start: GridCellRef; end: GridCellRef }`。`start` 是锚点，`end` 是焦点侧，二者可反向                  |
+| `SelectionRange`（未导出） | `{ start: CellAddress; end: CellAddress }`。`start` 是锚点，`end` 是焦点侧，二者可反向                  |
 | `RangeBounds`              | 归一化后的 min/max 边界                                                                                 |
 | `SelectionSnapshot`        | 选区快照：段数组 + 焦点格。程序化选区入参、`getSelection()` 返回值与 `onSelectionChange` 载荷共用此形态 |
 | `HighlightRange`           | 宿主高亮区：四边细条边框，只绘制不拦截事件                                                              |
@@ -643,8 +643,8 @@ export interface FloatObject {
   id: string
   kind: 'image' | 'chart' | 'dom'
   anchor: {
-    from: GridCellRef
-    to: GridCellRef
+    from: CellAddress
+    to: CellAddress
     offsetX: number
     offsetY: number
   }
@@ -662,7 +662,7 @@ export interface FloatObject {
 | --------------------------- | ----------------------------- | -------------------------- | ---------------------------------------------------------------------------- |
 | `id`                        | `string`                      | 必填                       | 层内唯一；重复 `add` 同 id 会先移除旧对象                                    |
 | `kind`                      | `'image' \| 'chart' \| 'dom'` | 必填                       | `image` 按 `src` 加载绘制；`chart` / `dom` 预留，未加载内容时画占位          |
-| `anchor.from` / `anchor.to` | `GridCellRef`                 | 必填                       | 格区间锚定；`offsetX` / `offsetY` 是 `from` 格内像素偏移（负值落点时夹到 0） |
+| `anchor.from` / `anchor.to` | `CellAddress`                 | 必填                       | 格区间锚定；`offsetX` / `offsetY` 是 `from` 格内像素偏移（负值落点时夹到 0） |
 | `size`                      | `{ width, height }`           | 由 `from → to` 格范围推导  | 绝对像素尺寸；给出后行列 resize 只跟随锚点位置，尺寸不变                     |
 | `rotation`                  | `number`                      | `0`                        | 顺时针度数，归一化 0–360；渲染绕对象中心旋转，命中走逆变换                   |
 | `fit`                       | `'fill' \| 'contain'`         | `'fill'`（浮动图绘制路径） | 图片填充模式                                                                 |
@@ -764,12 +764,12 @@ table.floatObjects.onDragEnd((event) => {
 
 | 方法               | 签名                                                            | 说明                                                                                                                  |
 | ------------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `request`          | `(url, cell: GridCellRef, onSettled?) => ImageState`            | 登记格引用并按需加载，返回当前状态；`onSettled` 仅在请求后异步落定为 `ready` / `error` 时回调一次（已就绪命中不补发） |
-| `releaseRef`       | `(url, cell: GridCellRef) => void`                              | 移除格引用；滚出窗口时由引擎调用                                                                                      |
+| `request`          | `(url, cell: CellAddress, onSettled?) => ImageState`            | 登记格引用并按需加载，返回当前状态；`onSettled` 仅在请求后异步落定为 `ready` / `error` 时回调一次（已就绪命中不补发） |
+| `releaseRef`       | `(url, cell: CellAddress) => void`                              | 移除格引用；滚出窗口时由引擎调用                                                                                      |
 | `updateWindow`     | `(predicate: (cell) => boolean) => void`                        | 重设「视口 + 余量」判定并重新调度加载队列                                                                             |
 | `hasResource`      | `(url) => boolean`                                              | 是否已就绪；场景重建首帧可据此直接贴图                                                                                |
 | `getBitmap`        | `(url) => LoadedImage \| undefined`                             | 取已就绪位图；命中会提升 LRU 序                                                                                       |
-| `invalidate`       | `(url) => GridCellRef[]`                                        | 作废位图并返回引用它的格坐标                                                                                          |
+| `invalidate`       | `(url) => CellAddress[]`                                        | 作废位图并返回引用它的格坐标                                                                                          |
 | `invalidateAll`    | `() => void`                                                    | 作废全部缓存                                                                                                          |
 | `onImageLoad`      | `(listener) => () => void`                                      | 载荷 `{ url, width, height, cells }`（类型未导出）                                                                    |
 | `onImageError`     | `(listener) => () => void`                                      | 载荷 `{ url, error, cells }`（类型未导出）                                                                            |

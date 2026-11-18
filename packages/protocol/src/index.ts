@@ -4,6 +4,7 @@
 // 插件契约 EnginePlugin、主题与绘制器槽位词汇、纯网格值类型及可选能力面。
 
 export type {
+  CellAddress,
   EngineAssembly,
   EngineCapabilities,
   EngineFrameStyle,

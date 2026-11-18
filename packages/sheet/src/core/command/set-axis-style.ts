@@ -1,4 +1,4 @@
-import type { StyleId, CellStylePatch } from '../style/types'
+import type { StyleId, SheetCellStylePatch } from '../style/types'
 import { mergeCellStyle } from './set-cell-style'
 import type { AxisStylePatch, Command, CommandResult } from './types'
 
@@ -6,8 +6,8 @@ import type { AxisStylePatch, Command, CommandResult } from './types'
 export interface SetAxisStyleItem {
   /** 行号或列号（0-based） */
   index: number
-  /** 部分样式合并（见 CellStylePatch）；与 clear 互斥 */
-  partial?: CellStylePatch
+  /** 部分样式合并（见 SheetCellStylePatch）；与 clear 互斥 */
+  partial?: SheetCellStylePatch
   /** 清除该行/列默认样式；与 partial 互斥，clear 优先 */
   clear?: boolean
 }

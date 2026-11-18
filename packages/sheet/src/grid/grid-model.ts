@@ -5,7 +5,7 @@ import type { CellAddress } from '../core/address'
 import type { CellValue } from '../core/cell-store'
 import { formatByNumFmt } from '../core/format'
 import type { Sheet } from '../core/sheet'
-import type { CellStyle as SheetCellStyle } from '../core/style/types'
+import type { SheetCellStyle } from '../core/style/types'
 import { sheetStyleToEngineStyle } from './grid-style-map'
 
 /** 显示值覆盖 hook（facade 门面形态）：base 为 numFmt 格式化后的显示值，返回 undefined 回落 base */

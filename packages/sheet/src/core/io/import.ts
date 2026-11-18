@@ -24,7 +24,7 @@ import {
   type BorderLineStyle,
   type CellAlign,
   type CellFont,
-  type CellStyle,
+  type SheetCellStyle,
   type HorizontalAlign,
   type NumFmt,
   type VerticalAlign,
@@ -190,8 +190,8 @@ export function xlsxNumFmtToModel(numFmt: string | undefined): NumFmt | undefine
 export function hucreStyleToModel(
   style: HucreCellStyle,
   themeColors?: readonly string[],
-): CellStyle | undefined {
-  const model: CellStyle = {}
+): SheetCellStyle | undefined {
+  const model: SheetCellStyle = {}
   const fill = style.fill
   if (fill) {
     let rgb: string | undefined
@@ -205,7 +205,7 @@ export function hucreStyleToModel(
     }
     if (rgb) model.fill = { color: rgb }
   }
-  const border: NonNullable<CellStyle['border']> = {}
+  const border: NonNullable<SheetCellStyle['border']> = {}
   for (const side of BORDER_SIDES) {
     const edge = style.border?.[side]
     if (!edge?.style) continue
@@ -466,7 +466,7 @@ function synthesizeMergeAnchorData(
   }
 
   // 4. 合成最终样式
-  const finalStyle: CellStyle = {
+  const finalStyle: SheetCellStyle = {
     ...(fill ? { fill } : {}),
     ...(Object.keys(mergedBorder).length > 0 ? { border: mergedBorder } : {}),
     ...(font ? { font } : {}),

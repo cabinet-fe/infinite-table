@@ -3,7 +3,7 @@
 import { SceneNode, type Invalidation, type LayerHandle } from '@infinitable/render'
 
 import type { FloatGeometry } from '@infinitable/grid'
-import type { CellRef } from '../../src/types'
+import type { CellAddress } from '../../src/types'
 import type { FloatObject } from '../../src/float/float-object-layer'
 
 /** 记录失效的假层 */
@@ -27,7 +27,7 @@ export function stubLayer() {
 export function stubGeometry(
   scroll: { left: number; top: number },
   cell: { width: number; height: number } = { width: 100, height: 32 },
-  cellAtPoint?: (x: number, y: number) => CellRef | null,
+  cellAtPoint?: (x: number, y: number) => CellAddress | null,
 ): FloatGeometry {
   return {
     cellOrigin: (col, row) => ({
@@ -50,6 +50,6 @@ export function imageObject(id: string, from: { col: number; row: number }): Flo
 }
 
 /** 格命中：层坐标按等分格（100×32）换算，负坐标（表头带）为 null */
-export function hitCell(x: number, y: number): CellRef | null {
+export function hitCell(x: number, y: number): CellAddress | null {
   return x < 0 || y < 0 ? null : { col: Math.floor(x / 100), row: Math.floor(y / 32) }
 }

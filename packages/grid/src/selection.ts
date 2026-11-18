@@ -2,12 +2,12 @@
 // 只持有选区模型与变更广播，不参与渲染；渲染方经 snapshot 读取。
 // 补丁行为（吸收 sheet-core 选区修正）：shift 扩展与拖选时焦点格始终同步到最新扩展目标。
 
-import type { CellRef } from './types'
+import type { CellAddress } from './types'
 
 /** 选区段：start 为锚点，end 为焦点侧（可反向，读取边界用 normalizeRange） */
 export interface SelectionRange {
-  start: CellRef
-  end: CellRef
+  start: CellAddress
+  end: CellAddress
 }
 
 /** 归一化后的选区边界（min/max 序） */
@@ -21,7 +21,7 @@ export interface RangeBounds {
 export interface SelectionSnapshot {
   readonly ranges: readonly SelectionRange[]
   /** 焦点格（键盘导航的活动格）；无选区时为 null */
-  readonly focus: CellRef | null
+  readonly focus: CellAddress | null
 }
 
 /** 外部回写坐标的钳制边界：表格数据区尺寸（列数/行数） */
@@ -50,7 +50,7 @@ function boundsEqual(a: RangeBounds, b: RangeBounds): boolean {
 }
 
 /** 单元格坐标钳制到数据区 [0, 列数-1] × [0, 行数-1]（空表钳到 0，不产生负坐标） */
-function clampCellRef(ref: CellRef, colCount: number, rowCount: number): CellRef {
+function clampCellAddress(ref: CellAddress, colCount: number, rowCount: number): CellAddress {
   return {
     col: Math.min(Math.max(ref.col, 0), Math.max(colCount - 1, 0)),
     row: Math.min(Math.max(ref.row, 0), Math.max(rowCount - 1, 0)),
@@ -65,16 +65,16 @@ function clampSnapshot(
 ): SelectionSnapshot {
   return {
     ranges: snapshot.ranges.map((range) => ({
-      start: clampCellRef(range.start, colCount, rowCount),
-      end: clampCellRef(range.end, colCount, rowCount),
+      start: clampCellAddress(range.start, colCount, rowCount),
+      end: clampCellAddress(range.end, colCount, rowCount),
     })),
-    focus: snapshot.focus ? clampCellRef(snapshot.focus, colCount, rowCount) : null,
+    focus: snapshot.focus ? clampCellAddress(snapshot.focus, colCount, rowCount) : null,
   }
 }
 
 export class SelectionState {
   private ranges: SelectionRange[] = []
-  private focus: CellRef | null = null
+  private focus: CellAddress | null = null
   private dragging = false
   private readonly listeners = new Set<SelectionListener>()
   /** 广播深度：> 0 期间的变更不再嵌套广播（外部回写/监听内重入防回环） */
@@ -122,7 +122,7 @@ export class SelectionState {
    * 显式传 focus 时焦点取传入值（表头点击的交互可视位：活动格落当前可视带内，宿主以
    * 活动格可见性为闸的滚动跟随不触发）；缺省仍落 start。
    */
-  beginDragRange(start: CellRef, end: CellRef, focus?: CellRef): void {
+  beginDragRange(start: CellAddress, end: CellAddress, focus?: CellAddress): void {
     this.dragging = true
     this.ranges = [{ start: { ...start }, end: { ...end } }]
     this.focus = { ...(focus ?? start) }
@@ -140,7 +140,7 @@ export class SelectionState {
   }
 
   /** 拖选扩展（整段替换末段；合并包围盒由调用方算好传入），锚点取传入 start，焦点同步 end */
-  updateDragRange(start: CellRef, end: CellRef): void {
+  updateDragRange(start: CellAddress, end: CellAddress): void {
     if (!this.dragging || this.ranges.length === 0) {
       return
     }
@@ -174,7 +174,7 @@ export class SelectionState {
   }
 
   /** 全选：焦点落左上角首格；显式传 focus 时取传入值（角点全选的交互可视位） */
-  selectAll(colCount: number, rowCount: number, focus?: CellRef): void {
+  selectAll(colCount: number, rowCount: number, focus?: CellAddress): void {
     if (colCount <= 0 || rowCount <= 0) {
       return
     }

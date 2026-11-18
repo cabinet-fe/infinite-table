@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { iterateRange, parseRange } from '../../../src/core/address'
 import { mergeCellStyle } from '../../../src/core/command/set-cell-style'
 import { Sheet, type SheetEvents } from '../../../src/core/sheet'
-import type { CellStyle } from '../../../src/core/style/types'
+import type { SheetCellStyle } from '../../../src/core/style/types'
 
 const B2 = { row: 1, col: 1 }
 const C3 = { row: 2, col: 2 }
@@ -14,7 +14,7 @@ const B2C3 = parseRange('B2:C3')!
 
 describe('mergeCellStyle 部分合并语义', () => {
   it('只给 fill 保留既有 border；只给 border 保留既有 fill', () => {
-    const base: CellStyle = {
+    const base: SheetCellStyle = {
       fill: { color: '#FF0000' },
       border: { top: { style: 'thin', width: 1, color: '#000000' } },
     }
@@ -34,7 +34,7 @@ describe('mergeCellStyle 部分合并语义', () => {
   })
 
   it('border 字段存在 = 边级合并：未给出边保留，给出边与既有边合并', () => {
-    const base: CellStyle = {
+    const base: SheetCellStyle = {
       border: {
         top: { style: 'thin', width: 1, color: '#000000' },
         bottom: { style: 'thick', width: 3, color: '#111111' },
@@ -52,7 +52,7 @@ describe('mergeCellStyle 部分合并语义', () => {
   })
 
   it('边值为 null = 删除该边（其余边保留）；四边全 null = 清除全部边框', () => {
-    const base: CellStyle = {
+    const base: SheetCellStyle = {
       border: {
         top: { style: 'thin', width: 1, color: '#000000' },
         bottom: { style: 'thick', width: 3, color: '#111111' },
@@ -70,7 +70,7 @@ describe('mergeCellStyle 部分合并语义', () => {
   })
 
   it('border: {} 无边变化（未列出边保留）；fill: {} 清除填充（保留边框）', () => {
-    const base: CellStyle = {
+    const base: SheetCellStyle = {
       fill: { color: '#FF0000' },
       border: { top: { style: 'thin', width: 1, color: '#000000' } },
     }
@@ -86,7 +86,7 @@ describe('mergeCellStyle 部分合并语义', () => {
   })
 
   it('缺失边字段保留既有边值（非默认值场景；无既有边才用默认值）', () => {
-    const base: CellStyle = { border: { top: { style: 'thick', width: 3, color: '#111111' } } }
+    const base: SheetCellStyle = { border: { top: { style: 'thick', width: 3, color: '#111111' } } }
     // 只给 color → style/width 保留既有 thick/3（而非回落默认 thin/1）
     expect(mergeCellStyle(base, { border: { top: { color: '#FF0000' } } })).toEqual({
       border: { top: { style: 'thick', width: 3, color: '#FF0000' } },
@@ -294,7 +294,7 @@ describe('SetCellStyleCommand（经 Sheet）', () => {
 
   it('仅样式格空值清除保留样式，且不入历史（无变化不产生 undo 记录）', () => {
     const sheet = new Sheet()
-    const border: CellStyle = {
+    const border: SheetCellStyle = {
       border: { top: { style: 'thin', width: 1, color: '#000000' } },
     }
     sheet.setCellStyle(B2C3, border)
@@ -312,7 +312,7 @@ describe('SetCellStyleCommand（经 Sheet）', () => {
 
   it('有值格清空值后样式保留：undo/redo 回放与快照 round-trip 正确', () => {
     const sheet = new Sheet()
-    const fill: CellStyle = { fill: { color: '#FF0000' } }
+    const fill: SheetCellStyle = { fill: { color: '#FF0000' } }
     sheet.setCellValue(B2, 'keep')
     sheet.setCellStyle(B2C3, fill)
 

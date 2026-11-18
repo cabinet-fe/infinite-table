@@ -5,6 +5,7 @@
 // 的变换手柄共用。
 
 import type { CellRange } from '../cell-range'
+import type { CellAddress } from '../types'
 import { EDGE_SIGN, type ResizeEdge } from './resize-geometry'
 
 /** 视口矩形（与 getCellRelativeRect 同一坐标系） */
@@ -116,7 +117,7 @@ export function hitRegionEdge(
 export function resizeRegionRect(
   rect: CellRange,
   edge: ResizeEdge,
-  addr: { row: number; col: number },
+  addr: CellAddress,
 ): Partial<CellRange> {
   const { sx, sy } = EDGE_SIGN[edge]
   const patch: Partial<CellRange> = {}

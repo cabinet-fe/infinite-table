@@ -1,4 +1,4 @@
-import type { CellAddress, CellRange } from './address'
+import type { CellAddress, SheetRange } from './address'
 import { createRange, iterateRange } from './address'
 import {
   CELL_IMAGE_META_NAMESPACE,
@@ -50,10 +50,10 @@ import { TypedEventEmitter } from './events'
 import { FormulaEngine } from './formula-engine'
 import { cloneSheetImage, imageAnchorsEqual, type ImageInput, type SheetImage } from './image'
 import { MergeManager, sanitizeSnapshotMerges, type CellInfo } from './merge-manager'
-import { SelectionModel, type SelectionState } from './selection'
+import { SelectionModel, type SheetSelectionState } from './selection'
 import { composeCellStyles } from './style/compose'
 import { StylePool } from './style/style-pool'
-import type { CellStyle, CellStylePatch, StyleId } from './style/types'
+import type { SheetCellStyle, SheetCellStylePatch, StyleId } from './style/types'
 import { shiftFormulaText } from '@infinitable/formulas'
 
 /**
@@ -82,8 +82,8 @@ const DEFAULT_SELECTION_CELL: CellAddress = { row: 0, col: 0 }
 /** Sheet 全量快照（宿主序列化持久化用；frozen / selection 随快照保存/还原） */
 export interface SheetSnapshot {
   cells: CellSnapshotItem[]
-  styles: CellStyle[]
-  merges: CellRange[]
+  styles: SheetCellStyle[]
+  merges: SheetRange[]
   frozen: FrozenState
   /** 表格尺寸（行列插入/删除后的行列数；0 = 未声明，由视图层 props 决定） */
   rows: number
@@ -92,7 +92,7 @@ export interface SheetSnapshot {
    * 选区（可选，向后兼容）。
    * 有则还原；旧快照缺省 → 回落 A1。不进 undo 历史（与 Excel 不同，有意为之）。
    */
-  selection?: { activeCell: CellAddress; ranges: CellRange[] }
+  selection?: { activeCell: CellAddress; ranges: SheetRange[] }
   /**
    * 自定义行高：[行号, 像素] 元组。
    */
@@ -123,9 +123,9 @@ export type SheetEvents = {
   /** 单元格数据变化（含删除） */
   'cell-change': { addr: CellAddress }
   /** 合并结构变化（合并/取消合并） */
-  'merge-change': { range: CellRange }
+  'merge-change': { range: SheetRange }
   /** 选区变化 */
-  'selection-change': SelectionState
+  'selection-change': SheetSelectionState
   /** 历史栈变化（undo/redo 可用状态，供工具栏按钮置灰） */
   'history-change': HistoryState
   /** 冻结状态变化（不进 undo；grid 层据此更新冻结布局） */
@@ -429,10 +429,10 @@ export class Sheet {
 
   /**
    * 设置区域样式（部分合并语义：只给 fill 保留既有 border，反之亦然；
-   * 见 CellStylePatch）。空样式 = 删除 s 字段（不破坏空单元格不占存储原则）。
+   * 见 SheetCellStylePatch）。空样式 = 删除 s 字段（不破坏空单元格不占存储原则）。
    * 样式只存锚点格（被覆盖格不占数据位）。
    */
-  setCellStyle(range: CellRange, partial: CellStylePatch): void {
+  setCellStyle(range: SheetRange, partial: SheetCellStylePatch): void {
     const items: SetCellStyleItem[] = []
     for (const addr of iterateRange(range)) items.push({ addr, partial })
     this.executeCommand(SetCellStyleCommand.id, { items })
@@ -444,20 +444,20 @@ export class Sheet {
   }
 
   /** 清除区域样式（保留值 / 公式；纯样式格被整体删除） */
-  clearCellStyle(range: CellRange): void {
+  clearCellStyle(range: SheetRange): void {
     const items: SetCellStyleItem[] = []
     for (const addr of iterateRange(range)) items.push({ addr, clear: true })
     this.executeCommand(SetCellStyleCommand.id, { items })
   }
 
   /** 读取单元格样式（原始存储语义：被覆盖格 → undefined） */
-  getCellStyle(addr: CellAddress): CellStyle | undefined {
+  getCellStyle(addr: CellAddress): SheetCellStyle | undefined {
     const data = this.store.getCell(addr)
     return data?.s != null ? this.stylePool.get(data.s) : undefined
   }
 
   /** 读取行默认样式（StyleId → 池定义）；未设置 → undefined */
-  getRowStyle(row: number): CellStyle | undefined {
+  getRowStyle(row: number): SheetCellStyle | undefined {
     const id = this.rowStyles.get(row)
     return id != null ? this.stylePool.get(id) : undefined
   }
@@ -476,7 +476,7 @@ export class Sheet {
    * 设置行默认样式（部分合并语义，经命令进 undo）。
    * 空样式 = 清除该行默认样式。
    */
-  setRowStyle(row: number, partial: CellStylePatch): void {
+  setRowStyle(row: number, partial: SheetCellStylePatch): void {
     this.executeCommand(SetAxisStyleCommand.id, { axis: 'row', items: [{ index: row, partial }] })
   }
 
@@ -489,7 +489,7 @@ export class Sheet {
   }
 
   /** 读取列默认样式（StyleId → 池定义）；未设置 → undefined */
-  getColStyle(col: number): CellStyle | undefined {
+  getColStyle(col: number): SheetCellStyle | undefined {
     const id = this.colStyles.get(col)
     return id != null ? this.stylePool.get(id) : undefined
   }
@@ -508,7 +508,7 @@ export class Sheet {
    * 设置列默认样式（部分合并语义，经命令进 undo）。
    * 空样式 = 清除该列默认样式。
    */
-  setColStyle(col: number, partial: CellStylePatch): void {
+  setColStyle(col: number, partial: SheetCellStylePatch): void {
     this.executeCommand(SetAxisStyleCommand.id, { axis: 'col', items: [{ index: col, partial }] })
   }
 
@@ -524,7 +524,7 @@ export class Sheet {
    * 有效样式：列 → 行 → 单元格字段级叠加（合并格读锚点）。
    * 空单元格无 `s` 时仍可继承行列默认样式。
    */
-  getEffectiveStyle(addr: CellAddress): CellStyle | undefined {
+  getEffectiveStyle(addr: CellAddress): SheetCellStyle | undefined {
     const anchor = this.merges.resolveAnchor(addr)
     const colStyle = this.colStyles.has(anchor.col)
       ? this.stylePool.peek(this.colStyles.get(anchor.col)!)
@@ -549,8 +549,8 @@ export class Sheet {
    * 仅保留包围盒内按行主序第一个有值格的值，写入新锚点，其余被覆盖格清空。
    * @returns 最终生效的合并区域（与既有合并相交时取包围盒）
    */
-  mergeCells(range: CellRange): CellRange {
-    return this.executeCommand<CellRange>(MergeCellsCommand.id, { range })!
+  mergeCells(range: SheetRange): SheetRange {
+    return this.executeCommand<SheetRange>(MergeCellsCommand.id, { range })!
   }
 
   /**
@@ -558,13 +558,13 @@ export class Sheet {
    * 的命令/历史/重算编排开销）。与逐条 mergeCells 同语义（相交包围盒 +
    * 锚点值保留；源 Excel 合并区域互不相交，批量收集行为一致）。
    */
-  mergeCellsBatch(ranges: CellRange[]): void {
+  mergeCellsBatch(ranges: SheetRange[]): void {
     if (ranges.length === 0) return
     this.executeCommand(MergeCellsBatchCommand.id, { ranges })
   }
 
   /** 解除与 range 相交的所有合并；仅原锚点保留值（被覆盖格本就无值） */
-  unmergeCells(range: CellRange): void {
+  unmergeCells(range: SheetRange): void {
     this.executeCommand(UnmergeCellsCommand.id, { range })
   }
 
@@ -706,7 +706,7 @@ export class Sheet {
   }
 
   /** 批量标记/解除区域只读（事务合并为单 undo 单元） */
-  setRangeReadonly(range: CellRange, readonly = true): void {
+  setRangeReadonly(range: SheetRange, readonly = true): void {
     this.beginTransaction()
     try {
       for (const addr of iterateRange(range)) this.setCellReadonly(addr, readonly)
@@ -1124,7 +1124,7 @@ export class Sheet {
 
   // ─── 选区 ────────────────────────────────────────────────
 
-  getSelection(): SelectionState {
+  getSelection(): SheetSelectionState {
     return this.selection.getState()
   }
 
@@ -1133,7 +1133,7 @@ export class Sheet {
     this.selection.selectCell(addr)
   }
 
-  selectRange(range: CellRange, active?: CellAddress): void {
+  selectRange(range: SheetRange, active?: CellAddress): void {
     this.selection.selectRange(range, active)
   }
 

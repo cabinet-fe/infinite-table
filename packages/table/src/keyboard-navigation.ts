@@ -1,6 +1,6 @@
 // 键盘导航：方向键/Tab 移动活动格与滚动跟随（纯函数，便于单测）
 
-import type { CellRef } from './types'
+import type { CellAddress } from './types'
 
 /**
  * 按按键求下一个活动格；无法处理的键返回 null。
@@ -8,11 +8,11 @@ import type { CellRef } from './types'
  */
 export function nextActiveCell(
   key: string,
-  current: CellRef,
+  current: CellAddress,
   colCount: number,
   rowCount: number,
   shiftKey = false,
-): CellRef | null {
+): CellAddress | null {
   if (colCount <= 0 || rowCount <= 0) {
     return null
   }

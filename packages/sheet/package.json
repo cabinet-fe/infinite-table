@@ -9,6 +9,11 @@
       "types": "./dist/types/index.d.ts",
       "dev": "./src/index.ts",
       "import": "./dist/sheet.js"
+    },
+    "./io": {
+      "types": "./dist/types/io.d.ts",
+      "dev": "./src/io.ts",
+      "import": "./dist/io.js"
     }
   },
   "scripts": {

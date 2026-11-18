@@ -12,7 +12,7 @@
 // - 不尊重 sheet.cols「已声明但没内容」的宽度：包围盒即最终口径（无限画布下声明列数
 //   本身就是扩容产物，留着会让模板随滚动不断变胖）。
 
-import type { CellAddress, CellRange } from './address'
+import type { CellAddress, SheetRange } from './address'
 import type { SheetSnapshot } from './sheet'
 
 /** 内容包围盒（行/列数，等价于最大下标 + 1） */
@@ -35,7 +35,7 @@ function touch(extent: Extent, row: number, col: number): void {
   if (Number.isFinite(col) && col > extent.maxCol) extent.maxCol = col
 }
 
-function touchRange(extent: Extent, range: CellRange): void {
+function touchRange(extent: Extent, range: SheetRange): void {
   touch(extent, range.start.row, range.start.col)
   touch(extent, range.end.row, range.end.col)
 }
@@ -87,7 +87,7 @@ function inside(addr: CellAddress, bounds: ContentBounds): boolean {
 }
 
 /** 区间是否整体落在包围盒内（起止都必须在内，跨界即弃） */
-function rangeInside(range: CellRange, bounds: ContentBounds): boolean {
+function rangeInside(range: SheetRange, bounds: ContentBounds): boolean {
   return inside(range.start, bounds) && inside(range.end, bounds)
 }
 

@@ -7,9 +7,9 @@
 import type { TableModel } from '@infinitable/table'
 import {
   Sheet,
-  type CellStyle as SheetCellStyle,
   type CellValue,
   type SetCellValueItem,
+  type SheetCellStyle,
 } from '@infinitable/sheet'
 
 import type { BenchEnv, BenchTable } from './env'

@@ -5,7 +5,7 @@ import {
   type BorderEdge,
   type CellAlign,
   type CellFont,
-  type CellStyle,
+  type SheetCellStyle,
   type StyleId,
 } from './types'
 
@@ -57,10 +57,10 @@ function normalizeAlign(align: CellAlign | undefined): CellAlign | undefined {
  * 规范化样式：剔除空 fill / 空 border / 空边 / 空 font / 空 align，返回不可变语义的副本；
  * 全部为空时返回 undefined（调用方据此删除 s 字段，保持空单元格不占存储）。
  */
-export function normalizeStyle(style: CellStyle): CellStyle | undefined {
-  const normalized: CellStyle = {}
+export function normalizeStyle(style: SheetCellStyle): SheetCellStyle | undefined {
+  const normalized: SheetCellStyle = {}
   if (style.fill?.color) normalized.fill = { color: style.fill.color }
-  const border: NonNullable<CellStyle['border']> = {}
+  const border: NonNullable<SheetCellStyle['border']> = {}
   for (const side of BORDER_SIDES) {
     const edge = style.border?.[side]
     if (!edge || isEdgeEmpty(edge)) continue
@@ -76,8 +76,8 @@ export function normalizeStyle(style: CellStyle): CellStyle | undefined {
 }
 
 /** 样式副本（深拷贝一层：fill / 各边 / font / align 独立对象，外部修改不影响池内定义） */
-function cloneStyle(style: CellStyle): CellStyle {
-  const border: NonNullable<CellStyle['border']> = {}
+function cloneStyle(style: SheetCellStyle): SheetCellStyle {
+  const border: NonNullable<SheetCellStyle['border']> = {}
   for (const side of BORDER_SIDES) {
     const edge = style.border?.[side]
     if (edge) border[side] = { ...edge }
@@ -95,7 +95,7 @@ function cloneStyle(style: CellStyle): CellStyle {
  * 稳定序列化：fill → border 按固定边序 → font → align → numFmt，字段固定顺序，输出与书写顺序无关。
  * 调用方需先 normalize（本函数对空字段做同样剔除，保证 key 最小化）。
  */
-function serializeStyleKey(style: CellStyle): string {
+function serializeStyleKey(style: SheetCellStyle): string {
   const border: Record<string, unknown> = {}
   for (const side of BORDER_SIDES) {
     const edge = style.border?.[side]
@@ -132,7 +132,7 @@ function serializeStyleKey(style: CellStyle): string {
 }
 
 export class StylePool {
-  private readonly styles = new Map<StyleId, CellStyle>()
+  private readonly styles = new Map<StyleId, SheetCellStyle>()
   private readonly keys = new Map<string, StyleId>()
   private nextId = 1
 
@@ -145,7 +145,7 @@ export class StylePool {
    * 内部化样式：相同内容返回同一 id（内容去重）。
    * 空样式（无有效字段）抛错——空样式不应入库，调用方应先删 s 字段。
    */
-  intern(style: CellStyle): StyleId {
+  intern(style: SheetCellStyle): StyleId {
     const normalized = normalizeStyle(style)
     if (!normalized) {
       throw new Error('StylePool.intern：空样式不能内部化')
@@ -160,13 +160,13 @@ export class StylePool {
   }
 
   /** 按 id 取样式定义（返回副本）；不存在返回 undefined */
-  get(id: StyleId): CellStyle | undefined {
+  get(id: StyleId): SheetCellStyle | undefined {
     const style = this.styles.get(id)
     return style ? cloneStyle(style) : undefined
   }
 
   /** 只读访问内部定义（渲染层热路径用；调用方不得修改返回对象，#11） */
-  peek(id: StyleId): CellStyle | undefined {
+  peek(id: StyleId): SheetCellStyle | undefined {
     return this.styles.get(id)
   }
 
@@ -179,8 +179,8 @@ export class StylePool {
   }
 
   /** 序列化导出：按 id 升序的样式定义数组（供快照；与单元格 s 引用配套） */
-  snapshot(): CellStyle[] {
-    const items: CellStyle[] = []
+  snapshot(): SheetCellStyle[] {
+    const items: SheetCellStyle[] = []
     for (let id = 1; id < this.nextId; id++) {
       const style = this.styles.get(id)
       if (style) items.push(cloneStyle(style))
@@ -192,7 +192,7 @@ export class StylePool {
    * 从快照恢复：清空重建，id 与导出时一一对应（按序分配 1..N）；
    * 快照中重复定义防御性跳过（保持首个 id）。
    */
-  restore(items: readonly CellStyle[]): void {
+  restore(items: readonly SheetCellStyle[]): void {
     this.clear()
     for (const item of items) {
       const normalized = normalizeStyle(item)

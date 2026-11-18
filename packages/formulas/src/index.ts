@@ -49,6 +49,7 @@ export type {
 } from './evaluator'
 
 export { FormulaLookupCache } from './lookup-cache'
+export type { ExactLookupIndex } from './lookup-cache'
 
 export {
   FORMULA_FUNCTION_CATEGORIES,

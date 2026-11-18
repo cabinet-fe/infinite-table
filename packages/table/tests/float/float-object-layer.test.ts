@@ -2,7 +2,7 @@ import { SceneNode, type RenderImageSource } from '@infinitable/render'
 import { describe, expect, it } from 'vitest'
 
 import { ImageService, type LoadedImage } from '@infinitable/grid'
-import type { CellRef } from '../../src/types'
+import type { CellAddress } from '../../src/types'
 import type { FloatDragEndEvent, FloatTransformEndEvent } from '../../src/float/float-object-layer'
 import { FloatObjectLayer } from '../../src/float/float-object-layer'
 import { RecordingContext } from '../testing/recording-context'
@@ -261,7 +261,7 @@ describe('FloatObjectLayer 承载与定位', () => {
 
 describe('FloatObjectLayer 点选与拖拽（对齐 ultra-ui image-layer）', () => {
   /** 带命中换算的拖拽测试台架：对象 a 锚在 (1,2)+（4,8），层坐标 (104,72) 尺寸 (196,56) */
-  function dragSetup(cellAtPoint?: (x: number, y: number) => CellRef | null) {
+  function dragSetup(cellAtPoint?: (x: number, y: number) => CellAddress | null) {
     const { layer, invalidated } = stubLayer()
     const floats = new FloatObjectLayer({
       layer,

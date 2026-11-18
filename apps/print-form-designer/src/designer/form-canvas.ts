@@ -1,7 +1,7 @@
 import {
   SheetGrid,
   type CellAddress,
-  type CellStyle,
+  type SheetCellStyle,
   type SheetGridContextMenuInfo,
 } from '@infinitable/sheet'
 import {
@@ -297,7 +297,7 @@ export function mountFormCanvas(options: FormCanvasOptions): FormCanvas {
       },
       // 底色标记：仅叠加在无显式填充的格上（用户填充优先）
       // 优先级保持现状：展开区淡蓝 > 已绑定/函数格淡蓝
-      resolveCellStyle: (addr, base): CellStyle | undefined => {
+      resolveCellStyle: (addr, base): SheetCellStyle | undefined => {
         if (base?.fill) return undefined
         const region = regionsAt(doc.regions, addr.row, addr.col)
         if (region && region.expand !== 'none') {
