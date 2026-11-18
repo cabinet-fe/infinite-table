@@ -460,4 +460,99 @@ describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 
     const afterTableDel = await app.request(`/api/views/${tempView.id}`)
     expect(afterTableDel.status).toBe(404)
   })
+
+  test('dashboardConfig 校验并持久化新图型、seriesField、stacked、limit 与 KPI icon', async () => {
+    const { app } = createSeededTestEnv()
+
+    const validRes = await app.request('/api/views', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '扩展仪表盘视图',
+        type: 'dashboard',
+        tableId: 'tbl_projects',
+        dashboardConfig: {
+          kpis: [
+            {
+              id: 'kpi_ext_1',
+              title: '合同总额',
+              field: 'contract_amount',
+              agg: 'sum',
+              numberFormat: 'currency',
+              icon: 'dollar',
+            },
+          ],
+          charts: [
+            {
+              id: 'chart_ext_1',
+              title: '大区状态堆叠柱状图',
+              chartType: 'horizontalBar',
+              dimensionField: 'region',
+              seriesField: 'status',
+              stacked: true,
+              measureField: 'contract_amount',
+              agg: 'sum',
+              limit: 6,
+              span: 2,
+            },
+            {
+              id: 'chart_ext_2',
+              title: '雷达对比',
+              chartType: 'radar',
+              dimensionField: 'region',
+              seriesField: 'status',
+              measureField: '',
+              agg: 'count',
+            },
+          ],
+        },
+      }),
+    })
+    expect(validRes.status).toBe(201)
+    const { view: created } = (await validRes.json()) as { view: WorkspaceView }
+    expect(created.dashboardConfig?.kpis[0]?.icon).toBe('dollar')
+    expect(created.dashboardConfig?.charts[0]?.chartType).toBe('horizontalBar')
+    expect(created.dashboardConfig?.charts[0]?.seriesField).toBe('status')
+    expect(created.dashboardConfig?.charts[0]?.stacked).toBe(true)
+    expect(created.dashboardConfig?.charts[0]?.limit).toBe(6)
+    expect(created.dashboardConfig?.charts[1]?.chartType).toBe('radar')
+
+    const fetchedRes = await app.request(`/api/views/${created.id}`)
+    expect(fetchedRes.status).toBe(200)
+    const { view: fetched } = (await fetchedRes.json()) as { view: WorkspaceView }
+    expect(fetched.dashboardConfig).toEqual(created.dashboardConfig)
+
+    const badChartTypeRes = await app.request(`/api/views/${created.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dashboardConfig: {
+          kpis: [],
+          charts: [
+            {
+              id: 'c_bad',
+              title: '非法图型',
+              chartType: 'scatter',
+              dimensionField: 'region',
+              measureField: '',
+              agg: 'count',
+            },
+          ],
+        },
+      }),
+    })
+    expect(badChartTypeRes.status).toBe(400)
+
+    const badIconRes = await app.request(`/api/views/${created.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dashboardConfig: {
+          kpis: [{ id: 'k_bad', title: '非法图标', field: '', agg: 'count', icon: 'rocket' }],
+          charts: [],
+        },
+      }),
+    })
+    expect(badIconRes.status).toBe(400)
+  })
 })

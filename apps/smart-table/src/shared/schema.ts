@@ -173,6 +173,16 @@ export interface KanbanConfig {
 
 export type DashboardKpiAgg = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'filled_rate'
 
+export type DashboardKpiIcon =
+  | 'auto'
+  | 'hash'
+  | 'dollar'
+  | 'percent'
+  | 'trending'
+  | 'award'
+  | 'layers'
+  | 'clock'
+
 export interface DashboardKpiConfig {
   id: string
   title: string
@@ -182,9 +192,10 @@ export interface DashboardKpiConfig {
   prefix?: string
   suffix?: string
   accentColor?: string
+  icon?: DashboardKpiIcon
 }
 
-export type DashboardChartType = 'bar' | 'line' | 'pie'
+export type DashboardChartType = 'bar' | 'horizontalBar' | 'line' | 'area' | 'pie' | 'radar'
 
 export interface DashboardChartConfig {
   id: string
@@ -193,6 +204,8 @@ export interface DashboardChartConfig {
   dimensionField: string
   measureField: string
   agg: SmartPivotAgg
+  seriesField?: string
+  stacked?: boolean
   sortBy?: 'value_desc' | 'value_asc' | 'label_asc'
   limit?: number
   donut?: boolean

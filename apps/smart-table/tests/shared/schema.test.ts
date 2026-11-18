@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   ROW_HEIGHT_VALUES,
   type ConditionalFormatRule,
+  type DashboardChartType,
   type DashboardConfig,
+  type DashboardKpiIcon,
   type KanbanConfig,
   type SmartViewType,
   type WorkspaceView,
@@ -81,5 +83,81 @@ describe('shared schema extensions', () => {
     expect(view.conditionalFormats).toHaveLength(1)
     expect(view.kanbanConfig?.groupByField).toBe('status')
     expect(view.dashboardConfig?.charts[0]?.chartType).toBe('pie')
+  })
+
+  it('DashboardChartType 与 DashboardKpiConfig/DashboardChartConfig 支持六类图型、二级分组、堆叠与 KPI 图标', () => {
+    const chartTypes: DashboardChartType[] = [
+      'bar',
+      'horizontalBar',
+      'line',
+      'area',
+      'pie',
+      'radar',
+    ]
+    const kpiIcons: DashboardKpiIcon[] = [
+      'auto',
+      'hash',
+      'dollar',
+      'percent',
+      'trending',
+      'award',
+      'layers',
+      'clock',
+    ]
+    expect(chartTypes).toHaveLength(6)
+    expect(kpiIcons).toHaveLength(8)
+
+    const config: DashboardConfig = {
+      kpis: [
+        { id: 'k1', title: '记录数', field: '__count__', agg: 'count', icon: 'auto' },
+        {
+          id: 'k2',
+          title: '总金额',
+          field: 'amount',
+          agg: 'sum',
+          numberFormat: 'currency',
+          icon: 'dollar',
+        },
+      ],
+      charts: [
+        {
+          id: 'c_hbar',
+          title: '横向堆叠图',
+          chartType: 'horizontalBar',
+          dimensionField: 'region',
+          seriesField: 'status',
+          stacked: true,
+          measureField: 'amount',
+          agg: 'sum',
+          limit: 5,
+        },
+        {
+          id: 'c_area',
+          title: '面积趋势图',
+          chartType: 'area',
+          dimensionField: 'month',
+          seriesField: 'region',
+          measureField: 'amount',
+          agg: 'sum',
+        },
+        {
+          id: 'c_radar',
+          title: '能力雷达图',
+          chartType: 'radar',
+          dimensionField: 'category',
+          seriesField: 'quarter',
+          measureField: 'score',
+          agg: 'avg',
+        },
+      ],
+    }
+
+    expect(config.kpis[0]?.icon).toBe('auto')
+    expect(config.kpis[1]?.icon).toBe('dollar')
+    expect(config.charts[0]?.seriesField).toBe('status')
+    expect(config.charts[0]?.stacked).toBe(true)
+    expect(config.charts[0]?.limit).toBe(5)
+    expect(config.charts[1]?.chartType).toBe('area')
+    expect(config.charts[2]?.chartType).toBe('radar')
   })
 })

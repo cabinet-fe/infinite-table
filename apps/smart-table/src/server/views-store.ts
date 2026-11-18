@@ -12,11 +12,16 @@ import type {
   CellStyleConfig,
   ColumnStyleConfig,
   ConditionalFormatRule,
+  DashboardChartType,
   DashboardConfig,
+  DashboardKpiAgg,
+  DashboardKpiIcon,
   FilterGroup,
   KanbanConfig,
   RowHeightPreset,
   SmartApp,
+  SmartColumn,
+  SmartPivotAgg,
   SmartPivotConfig,
   SmartRecord,
   SmartViewType,
@@ -92,6 +97,46 @@ const VALID_FILTER_OPERATORS = new Set([
   'is_empty',
   'is_not_empty',
 ])
+
+const VALID_DASHBOARD_KPI_AGGS: ReadonlySet<DashboardKpiAgg> = new Set([
+  'sum',
+  'avg',
+  'min',
+  'max',
+  'count',
+  'filled_rate',
+])
+
+const VALID_DASHBOARD_KPI_ICONS: ReadonlySet<DashboardKpiIcon> = new Set([
+  'auto',
+  'hash',
+  'dollar',
+  'percent',
+  'trending',
+  'award',
+  'layers',
+  'clock',
+])
+
+const VALID_NUMBER_FORMATS: ReadonlySet<NonNullable<SmartColumn['numberFormat']>> = new Set([
+  'integer',
+  'decimal',
+  'currency',
+  'percent',
+])
+
+const VALID_DASHBOARD_CHART_TYPES: ReadonlySet<DashboardChartType> = new Set([
+  'bar',
+  'horizontalBar',
+  'line',
+  'area',
+  'pie',
+  'radar',
+])
+
+const VALID_PIVOT_AGGS: ReadonlySet<SmartPivotAgg> = new Set(['sum', 'count', 'avg', 'min', 'max'])
+
+const VALID_CHART_SORT_BY = new Set(['value_desc', 'value_asc', 'label_asc'])
 
 function ensureTableExists(db: Database, tableId: string): void {
   const row = db.query('SELECT id FROM smart_tables WHERE id = ?').get(tableId) as
@@ -173,10 +218,103 @@ function validateKanbanConfig(value: unknown): KanbanConfig {
   return value as unknown as KanbanConfig
 }
 
+function validateDashboardKpi(item: unknown, index: number): void {
+  if (!isPlainObject(item)) {
+    throw new ValidationError(`第 ${index + 1} 个 KPI 指标卡配置必须为对象`)
+  }
+  if (typeof item.id !== 'string' || item.id.trim() === '') {
+    throw new ValidationError(`第 ${index + 1} 个 KPI 指标卡缺少非空 id`)
+  }
+  if (typeof item.title !== 'string') {
+    throw new ValidationError(`KPI "${item.id}" 的 title 必须为字符串`)
+  }
+  if (typeof item.field !== 'string') {
+    throw new ValidationError(`KPI "${item.id}" 的 field 必须为字符串`)
+  }
+  if (typeof item.agg !== 'string' || !VALID_DASHBOARD_KPI_AGGS.has(item.agg as DashboardKpiAgg)) {
+    throw new ValidationError(`KPI "${item.id}" 的 agg 不合法`)
+  }
+  if (
+    item.numberFormat !== undefined &&
+    (typeof item.numberFormat !== 'string' ||
+      !VALID_NUMBER_FORMATS.has(item.numberFormat as NonNullable<SmartColumn['numberFormat']>))
+  ) {
+    throw new ValidationError(`KPI "${item.id}" 的 numberFormat 不合法`)
+  }
+  if (item.prefix !== undefined && typeof item.prefix !== 'string') {
+    throw new ValidationError(`KPI "${item.id}" 的 prefix 必须为字符串`)
+  }
+  if (item.suffix !== undefined && typeof item.suffix !== 'string') {
+    throw new ValidationError(`KPI "${item.id}" 的 suffix 必须为字符串`)
+  }
+  if (item.accentColor !== undefined && typeof item.accentColor !== 'string') {
+    throw new ValidationError(`KPI "${item.id}" 的 accentColor 必须为字符串`)
+  }
+  if (
+    item.icon !== undefined &&
+    (typeof item.icon !== 'string' || !VALID_DASHBOARD_KPI_ICONS.has(item.icon as DashboardKpiIcon))
+  ) {
+    throw new ValidationError(`KPI "${item.id}" 的 icon 不合法`)
+  }
+}
+
+function validateDashboardChart(item: unknown, index: number): void {
+  if (!isPlainObject(item)) {
+    throw new ValidationError(`第 ${index + 1} 个图表配置必须为对象`)
+  }
+  if (typeof item.id !== 'string' || item.id.trim() === '') {
+    throw new ValidationError(`第 ${index + 1} 个图表缺少非空 id`)
+  }
+  if (typeof item.title !== 'string') {
+    throw new ValidationError(`图表 "${item.id}" 的 title 必须为字符串`)
+  }
+  if (
+    typeof item.chartType !== 'string' ||
+    !VALID_DASHBOARD_CHART_TYPES.has(item.chartType as DashboardChartType)
+  ) {
+    throw new ValidationError(`图表 "${item.id}" 的 chartType 不合法`)
+  }
+  if (typeof item.dimensionField !== 'string') {
+    throw new ValidationError(`图表 "${item.id}" 的 dimensionField 必须为字符串`)
+  }
+  if (typeof item.measureField !== 'string') {
+    throw new ValidationError(`图表 "${item.id}" 的 measureField 必须为字符串`)
+  }
+  if (typeof item.agg !== 'string' || !VALID_PIVOT_AGGS.has(item.agg as SmartPivotAgg)) {
+    throw new ValidationError(`图表 "${item.id}" 的 agg 不合法`)
+  }
+  if (item.seriesField !== undefined && typeof item.seriesField !== 'string') {
+    throw new ValidationError(`图表 "${item.id}" 的 seriesField 必须为字符串`)
+  }
+  if (item.stacked !== undefined && typeof item.stacked !== 'boolean') {
+    throw new ValidationError(`图表 "${item.id}" 的 stacked 必须为布尔值`)
+  }
+  if (
+    item.sortBy !== undefined &&
+    (typeof item.sortBy !== 'string' || !VALID_CHART_SORT_BY.has(item.sortBy))
+  ) {
+    throw new ValidationError(`图表 "${item.id}" 的 sortBy 不合法`)
+  }
+  if (
+    item.limit !== undefined &&
+    (typeof item.limit !== 'number' || !Number.isFinite(item.limit) || item.limit <= 0)
+  ) {
+    throw new ValidationError(`图表 "${item.id}" 的 limit 必须为正数`)
+  }
+  if (item.donut !== undefined && typeof item.donut !== 'boolean') {
+    throw new ValidationError(`图表 "${item.id}" 的 donut 必须为布尔值`)
+  }
+  if (item.span !== undefined && item.span !== 1 && item.span !== 2) {
+    throw new ValidationError(`图表 "${item.id}" 的 span 必须为 1 或 2`)
+  }
+}
+
 function validateDashboardConfig(value: unknown): DashboardConfig {
   if (!isPlainObject(value) || !Array.isArray(value.kpis) || !Array.isArray(value.charts)) {
     throw new ValidationError('dashboardConfig 必须包含 kpis 与 charts 数组')
   }
+  value.kpis.forEach(validateDashboardKpi)
+  value.charts.forEach(validateDashboardChart)
   return value as unknown as DashboardConfig
 }
 

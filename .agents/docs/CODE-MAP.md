@@ -137,7 +137,7 @@ graph TD
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）
 - protocol 为纯类型契约包（零运行时）：装配契约只有一个家，依赖边是类型依赖；不消费 TableEngine 的引擎与协议插件（watermark/print）无需依赖 table
 - infinitable 为发布层：devDependencies 挂内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
-- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出与 smart-table 解析/导出）、chart.js（plugins 动态分包）、react 技术栈（react/react-dom、shadcn/ui、tailwind css、lucide-react；react/react-dom 亦用于 print-form-designer，shadcn/ui 仅 playground，tailwind css 与 lucide-react 用于 playground 与 smart-table，不进任何 packages）
+- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出与 smart-table 解析/导出）、chart.js（plugins 动态分包与 smart-table 仪表盘图表）、react 技术栈（react/react-dom、shadcn/ui、tailwind css、lucide-react；react/react-dom 亦用于 print-form-designer，shadcn/ui 仅 playground，tailwind css 与 lucide-react 用于 playground 与 smart-table，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 与 print-form-designer 走 dev 条件直接吃源码；包间消费统一走公共入口（grid 无 `./src/*` 深路径导出）
 
 ## 关键路径
