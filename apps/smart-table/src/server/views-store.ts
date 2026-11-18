@@ -1,5 +1,6 @@
 // 独立应用视图（WorkspaceView）SQLite 持久化、参数校验与看板写回封装
 import type { Database } from 'bun:sqlite'
+import { getBlockedLookupSourceKeys } from '../domain/lookup-engine'
 import type {
   CreateAppRequest,
   CreateAppResponse,
@@ -8,31 +9,36 @@ import type {
   UpdateAppRequest,
   UpdateViewRequest,
 } from '../shared/api-types'
-import type {
-  CellStyleConfig,
-  ColumnStyleConfig,
-  ConditionalFormatRule,
-  DashboardChartType,
-  DashboardConfig,
-  DashboardKpiAgg,
-  DashboardKpiIcon,
-  FilterGroup,
-  KanbanConfig,
-  RowHeightPreset,
-  SmartApp,
-  SmartColumn,
-  SmartPivotAgg,
-  SmartPivotConfig,
-  SmartRecord,
-  SmartViewType,
-  SortRule,
-  SummaryType,
-  WorkspaceView,
+import {
+  filterRawColumns,
+  mergeSmartColumns,
+  type CellStyleConfig,
+  type CellTextAlign,
+  type ColumnStyleConfig,
+  type ConditionalFormatRule,
+  type DashboardChartType,
+  type DashboardConfig,
+  type DashboardKpiAgg,
+  type DashboardKpiIcon,
+  type FilterGroup,
+  type KanbanConfig,
+  type LookupRollupAgg,
+  type RowHeightPreset,
+  type SmartApp,
+  type SmartColumn,
+  type SmartPivotAgg,
+  type SmartPivotConfig,
+  type SmartRecord,
+  type SmartViewType,
+  type SortRule,
+  type SummaryType,
+  type WorkspaceView,
 } from '../shared/schema'
 import {
   VALID_VIEW_TYPES,
   ValidationError,
   getTableBundle,
+  getTableMeta,
   isPlainObject,
   runInTransaction,
   updateTableRecord,
@@ -44,6 +50,8 @@ interface SmartAppRow {
   description: string | null
   table_id: string
   sort_order: number
+  derived_columns_json: string
+  lookup_overrides_json: string
   updated_at: string
 }
 
@@ -137,6 +145,17 @@ const VALID_DASHBOARD_CHART_TYPES: ReadonlySet<DashboardChartType> = new Set([
 const VALID_PIVOT_AGGS: ReadonlySet<SmartPivotAgg> = new Set(['sum', 'count', 'avg', 'min', 'max'])
 
 const VALID_CHART_SORT_BY = new Set(['value_desc', 'value_asc', 'label_asc'])
+
+const VALID_CELL_ALIGNS: ReadonlySet<CellTextAlign> = new Set(['left', 'center', 'right'])
+
+const VALID_LOOKUP_ROLLUP_AGGS: ReadonlySet<LookupRollupAgg> = new Set([
+  'sum',
+  'count',
+  'avg',
+  'min',
+  'max',
+  'join',
+])
 
 function ensureTableExists(db: Database, tableId: string): void {
   const row = db.query('SELECT id FROM smart_tables WHERE id = ?').get(tableId) as
@@ -332,13 +351,207 @@ function validatePlainMap<T>(value: unknown, label: string): T {
   return value as T
 }
 
+function parseJsonSafe<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) return fallback
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
+function validateDerivedColumns(
+  db: Database,
+  sourceTableId: string,
+  value: unknown,
+): SmartColumn[] {
+  if (!Array.isArray(value)) {
+    throw new ValidationError('derivedColumns 必须为数组')
+  }
+  const sourceMeta = getTableMeta(db, sourceTableId)
+  if (!sourceMeta) {
+    throw new ValidationError(`绑定的数据源表不存在: "${sourceTableId}"`)
+  }
+
+  const rawSourceColumns = filterRawColumns(sourceMeta.columns)
+  const rawSourceKeys = new Set(rawSourceColumns.map((col) => col.key))
+  const seenKeys = new Set<string>()
+  const validated: SmartColumn[] = []
+
+  for (let i = 0; i < value.length; i++) {
+    const col = value[i]
+    if (!isPlainObject(col)) {
+      throw new ValidationError(`第 ${i + 1} 个派生列配置必须为对象`)
+    }
+    if (typeof col.key !== 'string' || col.key.trim() === '') {
+      throw new ValidationError(`第 ${i + 1} 个派生列缺少非空字段 key`)
+    }
+    if (typeof col.title !== 'string' || col.title.trim() === '') {
+      throw new ValidationError(`派生列 "${col.key}" 缺少非空标题 title`)
+    }
+    if (col.type !== 'lookup' && col.type !== 'formula') {
+      throw new ValidationError(`派生列 "${col.key}" 的类型仅允许 lookup 或 formula`)
+    }
+    if (rawSourceKeys.has(col.key)) {
+      throw new ValidationError(`派生列 key "${col.key}" 与数据源表原始列重复`)
+    }
+    if (seenKeys.has(col.key)) {
+      throw new ValidationError(`存在重复派生列 key: "${col.key}"`)
+    }
+    if (
+      col.align !== undefined &&
+      (typeof col.align !== 'string' || !VALID_CELL_ALIGNS.has(col.align as CellTextAlign))
+    ) {
+      throw new ValidationError(`派生列 "${col.key}" 的 align 必须为 left / center / right`)
+    }
+    if (
+      col.width !== undefined &&
+      (typeof col.width !== 'number' || !Number.isFinite(col.width) || col.width <= 0)
+    ) {
+      throw new ValidationError(`派生列 "${col.key}" 的 width 必须为正数`)
+    }
+    if (
+      col.numberFormat !== undefined &&
+      (typeof col.numberFormat !== 'string' ||
+        !VALID_NUMBER_FORMATS.has(col.numberFormat as NonNullable<SmartColumn['numberFormat']>))
+    ) {
+      throw new ValidationError(`派生列 "${col.key}" 的 numberFormat 不合法`)
+    }
+    if (col.type === 'formula') {
+      if (typeof col.formulaExpr !== 'string' || col.formulaExpr.trim() === '') {
+        throw new ValidationError(`公式列 "${col.key}" 缺少非空表达式 formulaExpr`)
+      }
+    } else if (!isPlainObject(col.lookupConfig)) {
+      throw new ValidationError(`VLOOKUP 列 "${col.key}" 缺少 lookupConfig 配置`)
+    }
+
+    seenKeys.add(col.key)
+    validated.push(col as unknown as SmartColumn)
+  }
+
+  const mergedColumns = mergeSmartColumns(rawSourceColumns, validated)
+  const allowedSourceKeys = new Set(
+    mergedColumns.filter((col) => col.type !== 'formula').map((col) => col.key),
+  )
+  const targetMetaCache = new Map<string, ReturnType<typeof getTableMeta>>()
+
+  for (const col of validated) {
+    if (col.type !== 'lookup') continue
+    const cfg = col.lookupConfig!
+    if (typeof cfg.groupId !== 'string' || cfg.groupId.trim() === '') {
+      throw new ValidationError(`VLOOKUP 列 "${col.key}" 缺少非空 groupId`)
+    }
+    if (typeof cfg.targetTableId !== 'string' || cfg.targetTableId.trim() === '') {
+      throw new ValidationError(`VLOOKUP 列 "${col.key}" 缺少目标数据源表 targetTableId`)
+    }
+    if (cfg.mode !== 'one' && cfg.mode !== 'rollup') {
+      throw new ValidationError(`VLOOKUP 列 "${col.key}" 的 mode 必须为 one 或 rollup`)
+    }
+    if (
+      cfg.mode === 'rollup' &&
+      cfg.rollupAgg !== undefined &&
+      (typeof cfg.rollupAgg !== 'string' || !VALID_LOOKUP_ROLLUP_AGGS.has(cfg.rollupAgg))
+    ) {
+      throw new ValidationError(`VLOOKUP 列 "${col.key}" 的 rollupAgg 不合法`)
+    }
+
+    let targetMeta = targetMetaCache.get(cfg.targetTableId)
+    if (targetMeta === undefined) {
+      targetMeta = getTableMeta(db, cfg.targetTableId)
+      targetMetaCache.set(cfg.targetTableId, targetMeta)
+    }
+    if (!targetMeta) {
+      throw new ValidationError(
+        `VLOOKUP 列 "${col.key}" 关联的目标数据源表不存在: "${cfg.targetTableId}"`,
+      )
+    }
+
+    const targetRawKeys = new Set(filterRawColumns(targetMeta.columns).map((c) => c.key))
+    if (typeof cfg.targetReturnField !== 'string' || !targetRawKeys.has(cfg.targetReturnField)) {
+      throw new ValidationError(
+        `VLOOKUP 列 "${col.key}" 的返回字段 "${String(cfg.targetReturnField)}" 必须为目标数据源表原始字段`,
+      )
+    }
+
+    if (!Array.isArray(cfg.matchRules) || cfg.matchRules.length === 0) {
+      throw new ValidationError(`VLOOKUP 列 "${col.key}" 至少需要一条匹配条件`)
+    }
+    const blockedSourceKeys = getBlockedLookupSourceKeys(mergedColumns, cfg.groupId)
+    for (const rule of cfg.matchRules) {
+      if (!isPlainObject(rule)) {
+        throw new ValidationError(`VLOOKUP 列 "${col.key}" 的 matchRules 项必须为对象`)
+      }
+      if (typeof rule.sourceField !== 'string' || rule.sourceField.trim() === '') {
+        throw new ValidationError(`VLOOKUP 列 "${col.key}" 的匹配规则缺少 sourceField`)
+      }
+      if (!allowedSourceKeys.has(rule.sourceField) || blockedSourceKeys.has(rule.sourceField)) {
+        throw new ValidationError(
+          `VLOOKUP 列 "${col.key}" 的本表匹配字段 "${rule.sourceField}" 无效或形成循环依赖`,
+        )
+      }
+      if (typeof rule.targetField !== 'string' || !targetRawKeys.has(rule.targetField)) {
+        throw new ValidationError(
+          `VLOOKUP 列 "${col.key}" 的目标匹配字段 "${String(rule.targetField)}" 必须为目标数据源表原始字段`,
+        )
+      }
+    }
+  }
+
+  return validated
+}
+
+function validateLookupOverrides(value: unknown): Record<string, Record<string, string>> {
+  if (value === null) {
+    return {}
+  }
+  if (!isPlainObject(value)) {
+    throw new ValidationError('lookupOverrides 必须为对象')
+  }
+  const normalized: Record<string, Record<string, string>> = {}
+  for (const [recordId, groupMap] of Object.entries(value)) {
+    if (recordId.trim() === '') {
+      throw new ValidationError('lookupOverrides 的记录 ID 不能为空')
+    }
+    if (!isPlainObject(groupMap)) {
+      throw new ValidationError(`lookupOverrides["${recordId}"] 必须为对象`)
+    }
+    const nextGroupMap: Record<string, string> = {}
+    for (const [groupId, targetRecordId] of Object.entries(groupMap)) {
+      if (groupId.trim() === '') {
+        throw new ValidationError('lookupOverrides 的 groupId 不能为空')
+      }
+      if (targetRecordId === null || targetRecordId === undefined) {
+        continue
+      }
+      if (typeof targetRecordId !== 'string') {
+        throw new ValidationError(`lookupOverrides["${recordId}"]["${groupId}"] 必须为字符串`)
+      }
+      const trimmed = targetRecordId.trim()
+      if (trimmed !== '') {
+        nextGroupMap[groupId] = trimmed
+      }
+    }
+    if (Object.keys(nextGroupMap).length > 0) {
+      normalized[recordId] = nextGroupMap
+    }
+  }
+  return normalized
+}
+
 function parseSmartAppRow(row: SmartAppRow): SmartApp {
+  const parsedDerived = parseJsonSafe<SmartColumn[]>(row.derived_columns_json, [])
+  const parsedOverrides = parseJsonSafe<Record<string, Record<string, string>>>(
+    row.lookup_overrides_json,
+    {},
+  )
   return {
     id: row.id,
     name: row.name,
     ...(row.description ? { description: row.description } : {}),
     tableId: row.table_id,
     sortOrder: row.sort_order,
+    derivedColumns: Array.isArray(parsedDerived) ? parsedDerived : [],
+    lookupOverrides: isPlainObject(parsedOverrides) ? parsedOverrides : {},
     updatedAt: row.updated_at,
   }
 }
@@ -346,7 +559,7 @@ function parseSmartAppRow(row: SmartAppRow): SmartApp {
 function readSmartAppRow(db: Database, appId: string): SmartAppRow | null {
   const row = db
     .query(
-      'SELECT id, name, description, table_id, sort_order, updated_at FROM smart_apps WHERE id = ?',
+      'SELECT id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at FROM smart_apps WHERE id = ?',
     )
     .get(appId) as SmartAppRow | undefined | null
   return row ?? null
@@ -356,7 +569,7 @@ function readSmartAppRow(db: Database, appId: string): SmartAppRow | null {
 export function listSmartApps(db: Database): SmartApp[] {
   const rows = db
     .query(
-      'SELECT id, name, description, table_id, sort_order, updated_at FROM smart_apps ORDER BY sort_order ASC, rowid ASC',
+      'SELECT id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at FROM smart_apps ORDER BY sort_order ASC, rowid ASC',
     )
     .all() as SmartAppRow[]
   return rows.map(parseSmartAppRow)
@@ -383,6 +596,13 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
   return runInTransaction(db, () => {
     ensureTableExists(db, tableId)
 
+    const derivedColumns =
+      req.derivedColumns !== undefined
+        ? validateDerivedColumns(db, tableId, req.derivedColumns)
+        : []
+    const lookupOverrides =
+      req.lookupOverrides !== undefined ? validateLookupOverrides(req.lookupOverrides) : {}
+
     const orderRow = db
       .query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM smart_apps')
       .get() as { next_order: number } | undefined | null
@@ -391,8 +611,17 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
     const now = new Date().toISOString()
 
     db.query(
-      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run(appId, name, description ?? null, tableId, sortOrder, now)
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(
+      appId,
+      name,
+      description ?? null,
+      tableId,
+      sortOrder,
+      JSON.stringify(derivedColumns),
+      JSON.stringify(lookupOverrides),
+      now,
+    )
 
     const app: SmartApp = {
       id: appId,
@@ -400,6 +629,8 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
       ...(description ? { description } : {}),
       tableId,
       sortOrder,
+      derivedColumns,
+      lookupOverrides,
       updatedAt: now,
     }
 
@@ -416,7 +647,7 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
   })
 }
 
-/** 更新智能表格名称或描述 */
+/** 更新智能表格名称、描述、派生列或重名消歧覆盖 */
 export function updateSmartApp(
   db: Database,
   appId: string,
@@ -453,10 +684,33 @@ export function updateSmartApp(
       nextSortOrder = patch.sortOrder
     }
 
+    const parsedExistingDerived = parseJsonSafe<SmartColumn[]>(existing.derived_columns_json, [])
+    let nextDerivedColumns = Array.isArray(parsedExistingDerived) ? parsedExistingDerived : []
+    if ('derivedColumns' in patch && patch.derivedColumns !== undefined) {
+      nextDerivedColumns = validateDerivedColumns(db, existing.table_id, patch.derivedColumns)
+    }
+
+    const parsedExistingOverrides = parseJsonSafe<Record<string, Record<string, string>>>(
+      existing.lookup_overrides_json,
+      {},
+    )
+    let nextLookupOverrides = isPlainObject(parsedExistingOverrides) ? parsedExistingOverrides : {}
+    if ('lookupOverrides' in patch && patch.lookupOverrides !== undefined) {
+      nextLookupOverrides = validateLookupOverrides(patch.lookupOverrides)
+    }
+
     const now = new Date().toISOString()
     db.query(
-      'UPDATE smart_apps SET name = ?, description = ?, sort_order = ?, updated_at = ? WHERE id = ?',
-    ).run(nextName, nextDesc, nextSortOrder, now, appId)
+      'UPDATE smart_apps SET name = ?, description = ?, sort_order = ?, derived_columns_json = ?, lookup_overrides_json = ?, updated_at = ? WHERE id = ?',
+    ).run(
+      nextName,
+      nextDesc,
+      nextSortOrder,
+      JSON.stringify(nextDerivedColumns),
+      JSON.stringify(nextLookupOverrides),
+      now,
+      appId,
+    )
 
     return {
       id: appId,
@@ -464,6 +718,8 @@ export function updateSmartApp(
       ...(nextDesc ? { description: nextDesc } : {}),
       tableId: existing.table_id,
       sortOrder: nextSortOrder,
+      derivedColumns: nextDerivedColumns,
+      lookupOverrides: nextLookupOverrides,
       updatedAt: now,
     }
   })
@@ -659,13 +915,15 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
           .get() as { next_order: number } | undefined | null
         appId = `app_${crypto.randomUUID().slice(0, 8)}`
         db.query(
-          'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+          'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           appId,
           tableRow.name,
           null,
           tableId,
           orderRow?.next_order ?? 0,
+          '[]',
+          '{}',
           new Date().toISOString(),
         )
       }
@@ -857,6 +1115,12 @@ export function moveKanbanCard(
   const bundle: TableBundle | null = getTableBundle(db, view.tableId)
   if (!bundle) {
     throw new ValidationError(`看板绑定的数据源表不存在: "${view.tableId}"`)
+  }
+
+  const app = getSmartApp(db, view.appId)
+  const derivedCol = app?.derivedColumns?.find((c) => c.key === field)
+  if (derivedCol) {
+    throw new ValidationError(`派生列 "${derivedCol.title}" 不支持看板写回`)
   }
 
   const col = bundle.meta.columns.find((c) => c.key === field)

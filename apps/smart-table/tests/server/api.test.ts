@@ -7,8 +7,13 @@ import { describe, expect, test } from 'vitest'
 import { listTableBundles, openDatabase, resolveDbPath } from '../../src/server/db'
 import { createApp } from '../../src/server/index'
 import { SEED_VERSION, ensureSeeded, seedSmartTableDemo } from '../../src/server/seed'
-import type { AllTablesResponse, TableBundle } from '../../src/shared/api-types'
-import type { SmartRecord, SmartTableMeta } from '../../src/shared/schema'
+import type {
+  AllAppsResponse,
+  AllTablesResponse,
+  BatchImportRecordsResponse,
+  TableBundle,
+} from '../../src/shared/api-types'
+import type { SmartApp, SmartRecord, SmartTableMeta } from '../../src/shared/schema'
 
 function createSeededTestEnv() {
   const db = openDatabase(':memory:')
@@ -196,7 +201,7 @@ describe('六表联动种子初始化', () => {
     const totalRows = body.tables.reduce((acc, t) => acc + t.records.length, 0)
     expect(totalRows).toBe(121)
 
-    // 表 1：项目跟进与业绩总表（16 行，3 视图，同时展示未消歧与已锁定张三）
+    // 表 1：项目跟进与业绩总表（16 行，3 视图，数据源层不再含派生列与 _lookupOverrides）
     expect(projects!.meta.kind).toBe('normal')
     expect(projects!.meta.views).toHaveLength(3)
     expect(projects!.meta.views.map((v) => v.type)).toEqual(['table', 'pivot', 'table'])
@@ -204,7 +209,12 @@ describe('六表联动种子初始化', () => {
     const prj001 = projects!.records.find((r) => r.project_code === 'PRJ-2025-001')
     const prj006 = projects!.records.find((r) => r.project_code === 'PRJ-2025-006')
     expect(prj001?._lookupOverrides).toBeUndefined()
-    expect(prj006?._lookupOverrides).toEqual({ grp_emp: 'EMP-009' })
+    expect(prj006?._lookupOverrides).toBeUndefined()
+    expect(projects!.meta.columns.some((c) => c.type === 'lookup' || c.type === 'formula')).toBe(
+      false,
+    )
+    expect(projects!.meta.summaries.lookup_paid_sum).toBeUndefined()
+    expect(projects!.meta.summaries.formula_pay_rate).toBeUndefined()
     const blueprint = projects!.records[0]?.blueprint_img as string
     expect(blueprint.startsWith('data:image/svg+xml')).toBe(true)
 
@@ -228,31 +238,55 @@ describe('六表联动种子初始化', () => {
     expect(payments!.records).toHaveLength(48)
     expect(payments!.records.every((r) => r._id === r.pay_id && Boolean(r.region))).toBe(true)
 
-    // 项目表默认视图列序：lookup_emp_id/dept/level 紧邻 owner_name，rollup 汇总列紧随其后（首屏可见）
-    const projectKeys = projects!.meta.columns.map((c) => c.key)
-    const ownerIdx = projectKeys.indexOf('owner_name')
-    expect(projectKeys.slice(ownerIdx + 1, ownerIdx + 4)).toEqual([
-      'lookup_emp_id',
-      'lookup_emp_dept',
-      'lookup_emp_level',
-    ])
-    expect(projectKeys.indexOf('lookup_paid_sum')).toBe(ownerIdx + 4)
-    expect(projectKeys.indexOf('formula_pay_rate')).toBe(ownerIdx + 6)
-
-    // 表 4~6：库存台账（16 行）、供应商名录（8 行）、客户工单（18 行）
+    // 表 4~6：库存台账（16 行）、供应商名录（8 行）、客户工单（18 行）均仅保留原始字段
     expect(inventory!.records).toHaveLength(16)
     expect(inventory!.meta.views.map((v) => v.type)).toEqual(['table', 'pivot'])
+    expect(inventory!.meta.columns.some((c) => c.type === 'lookup' || c.type === 'formula')).toBe(
+      false,
+    )
+    expect(inventory!.meta.summaries.formula_stock_gap).toBeUndefined()
     expect(suppliers!.records).toHaveLength(8)
     expect(tickets!.records).toHaveLength(18)
     expect(tickets!.meta.views.map((v) => v.type)).toEqual(['table', 'pivot'])
+    expect(tickets!.meta.columns.some((c) => c.type === 'lookup' || c.type === 'formula')).toBe(
+      false,
+    )
+
+    // SEED_VERSION = 7：派生列与重名消歧覆盖已迁入 smart_apps
+    expect(SEED_VERSION).toBe(7)
+    const appsRes = await app.request('/api/apps')
+    expect(appsRes.status).toBe(200)
+    const appsBody = (await appsRes.json()) as AllAppsResponse
+    const appProjects = appsBody.apps.find((a) => a.id === 'app_projects')!
+    const appInventory = appsBody.apps.find((a) => a.id === 'app_inventory')!
+    const appTickets = appsBody.apps.find((a) => a.id === 'app_tickets')!
+    expect(appProjects.derivedColumns?.map((c) => c.key)).toEqual([
+      'lookup_emp_id',
+      'lookup_emp_dept',
+      'lookup_emp_level',
+      'lookup_paid_sum',
+      'lookup_paid_count',
+      'formula_pay_rate',
+    ])
+    expect(appProjects.lookupOverrides).toEqual({ rec_prj_006: { grp_emp: 'EMP-009' } })
+    expect(appInventory.derivedColumns?.map((c) => c.key)).toEqual([
+      'lookup_supplier_name',
+      'lookup_lead_days',
+      'formula_stock_gap',
+      'formula_restock_alert',
+    ])
+    expect(appTickets.derivedColumns?.map((c) => c.key)).toEqual([
+      'lookup_project_name',
+      'formula_sla_flag',
+    ])
   })
 })
 
-describe('普通表记录增删改、跨表同 _id 与 _lookupOverrides 合并持久化', () => {
-  test('支持普通表新增、局部 PATCH（按 groupId 合并 _lookupOverrides、剔除计算列）与删除', async () => {
+describe('普通表记录增删改、跨表同 _id 与派生/消歧字段剥离', () => {
+  test('支持普通表新增、局部 PATCH（自动剔除计算列与 _lookupOverrides）与删除', async () => {
     const { app } = createSeededTestEnv()
 
-    // 新增项目记录（携带计算列与显式 _id，验证计算列被剔除）
+    // 新增项目记录（携带 SmartApp 派生列、_lookupOverrides 与显式 _id，验证非原始字段被剔除）
     const createRes = await app.request('/api/tables/tbl_projects/records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -268,6 +302,7 @@ describe('普通表记录增删改、跨表同 _id 与 _lookupOverrides 合并�
           verified: false,
           lookup_emp_id: 'SHOULD_STRIP',
           formula_pay_rate: 999,
+          _lookupOverrides: { grp_emp: 'EMP-009' },
         },
       }),
     })
@@ -277,6 +312,7 @@ describe('普通表记录增删改、跨表同 _id 与 _lookupOverrides 合并�
     expect(createdBody.record.project_code).toBe('PRJ-2025-099')
     expect(createdBody.record.lookup_emp_id).toBeUndefined()
     expect(createdBody.record.formula_pay_rate).toBeUndefined()
+    expect(createdBody.record._lookupOverrides).toBeUndefined()
 
     // 另一张普通表也插入相同 _id = 'shared_rec_id' 应成功（复合主键隔离）
     const createOtherRes = await app.request('/api/tables/tbl_suppliers/records', {
@@ -292,41 +328,27 @@ describe('普通表记录增删改、跨表同 _id 与 _lookupOverrides 合并�
     })
     expect(createOtherRes.status).toBe(201)
 
-    // 首次 PATCH _lookupOverrides.grp_emp
-    const overrideRes1 = await app.request(
-      `/api/tables/tbl_projects/records/${createdBody.record._id}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patch: { _lookupOverrides: { grp_emp: 'EMP-009' } },
-        }),
-      },
-    )
-    expect(overrideRes1.status).toBe(200)
-
-    // 二次 PATCH 另一 groupId，应按 groupId 合并而非覆盖掉 grp_emp
-    const overrideRes2 = await app.request(
+    // PATCH 传入派生列与 _lookupOverrides 不应落入记录，原始字段正常更新
+    const patchRes = await app.request(
       `/api/tables/tbl_projects/records/${createdBody.record._id}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           patch: {
+            progress: 85,
             _lookupOverrides: { grp_extra: 'EXT-001' },
             lookup_emp_dept: 'SHOULD_NOT_PERSIST',
           },
         }),
       },
     )
-    expect(overrideRes2.status).toBe(200)
-    const overrideBody2 = (await overrideRes2.json()) as { record: SmartRecord }
-    expect(overrideBody2.record._lookupOverrides).toEqual({
-      grp_emp: 'EMP-009',
-      grp_extra: 'EXT-001',
-    })
-    expect(overrideBody2.record.lookup_emp_dept).toBeUndefined()
-    expect(overrideBody2.record.project_name).toBe('新增测试项目')
+    expect(patchRes.status).toBe(200)
+    const patchBody = (await patchRes.json()) as { record: SmartRecord }
+    expect(patchBody.record._lookupOverrides).toBeUndefined()
+    expect(patchBody.record.lookup_emp_dept).toBeUndefined()
+    expect(patchBody.record.progress).toBe(85)
+    expect(patchBody.record.project_name).toBe('新增测试项目')
 
     // 删除记录
     const delRes = await app.request(`/api/tables/tbl_projects/records/${createdBody.record._id}`, {
@@ -399,19 +421,17 @@ describe('进阶 SQL 表直接写回物理表与约束校验', () => {
       email: 'newbie@company.com',
     })
 
-    // 修改 EMP-009 主键为 EMP-909 时，联动更新 tbl_projects 中 PRJ-2025-006 的 _lookupOverrides
+    // 修改 EMP-009 主键为 EMP-909 时，联动更新 app_projects.lookupOverrides
     const renamePkRes = await app.request('/api/tables/tbl_employees/records/EMP-009', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ patch: { emp_id: 'EMP-909' } }),
     })
     expect(renamePkRes.status).toBe(200)
-    const tablesRes = await app.request('/api/tables')
-    const tablesBody = (await tablesRes.json()) as AllTablesResponse
-    const prj006 = tablesBody.tables
-      .find((t) => t.meta.id === 'tbl_projects')!
-      .records.find((r) => r.project_code === 'PRJ-2025-006')
-    expect(prj006?._lookupOverrides).toEqual({ grp_emp: 'EMP-909' })
+    const appRes = await app.request('/api/apps/app_projects')
+    expect(appRes.status).toBe(200)
+    const { app: updatedProjectApp } = (await appRes.json()) as { app: SmartApp }
+    expect(updatedProjectApp.lookupOverrides?.rec_prj_006).toEqual({ grp_emp: 'EMP-909' })
   })
 
   test('biz_payments 新增、编辑与删除直接写回物理 SQLite 表，数值列拒绝非数字字符串', async () => {
@@ -776,8 +796,24 @@ describe('Excel/CSV 导入：commit 建表与行写入', () => {
     expect(badRes.status).toBe(400)
   })
 
-  test('advanced 提交：落 SQL 物理表（formula 列仅存 meta）、行级 CRUD 可用、可整表删除', async () => {
+  test('advanced 提交：落 SQL 物理表、拒绝派生列、行级 CRUD 可用、可整表删除', async () => {
     const { db, app } = createSeededTestEnv()
+    // 携带 formula / lookup 列提交导入应被拒绝（HTTP 400）
+    const rejectedCommitRes = await app.request('/api/import/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'advanced',
+        tableName: 'lead_pool_bad',
+        columns: [
+          { key: 'lead_id', label: '线索ID', type: 'text' },
+          { key: 'tier', label: '预算分档', type: 'formula' },
+        ],
+        rows: [['L-001', '']],
+      }),
+    })
+    expect(rejectedCommitRes.status).toBe(400)
+
     const commitRes = await app.request('/api/import/commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -788,12 +824,11 @@ describe('Excel/CSV 导入：commit 建表与行写入', () => {
           { key: 'lead_id', label: '线索ID', type: 'text' },
           { key: 'company', label: '公司名称', type: 'text' },
           { key: 'budget', label: '预算', type: 'number' },
-          { key: 'tier', label: '预算分档', type: 'formula' },
         ],
         rows: [
-          ['L-001', '杭州云脉科技', '120000', ''],
-          ['L-002', '苏州深蓝智造', '80000', ''],
-          ['L-003', '广州湾区数联', '', ''],
+          ['L-001', '杭州云脉科技', '120000'],
+          ['L-002', '苏州深蓝智造', '80000'],
+          ['L-003', '广州湾区数联', ''],
         ],
       }),
     })
@@ -804,10 +839,9 @@ describe('Excel/CSV 导入：commit 建表与行写入', () => {
     expect(meta.sourceSqlTable).toBe('lead_pool')
     expect(meta.primaryKeyField).toBe('lead_id')
     expect(meta.system).toBeUndefined()
-    // formula 列在 meta 中保留但不落物理列
-    expect(meta.columns.some((c) => c.key === 'tier' && c.type === 'formula')).toBe(true)
+    expect(meta.columns.some((c) => c.type === 'formula' || c.type === 'lookup')).toBe(false)
 
-    // 物理表落库验证：数字列为 number、空数字为 NULL、无 tier 列
+    // 物理表落库验证：数字列为 number、空数字为 NULL
     const physicalRows = db
       .query('SELECT lead_id, company, budget FROM lead_pool ORDER BY rowid ASC')
       .all() as { lead_id: string; company: string; budget: number | null }[]
@@ -943,5 +977,284 @@ describe('种子版本自愈（PRAGMA user_version）', () => {
     expect(tables.find((t) => t.meta.id === 'tbl_projects')!.records).toHaveLength(8)
     expect(tables.some((t) => t.meta.id === 'tbl_user_custom')).toBe(true)
     db.close()
+  })
+})
+
+describe('数据源表拒绝派生列、required/align 持久化、单行与批量校验及 GET /api/tables/:id', () => {
+  test('数据源表拒绝保存 lookup / formula 列，并支持保存与返回 required 与 align', async () => {
+    const { app } = createSeededTestEnv()
+
+    // 1. POST /api/tables 拒绝 lookup / formula
+    const createLookupTable = await app.request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '非法派生列表',
+        columns: [
+          { key: 'name', title: '名称', type: 'text', width: 120 },
+          { key: 'lookup_dept', title: '部门', type: 'lookup', width: 120 },
+        ],
+      }),
+    })
+    expect(createLookupTable.status).toBe(400)
+
+    const createFormulaTable = await app.request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '非法公式表',
+        columns: [
+          { key: 'amount', title: '金额', type: 'number', width: 120 },
+          { key: 'double_amount', title: '双倍', type: 'formula', width: 120 },
+        ],
+      }),
+    })
+    expect(createFormulaTable.status).toBe(400)
+
+    // 2. POST /api/import/commit (normal) 拒绝 lookup / formula
+    const commitWithDerived = await app.request('/api/import/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'normal',
+        tableName: '含派生导入表',
+        columns: [
+          { key: 'code', label: '编码', type: 'text' },
+          { key: 'ref', label: '关联', type: 'lookup' },
+        ],
+        rows: [['A-1', '']],
+      }),
+    })
+    expect(commitWithDerived.status).toBe(400)
+
+    // 3. 合法数据源表可配置 required 与 align 并持久化；PUT /meta 拒绝派生列与非法 align/required
+    const createValid = await app.request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '合同录入表',
+        columns: [
+          { key: 'code', title: '合同号', type: 'text', width: 140, required: true, align: 'left' },
+          {
+            key: 'amount',
+            title: '金额',
+            type: 'number',
+            width: 140,
+            required: true,
+            align: 'right',
+          },
+          { key: 'sign_date', title: '签约日', type: 'date', width: 130, align: 'center' },
+        ],
+      }),
+    })
+    expect(createValid.status).toBe(201)
+    const createdBundle = (await createValid.json()) as TableBundle
+
+    // GET /api/tables/:id 返回单表 Bundle（含 required / align），不存在返回 404
+    const getOneRes = await app.request(`/api/tables/${createdBundle.meta.id}`)
+    expect(getOneRes.status).toBe(200)
+    const fetched = (await getOneRes.json()) as TableBundle
+    expect(fetched.meta.columns[0]?.required).toBe(true)
+    expect(fetched.meta.columns[1]?.align).toBe('right')
+    expect(fetched.meta.columns[2]?.align).toBe('center')
+
+    const missingTableRes = await app.request('/api/tables/tbl_not_exists')
+    expect(missingTableRes.status).toBe(404)
+
+    const putDerivedRes = await app.request(`/api/tables/${createdBundle.meta.id}/meta`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meta: {
+          ...fetched.meta,
+          columns: [
+            ...fetched.meta.columns,
+            { key: 'calc', title: '公式列', type: 'formula', width: 120, formulaExpr: '1+1' },
+          ],
+        },
+      }),
+    })
+    expect(putDerivedRes.status).toBe(400)
+
+    const putBadAlignRes = await app.request(`/api/tables/${createdBundle.meta.id}/meta`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meta: {
+          ...fetched.meta,
+          columns: fetched.meta.columns.map((c, idx) =>
+            idx === 0 ? { ...c, align: 'justify' } : c,
+          ),
+        },
+      }),
+    })
+    expect(putBadAlignRes.status).toBe(400)
+  })
+
+  test('单行 POST/PATCH 强制校验 required 与字段类型', async () => {
+    const { app } = createSeededTestEnv()
+
+    const tableRes = await app.request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '校验测试表',
+        columns: [
+          { key: 'code', title: '编号', type: 'text', width: 120, required: true },
+          { key: 'amount', title: '金额', type: 'number', width: 120, required: true },
+          { key: 'due_date', title: '交付日', type: 'date', width: 120 },
+          { key: 'progress', title: '进度', type: 'progress', width: 100 },
+          { key: 'verified', title: '已核验', type: 'checkbox', width: 90 },
+        ],
+      }),
+    })
+    const { meta } = (await tableRes.json()) as TableBundle
+
+    // 缺少 required 字段 -> 400
+    const missingReq = await app.request(`/api/tables/${meta.id}/records`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ record: { code: 'C-1' } }),
+    })
+    expect(missingReq.status).toBe(400)
+
+    // 非法日期 -> 400
+    const badDate = await app.request(`/api/tables/${meta.id}/records`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        record: { code: 'C-1', amount: 100, due_date: '2025-02-30' },
+      }),
+    })
+    expect(badDate.status).toBe(400)
+
+    // 合法创建（字符串数值/日期/中文布尔自动归一化）
+    const validCreate = await app.request(`/api/tables/${meta.id}/records`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        record: {
+          code: 'C-1',
+          amount: '2500.5',
+          due_date: '2026/5/1',
+          progress: '120',
+          verified: '是',
+        },
+      }),
+    })
+    expect(validCreate.status).toBe(201)
+    const { record: created } = (await validCreate.json()) as { record: SmartRecord }
+    expect(created.amount).toBe(2500.5)
+    expect(created.due_date).toBe('2026-05-01')
+    expect(created.progress).toBe(100)
+    expect(created.verified).toBe(true)
+
+    // PATCH 将 required 列清空 -> 400
+    const clearRequiredPatch = await app.request(`/api/tables/${meta.id}/records/${created._id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patch: { code: '   ' } }),
+    })
+    expect(clearRequiredPatch.status).toBe(400)
+
+    // PATCH 仅改非 required 字段 -> 200
+    const okPatch = await app.request(`/api/tables/${meta.id}/records/${created._id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ patch: { progress: '60' } }),
+    })
+    expect(okPatch.status).toBe(200)
+    const { record: patched } = (await okPatch.json()) as { record: SmartRecord }
+    expect(patched.progress).toBe(60)
+  })
+
+  test('POST /api/tables/:id/records/batch 仅限 normal 表，校验失败整批零写入并返回错误明细', async () => {
+    const { app } = createSeededTestEnv()
+
+    const tableRes = await app.request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '批量导入目标表',
+        columns: [
+          { key: 'code', title: '编号', type: 'text', width: 120, required: true },
+          { key: 'amount', title: '金额', type: 'number', width: 120, required: true },
+          { key: 'due_date', title: '日期', type: 'date', width: 120 },
+        ],
+      }),
+    })
+    const { meta } = (await tableRes.json()) as TableBundle
+
+    // 1. 进阶表禁止批量追加 -> 400
+    const advBatchRes = await app.request('/api/tables/tbl_employees/records/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [{ emp_id: 'E-99', name: '测试' }] }),
+    })
+    expect(advBatchRes.status).toBe(400)
+
+    // 2. 不存在的表 -> 404
+    const missingBatchRes = await app.request('/api/tables/tbl_not_found/records/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [{ code: 'A' }] }),
+    })
+    expect(missingBatchRes.status).toBe(404)
+
+    // 3. 空数组 -> 400
+    const emptyBatchRes = await app.request(`/api/tables/${meta.id}/records/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [] }),
+    })
+    expect(emptyBatchRes.status).toBe(400)
+
+    // 4. 第 2 行含多处错误：整批拦截返回 400 与 errors，且数据库零写入
+    const badBatchRes = await app.request(`/api/tables/${meta.id}/records/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        records: [
+          { code: 'B-1', amount: '100', due_date: '2026-01-10' },
+          { code: '', amount: 'not_num', due_date: '2026-02-30' },
+        ],
+      }),
+    })
+    expect(badBatchRes.status).toBe(400)
+    const badBatchBody = (await badBatchRes.json()) as {
+      message: string
+      errors: Array<{ rowIndex: number; field: string; columnTitle: string; message: string }>
+    }
+    expect(badBatchBody.errors).toHaveLength(3)
+    expect(badBatchBody.errors.every((e) => e.rowIndex === 1)).toBe(true)
+
+    const afterFailBundle = (await (
+      await app.request(`/api/tables/${meta.id}`)
+    ).json()) as TableBundle
+    expect(afterFailBundle.records).toHaveLength(0)
+
+    // 5. 全部合法：整批落库返回 201
+    const okBatchRes = await app.request(`/api/tables/${meta.id}/records/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        records: [
+          { code: 'B-1', amount: '1000', due_date: '2026/1/10', _lookupOverrides: { g: 'x' } },
+          { code: 'B-2', amount: 2500, due_date: '2026-02-20' },
+        ],
+      }),
+    })
+    expect(okBatchRes.status).toBe(201)
+    const okBatchBody = (await okBatchRes.json()) as BatchImportRecordsResponse
+    expect(okBatchBody.insertedCount).toBe(2)
+    expect(okBatchBody.records).toHaveLength(2)
+    expect(okBatchBody.records[0]?.amount).toBe(1000)
+    expect(okBatchBody.records[0]?.due_date).toBe('2026-01-10')
+    expect(okBatchBody.records[0]?._lookupOverrides).toBeUndefined()
+
+    const afterOkBundle = (await (
+      await app.request(`/api/tables/${meta.id}`)
+    ).json()) as TableBundle
+    expect(afterOkBundle.records).toHaveLength(2)
   })
 })

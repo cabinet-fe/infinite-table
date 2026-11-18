@@ -5,6 +5,7 @@ import type {
   AllAppsResponse,
   AllTablesResponse,
   AllViewsResponse,
+  BatchImportRecordsRequest,
   CreateAppRequest,
   CreateRecordRequest,
   CreateTableRequest,
@@ -19,7 +20,9 @@ import type {
   UpdateViewRequest,
 } from '../shared/api-types'
 import {
+  BatchValidationError,
   ValidationError,
+  batchCreateTableRecords,
   createTableRecord,
   deleteTable,
   deleteTableRecord,
@@ -80,6 +83,11 @@ function isCreateRecordBody(body: unknown): body is CreateRecordRequest {
   return isPlainObject(body.record)
 }
 
+function isBatchImportBody(body: unknown): body is BatchImportRecordsRequest {
+  if (!isPlainObject(body)) return false
+  return Array.isArray(body.records) && body.records.every((record) => isPlainObject(record))
+}
+
 function isUpdateRecordBody(body: unknown): body is UpdateRecordRequest {
   if (!isPlainObject(body)) return false
   return isPlainObject(body.patch)
@@ -127,6 +135,9 @@ function isKanbanMoveCardBody(body: unknown): body is KanbanMoveCardRequest {
 }
 
 function handleRouteError(c: Context, error: unknown, uniquePrefix: string): Response {
+  if (error instanceof BatchValidationError) {
+    return c.json({ message: error.message, errors: error.errors }, 400)
+  }
   if (error instanceof ValidationError) {
     return c.json({ message: error.message }, 400)
   }
@@ -149,6 +160,14 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
   app.get('/api/tables', (c) => {
     const response: AllTablesResponse = { tables: listTableBundles(db) }
     return c.json(response)
+  })
+
+  app.get('/api/tables/:id', (c) => {
+    const bundle = getTableBundle(db, c.req.param('id'))
+    if (!bundle) {
+      return c.json({ message: '数据表不存在' }, 404)
+    }
+    return c.json(bundle)
   })
 
   app.post('/api/tables', async (c) => {
@@ -213,6 +232,22 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
       return c.json({ record: created }, 201)
     } catch (error) {
       return handleRouteError(c, error, '主键值已存在，请更换唯一标识')
+    }
+  })
+
+  app.post('/api/tables/:id/records/batch', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isBatchImportBody(body)) {
+      return c.json({ message: '请求体不合法：需提供 records 对象数组' }, 400)
+    }
+    try {
+      const result = batchCreateTableRecords(db, c.req.param('id'), body.records)
+      if (!result) {
+        return c.json({ message: '数据表不存在' }, 404)
+      }
+      return c.json(result, 201)
+    } catch (error) {
+      return handleRouteError(c, error, '批量导入冲突')
     }
   })
 

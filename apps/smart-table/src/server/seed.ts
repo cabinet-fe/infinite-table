@@ -29,8 +29,9 @@ import { runInTransaction } from './db'
  * - 4：补齐企业员工花名册与供应商名录应用视图，确保 6 张种子表均可在应用视图空间直接浏览
  * - 5：引入独立智能表格层（smart_apps），支持「多数据源 → 多智能表格 → 每表多视图（表格/看板/透视/仪表盘）」三层模型，预置 7 张示范智能表格（含同一数据源衍生多张智能表格）
  * - 6：升级示范仪表盘视图配置，覆盖 horizontalBar / area / radar 图型与二级分组多系列（含堆叠/Top N）示例
+ * - 7：数据源表与智能表格层职责分离，lookup/formula 派生列及 lookupOverrides 重名消歧锁定上移至 smart_apps
  */
-export const SEED_VERSION = 6
+export const SEED_VERSION = 7
 
 /** 种子内置表 id 集合：smart_tables 中出现集合之外的表即视为用户自建表 */
 const SEED_TABLE_IDS: ReadonlySet<string> = new Set([
@@ -153,93 +154,94 @@ interface TableMetaParts {
   summaries: Record<string, SummaryType>
 }
 
+const PROJECT_DERIVED_COLUMNS: SmartColumn[] = [
+  // VLOOKUP 1：一对一跨表关联员工花名册（共享 groupId: 'grp_emp'）
+  {
+    key: 'lookup_emp_id',
+    title: '唯一工号',
+    type: 'lookup',
+    width: 125,
+    lookupConfig: {
+      groupId: 'grp_emp',
+      targetTableId: 'tbl_employees',
+      matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
+      targetReturnField: 'emp_id',
+      mode: 'one',
+    },
+  },
+  {
+    key: 'lookup_emp_dept',
+    title: '所属部门',
+    type: 'lookup',
+    width: 135,
+    lookupConfig: {
+      groupId: 'grp_emp',
+      targetTableId: 'tbl_employees',
+      matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
+      targetReturnField: 'dept',
+      mode: 'one',
+    },
+  },
+  {
+    key: 'lookup_emp_level',
+    title: '负责人职级',
+    type: 'lookup',
+    width: 110,
+    lookupConfig: {
+      groupId: 'grp_emp',
+      targetTableId: 'tbl_employees',
+      matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
+      targetReturnField: 'level',
+      mode: 'one',
+    },
+  },
+  // VLOOKUP 2：一对多 Rollup 关联客户回款流水表（共享 groupId: 'grp_pay'）
+  {
+    key: 'lookup_paid_sum',
+    title: '累计回款金额',
+    type: 'lookup',
+    width: 145,
+    numberFormat: 'currency',
+    lookupConfig: {
+      groupId: 'grp_pay',
+      targetTableId: 'tbl_payments',
+      matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
+      targetReturnField: 'amount',
+      mode: 'rollup',
+      rollupAgg: 'sum',
+    },
+  },
+  {
+    key: 'lookup_paid_count',
+    title: '回款笔数',
+    type: 'lookup',
+    width: 100,
+    numberFormat: 'integer',
+    lookupConfig: {
+      groupId: 'grp_pay',
+      targetTableId: 'tbl_payments',
+      matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
+      targetReturnField: 'pay_id',
+      mode: 'rollup',
+      rollupAgg: 'count',
+    },
+  },
+  // 整列计算公式列
+  {
+    key: 'formula_pay_rate',
+    title: '回款达成率',
+    type: 'formula',
+    width: 120,
+    formulaExpr: '[lookup_paid_sum] / [contract_amount]',
+    numberFormat: 'percent',
+  },
+]
+
 function buildProjectsMeta(): TableMetaParts {
-  // 列序约定：lookup_emp_id/dept/level 紧邻 owner_name（首屏可见关联查找示例，含张三重名冲突），
-  // rollup 汇总（累计回款/笔数/达成率）随后前置，富媒体与长文本列靠后
   const columns: SmartColumn[] = [
     { key: 'project_code', title: '项目编号', type: 'text', width: 130 },
     { key: 'project_name', title: '项目名称', type: 'text', width: 220 },
     { key: 'owner_name', title: '负责人', type: 'person', width: 130 },
-    // VLOOKUP 1：一对一跨表关联员工花名册（共享 groupId: 'grp_emp'）
-    {
-      key: 'lookup_emp_id',
-      title: '唯一工号',
-      type: 'lookup',
-      width: 125,
-      lookupConfig: {
-        groupId: 'grp_emp',
-        targetTableId: 'tbl_employees',
-        matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
-        targetReturnField: 'emp_id',
-        mode: 'one',
-      },
-    },
-    {
-      key: 'lookup_emp_dept',
-      title: '所属部门',
-      type: 'lookup',
-      width: 135,
-      lookupConfig: {
-        groupId: 'grp_emp',
-        targetTableId: 'tbl_employees',
-        matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
-        targetReturnField: 'dept',
-        mode: 'one',
-      },
-    },
-    {
-      key: 'lookup_emp_level',
-      title: '负责人职级',
-      type: 'lookup',
-      width: 110,
-      lookupConfig: {
-        groupId: 'grp_emp',
-        targetTableId: 'tbl_employees',
-        matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
-        targetReturnField: 'level',
-        mode: 'one',
-      },
-    },
-    // VLOOKUP 2：一对多 Rollup 关联客户回款流水表（共享 groupId: 'grp_pay'）
-    {
-      key: 'lookup_paid_sum',
-      title: '累计回款金额',
-      type: 'lookup',
-      width: 145,
-      numberFormat: 'currency',
-      lookupConfig: {
-        groupId: 'grp_pay',
-        targetTableId: 'tbl_payments',
-        matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
-        targetReturnField: 'amount',
-        mode: 'rollup',
-        rollupAgg: 'sum',
-      },
-    },
-    {
-      key: 'lookup_paid_count',
-      title: '回款笔数',
-      type: 'lookup',
-      width: 100,
-      numberFormat: 'integer',
-      lookupConfig: {
-        groupId: 'grp_pay',
-        targetTableId: 'tbl_payments',
-        matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
-        targetReturnField: 'pay_id',
-        mode: 'rollup',
-        rollupAgg: 'count',
-      },
-    },
-    // 整列计算公式列
-    {
-      key: 'formula_pay_rate',
-      title: '回款达成率',
-      type: 'formula',
-      width: 120,
-      formulaExpr: '[lookup_paid_sum] / [contract_amount]',
-      numberFormat: 'percent',
-    },
     { key: 'region', title: '所属大区', type: 'select', width: 115, options: REGION_OPTIONS },
     {
       key: 'status',
@@ -308,10 +310,7 @@ function buildProjectsMeta(): TableMetaParts {
 
   const summaries: Record<string, SummaryType> = {
     contract_amount: 'sum',
-    lookup_paid_sum: 'sum',
-    lookup_paid_count: 'sum',
     progress: 'avg',
-    formula_pay_rate: 'avg',
     verified: 'filled_rate',
   }
 
@@ -411,6 +410,51 @@ function buildPaymentsMeta(): TableMetaParts {
   return { columns, views, summaries: { pay_id: 'count', amount: 'sum' } }
 }
 
+const INVENTORY_DERIVED_COLUMNS: SmartColumn[] = [
+  {
+    key: 'lookup_supplier_name',
+    title: '供应商名称',
+    type: 'lookup',
+    width: 180,
+    lookupConfig: {
+      groupId: 'grp_sup',
+      targetTableId: 'tbl_suppliers',
+      matchRules: [{ sourceField: 'supplier_code', targetField: 'supplier_id' }],
+      targetReturnField: 'supplier_name',
+      mode: 'one',
+    },
+  },
+  {
+    key: 'lookup_lead_days',
+    title: '标准交期(天)',
+    type: 'lookup',
+    width: 120,
+    numberFormat: 'integer',
+    lookupConfig: {
+      groupId: 'grp_sup',
+      targetTableId: 'tbl_suppliers',
+      matchRules: [{ sourceField: 'supplier_code', targetField: 'supplier_id' }],
+      targetReturnField: 'lead_days',
+      mode: 'one',
+    },
+  },
+  {
+    key: 'formula_stock_gap',
+    title: '库存缺口',
+    type: 'formula',
+    width: 110,
+    formulaExpr: '[安全库存] - [当前库存]',
+    numberFormat: 'integer',
+  },
+  {
+    key: 'formula_restock_alert',
+    title: '补货预警',
+    type: 'formula',
+    width: 110,
+    formulaExpr: 'IF([当前库存] < [安全库存], "需补货", "充足")',
+  },
+]
+
 function buildInventoryMeta(): TableMetaParts {
   const columns: SmartColumn[] = [
     { key: 'sku', title: 'SKU 编码', type: 'text', width: 130, isUniqueKey: true },
@@ -442,48 +486,6 @@ function buildInventoryMeta(): TableMetaParts {
     { key: 'product_img', title: '产品图', type: 'image', width: 110 },
     { key: 'po_link', title: '采购单链接', type: 'link', width: 175 },
     { key: 'supplier_code', title: '供应商编码', type: 'text', width: 115 },
-    {
-      key: 'lookup_supplier_name',
-      title: '供应商名称',
-      type: 'lookup',
-      width: 180,
-      lookupConfig: {
-        groupId: 'grp_sup',
-        targetTableId: 'tbl_suppliers',
-        matchRules: [{ sourceField: 'supplier_code', targetField: 'supplier_id' }],
-        targetReturnField: 'supplier_name',
-        mode: 'one',
-      },
-    },
-    {
-      key: 'lookup_lead_days',
-      title: '标准交期(天)',
-      type: 'lookup',
-      width: 120,
-      numberFormat: 'integer',
-      lookupConfig: {
-        groupId: 'grp_sup',
-        targetTableId: 'tbl_suppliers',
-        matchRules: [{ sourceField: 'supplier_code', targetField: 'supplier_id' }],
-        targetReturnField: 'lead_days',
-        mode: 'one',
-      },
-    },
-    {
-      key: 'formula_stock_gap',
-      title: '库存缺口',
-      type: 'formula',
-      width: 110,
-      formulaExpr: '[安全库存] - [当前库存]',
-      numberFormat: 'integer',
-    },
-    {
-      key: 'formula_restock_alert',
-      title: '补货预警',
-      type: 'formula',
-      width: 110,
-      formulaExpr: 'IF([当前库存] < [安全库存], "需补货", "充足")',
-    },
   ]
 
   const views: SmartView[] = [
@@ -522,7 +524,6 @@ function buildInventoryMeta(): TableMetaParts {
     summaries: {
       current_stock: 'sum',
       safety_stock: 'sum',
-      formula_stock_gap: 'sum',
       capacity_rate: 'avg',
       counted: 'filled_rate',
     },
@@ -570,24 +571,34 @@ function buildSuppliersMeta(): TableMetaParts {
   }
 }
 
+const TICKET_DERIVED_COLUMNS: SmartColumn[] = [
+  {
+    key: 'lookup_project_name',
+    title: '关联项目名称',
+    type: 'lookup',
+    width: 200,
+    lookupConfig: {
+      groupId: 'grp_ticket_prj',
+      targetTableId: 'tbl_projects',
+      matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
+      targetReturnField: 'project_name',
+      mode: 'one',
+    },
+  },
+  {
+    key: 'formula_sla_flag',
+    title: 'SLA 状态',
+    type: 'formula',
+    width: 110,
+    formulaExpr: 'IF([是否超时], "SLA违约", "正常")',
+  },
+]
+
 function buildTicketsMeta(): TableMetaParts {
   const columns: SmartColumn[] = [
     { key: 'ticket_id', title: '工单号', type: 'text', width: 130, isUniqueKey: true },
     { key: 'customer_name', title: '客户名称', type: 'text', width: 185 },
     { key: 'project_code', title: '关联项目编号', type: 'text', width: 135 },
-    {
-      key: 'lookup_project_name',
-      title: '关联项目名称',
-      type: 'lookup',
-      width: 200,
-      lookupConfig: {
-        groupId: 'grp_ticket_prj',
-        targetTableId: 'tbl_projects',
-        matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
-        targetReturnField: 'project_name',
-        mode: 'one',
-      },
-    },
     {
       key: 'issue_category',
       title: '问题分类',
@@ -613,13 +624,6 @@ function buildTicketsMeta(): TableMetaParts {
     { key: 'sla_progress', title: '响应进度', type: 'progress', width: 125 },
     { key: 'created_date', title: '受理日期', type: 'date', width: 120 },
     { key: 'is_overdue', title: '是否超时', type: 'checkbox', width: 95 },
-    {
-      key: 'formula_sla_flag',
-      title: 'SLA 状态',
-      type: 'formula',
-      width: 110,
-      formulaExpr: 'IF([是否超时], "SLA违约", "正常")',
-    },
   ]
 
   const views: SmartView[] = [
@@ -734,7 +738,7 @@ const PROJECT_RECORDS: SmartRecord[] = [
     _id: 'rec_prj_006',
     project_code: 'PRJ-2025-006',
     project_name: '华东零售全渠道数据湖项目',
-    // 预置消歧锁定至华东销售部 EMP-009，与 PRJ-2025-001 形成「✅ 已锁定 vs ⚠️ 未消歧」对比
+    // 预置消歧锁定在 SmartApp.lookupOverrides（app_projects），与 PRJ-2025-001 形成「✅ 已锁定 vs ⚠️ 未消歧」对比
     owner_name: '张三',
     region: '华东大区',
     status: '进行中',
@@ -747,7 +751,6 @@ const PROJECT_RECORDS: SmartRecord[] = [
       url: 'https://docs.example.com/projects/PRJ-2025-006',
       text: '零售数据湖需求说明书',
     },
-    _lookupOverrides: { grp_emp: 'EMP-009' },
   },
   {
     _id: 'rec_prj_007',
@@ -2138,6 +2141,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '全周期项目跟进、交付看板、部门透视与经营仪表盘',
       tableId: 'tbl_projects',
       sortOrder: 0,
+      derivedColumns: PROJECT_DERIVED_COLUMNS,
+      lookupOverrides: { rec_prj_006: { grp_emp: 'EMP-009' } },
     },
     {
       id: 'app_payments',
@@ -2145,6 +2150,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '基于客户回款 SQL 物理表的流水台账、多维透视与趋势分析',
       tableId: 'tbl_payments',
       sortOrder: 1,
+      derivedColumns: [],
+      lookupOverrides: {},
     },
     {
       id: 'app_exec_revenue',
@@ -2152,6 +2159,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '复用客户回款数据源构建的高管视角专题分析表',
       tableId: 'tbl_payments',
       sortOrder: 2,
+      derivedColumns: [],
+      lookupOverrides: {},
     },
     {
       id: 'app_tickets',
@@ -2159,6 +2168,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '工单推进看板与 SLA 违约预警台账',
       tableId: 'tbl_tickets',
       sortOrder: 3,
+      derivedColumns: TICKET_DERIVED_COLUMNS,
+      lookupOverrides: {},
     },
     {
       id: 'app_inventory',
@@ -2166,6 +2177,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '安全库存缺口预警、仓库透视与补货台账',
       tableId: 'tbl_inventory',
       sortOrder: 4,
+      derivedColumns: INVENTORY_DERIVED_COLUMNS,
+      lookupOverrides: {},
     },
     {
       id: 'app_employees',
@@ -2173,6 +2186,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '企业主数据人员名录与部门职级分布透视',
       tableId: 'tbl_employees',
       sortOrder: 5,
+      derivedColumns: [],
+      lookupOverrides: {},
     },
     {
       id: 'app_suppliers',
@@ -2180,6 +2195,8 @@ function buildDemoSmartApps(): SmartApp[] {
       description: '优质供应商评分高亮名录与评分分析看板',
       tableId: 'tbl_suppliers',
       sortOrder: 6,
+      derivedColumns: [],
+      lookupOverrides: {},
     },
   ]
 }
@@ -3074,10 +3091,19 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
 
     // 7. 预置独立智能表格（smart_apps）与每张表内的多种示范视图（workspace_views）
     const insertAppStmt = db.query(
-      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
     for (const app of buildDemoSmartApps()) {
-      insertAppStmt.run(app.id, app.name, app.description ?? null, app.tableId, app.sortOrder, now)
+      insertAppStmt.run(
+        app.id,
+        app.name,
+        app.description ?? null,
+        app.tableId,
+        app.sortOrder,
+        JSON.stringify(app.derivedColumns ?? []),
+        JSON.stringify(app.lookupOverrides ?? {}),
+        now,
+      )
     }
 
     const insertViewStmt = db.query(

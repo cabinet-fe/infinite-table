@@ -12,8 +12,9 @@ import type {
   AllTablesResponse,
   AllViewsResponse,
   CreateAppResponse,
+  TableBundle,
 } from '../../src/shared/api-types'
-import type { SmartRecord, WorkspaceView } from '../../src/shared/schema'
+import type { SmartApp, SmartRecord, WorkspaceView } from '../../src/shared/schema'
 
 function createSeededTestEnv() {
   const db = openDatabase(':memory:')
@@ -554,5 +555,391 @@ describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 
       }),
     })
     expect(badIconRes.status).toBe(400)
+  })
+})
+
+describe('旧库表级派生列与 _lookupOverrides 自动提升及 SmartApp 派生层持久化校验', () => {
+  test('旧库已有 SmartApp 时自动提升表级派生列/summaries/_lookupOverrides 至 SmartApp 并从源表剔除', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'smart-table-derived-lift-'))
+    const dbPath = join(dir, 'v6-legacy.sqlite')
+    try {
+      const legacyDb = new Database(dbPath)
+      legacyDb.exec(`
+        CREATE TABLE smart_tables (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          primary_key_field TEXT,
+          source_sql_table TEXT,
+          schema_json TEXT NOT NULL,
+          views_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE smart_apps (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          sort_order INTEGER NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE workspace_views (
+          id TEXT PRIMARY KEY,
+          app_id TEXT REFERENCES smart_apps(id) ON DELETE CASCADE,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          sort_order INTEGER NOT NULL,
+          config_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE smart_table_records (
+          id TEXT NOT NULL,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          row_order INTEGER NOT NULL,
+          data_json TEXT NOT NULL,
+          PRIMARY KEY (table_id, id)
+        );
+      `)
+      legacyDb
+        .query(
+          'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'tbl_src',
+          '主表',
+          'normal',
+          null,
+          null,
+          JSON.stringify({
+            columns: [
+              { key: 'owner', title: '负责人', type: 'text', width: 120 },
+              { key: 'amount', title: '金额', type: 'number', width: 120 },
+              {
+                key: 'lookup_dept',
+                title: '部门',
+                type: 'lookup',
+                width: 120,
+                lookupConfig: {
+                  groupId: 'grp_1',
+                  targetTableId: 'tbl_ref',
+                  matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+                  targetReturnField: 'dept',
+                  mode: 'one',
+                },
+              },
+              {
+                key: 'formula_double',
+                title: '双倍金额',
+                type: 'formula',
+                width: 120,
+                formulaExpr: '[amount] * 2',
+              },
+            ],
+            summaries: { amount: 'sum', formula_double: 'sum' },
+          }),
+          '[]',
+          '2025-07-01T00:00:00.000Z',
+        )
+      legacyDb
+        .query(
+          'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'tbl_ref',
+          '员工表',
+          'normal',
+          null,
+          null,
+          JSON.stringify({
+            columns: [
+              { key: 'name', title: '姓名', type: 'text', width: 120 },
+              { key: 'dept', title: '部门', type: 'text', width: 120 },
+            ],
+            summaries: {},
+          }),
+          '[]',
+          '2025-07-01T00:00:00.000Z',
+        )
+      legacyDb
+        .query(
+          'INSERT INTO smart_apps (id, name, description, table_id, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run('app_src', '主表应用', null, 'tbl_src', 0, '2025-07-01T00:00:00.000Z')
+      legacyDb
+        .query(
+          'INSERT INTO smart_table_records (id, table_id, row_order, data_json) VALUES (?, ?, ?, ?)',
+        )
+        .run(
+          'rec_1',
+          'tbl_src',
+          0,
+          JSON.stringify({
+            _id: 'rec_1',
+            owner: '张三',
+            amount: 100,
+            lookup_dept: 'stale_cached',
+            _lookupOverrides: { grp_1: 'emp_2' },
+          }),
+        )
+      legacyDb.close()
+
+      const upgraded = openDatabase(dbPath)
+      try {
+        const app = createApp(upgraded)
+        const appsRes = await app.request('/api/apps')
+        expect(appsRes.status).toBe(200)
+        const { apps } = (await appsRes.json()) as AllAppsResponse
+        const liftedApp = apps.find((a) => a.id === 'app_src')!
+        expect(liftedApp.derivedColumns?.map((c) => c.key)).toEqual([
+          'lookup_dept',
+          'formula_double',
+        ])
+        expect(liftedApp.lookupOverrides).toEqual({ rec_1: { grp_1: 'emp_2' } })
+
+        const tblRes = await app.request('/api/tables/tbl_src')
+        expect(tblRes.status).toBe(200)
+        const bundle = (await tblRes.json()) as TableBundle
+        expect(bundle.meta.columns.map((c) => c.key)).toEqual(['owner', 'amount'])
+        expect(bundle.meta.summaries).toEqual({ amount: 'sum' })
+        expect(bundle.records[0]?._lookupOverrides).toBeUndefined()
+        expect(bundle.records[0]?.lookup_dept).toBeUndefined()
+      } finally {
+        upgraded.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('旧库表含派生列但无关联 SmartApp 时按表自动补建 SmartApp 并完成迁移', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'smart-table-auto-app-'))
+    const dbPath = join(dir, 'no-app-legacy.sqlite')
+    try {
+      const legacyDb = new Database(dbPath)
+      legacyDb.exec(`
+        CREATE TABLE smart_tables (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          primary_key_field TEXT,
+          source_sql_table TEXT,
+          schema_json TEXT NOT NULL,
+          views_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE smart_apps (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          sort_order INTEGER NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE workspace_views (
+          id TEXT PRIMARY KEY,
+          app_id TEXT REFERENCES smart_apps(id) ON DELETE CASCADE,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          sort_order INTEGER NOT NULL,
+          config_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE smart_table_records (
+          id TEXT NOT NULL,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          row_order INTEGER NOT NULL,
+          data_json TEXT NOT NULL,
+          PRIMARY KEY (table_id, id)
+        );
+      `)
+      legacyDb
+        .query(
+          'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'tbl_orphan',
+          '孤儿派生表',
+          'normal',
+          null,
+          null,
+          JSON.stringify({
+            columns: [
+              { key: 'qty', title: '数量', type: 'number', width: 100 },
+              {
+                key: 'formula_total',
+                title: '总价',
+                type: 'formula',
+                width: 120,
+                formulaExpr: '[qty] * 10',
+              },
+            ],
+            summaries: { formula_total: 'sum' },
+          }),
+          '[]',
+          '2025-07-01T00:00:00.000Z',
+        )
+      legacyDb
+        .query(
+          'INSERT INTO smart_table_records (id, table_id, row_order, data_json) VALUES (?, ?, ?, ?)',
+        )
+        .run(
+          'rec_o1',
+          'tbl_orphan',
+          0,
+          JSON.stringify({ _id: 'rec_o1', qty: 3, _lookupOverrides: { grp_x: 'target_1' } }),
+        )
+      legacyDb.close()
+
+      const upgraded = openDatabase(dbPath)
+      try {
+        const app = createApp(upgraded)
+        const appsRes = await app.request('/api/apps')
+        const { apps } = (await appsRes.json()) as AllAppsResponse
+        const autoApp = apps.find((a) => a.tableId === 'tbl_orphan')
+        expect(autoApp).toBeDefined()
+        expect(autoApp!.name).toBe('孤儿派生表')
+        expect(autoApp!.derivedColumns?.map((c) => c.key)).toEqual(['formula_total'])
+        expect(autoApp!.lookupOverrides).toEqual({ rec_o1: { grp_x: 'target_1' } })
+
+        const tblRes = await app.request('/api/tables/tbl_orphan')
+        const bundle = (await tblRes.json()) as TableBundle
+        expect(bundle.meta.columns.map((c) => c.key)).toEqual(['qty'])
+        expect(bundle.meta.summaries).toEqual({})
+        expect(bundle.records[0]?._lookupOverrides).toBeUndefined()
+      } finally {
+        upgraded.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('SmartApp 读写校验 derivedColumns/lookupOverrides，并禁止看板写回派生列', async () => {
+    const { app } = createSeededTestEnv()
+
+    // 1. 新建基于 tbl_projects 的 SmartApp，允许携带合法派生列与 lookupOverrides
+    const createOk = await app.request('/api/apps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '自定义派生应用',
+        tableId: 'tbl_projects',
+        derivedColumns: [
+          {
+            key: 'lookup_owner_email',
+            title: '负责人邮箱',
+            type: 'lookup',
+            width: 180,
+            lookupConfig: {
+              groupId: 'grp_owner_mail',
+              targetTableId: 'tbl_employees',
+              matchRules: [{ sourceField: 'owner_name', targetField: 'name' }],
+              targetReturnField: 'email',
+              mode: 'one',
+            },
+          },
+          {
+            key: 'formula_half',
+            title: '半数金额',
+            type: 'formula',
+            width: 120,
+            formulaExpr: '[contract_amount] / 2',
+          },
+        ],
+        lookupOverrides: { rec_prj_001: { grp_owner_mail: 'EMP-009' } },
+      }),
+    })
+    expect(createOk.status).toBe(201)
+    const { app: createdApp } = (await createOk.json()) as CreateAppResponse
+    expect(createdApp.derivedColumns?.map((c) => c.key)).toEqual([
+      'lookup_owner_email',
+      'formula_half',
+    ])
+    expect(createdApp.lookupOverrides).toEqual({ rec_prj_001: { grp_owner_mail: 'EMP-009' } })
+
+    // 2. 拒绝非派生类型列（如 text）
+    const nonDerivedRes = await app.request(`/api/apps/${createdApp.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        derivedColumns: [{ key: 'extra_text', title: '普通列', type: 'text', width: 120 }],
+      }),
+    })
+    expect(nonDerivedRes.status).toBe(400)
+
+    // 3. 拒绝 key 与源表原始列重复或自身重复
+    const dupSourceKeyRes = await app.request(`/api/apps/${createdApp.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        derivedColumns: [
+          { key: 'status', title: '冲突列', type: 'formula', width: 120, formulaExpr: '1' },
+        ],
+      }),
+    })
+    expect(dupSourceKeyRes.status).toBe(400)
+
+    const dupSelfKeyRes = await app.request(`/api/apps/${createdApp.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        derivedColumns: [
+          { key: 'f1', title: 'F1', type: 'formula', width: 120, formulaExpr: '1' },
+          { key: 'f1', title: 'F1重复', type: 'formula', width: 120, formulaExpr: '2' },
+        ],
+      }),
+    })
+    expect(dupSelfKeyRes.status).toBe(400)
+
+    // 4. VLOOKUP 禁止引用其它 SmartApp 的派生列（targetReturnField / targetField 必须为目标源表原始字段）
+    const crossAppDerivedTargetRes = await app.request('/api/apps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '禁止跨App引用',
+        tableId: 'tbl_tickets',
+        derivedColumns: [
+          {
+            key: 'bad_lookup',
+            title: '跨App派生列',
+            type: 'lookup',
+            width: 140,
+            lookupConfig: {
+              groupId: 'grp_bad',
+              targetTableId: 'tbl_projects',
+              matchRules: [{ sourceField: 'project_code', targetField: 'project_code' }],
+              targetReturnField: 'lookup_emp_dept',
+              mode: 'one',
+            },
+          },
+        ],
+      }),
+    })
+    expect(crossAppDerivedTargetRes.status).toBe(400)
+
+    // 5. 更新 lookupOverrides 生效并持久化
+    const updateOverridesRes = await app.request(`/api/apps/${createdApp.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lookupOverrides: { rec_prj_001: { grp_owner_mail: 'EMP-001' } },
+      }),
+    })
+    expect(updateOverridesRes.status).toBe(200)
+    const { app: updatedApp } = (await updateOverridesRes.json()) as { app: SmartApp }
+    expect(updatedApp.lookupOverrides).toEqual({ rec_prj_001: { grp_owner_mail: 'EMP-001' } })
+
+    // 6. 看板拖拽写回禁止写回 SmartApp 派生列
+    const moveDerivedKanban = await app.request(
+      '/api/views/wv_projects_kanban/kanban/cards/rec_prj_001',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: 'lookup_emp_dept', targetValue: '研发部' }),
+      },
+    )
+    expect(moveDerivedKanban.status).toBe(400)
   })
 })

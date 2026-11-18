@@ -72,11 +72,7 @@ export function commitImport(db: Database, req: ImportCommitRequest): TableBundl
     return getTableBundle(db, created.meta.id)!
   }
 
-  const physicalColumns = columns.filter(
-    (column) => column.type !== 'formula' && column.type !== 'lookup',
-  )
-  const physicalIndexes = physicalColumns.map((column) => columns.indexOf(column))
-  const primaryKeyIndex = physicalIndexes[0]!
+  const primaryKeyIndex = 0
   typedRows.forEach((cells, rowIndex) => {
     const pk = cells[primaryKeyIndex]
     if (pk === null || pk === '') {
@@ -90,13 +86,13 @@ export function commitImport(db: Database, req: ImportCommitRequest): TableBundl
       physicalName: req.tableName,
       columns,
     })
-    const columnSql = physicalColumns.map((column) => `"${column.key}"`).join(', ')
-    const placeholders = physicalColumns.map(() => '?').join(', ')
+    const columnSql = columns.map((column) => `"${column.key}"`).join(', ')
+    const placeholders = columns.map(() => '?').join(', ')
     const stmt = db.query(
       `INSERT INTO "${created.sourceSqlTable}" (${columnSql}) VALUES (${placeholders})`,
     )
     for (const cells of typedRows) {
-      stmt.run(...physicalIndexes.map((index) => cells[index] ?? null))
+      stmt.run(...columns.map((_, index) => cells[index] ?? null))
     }
     return created
   })

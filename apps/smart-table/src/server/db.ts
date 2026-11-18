@@ -3,16 +3,29 @@
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { CreateTableRequest, TableBundle } from '../shared/api-types'
 import type {
-  SmartColumn,
-  SmartColumnType,
-  SmartRecord,
-  SmartTableMeta,
-  SmartView,
-  SmartViewType,
-  SummaryType,
-  TableKind,
+  BatchImportRecordsResponse,
+  BatchImportRowError,
+  CreateTableRequest,
+  TableBundle,
+} from '../shared/api-types'
+import {
+  validateBatchRecords,
+  validateRecordForCreate,
+  validateRecordPatch,
+} from '../shared/record-validation'
+import {
+  isDerivedColumnType,
+  splitColumnsByLayer,
+  type CellTextAlign,
+  type SmartColumn,
+  type SmartColumnType,
+  type SmartRecord,
+  type SmartTableMeta,
+  type SmartView,
+  type SmartViewType,
+  type SummaryType,
+  type TableKind,
 } from '../shared/schema'
 
 const DEFAULT_DB_PATH = resolve(import.meta.dirname, '../../data/smart-table.sqlite')
@@ -26,6 +39,17 @@ export class ValidationError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'ValidationError'
+  }
+}
+
+/** 批量导入校验错误（在路由层映射为 HTTP 400 并附带逐行错误明细） */
+export class BatchValidationError extends ValidationError {
+  readonly errors: BatchImportRowError[]
+
+  constructor(message: string, errors: BatchImportRowError[]) {
+    super(message)
+    this.name = 'BatchValidationError'
+    this.errors = errors
   }
 }
 
@@ -63,6 +87,8 @@ const VALID_COLUMN_TYPES: ReadonlySet<SmartColumnType> = new Set([
   'formula',
 ])
 
+const VALID_CELL_ALIGNS: ReadonlySet<CellTextAlign> = new Set(['left', 'center', 'right'])
+
 export const VALID_VIEW_TYPES: ReadonlySet<SmartViewType> = new Set([
   'table',
   'kanban',
@@ -88,6 +114,8 @@ CREATE TABLE IF NOT EXISTS smart_apps (
   description TEXT,
   table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
   sort_order INTEGER NOT NULL,
+  derived_columns_json TEXT NOT NULL DEFAULT '[]',
+  lookup_overrides_json TEXT NOT NULL DEFAULT '{}',
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_smart_apps_order ON smart_apps(sort_order);
@@ -192,6 +220,14 @@ function migrateLegacySchema(db: Database): void {
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);',
   )
+
+  const appCols = db.query('PRAGMA table_info(smart_apps)').all() as { name: string }[]
+  if (!appCols.some((c) => c.name === 'derived_columns_json')) {
+    db.exec("ALTER TABLE smart_apps ADD COLUMN derived_columns_json TEXT NOT NULL DEFAULT '[]';")
+  }
+  if (!appCols.some((c) => c.name === 'lookup_overrides_json')) {
+    db.exec("ALTER TABLE smart_apps ADD COLUMN lookup_overrides_json TEXT NOT NULL DEFAULT '{}';")
+  }
 }
 
 /** 将未归属 app_id 的历史视图自动按数据源表分组挂接到对应的智能表格应用 */
@@ -346,6 +382,214 @@ function migrateLegacyViewsToWorkspace(db: Database): void {
   })
 }
 
+function normalizeLegacyLookupOverrides(raw: unknown): Record<string, string> | null {
+  if (!isPlainObject(raw)) return null
+  const out: Record<string, string> = {}
+  for (const [groupId, targetId] of Object.entries(raw)) {
+    const normalized = extractNonEmptyId(targetId)
+    if (groupId.trim() !== '' && normalized !== null) {
+      out[groupId] = normalized
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+function parseJsonSafe<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * 旧库派生层自动迁移：
+ * 扫描 smart_tables 中的 lookup/formula 列与 smart_table_records 中的 _lookupOverrides，
+ * 提升至关联 SmartApp（无关联 App 时按表自动补建），并从源表 schema_json（含 summaries）及 data_json 中剔除。
+ */
+function migrateDerivedLayerToSmartApps(db: Database): void {
+  const tableRows = db
+    .query('SELECT id, name, kind, schema_json, updated_at FROM smart_tables ORDER BY rowid ASC')
+    .all() as Pick<SmartTableRow, 'id' | 'name' | 'kind' | 'schema_json' | 'updated_at'>[]
+  if (tableRows.length === 0) return
+
+  runInTransaction(db, () => {
+    const orderRow = db
+      .query('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM smart_apps')
+      .get() as { next_order: number } | undefined | null
+    let nextOrder = orderRow?.next_order ?? 0
+    const now = new Date().toISOString()
+
+    for (const tableRow of tableRows) {
+      const parsedSchema = parseJsonSafe<StoredSchemaPayload | SmartColumn[] | null>(
+        tableRow.schema_json,
+        null,
+      )
+      if (!parsedSchema) continue
+
+      const isLegacyArray = Array.isArray(parsedSchema)
+      const allColumns = isLegacyArray
+        ? parsedSchema
+        : Array.isArray(parsedSchema.columns)
+          ? parsedSchema.columns
+          : []
+      const { rawColumns, derivedColumns } = splitColumnsByLayer(allColumns)
+      const derivedKeySet = new Set(derivedColumns.map((col) => col.key))
+
+      const rawSummaries = isLegacyArray ? {} : (parsedSchema.summaries ?? {})
+      const cleanedSummaries: Record<string, SummaryType> = {}
+      let summariesChanged = false
+      for (const [key, summaryType] of Object.entries(rawSummaries)) {
+        if (derivedKeySet.has(key)) {
+          summariesChanged = true
+          continue
+        }
+        cleanedSummaries[key] = summaryType
+      }
+
+      const tableOverrides: Record<string, Record<string, string>> = {}
+      const recordsToClean: Array<{ id: string; nextJson: string }> = []
+
+      if (tableRow.kind === 'normal') {
+        const recordRows = db
+          .query('SELECT id, data_json FROM smart_table_records WHERE table_id = ?')
+          .all(tableRow.id) as { id: string; data_json: string }[]
+
+        for (const recRow of recordRows) {
+          const parsedRec = parseJsonSafe<Record<string, unknown> | null>(recRow.data_json, null)
+          if (!isPlainObject(parsedRec)) continue
+
+          const hasOverridesField = '_lookupOverrides' in parsedRec
+          if (hasOverridesField) {
+            const normalized = normalizeLegacyLookupOverrides(parsedRec._lookupOverrides)
+            if (normalized) {
+              tableOverrides[recRow.id] = normalized
+            }
+          }
+
+          const hasDerivedField =
+            derivedKeySet.size > 0 && Object.keys(parsedRec).some((k) => derivedKeySet.has(k))
+          if (hasOverridesField || hasDerivedField) {
+            const cleanedRec: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(parsedRec)) {
+              if (k === '_lookupOverrides' || derivedKeySet.has(k)) continue
+              cleanedRec[k] = v
+            }
+            recordsToClean.push({ id: recRow.id, nextJson: JSON.stringify(cleanedRec) })
+          }
+        }
+      }
+
+      const hasOverridesToLift = Object.keys(tableOverrides).length > 0
+      if (derivedColumns.length > 0 || hasOverridesToLift) {
+        const appRows = db
+          .query(
+            'SELECT id, derived_columns_json, lookup_overrides_json FROM smart_apps WHERE table_id = ? ORDER BY sort_order ASC, rowid ASC',
+          )
+          .all(tableRow.id) as {
+          id: string
+          derived_columns_json: string
+          lookup_overrides_json: string
+        }[]
+
+        if (appRows.length === 0) {
+          let appId = `app_${tableRow.id}`
+          while (db.query('SELECT 1 FROM smart_apps WHERE id = ?').get(appId)) {
+            appId = `app_${crypto.randomUUID().slice(0, 8)}`
+          }
+          db.query(
+            'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          ).run(
+            appId,
+            tableRow.name,
+            null,
+            tableRow.id,
+            nextOrder,
+            JSON.stringify(derivedColumns),
+            JSON.stringify(tableOverrides),
+            tableRow.updated_at || now,
+          )
+          nextOrder += 1
+        } else {
+          for (const appRow of appRows) {
+            const existingDerived = parseJsonSafe<SmartColumn[]>(appRow.derived_columns_json, [])
+            const nextDerived = Array.isArray(existingDerived) ? [...existingDerived] : []
+            const existingKeys = new Set(nextDerived.map((c) => c.key))
+            let appChanged = false
+
+            for (const col of derivedColumns) {
+              if (!existingKeys.has(col.key)) {
+                nextDerived.push(col)
+                existingKeys.add(col.key)
+                appChanged = true
+              }
+            }
+
+            const existingOverridesRaw = parseJsonSafe<Record<string, Record<string, string>>>(
+              appRow.lookup_overrides_json,
+              {},
+            )
+            const nextOverrides: Record<string, Record<string, string>> = isPlainObject(
+              existingOverridesRaw,
+            )
+              ? { ...existingOverridesRaw }
+              : {}
+
+            for (const [recId, groupMap] of Object.entries(tableOverrides)) {
+              const currGroupMap = isPlainObject(nextOverrides[recId])
+                ? { ...nextOverrides[recId] }
+                : {}
+              let recChanged = false
+              for (const [groupId, targetId] of Object.entries(groupMap)) {
+                if (!(groupId in currGroupMap)) {
+                  currGroupMap[groupId] = targetId
+                  recChanged = true
+                }
+              }
+              if (recChanged) {
+                nextOverrides[recId] = currGroupMap
+                appChanged = true
+              }
+            }
+
+            if (appChanged) {
+              db.query(
+                'UPDATE smart_apps SET derived_columns_json = ?, lookup_overrides_json = ? WHERE id = ?',
+              ).run(JSON.stringify(nextDerived), JSON.stringify(nextOverrides), appRow.id)
+            }
+          }
+        }
+      }
+
+      if (derivedColumns.length > 0 || summariesChanged) {
+        const nextPayload: StoredSchemaPayload = {
+          columns: rawColumns,
+          summaries: cleanedSummaries,
+        }
+        if (!isLegacyArray && parsedSchema.description !== undefined) {
+          nextPayload.description = parsedSchema.description
+        }
+        if (!isLegacyArray && parsedSchema.system !== undefined) {
+          nextPayload.system = parsedSchema.system
+        }
+        db.query('UPDATE smart_tables SET schema_json = ? WHERE id = ?').run(
+          JSON.stringify(nextPayload),
+          tableRow.id,
+        )
+      }
+
+      if (recordsToClean.length > 0) {
+        const updateRecStmt = db.query(
+          'UPDATE smart_table_records SET data_json = ? WHERE table_id = ? AND id = ?',
+        )
+        for (const item of recordsToClean) {
+          updateRecStmt.run(item.nextJson, tableRow.id, item.id)
+        }
+      }
+    }
+  })
+}
+
 export function openDatabase(path: string): Database {
   if (path !== ':memory:') {
     mkdirSync(dirname(path), { recursive: true })
@@ -361,6 +605,7 @@ export function openDatabase(path: string): Database {
     migrateLegacyViewsToWorkspace(db)
   }
   backfillAppsForOrphanViews(db)
+  migrateDerivedLayerToSmartApps(db)
   return db
 }
 
@@ -653,7 +898,7 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** 校验列定义合法性及 key 唯一性 */
+/** 校验数据源表列定义合法性、key 唯一性及基础属性（拒绝 lookup / formula 派生列） */
 export function validateColumns(columns: readonly unknown[]): SmartColumn[] {
   const seenKeys = new Set<string>()
   const validated: SmartColumn[] = []
@@ -671,6 +916,20 @@ export function validateColumns(columns: readonly unknown[]): SmartColumn[] {
     }
     if (typeof col.type !== 'string' || !VALID_COLUMN_TYPES.has(col.type as SmartColumnType)) {
       throw new ValidationError(`列 "${col.key}" 的类型 "${String(col.type)}" 不合法`)
+    }
+    if (isDerivedColumnType(col.type as SmartColumnType)) {
+      throw new ValidationError(
+        `数据源表列 "${col.key}" 不允许保存派生列类型 "${col.type}"，请在智能表格层配置`,
+      )
+    }
+    if (col.required !== undefined && typeof col.required !== 'boolean') {
+      throw new ValidationError(`列 "${col.key}" 的 required 必须为布尔值`)
+    }
+    if (
+      col.align !== undefined &&
+      (typeof col.align !== 'string' || !VALID_CELL_ALIGNS.has(col.align as CellTextAlign))
+    ) {
+      throw new ValidationError(`列 "${col.key}" 的 align 必须为 left / center / right`)
     }
     if (seenKeys.has(col.key)) {
       throw new ValidationError(`存在重复列 key: "${col.key}"`)
@@ -836,6 +1095,11 @@ export function listTableBundles(db: Database): TableBundle[] {
       records: readRecordsForMeta(db, meta),
     }
   })
+}
+
+export function getTableMeta(db: Database, tableId: string): SmartTableMeta | null {
+  const row = readTableRow(db, tableId)
+  return row ? parseTableRow(row) : null
 }
 
 export function getTableBundle(db: Database, tableId: string): TableBundle | null {
@@ -1143,24 +1407,36 @@ function touchTableUpdatedAt(db: Database, tableId: string): void {
   )
 }
 
-/** 获取普通表中的计算列（lookup / formula）key 集合，写入磁盘前需剔除 */
-function getComputedColumnKeys(meta: SmartTableMeta): Set<string> {
+/** 获取某数据源表及其关联 SmartApp 下的派生列 key 集合，写入磁盘前需剔除 */
+function getDerivedColumnKeysForTable(db: Database, meta: SmartTableMeta): Set<string> {
   const keys = new Set<string>()
   for (const col of meta.columns) {
-    if (col.type === 'lookup' || col.type === 'formula') {
+    if (isDerivedColumnType(col.type)) {
       keys.add(col.key)
+    }
+  }
+  const appRows = db
+    .query('SELECT derived_columns_json FROM smart_apps WHERE table_id = ?')
+    .all(meta.id) as { derived_columns_json: string }[]
+  for (const appRow of appRows) {
+    const parsed = parseJsonSafe<unknown[]>(appRow.derived_columns_json, [])
+    if (!Array.isArray(parsed)) continue
+    for (const col of parsed) {
+      if (isPlainObject(col) && typeof col.key === 'string') {
+        keys.add(col.key)
+      }
     }
   }
   return keys
 }
 
-function stripComputedFields(
+function stripNonStoredFields(
   obj: Record<string, unknown>,
-  computedKeys: ReadonlySet<string>,
+  derivedKeys: ReadonlySet<string>,
 ): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {}
   for (const [key, val] of Object.entries(obj)) {
-    if (computedKeys.has(key)) {
+    if (key === '_lookupOverrides' || derivedKeys.has(key)) {
       continue
     }
     cleaned[key] = val
@@ -1168,29 +1444,7 @@ function stripComputedFields(
   return cleaned
 }
 
-function mergeLookupOverrides(
-  existing: Record<string, string> | undefined,
-  patchValue: unknown,
-): Record<string, string> | undefined {
-  if (patchValue === null) {
-    return undefined
-  }
-  if (!isPlainObject(patchValue)) {
-    return existing ? { ...existing } : undefined
-  }
-  const next: Record<string, string> = existing ? { ...existing } : {}
-  for (const [groupId, targetId] of Object.entries(patchValue)) {
-    const normalizedId = extractNonEmptyId(targetId)
-    if (normalizedId === null) {
-      delete next[groupId]
-    } else {
-      next[groupId] = normalizedId
-    }
-  }
-  return Object.keys(next).length > 0 ? next : undefined
-}
-
-/** 当进阶表主键变更时，同步更新所有引用它的普通表记录中的 _lookupOverrides */
+/** 当进阶表主键变更时，同步更新所有 SmartApp 中引用该表的 lookupOverrides 映射 */
 function syncLookupOverridesOnPkChange(
   db: Database,
   targetTableId: string,
@@ -1199,16 +1453,17 @@ function syncLookupOverridesOnPkChange(
 ): void {
   if (oldPk === newPk) return
 
-  const normalTableRows = db
-    .query(
-      "SELECT id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at FROM smart_tables WHERE kind = 'normal'",
-    )
-    .all() as SmartTableRow[]
+  const appRows = db
+    .query('SELECT id, derived_columns_json, lookup_overrides_json FROM smart_apps')
+    .all() as { id: string; derived_columns_json: string; lookup_overrides_json: string }[]
 
-  for (const tableRow of normalTableRows) {
-    const meta = parseTableRow(tableRow)
+  const now = new Date().toISOString()
+  for (const appRow of appRows) {
+    const derivedColumns = parseJsonSafe<SmartColumn[]>(appRow.derived_columns_json, [])
+    if (!Array.isArray(derivedColumns)) continue
+
     const affectedGroupIds = new Set<string>()
-    for (const col of meta.columns) {
+    for (const col of derivedColumns) {
       if (
         col.type === 'lookup' &&
         col.lookupConfig?.mode === 'one' &&
@@ -1217,40 +1472,34 @@ function syncLookupOverridesOnPkChange(
         affectedGroupIds.add(col.lookupConfig.groupId)
       }
     }
-    if (affectedGroupIds.size === 0) {
-      continue
-    }
+    if (affectedGroupIds.size === 0) continue
 
-    const recordRows = db
-      .query('SELECT id, data_json FROM smart_table_records WHERE table_id = ?')
-      .all(meta.id) as { id: string; data_json: string }[]
+    const lookupOverrides = parseJsonSafe<Record<string, Record<string, string>>>(
+      appRow.lookup_overrides_json,
+      {},
+    )
+    if (!isPlainObject(lookupOverrides)) continue
 
-    let updatedAny = false
-    for (const recRow of recordRows) {
-      const parsed = JSON.parse(recRow.data_json) as SmartRecord
-      if (!parsed._lookupOverrides) continue
-
-      let rowChanged = false
-      const nextOverrides = { ...parsed._lookupOverrides }
+    let appChanged = false
+    const nextOverrides: Record<string, Record<string, string>> = {}
+    for (const [recId, groupMap] of Object.entries(lookupOverrides)) {
+      if (!isPlainObject(groupMap)) continue
+      const nextGroupMap: Record<string, string> = { ...groupMap }
       for (const groupId of affectedGroupIds) {
-        if (nextOverrides[groupId] === oldPk) {
-          nextOverrides[groupId] = newPk
-          rowChanged = true
+        if (nextGroupMap[groupId] === oldPk) {
+          nextGroupMap[groupId] = newPk
+          appChanged = true
         }
       }
-      if (rowChanged) {
-        parsed._lookupOverrides = nextOverrides
-        db.query('UPDATE smart_table_records SET data_json = ? WHERE table_id = ? AND id = ?').run(
-          JSON.stringify(parsed),
-          meta.id,
-          recRow.id,
-        )
-        updatedAny = true
-      }
+      nextOverrides[recId] = nextGroupMap
     }
 
-    if (updatedAny) {
-      touchTableUpdatedAt(db, meta.id)
+    if (appChanged) {
+      db.query('UPDATE smart_apps SET lookup_overrides_json = ?, updated_at = ? WHERE id = ?').run(
+        JSON.stringify(nextOverrides),
+        now,
+        appRow.id,
+      )
     }
   }
 }
@@ -1264,17 +1513,25 @@ export function createTableRecord(
     const row = readTableRow(db, tableId)
     if (!row) return null
 
+    const meta = parseTableRow(row)
+    const validation = validateRecordForCreate(meta.columns, record)
+    if (!validation.valid) {
+      throw new ValidationError(validation.errors.map((err) => err.message).join('；'))
+    }
+
     if (row.kind === 'advanced') {
       const spec = getAdvancedSpec(db, row.source_sql_table)
       if (!spec) return null
 
-      const pkFromField = extractNonEmptyId(record[spec.primaryKey])
+      const pkFromField = extractNonEmptyId(validation.record[spec.primaryKey])
       const pkFromId = extractNonEmptyId(record._id)
       const pkValue =
         pkFromField ?? pkFromId ?? `${spec.idPrefix}-${crypto.randomUUID().slice(0, 8)}`
 
       const values = spec.columns.map((col) =>
-        col === spec.primaryKey ? pkValue : normalizeSqlValue(spec, col, record[col], true),
+        col === spec.primaryKey
+          ? pkValue
+          : normalizeSqlValue(spec, col, validation.record[col], true),
       )
       const placeholders = spec.columns.map(() => '?').join(', ')
       db.query(
@@ -1289,9 +1546,9 @@ export function createTableRecord(
       return attachAdvancedRecordId(inserted, spec.primaryKey, pkValue)
     }
 
-    const meta = parseTableRow(row)
-    const computedKeys = getComputedColumnKeys(meta)
-    const cleanBody = stripComputedFields(record, computedKeys)
+    const derivedKeys = getDerivedColumnKeysForTable(db, meta)
+    const cleanBody = stripNonStoredFields(validation.record, derivedKeys)
+    delete cleanBody._id
 
     const recordId = extractNonEmptyId(record._id) ?? `rec_${crypto.randomUUID().slice(0, 8)}`
     const orderRow = db
@@ -1313,6 +1570,66 @@ export function createTableRecord(
   })
 }
 
+/** 批量向普通数据源表追加记录：全量行校验失败时事务零写入并抛出 BatchValidationError */
+export function batchCreateTableRecords(
+  db: Database,
+  tableId: string,
+  rawRecords: readonly Record<string, unknown>[],
+): BatchImportRecordsResponse | null {
+  return runInTransaction(db, () => {
+    const row = readTableRow(db, tableId)
+    if (!row) return null
+    if (row.kind !== 'normal') {
+      throw new ValidationError('仅普通数据源表支持批量追加导入')
+    }
+    if (rawRecords.length === 0) {
+      throw new ValidationError('请至少提供一条待导入记录')
+    }
+
+    const meta = parseTableRow(row)
+    const validation = validateBatchRecords(meta.columns, rawRecords)
+    if (!validation.valid) {
+      const first = validation.errors[0]!
+      throw new BatchValidationError(
+        `批量校验失败：共 ${validation.errors.length} 处错误（第 ${first.rowIndex + 1} 行「${first.columnTitle}」：${first.message}）`,
+        validation.errors,
+      )
+    }
+
+    const derivedKeys = getDerivedColumnKeysForTable(db, meta)
+    const orderRow = db
+      .query(
+        'SELECT COALESCE(MAX(row_order), -1) + 1 AS next_order FROM smart_table_records WHERE table_id = ?',
+      )
+      .get(tableId) as { next_order: number } | undefined | null
+    let nextOrder = orderRow?.next_order ?? 0
+
+    const insertStmt = db.query(
+      'INSERT INTO smart_table_records (id, table_id, row_order, data_json) VALUES (?, ?, ?, ?)',
+    )
+    const inserted: SmartRecord[] = []
+
+    for (const validatedRec of validation.records) {
+      const cleanBody = stripNonStoredFields(validatedRec, derivedKeys)
+      const recordId = extractNonEmptyId(cleanBody._id) ?? `rec_${crypto.randomUUID().slice(0, 8)}`
+      delete cleanBody._id
+      const storedRecord: SmartRecord = {
+        ...cleanBody,
+        _id: recordId,
+      }
+      insertStmt.run(recordId, tableId, nextOrder, JSON.stringify(storedRecord))
+      inserted.push(storedRecord)
+      nextOrder += 1
+    }
+
+    touchTableUpdatedAt(db, tableId)
+    return {
+      insertedCount: inserted.length,
+      records: inserted,
+    }
+  })
+}
+
 export function updateTableRecord(
   db: Database,
   tableId: string,
@@ -1322,6 +1639,12 @@ export function updateTableRecord(
   return runInTransaction(db, () => {
     const row = readTableRow(db, tableId)
     if (!row) return null
+
+    const meta = parseTableRow(row)
+    const validation = validateRecordPatch(meta.columns, patch)
+    if (!validation.valid) {
+      throw new ValidationError(validation.errors.map((err) => err.message).join('；'))
+    }
 
     if (row.kind === 'advanced') {
       const spec = getAdvancedSpec(db, row.source_sql_table)
@@ -1339,7 +1662,7 @@ export function updateTableRecord(
       for (const col of spec.columns) {
         if (!(col in patch)) continue
         if (col === spec.primaryKey) {
-          const candidatePk = extractNonEmptyId(patch[col])
+          const candidatePk = extractNonEmptyId(validation.record[col])
           if (candidatePk === null) {
             throw new ValidationError(`主键值 "${col}" 不能为空`)
           }
@@ -1348,7 +1671,7 @@ export function updateTableRecord(
           setValues.push(candidatePk)
         } else {
           if (patch[col] === undefined) continue
-          const normalized = normalizeSqlValue(spec, col, patch[col], false)
+          const normalized = normalizeSqlValue(spec, col, validation.record[col], false)
           setColumns.push(`${col} = ?`)
           setValues.push(normalized)
         }
@@ -1376,33 +1699,18 @@ export function updateTableRecord(
       .get(tableId, recordId) as { data_json: string } | undefined | null
     if (!recordRow) return null
 
-    const meta = parseTableRow(row)
-    const computedKeys = getComputedColumnKeys(meta)
-
-    const existing = stripComputedFields(
+    const derivedKeys = getDerivedColumnKeysForTable(db, meta)
+    const existing = stripNonStoredFields(
       JSON.parse(recordRow.data_json) as SmartRecord,
-      computedKeys,
+      derivedKeys,
     )
-    const cleanPatch = stripComputedFields(patch, computedKeys)
+    const cleanPatch = stripNonStoredFields(validation.record, derivedKeys)
     delete cleanPatch._id
-    delete cleanPatch._lookupOverrides
 
     const merged: SmartRecord = {
       ...existing,
       ...cleanPatch,
       _id: recordId,
-    }
-
-    if ('_lookupOverrides' in patch) {
-      const nextOverrides = mergeLookupOverrides(
-        existing._lookupOverrides as Record<string, string> | undefined,
-        patch._lookupOverrides,
-      )
-      if (nextOverrides) {
-        merged._lookupOverrides = nextOverrides
-      } else {
-        delete merged._lookupOverrides
-      }
     }
 
     db.query('UPDATE smart_table_records SET data_json = ? WHERE table_id = ? AND id = ?').run(
