@@ -103,7 +103,6 @@ CREATE TABLE IF NOT EXISTS workspace_views (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_views_order ON workspace_views(sort_order);
-CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);
 
 CREATE TABLE IF NOT EXISTS smart_table_records (
   id TEXT NOT NULL,
@@ -189,10 +188,10 @@ function migrateLegacySchema(db: Database): void {
     db.exec(
       'ALTER TABLE workspace_views ADD COLUMN app_id TEXT REFERENCES smart_apps(id) ON DELETE CASCADE;',
     )
-    db.exec(
-      'CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);',
-    )
   }
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);',
+  )
 }
 
 /** 将未归属 app_id 的历史视图自动按数据源表分组挂接到对应的智能表格应用 */

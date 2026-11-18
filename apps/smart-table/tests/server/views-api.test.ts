@@ -125,6 +125,97 @@ describe('旧库 smart_tables.views_json 到 workspace_views 的平滑迁移', (
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  test('已有无 app_id 列的 workspace_views 旧库（v3/v4）可平滑升级补列建索引并回填 smart_apps', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'smart-table-views-v4-migrate-'))
+    const dbPath = join(dir, 'v4-views.sqlite')
+    try {
+      const v4Db = new Database(dbPath)
+      v4Db.exec(`
+        CREATE TABLE smart_tables (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          primary_key_field TEXT,
+          source_sql_table TEXT,
+          schema_json TEXT NOT NULL,
+          views_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE workspace_views (
+          id TEXT PRIMARY KEY,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          sort_order INTEGER NOT NULL,
+          config_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE smart_table_records (
+          id TEXT NOT NULL,
+          table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+          row_order INTEGER NOT NULL,
+          data_json TEXT NOT NULL,
+          PRIMARY KEY (table_id, id)
+        );
+      `)
+      v4Db
+        .query(
+          'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'tbl_v4',
+          'v4客户表',
+          'normal',
+          null,
+          null,
+          JSON.stringify({
+            columns: [{ key: 'name', title: '客户', type: 'text', width: 120 }],
+            summaries: {},
+          }),
+          '[]',
+          '2025-06-01T00:00:00.000Z',
+        )
+      v4Db
+        .query(
+          'INSERT INTO workspace_views (id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'wv_v4_1',
+          'tbl_v4',
+          'v4客户视图',
+          'table',
+          0,
+          JSON.stringify({
+            filterGroup: { conjunction: 'and', conditions: [] },
+            quickFilterFields: [],
+            sortRules: [],
+          }),
+          '2025-06-01T00:00:00.000Z',
+        )
+      v4Db.close()
+
+      const upgraded = openDatabase(dbPath)
+      try {
+        const app = createApp(upgraded)
+        const appsRes = await app.request('/api/apps')
+        expect(appsRes.status).toBe(200)
+        const appsBody = (await appsRes.json()) as AllAppsResponse
+        expect(appsBody.apps).toHaveLength(1)
+        expect(appsBody.apps[0]?.tableId).toBe('tbl_v4')
+
+        const viewsRes = await app.request('/api/views')
+        expect(viewsRes.status).toBe(200)
+        const viewsBody = (await viewsRes.json()) as AllViewsResponse
+        expect(viewsBody.views).toHaveLength(1)
+        expect(viewsBody.views[0]?.appId).toBe(appsBody.apps[0]?.id)
+      } finally {
+        upgraded.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 / 看板写回', () => {
