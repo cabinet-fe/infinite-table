@@ -39,7 +39,7 @@ infinitable/
 | playground | `playground` | 应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、架构与 API 边界页、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ArchitecturePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
 | print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界；app 内分层为 shared（前后端契约：模板 schema/迁移与 REST 类型单源）、domain（领域模型：FormDoc/区域操作/聚合）、designer（表现层：画布与 React 组件）、data（数据视图 + REST 客户端与取数服务 dataset-service）、server（Hono 路由/建库/种子，种子惰性构建）；server 不 import designer；设计器内含公式栏与函数库（消费 @infinitable/formulas 的 49 个内置函数） | `src/server/index.ts`、`src/main.tsx` |
-| smart-table | `apps/smart-table` | 独立全栈应用：飞书/企微风格多维智能表格（React 19 + Hono + bun:sqlite）；app 内分层为 shared（前后端 schema 与 REST 契约单源，含独立应用视图与样式/条件格式/看板/仪表盘类型）、domain（VLOOKUP 联合匹配/消歧/汇总、公式列求值、筛选排序汇总管线、透视下钻拆解、条件格式与多层次样式合并、看板泳道分组、仪表盘 KPI/图表聚合）、canvas（SmartGridAdapter 原生底部汇总行/列头热区/全区域右键/多层次样式与富媒体自绘 + SmartPivotAdapter 原地配置刷新与双击下钻）、server（普通表 JSON + 进阶物理表 SQL 双模持久层、独立应用视图持久化与 6 表演示种子）、components（工作台与向导/消歧/下钻 UI）；server 不 import canvas/components | `src/server/index.ts`、`src/main.tsx` |
+| smart-table | `apps/smart-table` | 独立全栈应用：飞书/企微风格多维智能表格（React 19 + Tailwind CSS + lucide-react + Hono + bun:sqlite）；app 内分层为 shared（前后端 schema 与 REST 契约单源，含独立应用视图与样式/条件格式/看板/仪表盘类型）、domain（VLOOKUP 联合匹配/消歧/汇总、公式列求值、筛选排序汇总管线、透视下钻拆解、条件格式与多层次样式合并、看板泳道分组、仪表盘 KPI/图表聚合、双态工作台与导出助手）、canvas（SmartGridAdapter 原生底部汇总行/列头热区/全区域右键/多层次样式与富媒体自绘 + SmartPivotAdapter 原地配置刷新与双击下钻）、server（普通表 JSON + 进阶物理表 SQL 双模持久层、独立应用视图持久化与 6 表演示种子）、components（应用视图空间/数据源中心双板块导航、双态工具栏、统一视图配置抽屉、三区域右键/汇总菜单与向导/消歧/下钻 UI）；server 不 import canvas/components | `src/server/index.ts`、`src/main.tsx` |
 
 ## 模块内检索
 
@@ -137,7 +137,7 @@ graph TD
 - render 与 grid/table 只经 RenderHost 窄接口耦合；formulas 与 grid/table 互不依赖，求值接线在宿主侧（packages/sheet 的 FormulaEngine 适配层）
 - protocol 为纯类型契约包（零运行时）：装配契约只有一个家，依赖边是类型依赖；不消费 TableEngine 的引擎与协议插件（watermark/print）无需依赖 table
 - infinitable 为发布层：devDependencies 挂内部包（workspace:*，仅构建期），产物自包含不再依赖 @infinitable/*；playground 仍直接吃各内部包源码
-- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出）、chart.js（plugins 动态分包）、react 技术栈（react/react-dom、shadcn/ui、tailwind css；react/react-dom 亦用于 print-form-designer，shadcn/ui 与 tailwind css 仅 playground，不进任何 packages）
+- 不入图的外部依赖：@cat-kit/core（formulas $n）、hucre（sheet xlsx 导出与 smart-table 解析/导出）、chart.js（plugins 动态分包）、react 技术栈（react/react-dom、shadcn/ui、tailwind css、lucide-react；react/react-dom 亦用于 print-form-designer，shadcn/ui 仅 playground，tailwind css 与 lucide-react 用于 playground 与 smart-table，不进任何 packages）
 - 包 exports 三条件 types/dev/import → dist；仓内 playground 与 print-form-designer 走 dev 条件直接吃源码；包间消费统一走公共入口（grid 无 `./src/*` 深路径导出）
 
 ## 关键路径

@@ -1,6 +1,7 @@
 // 傻瓜式跨表查找（VLOOKUP）三步向导弹窗：选表与模式 -> 联合匹配条件与实时预览 -> 勾选全量带出列或汇总指标
 
 import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Circle, Plus, Sparkles, Trash2, X } from 'lucide-react'
 import { createLookupColumnsFromWizard, previewLookupStats } from '../domain/lookup-engine'
 import type { TableBundle } from '../shared/api-types'
 import type {
@@ -12,15 +13,6 @@ import type {
   SmartRecord,
 } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
-import {
-  AlertTriangleIcon,
-  CheckCircleIcon,
-  CircleIcon,
-  PlusIcon,
-  SparklesIcon,
-  TrashIcon,
-  XIcon,
-} from './Icons'
 
 export interface LookupWizardModalProps {
   sourceTable: TableBundle
@@ -213,7 +205,7 @@ export function LookupWizardModal({
       await onSubmitColumns(newColumns)
       onClose()
     } catch {
-      // 提交失败留在向导内，错误由 Toast 展现
+      // 留在向导内
     } finally {
       setSubmitting(false)
     }
@@ -247,68 +239,96 @@ export function LookupWizardModal({
     }))
 
   return (
-    <div className="st-modal-backdrop" onClick={() => !submitting && onClose()}>
+    <div
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
+      onClick={() => !submitting && onClose()}
+    >
       <div
-        className="st-modal st-modal-lg"
+        className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="跨表关联查找 (VLOOKUP) 向导"
       >
-        <div className="st-modal-header">
+        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
           <div>
-            <h2 className="st-modal-title st-title-with-icon">
-              <SparklesIcon size={16} className="st-primary-icon" />
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Sparkles className="h-4 w-4 text-blue-600" />
               <span>跨表关联查找（VLOOKUP 向导）</span>
             </h2>
-            <p className="st-modal-sub">无需手写公式，3 步完成跨表信息带出或流水汇总</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              无需手写公式，3 步完成跨表信息带出或流水汇总
+            </p>
           </div>
           <button
             type="button"
-            className="st-icon-btn"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
           >
-            <XIcon size={14} />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="st-wizard-steps">
-          <span className={`st-step ${step === 1 ? 'is-active' : step > 1 ? 'is-done' : ''}`}>
-            1. 选目标表与模式
-          </span>
-          <span className={`st-step ${step === 2 ? 'is-active' : step > 2 ? 'is-done' : ''}`}>
-            2. 匹配条件与预览
-          </span>
-          <span className={`st-step ${step === 3 ? 'is-active' : ''}`}>
-            3. {mode === 'one' ? '选择带出字段' : '配置汇总指标'}
-          </span>
+        <div className="grid grid-cols-3 gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5 text-xs">
+          {[
+            { num: 1, title: '1. 选目标表与模式' },
+            { num: 2, title: '2. 匹配条件与预览' },
+            { num: 3, title: `3. ${mode === 'one' ? '选择带出字段' : '配置汇总指标'}` },
+          ].map((s) => (
+            <div
+              key={s.num}
+              className={`rounded-md px-2.5 py-1.5 text-center font-medium ${
+                step === s.num
+                  ? 'bg-blue-600 text-white'
+                  : step > s.num
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-white text-slate-500'
+              }`}
+            >
+              {s.title}
+            </div>
+          ))}
         </div>
 
-        <div className="st-modal-body">
+        <div className="max-h-[65vh] overflow-y-auto px-5 py-4">
           {targetCandidates.length === 0 ? (
-            <div className="st-empty-state">暂无其他数据表可关联，请先新建或保留至少两张表。</div>
+            <div className="py-10 text-center text-xs text-slate-400">
+              暂无其他数据表可关联，请先新建或保留至少两张表。
+            </div>
           ) : step === 1 ? (
-            <div className="st-form-stack">
-              <div className="st-field">
-                <label className="st-label">要查找哪张表的数据？</label>
-                <div className="st-card-grid">
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-700">
+                  要查找哪张表的数据？
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
                   {targetCandidates.map((t) => (
                     <button
                       key={t.meta.id}
                       type="button"
-                      className={`st-choice-card ${targetTableId === t.meta.id ? 'is-selected' : ''}`}
                       onClick={() => handleSelectTargetTable(t.meta.id)}
+                      className={`rounded-lg border p-3 text-left transition-colors ${
+                        targetTableId === t.meta.id
+                          ? 'border-blue-500 bg-blue-50/50'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
                     >
-                      <div className="st-choice-title">
-                        <span>{t.meta.name}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-slate-900">
+                          {t.meta.name}
+                        </span>
                         <span
-                          className={`st-tag ${t.meta.kind === 'advanced' ? 'st-tag-sql' : ''}`}
+                          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                            t.meta.kind === 'advanced'
+                              ? 'bg-indigo-50 text-indigo-700'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
                         >
                           {t.meta.kind === 'advanced' ? 'SQL 主数据' : '普通表'}
                         </span>
                       </div>
-                      <div className="st-choice-desc">
+                      <div className="mt-1 truncate text-[11px] text-slate-500">
                         {t.meta.description ||
                           `${t.records.length} 条记录 · ${t.meta.columns.length} 列`}
                       </div>
@@ -317,26 +337,36 @@ export function LookupWizardModal({
                 </div>
               </div>
 
-              <div className="st-field">
-                <label className="st-label">关联方式</label>
-                <div className="st-card-grid">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-700">关联方式</label>
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
-                    className={`st-choice-card ${mode === 'one' ? 'is-selected' : ''}`}
                     onClick={() => setMode('one')}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      mode === 'one'
+                        ? 'border-blue-500 bg-blue-50/50'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
                   >
-                    <div className="st-choice-title">一对一查找带出字段</div>
-                    <div className="st-choice-desc">
+                    <div className="text-xs font-semibold text-slate-900">一对一查找带出字段</div>
+                    <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
                       如：根据负责人姓名查工号、部门、职级，一次可勾选带出多列，支持重名消歧
                     </div>
                   </button>
                   <button
                     type="button"
-                    className={`st-choice-card ${mode === 'rollup' ? 'is-selected' : ''}`}
                     onClick={() => setMode('rollup')}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      mode === 'rollup'
+                        ? 'border-blue-500 bg-blue-50/50'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
                   >
-                    <div className="st-choice-title">一对多汇总计算 (Rollup)</div>
-                    <div className="st-choice-desc">
+                    <div className="text-xs font-semibold text-slate-900">
+                      一对多汇总计算 (Rollup)
+                    </div>
+                    <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
                       如：根据项目编号去回款流水表汇总累计回款总额或回款次数
                     </div>
                   </button>
@@ -344,33 +374,39 @@ export function LookupWizardModal({
               </div>
             </div>
           ) : step === 2 ? (
-            <div className="st-form-stack">
-              <div className="st-field">
-                <div className="st-field-head">
-                  <label className="st-label">匹配条件（多条件按 AND 联合匹配）</label>
-                  <button type="button" className="st-btn st-btn-xs" onClick={addRule}>
-                    <PlusIcon size={12} />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-700">
+                    匹配条件（多条件按 AND 联合匹配）
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addRule}
+                    className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 hover:bg-slate-50"
+                  >
+                    <Plus className="h-3 w-3" />
                     <span>追加联合条件</span>
                   </button>
                 </div>
-                <div className="st-rule-list">
+                <div className="space-y-2">
                   {matchRules.map((rule, idx) => (
                     <div
                       key={`${rule.sourceField}-${rule.targetField}-${idx}`}
-                      className="st-match-rule-row"
+                      className="flex items-center gap-2"
                     >
                       <CustomSelect
                         size="sm"
-                        className="st-flex-1"
+                        className="flex-1"
                         value={rule.sourceField}
                         ariaLabel="本表匹配字段"
                         options={sourceColOptions}
                         onChange={(val) => updateRule(idx, { sourceField: val })}
                       />
-                      <span className="st-eq-sign">=</span>
+                      <span className="text-xs font-semibold text-slate-400">=</span>
                       <CustomSelect
                         size="sm"
-                        className="st-flex-1"
+                        className="flex-1"
                         value={rule.targetField}
                         ariaLabel="目标表匹配字段"
                         options={targetColOptions}
@@ -379,12 +415,11 @@ export function LookupWizardModal({
                       {matchRules.length > 1 && (
                         <button
                           type="button"
-                          className="st-icon-btn st-icon-danger"
                           onClick={() => removeRule(idx)}
                           aria-label="删除此匹配条件"
-                          title="删除"
+                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
                         >
-                          <TrashIcon size={13} />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
                     </div>
@@ -392,21 +427,25 @@ export function LookupWizardModal({
                 </div>
               </div>
 
-              <div className="st-preview-stats">
-                <div className="st-stat-item is-ok">
-                  <CheckCircleIcon size={14} />
+              <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs">
+                <div className="flex items-center gap-1.5 text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
                   <span>
                     唯一命中 <strong>{stats.matchedRows}</strong> 行
                   </span>
                 </div>
-                <div className={`st-stat-item ${stats.conflictRows > 0 ? 'is-warn' : ''}`}>
-                  <AlertTriangleIcon size={14} />
+                <div
+                  className={`flex items-center gap-1.5 ${
+                    stats.conflictRows > 0 ? 'text-amber-700' : 'text-slate-500'
+                  }`}
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
                   <span>
-                    存在重名/多候选 <strong>{stats.conflictRows}</strong> 行
+                    多候选 <strong>{stats.conflictRows}</strong> 行
                   </span>
                 </div>
-                <div className="st-stat-item">
-                  <CircleIcon size={14} />
+                <div className="flex items-center gap-1.5 text-slate-500">
+                  <Circle className="h-4 w-4 shrink-0" />
                   <span>
                     未命中 <strong>{stats.unmatchedRows}</strong> 行
                   </span>
@@ -414,47 +453,50 @@ export function LookupWizardModal({
               </div>
 
               {stats.conflictRows > 0 && mode === 'one' && (
-                <div className="st-tip-box">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-800">
                   检测到 {stats.conflictRows} 行命中多个同名候选（如重名员工）。你可以点击上方「+
                   追加联合条件」（如加上部门一致），或者直接完成创建后在单元格右上角点选消歧义。
                 </div>
               )}
             </div>
           ) : mode === 'one' ? (
-            <div className="st-form-stack">
-              <div className="st-field-head">
-                <label className="st-label">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-700">
                   勾选从「{targetBundle?.meta.name}」带出的列（已选 {checkedCount} /{' '}
                   {returnSelections.length} 列）
                 </label>
-                <div className="st-row-actions">
+                <div className="flex items-center gap-3 text-xs">
                   <button
                     type="button"
-                    className="st-btn-link"
                     onClick={() =>
                       setReturnSelections((prev) => prev.map((r) => ({ ...r, checked: true })))
                     }
+                    className="text-blue-600 hover:underline"
                   >
                     全选
                   </button>
                   <button
                     type="button"
-                    className="st-btn-link"
                     onClick={() =>
                       setReturnSelections((prev) => prev.map((r) => ({ ...r, checked: false })))
                     }
+                    className="text-slate-500 hover:text-slate-800"
                   >
                     清空
                   </button>
                 </div>
               </div>
-              <div className="st-return-list">
+              <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2">
                 {returnSelections.map((item, idx) => (
-                  <div key={item.field} className="st-return-item">
-                    <label className="st-checkbox-label st-return-check">
+                  <div
+                    key={item.field}
+                    className="flex items-center justify-between gap-3 rounded-md bg-white px-2.5 py-1.5 shadow-2xs"
+                  >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                       <input
                         type="checkbox"
-                        className="st-checkbox"
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
                         checked={item.checked}
                         onChange={(e) =>
                           setReturnSelections((prev) =>
@@ -464,14 +506,18 @@ export function LookupWizardModal({
                           )
                         }
                       />
-                      <span className="st-return-col-meta">
-                        <span className="st-return-col-title">{item.originalTitle}</span>
-                        <span className="st-key-hint">{item.field}</span>
+                      <span className="truncate text-xs font-medium text-slate-800">
+                        {item.originalTitle}
                       </span>
+                      <span className="text-[11px] text-slate-400">{item.field}</span>
                     </label>
                     <input
                       type="text"
-                      className={`st-input st-input-sm ${item.checked && !item.title.trim() ? 'is-invalid' : ''}`}
+                      className={`h-7 w-44 rounded-md border px-2 text-xs text-slate-800 focus:outline-none ${
+                        item.checked && !item.title.trim()
+                          ? 'border-red-400 bg-red-50/40'
+                          : 'border-slate-200 focus:border-blue-500'
+                      }`}
                       value={item.title}
                       disabled={!item.checked}
                       placeholder="新列显示名称（必填）"
@@ -486,41 +532,41 @@ export function LookupWizardModal({
                   </div>
                 ))}
               </div>
-              <div className={`st-fixed-msg ${hasEmptyCheckedTitle ? 'is-err' : ''}`}>
+              <div className="min-h-[16px] text-xs text-red-600">
                 {hasEmptyCheckedTitle ? '已勾选项的新列显示名称不能为空' : ''}
               </div>
             </div>
           ) : (
-            <div className="st-form-stack">
-              <div className="st-field">
-                <label className="st-label">目标表汇总字段</label>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-700">目标表汇总字段</label>
                 <CustomSelect
+                  className="w-full"
                   value={rollupField}
                   ariaLabel="选择目标表汇总字段"
                   options={rollupFieldOptions}
                   onChange={(nextField) => {
                     setRollupField(nextField)
                     const col = targetBundle?.meta.columns.find((c) => c.key === nextField)
-                    if (col) {
-                      setRollupTitle(`${col.title}汇总`)
-                    }
+                    if (col) setRollupTitle(`${col.title}汇总`)
                   }}
                 />
               </div>
-              <div className="st-field">
-                <label className="st-label">聚合方式</label>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-700">聚合方式</label>
                 <CustomSelect
+                  className="w-full"
                   value={rollupAgg}
                   ariaLabel="选择聚合方式"
                   options={ROLLUP_AGG_OPTIONS}
                   onChange={(val) => setRollupAgg(val)}
                 />
               </div>
-              <div className="st-field">
-                <label className="st-label">生成列标题</label>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-700">生成列标题</label>
                 <input
                   type="text"
-                  className="st-input"
+                  className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-[13px] text-slate-800 focus:border-blue-500 focus:outline-none"
                   value={rollupTitle}
                   onChange={(e) => setRollupTitle(e.target.value)}
                   placeholder="例如：累计回款"
@@ -530,17 +576,22 @@ export function LookupWizardModal({
           )}
         </div>
 
-        <div className="st-modal-footer">
-          <button type="button" className="st-btn" disabled={submitting} onClick={onClose}>
+        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={onClose}
+            className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
             取消
           </button>
-          <div className="st-row-actions">
+          <div className="flex items-center gap-2">
             {step > 1 && (
               <button
                 type="button"
-                className="st-btn"
                 disabled={submitting}
                 onClick={() => setStep((s) => (s === 3 ? 2 : 1))}
+                className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
                 上一步
               </button>
@@ -548,23 +599,21 @@ export function LookupWizardModal({
             {step < 3 ? (
               <button
                 type="button"
-                className="st-btn st-btn-primary"
                 disabled={targetCandidates.length === 0 || (step === 2 && matchRules.length === 0)}
                 onClick={() => {
-                  if (step === 2) {
-                    prepareStep3Defaults()
-                  }
+                  if (step === 2) prepareStep3Defaults()
                   setStep((s) => (s === 1 ? 2 : 3))
                 }}
+                className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
               >
                 下一步
               </button>
             ) : (
               <button
                 type="button"
-                className="st-btn st-btn-primary"
                 disabled={submitting || !canSubmit}
                 onClick={() => void handleFinish()}
+                className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
               >
                 {submitting ? '生成中...' : '完成并添加列'}
               </button>

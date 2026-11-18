@@ -1,6 +1,7 @@
-// 透视表双向「下钻」抽屉：Tab1 嵌入式明细网格支持消歧/富编辑/回滚；Tab2 按下一维度逐层拆解下钻
+// 透视表双向「下钻」抽屉：Tab1 嵌入式明细网格（支持只读态与运维态）；Tab2 按下一维度逐层拆解下钻
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
 import { SmartGridAdapter, type SmartGridConflictClickInfo } from '../canvas/smart-grid'
 import { computeDimensionBreakdown, getAvailableDrillDimensions } from '../domain/drill-engine'
@@ -12,7 +13,6 @@ import type {
   SmartRecord,
 } from '../shared/schema'
 import type { RichCellEditInfo } from './CellEditorPopover'
-import { XIcon } from './Icons'
 
 export interface DrillLevel {
   label: string
@@ -26,6 +26,7 @@ export interface DrillDownDrawerProps {
   allComputedRecords: readonly SmartRecord[]
   conflictsByRow: Map<string, Map<string, LookupConflictInfo>>
   pivotConfig: SmartPivotConfig
+  readonly?: boolean
   hasActiveOverlay?: boolean
   onClose: () => void
   onUpdateRecord: (recordId: string, patch: Record<string, unknown>) => Promise<void>
@@ -40,6 +41,7 @@ export function DrillDownDrawer({
   allComputedRecords,
   conflictsByRow,
   pivotConfig,
+  readonly = false,
   hasActiveOverlay = false,
   onClose,
   onUpdateRecord,
@@ -77,9 +79,7 @@ export function DrillDownDrawer({
   const currentLevel = levels[levels.length - 1]!
   const recordById = useMemo(() => {
     const map = new Map<string, SmartRecord>()
-    for (const r of allComputedRecords) {
-      map.set(r._id, r)
-    }
+    for (const r of allComputedRecords) map.set(r._id, r)
     return map
   }, [allComputedRecords])
 
@@ -87,9 +87,7 @@ export function DrillDownDrawer({
     const list: SmartRecord[] = []
     for (const id of currentLevel.recordIds) {
       const rec = recordById.get(id)
-      if (rec) {
-        list.push(rec)
-      }
+      if (rec) list.push(rec)
     }
     return list
   }, [currentLevel.recordIds, recordById])
@@ -141,6 +139,8 @@ export function DrillDownDrawer({
       columns,
       records: currentRecords,
       conflictsByRow,
+      readonly,
+      showSummaryRow: false,
       onCellValueChange: (recordId, fieldKey, newValue) => {
         void handlersRef.current.onUpdateRecord(recordId, { [fieldKey]: newValue }).catch(() => {})
       },
@@ -154,7 +154,7 @@ export function DrillDownDrawer({
       gridAdapterRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab])
+  }, [activeTab, readonly])
 
   useEffect(() => {
     gridAdapterRef.current?.setData(columns, currentRecords, conflictsByRow)
@@ -174,24 +174,28 @@ export function DrillDownDrawer({
   }
 
   return (
-    <div className="st-drawer-backdrop" onClick={onClose}>
+    <div className="fixed inset-0 z-[1000] flex justify-end bg-slate-900/30" onClick={onClose}>
       <aside
-        className="st-drawer"
+        className="flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="透视下钻抽屉"
       >
-        <div className="st-drawer-header">
-          <div>
-            <h2 className="st-modal-title">透视下钻分析</h2>
-            <div className="st-breadcrumb">
+        <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3.5">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900">透视下钻分析</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
               {levels.map((lvl, idx) => (
-                <span key={`${lvl.label}-${idx}`} className="st-breadcrumb-item">
-                  {idx > 0 && <span className="st-breadcrumb-sep">/</span>}
+                <span key={`${lvl.label}-${idx}`} className="inline-flex items-center gap-1">
+                  {idx > 0 && <span className="text-slate-300">/</span>}
                   <button
                     type="button"
-                    className={`st-breadcrumb-btn ${idx === levels.length - 1 ? 'is-current' : ''}`}
                     onClick={() => setLevels((prev) => prev.slice(0, idx + 1))}
+                    className={`rounded px-1.5 py-0.5 transition-colors ${
+                      idx === levels.length - 1
+                        ? 'bg-blue-50 font-medium text-blue-700'
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                    }`}
                   >
                     {lvl.label}
                   </button>
@@ -199,51 +203,75 @@ export function DrillDownDrawer({
               ))}
             </div>
           </div>
-          <button type="button" className="st-icon-btn" onClick={onClose} aria-label="关闭下钻抽屉">
-            <XIcon size={15} />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭下钻抽屉"
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="st-drawer-tabs">
+        <div className="flex shrink-0 gap-4 border-b border-slate-200 px-5">
           <button
             type="button"
-            className={`st-drawer-tab ${activeTab === 'detail' ? 'is-active' : ''}`}
             onClick={() => setActiveTab('detail')}
+            className={`border-b-2 py-2.5 text-xs font-medium transition-colors ${
+              activeTab === 'detail'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
           >
             明细数据（{currentRecords.length} 条）
           </button>
           <button
             type="button"
-            className={`st-drawer-tab ${activeTab === 'dimension' ? 'is-active' : ''}`}
             onClick={() => setActiveTab('dimension')}
+            className={`border-b-2 py-2.5 text-xs font-medium transition-colors ${
+              activeTab === 'dimension'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
           >
             按下一维度下钻
           </button>
         </div>
 
-        <div className="st-drawer-body">
+        <div className="flex-1 overflow-hidden p-4">
           {activeTab === 'detail' ? (
-            <div className="st-drawer-grid-wrap">
-              <div className="st-drawer-tip">
-                支持直接在明细网格内编辑单元格或处理消歧，保存后主透视表将自动重新聚合刷新。
+            <div className="flex h-full flex-col gap-2.5">
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {readonly
+                  ? '当前为只读查看态，可浏览穿透到底层的明细记录。'
+                  : '支持直接在明细网格内编辑单元格或处理消歧，保存后主透视表将自动重新聚合刷新。'}
               </div>
-              <div ref={gridContainerRef} className="st-drawer-grid-canvas" />
+              <div
+                ref={gridContainerRef}
+                className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200"
+              />
             </div>
           ) : (
-            <div className="st-drill-breakdown">
+            <div className="h-full space-y-4 overflow-y-auto">
               {availableDimensions.length === 0 ? (
-                <div className="st-empty-state">所有可用维度已全部展开。</div>
+                <div className="py-12 text-center text-xs text-slate-400">
+                  所有可用维度已全部展开。
+                </div>
               ) : (
                 <>
-                  <div className="st-drill-dim-bar">
-                    <span className="st-slot-label">选择拆解维度</span>
-                    <div className="st-pill-list">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-slate-500">选择拆解维度</span>
+                    <div className="flex flex-wrap gap-1.5">
                       {availableDimensions.map((dim) => (
                         <button
                           key={dim.key}
                           type="button"
-                          className={`st-chip ${selectedDimKey === dim.key ? 'is-active' : ''}`}
                           onClick={() => setSelectedDimKey(dim.key)}
+                          className={`h-7 rounded-full border px-3 text-xs transition-colors ${
+                            selectedDimKey === dim.key
+                              ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
+                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
                         >
                           {dim.title}
                         </button>
@@ -251,7 +279,7 @@ export function DrillDownDrawer({
                     </div>
                   </div>
 
-                  <div className="st-breakdown-list">
+                  <div className="space-y-2">
                     {breakdown.map((item) => {
                       const primaryMeasure = pivotConfig.measures[0]
                       const primaryVal = primaryMeasure
@@ -261,18 +289,18 @@ export function DrillDownDrawer({
                         <button
                           key={item.value}
                           type="button"
-                          className="st-breakdown-item"
                           onClick={() => handleDrillNext(item.value, item.records)}
                           title="点击继续按此分组下钻"
+                          className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/30"
                         >
-                          <div className="st-breakdown-head">
-                            <span className="st-breakdown-name">{item.value}</span>
-                            <span className="st-breakdown-nums">
+                          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-semibold text-slate-900">{item.value}</span>
+                            <span className="flex items-center gap-2.5 text-slate-500">
                               <span>{item.count} 条</span>
                               {primaryMeasure &&
                                 primaryVal !== null &&
                                 primaryVal !== undefined && (
-                                  <strong>
+                                  <strong className="font-semibold text-slate-800">
                                     {primaryMeasure.title}:{' '}
                                     {Number.isInteger(primaryVal)
                                       ? primaryVal.toLocaleString('zh-CN')
@@ -284,9 +312,9 @@ export function DrillDownDrawer({
                               <span>({(item.ratio * 100).toFixed(1)}%)</span>
                             </span>
                           </div>
-                          <div className="st-ratio-track">
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
                             <div
-                              className="st-ratio-fill"
+                              className="h-full rounded-full bg-blue-500"
                               style={{ width: `${Math.max(4, Math.round(item.ratio * 100))}%` }}
                             />
                           </div>

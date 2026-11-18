@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckIcon, ChevronDownIcon, SearchIcon } from './Icons'
+import { Check, ChevronDown, Search, X } from 'lucide-react'
 
 /** 超过该选项数自动启用菜单内搜索 */
 const SEARCH_THRESHOLD = 12
@@ -46,6 +46,18 @@ interface MenuCoords {
   top: number
   minWidth: number
   openAbove: boolean
+}
+
+const SIZE_CLASSES: Record<NonNullable<CustomSelectProps['size']>, string> = {
+  xs: 'h-6 px-2 text-xs gap-1',
+  sm: 'h-7 px-2.5 text-xs gap-1.5',
+  md: 'h-8 px-2.5 text-[13px] gap-1.5',
+}
+
+const VARIANT_CLASSES: Record<NonNullable<CustomSelectProps['variant']>, string> = {
+  default: 'border border-slate-200 bg-white hover:border-slate-300',
+  pill: 'border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100/70 rounded-full',
+  ghost: 'border border-transparent bg-transparent hover:bg-slate-100',
 }
 
 export function CustomSelect<T extends string = string>({
@@ -109,8 +121,6 @@ export function CustomSelect<T extends string = string>({
 
   useEffect(() => {
     if (!open) return
-    // 仅在打开瞬间执行：重置搜索词、定位当前项并聚焦搜索框（不能依赖 filteredOptions，
-    // 否则每次键入都会重跑本 effect 把 query 清空）
     const currentIdx = options.findIndex((o) => o.value === value && !o.disabled)
     setActiveIndex(currentIdx >= 0 ? currentIdx : options.findIndex((o) => !o.disabled))
     if (enableSearch) {
@@ -152,7 +162,6 @@ export function CustomSelect<T extends string = string>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // 高亮项滚动进可视区（搜索/键盘导航后保持可见）
   useEffect(() => {
     if (!open || activeIndex < 0) return
     menuRef.current
@@ -214,7 +223,6 @@ export function CustomSelect<T extends string = string>({
     }
   }
 
-  /** 应用搜索词并同步把高亮重置到新结果的首个可用项（filteredOptions 此刻还是旧值，需现算） */
   function applySearch(next: string) {
     setQuery(next)
     const nextFiltered = enableSearch ? filterOptions(options, next) : options
@@ -231,12 +239,14 @@ export function CustomSelect<T extends string = string>({
         aria-controls={open ? listboxId : undefined}
         aria-label={ariaLabel}
         disabled={disabled}
-        className={`st-cselect st-cselect-${size} st-cselect-${variant} ${open ? 'is-open' : ''} ${!selectedOpt && !triggerLabel ? 'is-placeholder' : ''} ${className}`}
+        className={`inline-flex items-center justify-between rounded-md font-normal transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]} ${open ? 'border-blue-500 ring-2 ring-blue-500/15' : ''} ${!selectedOpt && !triggerLabel ? 'text-slate-400' : 'text-slate-800'} ${className}`}
         onClick={() => !disabled && setOpen((v) => !v)}
         onKeyDown={handleTriggerKeyDown}
       >
-        <span className="st-cselect-label">{displayLabel}</span>
-        <ChevronDownIcon size={size === 'xs' ? 12 : 14} className="st-cselect-arrow" />
+        <span className="truncate">{displayLabel}</span>
+        <ChevronDown
+          className={`shrink-0 text-slate-400 transition-transform ${size === 'xs' ? 'h-3 w-3' : 'h-3.5 w-3.5'} ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open &&
@@ -247,7 +257,7 @@ export function CustomSelect<T extends string = string>({
             id={listboxId}
             role="listbox"
             data-st-portal-menu="true"
-            className={`st-cselect-menu ${coords.openAbove ? 'is-above' : ''}`}
+            className={`fixed z-[1200] max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg ${coords.openAbove ? '-translate-y-full' : ''}`}
             style={{
               left: coords.left,
               top: coords.top,
@@ -255,12 +265,12 @@ export function CustomSelect<T extends string = string>({
             }}
           >
             {enableSearch && (
-              <div className="st-cselect-search-wrap">
-                <SearchIcon size={12} className="st-cselect-search-icon" />
+              <div className="mb-1 flex items-center gap-1.5 border-b border-slate-100 px-2 py-1.5">
+                <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                 <input
                   ref={searchInputRef}
                   type="text"
-                  className="st-cselect-search"
+                  className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
                   value={query}
                   placeholder="搜索选项..."
                   aria-label="搜索选项"
@@ -270,17 +280,17 @@ export function CustomSelect<T extends string = string>({
                 {query !== '' && (
                   <button
                     type="button"
-                    className="st-cselect-search-clear"
+                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                     aria-label="清空搜索"
                     onClick={() => applySearch('')}
                   >
-                    ×
+                    <X className="h-3 w-3" />
                   </button>
                 )}
               </div>
             )}
             {filteredOptions.length === 0 ? (
-              <div className="st-cselect-empty">无匹配项</div>
+              <div className="px-2.5 py-2 text-center text-xs text-slate-400">无匹配项</div>
             ) : (
               filteredOptions.map((opt, idx) => {
                 const isSelected = !triggerLabel && opt.value === value
@@ -293,7 +303,13 @@ export function CustomSelect<T extends string = string>({
                     data-opt-index={idx}
                     aria-selected={isSelected}
                     disabled={opt.disabled}
-                    className={`st-cselect-option ${isSelected ? 'is-selected' : ''} ${isHighlighted ? 'is-highlighted' : ''}`}
+                    className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                      isSelected
+                        ? 'bg-blue-50 font-medium text-blue-700'
+                        : isHighlighted
+                          ? 'bg-slate-100 text-slate-900'
+                          : 'text-slate-700 hover:bg-slate-50'
+                    }`}
                     onMouseEnter={() => setActiveIndex(idx)}
                     onClick={() => {
                       if (opt.disabled) return
@@ -302,11 +318,15 @@ export function CustomSelect<T extends string = string>({
                       triggerRef.current?.focus()
                     }}
                   >
-                    <span className="st-cselect-opt-main">
-                      <span>{opt.label}</span>
-                      {opt.hint && <span className="st-cselect-opt-hint">{opt.hint}</span>}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{opt.label}</span>
+                      {opt.hint && (
+                        <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-500">
+                          {opt.hint}
+                        </span>
+                      )}
                     </span>
-                    {isSelected && <CheckIcon size={13} className="st-cselect-check" />}
+                    {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
                   </button>
                 )
               })

@@ -1,12 +1,12 @@
 // VLOOKUP 重名冲突消歧浮层：支持点选锁定目标行或追加联合匹配条件，切格同步重置状态且失败保持打开
 
 import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Plus, X } from 'lucide-react'
 import type { SmartGridConflictClickInfo } from '../canvas/smart-grid'
 import { scalarToText } from '../domain/utils'
 import type { TableBundle } from '../shared/api-types'
 import type { LookupMatchRule, SmartColumn, SmartRecord } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
-import { AlertTriangleIcon, PlusIcon, XIcon } from './Icons'
 
 export interface DisambiguatePopoverProps {
   conflictInfo: SmartGridConflictClickInfo
@@ -55,7 +55,6 @@ export function DisambiguatePopover({
   const [targetField, setTargetField] = useState(defaultTarget)
   const [submitting, setSubmitting] = useState(false)
 
-  // 当点击了另一个冲突单元格或同单元格规则变化时，同步重置内部表单状态
   useEffect(() => {
     setShowRuleBuilder(false)
     setSourceField(defaultSource)
@@ -73,7 +72,6 @@ export function DisambiguatePopover({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [submitting, onClose])
 
-  // 计算浮层贴靠视口位置，防止溢出边界
   const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1200
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800
   const left = Math.min(Math.max(16, rect.x), Math.max(16, viewportW - 396))
@@ -91,7 +89,7 @@ export function DisambiguatePopover({
       await onSelectCandidate(record._id, conflict.groupId, candidateId)
       onClose()
     } catch {
-      // 保持浮层打开，错误提示由 Toast 展现
+      // 保持浮层打开
     } finally {
       setSubmitting(false)
     }
@@ -105,44 +103,44 @@ export function DisambiguatePopover({
       await onAppendMatchRule(conflict.groupId, { sourceField, targetField })
       onClose()
     } catch {
-      // 保持浮层打开，错误提示由 Toast 展现
+      // 保持浮层打开
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <div className="st-cell-popover-backdrop" onClick={() => !submitting && onClose()}>
+    <div className="fixed inset-0 z-[1050]" onClick={() => !submitting && onClose()}>
       <div
-        className="st-disambiguate-popover"
+        className="fixed w-[380px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
         style={{ left, top }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="VLOOKUP 重名记录消歧"
       >
-        <div className="st-popover-header">
+        <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3">
           <div>
-            <div className="st-popover-title">
-              <AlertTriangleIcon size={14} className="st-warn-icon" />
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
               <span>检测到重名候选记录</span>
             </div>
-            <div className="st-popover-sub">
+            <div className="mt-0.5 text-[11px] text-slate-500">
               关联目标表「{targetBundle?.meta.name ?? conflict.targetTableId}」，共命中{' '}
               {conflict.candidates.length} 条记录，请选择正确的一条：
             </div>
           </div>
           <button
             type="button"
-            className="st-icon-btn"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
           >
-            <XIcon size={14} />
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        <div className="st-candidate-list">
+        <div className="max-h-60 space-y-2 overflow-y-auto p-3">
           {conflict.candidates.map((candidate: SmartRecord) => {
             const isSelected = conflict.selectedRecordId === candidate._id
             const pkValue = pkField ? candidate[pkField] : candidate._id
@@ -151,21 +149,28 @@ export function DisambiguatePopover({
                 key={candidate._id}
                 type="button"
                 disabled={submitting}
-                className={`st-candidate-card ${isSelected ? 'is-selected' : ''}`}
                 onClick={() => void handleChoose(candidate._id)}
+                className={`w-full rounded-lg border p-2.5 text-left transition-colors ${
+                  isSelected
+                    ? 'border-blue-400 bg-blue-50/60'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
               >
-                <div className="st-candidate-head">
-                  <span className="st-candidate-pk">{scalarToText(pkValue) || candidate._id}</span>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-900">
+                    {scalarToText(pkValue) || candidate._id}
+                  </span>
                   {isSelected && (
-                    <span className="st-tag st-tag-ok">
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                       {conflict.isResolved ? '已锁定' : '当前默认'}
                     </span>
                   )}
                 </div>
-                <div className="st-candidate-fields">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
                   {previewCols.map((col) => (
-                    <span key={col.key} className="st-candidate-kv">
-                      <em>{col.title}:</em> {scalarToText(candidate[col.key]) || '—'}
+                    <span key={col.key}>
+                      <em className="not-italic text-slate-400">{col.title}:</em>{' '}
+                      {scalarToText(candidate[col.key]) || '—'}
                     </span>
                   ))}
                 </div>
@@ -174,22 +179,23 @@ export function DisambiguatePopover({
           })}
         </div>
 
-        <div className="st-popover-footer">
+        <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-2.5">
           {!showRuleBuilder ? (
             <button
               type="button"
-              className="st-btn-link st-inline-flex-btn"
               onClick={() => setShowRuleBuilder(true)}
               disabled={availableSourceCols.length === 0 || availableTargetCols.length === 0}
+              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline disabled:opacity-40"
             >
-              <PlusIcon size={12} />
+              <Plus className="h-3.5 w-3.5" />
               <span>追加联合匹配条件（彻底避免重名冲突）</span>
             </button>
           ) : (
-            <form className="st-rule-append-form" onSubmit={(e) => void handleAddRule(e)}>
-              <div className="st-rule-append-row">
+            <form className="space-y-2" onSubmit={(e) => void handleAddRule(e)}>
+              <div className="flex items-center gap-1.5">
                 <CustomSelect
                   size="xs"
+                  className="flex-1"
                   value={sourceField}
                   ariaLabel="选择本表字段"
                   options={availableSourceCols.map((c) => ({
@@ -198,9 +204,10 @@ export function DisambiguatePopover({
                   }))}
                   onChange={setSourceField}
                 />
-                <span className="st-eq-sign">=</span>
+                <span className="text-xs font-semibold text-slate-400">=</span>
                 <CustomSelect
                   size="xs"
+                  className="flex-1"
                   value={targetField}
                   ariaLabel="选择目标表字段"
                   options={availableTargetCols.map((c) => ({
@@ -210,21 +217,21 @@ export function DisambiguatePopover({
                   onChange={setTargetField}
                 />
               </div>
-              <div className="st-row-actions">
-                <button
-                  type="submit"
-                  className="st-btn st-btn-primary st-btn-xs"
-                  disabled={submitting || !sourceField || !targetField}
-                >
-                  应用联合条件
-                </button>
+              <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
-                  className="st-btn st-btn-xs"
                   disabled={submitting}
                   onClick={() => setShowRuleBuilder(false)}
+                  className="h-6 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-50"
                 >
                   取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !sourceField || !targetField}
+                  className="h-6 rounded bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                >
+                  应用联合条件
                 </button>
               </div>
             </form>

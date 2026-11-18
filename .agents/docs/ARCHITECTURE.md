@@ -23,7 +23,7 @@
 - `@infinitable/pivot`（透视表引擎：PivotGrid 平级领域引擎 + PivotModel 两阶段聚合模型——单趟扫描构建行维度树与预聚合累加器，展开/折叠零原始记录扫描 $O(\text{VisibleRows})$ 物化视图，跨行合并树格支持视口内贴顶居中绘制与同源点击折叠命中）依赖 table、grid 与 protocol（对外实现 EngineAssembly）
 - 四层 canvas 自下而上：L0 ground（underlay painter 预留层，默认无内容，可用于衬底水印）→ L1 body（单元格背景、网格线/边框与滚动窗口）→ L2 media（chart/图片，cell 级位图缓存 LRU）→ L3 sky（选区/滚动条/编辑器）；所有层由唯一 ScrollManager 状态机驱动
 - 失效模型三档统一：原 `cell` 档更名去表格语义（如 `region`）/ row-band / full；滚动、交互、图片加载、批量更新共用同一失效语言
-- 应用边界：`apps/print-form-designer`（独立全栈应用：打印表单设计器——前端设计器 + Bun/bun:sqlite/Hono 后端），落在 `packages/` 分层之外，与根目录 `playground`（示例与基准应用）平级
+- 应用边界：`apps/print-form-designer`（独立全栈应用：打印表单设计器——前端设计器 + Bun/bun:sqlite/Hono 后端）与 `apps/smart-table`（独立全栈应用：多维智能表格——React 19 + Tailwind CSS + lucide-react 工作台 + Bun/bun:sqlite/Hono 后端），落在 `packages/` 分层之外，与根目录 `playground`（示例与基准应用）平级
 
 ### 技术栈
 
@@ -35,8 +35,9 @@
 | 工具库 | `@cat-kit/core`（cabinet-fe 核心工具包） | 替代 @visactor/vutils |
 | 测试 | vitest（vite-plus 内置） | 浏览器行为用浏览器模式冒烟 |
 | 应用 UI（playground） | React + shadcn/ui + Tailwind CSS | vite MPA；不进任何 packages |
+| 应用全栈（apps/smart-table） | React 19 + Tailwind CSS + lucide-react + Bun + bun:sqlite + Hono | 多维智能表格全栈应用（含 hucre XLSX 解析/导出）；不进任何 packages |
 | 应用后端（apps/print-form-designer） | Bun + bun:sqlite + Hono | 打印表单设计器全栈应用的后端；不进任何 packages |
-| 部署 | 公开 npm 包 `infinitable`（changesets + CI 发布） | 其余子包与应用（playground、print-form-designer）私有不发 |
+| 部署 | 公开 npm 包 `infinitable`（changesets + CI 发布） | 其余子包与应用（playground、print-form-designer、smart-table）私有不发 |
 
 ## 未决
 

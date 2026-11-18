@@ -47,10 +47,13 @@
         "@infinitable/table": "workspace:*",
         "hono": "^4.0.0",
         "hucre": "^1.2.0",
+        "lucide-react": "^1.61.0",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
+        "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@tailwindcss/vite": "^4.3.3",
         "@types/bun": "^1.0.0",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",

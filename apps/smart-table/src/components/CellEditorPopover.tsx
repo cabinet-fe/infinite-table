@@ -1,17 +1,9 @@
 // 画布内富单元格编辑浮层：响应 select（彩色胶囊列表+搜索+快速新建）与 date（日历+直填）双击编辑
 
 import { useEffect, useMemo, useState } from 'react'
+import { Calendar, Check, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react'
 import { scalarToText } from '../domain/utils'
 import type { SelectOption, SmartColumn, SmartRecord } from '../shared/schema'
-import {
-  CalendarIcon,
-  CheckIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  PlusIcon,
-  SearchIcon,
-  XIcon,
-} from './Icons'
 
 export interface RichCellEditInfo {
   record: SmartRecord
@@ -70,10 +62,7 @@ export function CellEditorPopover({
   const currentText = scalarToText(value).trim()
   const [submitting, setSubmitting] = useState(false)
 
-  // select 状态
   const [query, setQuery] = useState('')
-
-  // date 状态
   const today = useMemo(() => new Date(), [])
   const initialDate = parseYmd(currentText)
   const [viewYear, setViewYear] = useState(initialDate?.year ?? today.getFullYear())
@@ -116,14 +105,10 @@ export function CellEditorPopover({
       await onCommit(record._id, column.key, nextVal)
       onClose()
     } catch {
-      // 错误提示由上层 Toast 负责，保持浮层打开便于重试
+      // 错误由上层 Toast 负责
     } finally {
       setSubmitting(false)
     }
-  }
-
-  async function handleSelectOption(label: string) {
-    await commitValue(label)
   }
 
   async function handleCreateOption(rawLabel: string) {
@@ -143,7 +128,7 @@ export function CellEditorPopover({
       await onCommit(record._id, column.key, label)
       onClose()
     } catch {
-      // 错误提示由上层 Toast 负责
+      // 错误由上层 Toast 负责
     } finally {
       setSubmitting(false)
     }
@@ -161,15 +146,12 @@ export function CellEditorPopover({
     query.trim().length > 0 &&
     !exactMatch
 
-  // 日历网格数据（周一为首日）
   const calendarDays = useMemo(() => {
     const firstDay = new Date(viewYear, viewMonth, 1)
     const offset = (firstDay.getDay() + 6) % 7
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
     const cells: Array<{ day: number | null; ymd?: string }> = []
-    for (let i = 0; i < offset; i++) {
-      cells.push({ day: null })
-    }
+    for (let i = 0; i < offset; i++) cells.push({ day: null })
     for (let d = 1; d <= daysInMonth; d++) {
       cells.push({ day: d, ymd: formatYmd(viewYear, viewMonth, d) })
     }
@@ -185,34 +167,34 @@ export function CellEditorPopover({
   const todayYmd = formatYmd(today.getFullYear(), today.getMonth(), today.getDate())
 
   return (
-    <div className="st-cell-popover-backdrop" onClick={() => !submitting && onClose()}>
+    <div className="fixed inset-0 z-[1050]" onClick={() => !submitting && onClose()}>
       <div
-        className="st-cell-editor-popover"
+        className="fixed overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
         style={{ left, top, width: popoverW }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`编辑 ${column.title}`}
       >
-        <div className="st-cell-editor-head">
-          <span className="st-cell-editor-title">{column.title}</span>
+        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+          <span className="truncate text-xs font-semibold text-slate-800">{column.title}</span>
           <button
             type="button"
-            className="st-icon-btn"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭编辑器"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
           >
-            <XIcon size={13} />
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
         {column.type === 'select' ? (
-          <div className="st-select-editor">
-            <div className="st-search-box">
-              <SearchIcon size={13} className="st-search-icon" />
+          <div className="p-2.5 space-y-2">
+            <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+              <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
                 type="text"
-                className="st-search-input"
+                className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
                 placeholder="搜索或输入新选项..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -226,7 +208,7 @@ export function CellEditorPopover({
               />
             </div>
 
-            <div className="st-select-pill-list">
+            <div className="max-h-52 space-y-1 overflow-y-auto">
               {filteredOptions.map((opt) => {
                 const isSelected = opt.label === currentText
                 return (
@@ -234,44 +216,46 @@ export function CellEditorPopover({
                     key={opt.label}
                     type="button"
                     disabled={submitting}
-                    className={`st-select-opt-row ${isSelected ? 'is-selected' : ''}`}
-                    onClick={() => void handleSelectOption(opt.label)}
+                    onClick={() => void commitValue(opt.label)}
+                    className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 transition-colors ${
+                      isSelected ? 'bg-blue-50/70' : 'hover:bg-slate-50'
+                    }`}
                   >
                     <span
-                      className="st-color-pill"
+                      className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
                       style={{ backgroundColor: opt.color, color: opt.textColor }}
                     >
                       {opt.label}
                     </span>
-                    {isSelected && <CheckIcon size={14} className="st-cselect-check" />}
+                    {isSelected && <Check className="h-3.5 w-3.5 text-blue-600" />}
                   </button>
                 )
               })}
 
               {filteredOptions.length === 0 && !canQuickCreate && (
-                <div className="st-empty-mini">无匹配选项</div>
+                <div className="py-3 text-center text-xs text-slate-400">无匹配选项</div>
               )}
 
               {canQuickCreate && (
                 <button
                   type="button"
                   disabled={submitting}
-                  className="st-select-create-btn"
                   onClick={() => void handleCreateOption(query)}
+                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-blue-200 bg-blue-50/50 px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
                 >
-                  <PlusIcon size={13} />
-                  <span>创建并选择「{query.trim()}」</span>
+                  <Plus className="h-3.5 w-3.5" />
+                  <span className="truncate">创建并选择「{query.trim()}」</span>
                 </button>
               )}
             </div>
 
             {currentText !== '' && (
-              <div className="st-cell-editor-foot">
+              <div className="border-t border-slate-100 pt-1.5 text-right">
                 <button
                   type="button"
-                  className="st-btn-link"
                   disabled={submitting}
                   onClick={() => void commitValue('')}
+                  className="text-xs text-slate-500 hover:text-red-600"
                 >
                   清空当前值
                 </button>
@@ -279,9 +263,9 @@ export function CellEditorPopover({
             )}
           </div>
         ) : (
-          <div className="st-date-editor">
+          <div className="p-2.5 space-y-2.5">
             <form
-              className="st-date-input-row"
+              className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1"
               onSubmit={(e) => {
                 e.preventDefault()
                 const parsed = parseYmd(dateInput)
@@ -292,10 +276,10 @@ export function CellEditorPopover({
                 }
               }}
             >
-              <CalendarIcon size={13} className="st-search-icon" />
+              <Calendar className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
                 type="text"
-                className="st-search-input"
+                className="min-w-0 flex-1 bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
                 placeholder="YYYY-MM-DD"
                 value={dateInput}
                 onChange={(e) => {
@@ -311,38 +295,38 @@ export function CellEditorPopover({
               />
               <button
                 type="submit"
-                className="st-btn st-btn-xs st-btn-primary"
                 disabled={submitting || (dateInput.trim() !== '' && !parseYmd(dateInput))}
+                className="h-6 rounded bg-blue-600 px-2 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
               >
                 确定
               </button>
             </form>
 
-            <div className="st-calendar-nav">
+            <div className="flex items-center justify-between px-1">
               <button
                 type="button"
-                className="st-icon-btn"
                 onClick={() => shiftMonth(-1)}
                 aria-label="上一月"
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
               >
-                <ChevronLeftIcon size={14} />
+                <ChevronLeft className="h-4 w-4" />
               </button>
-              <span className="st-calendar-month-label">
+              <span className="text-xs font-semibold text-slate-800">
                 {viewYear} 年 {viewMonth + 1} 月
               </span>
               <button
                 type="button"
-                className="st-icon-btn"
                 onClick={() => shiftMonth(1)}
                 aria-label="下一月"
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
               >
-                <ChevronRightIcon size={14} />
+                <ChevronRight className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="st-calendar-grid">
+            <div className="grid grid-cols-7 gap-0.5 text-center">
               {WEEKDAYS.map((wd) => (
-                <div key={wd} className="st-calendar-weekday">
+                <div key={wd} className="py-1 text-[11px] font-medium text-slate-400">
                   {wd}
                 </div>
               ))}
@@ -354,8 +338,14 @@ export function CellEditorPopover({
                     key={cell.ymd}
                     type="button"
                     disabled={submitting}
-                    className={`st-calendar-day ${cell.ymd === currentText ? 'is-selected' : ''} ${cell.ymd === todayYmd ? 'is-today' : ''}`}
                     onClick={() => void commitValue(cell.ymd)}
+                    className={`h-7 rounded-md text-xs transition-colors ${
+                      cell.ymd === currentText
+                        ? 'bg-blue-600 font-semibold text-white'
+                        : cell.ymd === todayYmd
+                          ? 'bg-blue-50 font-medium text-blue-700 hover:bg-blue-100'
+                          : 'text-slate-700 hover:bg-slate-100'
+                    }`}
                   >
                     {cell.day}
                   </button>
@@ -363,21 +353,21 @@ export function CellEditorPopover({
               )}
             </div>
 
-            <div className="st-cell-editor-foot">
+            <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 text-xs">
               <button
                 type="button"
-                className="st-btn-link"
                 disabled={submitting}
                 onClick={() => void commitValue(todayYmd)}
+                className="text-blue-600 hover:underline"
               >
                 选择今天
               </button>
               {currentText !== '' && (
                 <button
                   type="button"
-                  className="st-btn-link"
                   disabled={submitting}
                   onClick={() => void commitValue('')}
+                  className="text-slate-500 hover:text-red-600"
                 >
                   清空日期
                 </button>

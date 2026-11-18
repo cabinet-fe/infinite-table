@@ -173,6 +173,8 @@ export interface SmartGridOptions {
   onValidationError?: (message: string) => void
   onScrollChange?: (scrollLeft: number, scrollTop: number) => void
   onRowSelectionChange?: (recordIds: string[]) => void
+  /** 选区变更快照回调（包含行 ID 与列键范围） */
+  onSelectionInfoChange?: (info: SmartGridSelectionInfo) => void
   /** 点击列头显式排序按钮 */
   onHeaderSortClick?: (info: SmartGridHeaderSortClickInfo) => void
   /** 点击列头显式菜单按钮 */
@@ -887,6 +889,7 @@ export class SmartGridAdapter {
   private readonly onValidationError: SmartGridOptions['onValidationError']
   private readonly onScrollChange: SmartGridOptions['onScrollChange']
   private readonly onRowSelectionChange: SmartGridOptions['onRowSelectionChange']
+  private readonly onSelectionInfoChange: SmartGridOptions['onSelectionInfoChange']
   private readonly onHeaderSortClick: SmartGridOptions['onHeaderSortClick']
   private readonly onHeaderMenuClick: SmartGridOptions['onHeaderMenuClick']
   private readonly onSummaryCellClick: SmartGridOptions['onSummaryCellClick']
@@ -927,6 +930,7 @@ export class SmartGridAdapter {
     this.onValidationError = options.onValidationError
     this.onScrollChange = options.onScrollChange
     this.onRowSelectionChange = options.onRowSelectionChange
+    this.onSelectionInfoChange = options.onSelectionInfoChange
     this.onHeaderSortClick = options.onHeaderSortClick
     this.onHeaderMenuClick = options.onHeaderMenuClick
     this.onSummaryCellClick = options.onSummaryCellClick
@@ -1177,6 +1181,19 @@ export class SmartGridAdapter {
     return this.model.getRecordsSnapshot()
   }
 
+  /** 触发指定记录单元格进入编辑态（只读或不可编辑列返回 false） */
+  startEditCell(recordId: string, fieldKey: string): boolean {
+    if (this.destroyed || this.readonlyMode) {
+      return false
+    }
+    const row = this.records.findIndex((record) => record._id === recordId)
+    const col = this.visibleColumns.findIndex((column) => column.key === fieldKey)
+    if (row < 0 || col < 0) {
+      return false
+    }
+    return this.table.startEdit(col, row)
+  }
+
   /** 将指定记录的单元格恢复为给定值并刷新画布（供外部保存失败回滚） */
   revertCell(recordId: string, fieldKey: string, value: unknown): void {
     if (this.destroyed) {
@@ -1359,6 +1376,9 @@ export class SmartGridAdapter {
       table.onColHeaderClick((event) => this.handleColHeaderClick(event)),
       table.onBottomCellClick((event) => this.handleBottomCellClick(event)),
       table.onSelectionChange((snapshot) => {
+        if (this.onSelectionInfoChange) {
+          this.onSelectionInfoChange(this.getSelectionInfo())
+        }
         if (!this.onRowSelectionChange) {
           return
         }

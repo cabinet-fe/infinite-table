@@ -1,9 +1,10 @@
-// 关联列字段设置面板（企微/飞书式）：右键关联列头或从字段管理唤起，编辑列名、
+// 关联列字段设置面板：右键关联列头或从字段管理唤起，编辑列名、
 // 匹配条件（保存时同组联动）、带出字段/聚合方式并可删除字段，命中统计实时预览。
-// 草稿与变更计算复用 domain/lookup-manage，本组件只负责渲染与调用。
 
 import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Circle, Plus, Settings, Trash2, X } from 'lucide-react'
 import type { Region } from '@infinitable/render'
+import { previewLookupStats } from '../domain/lookup-engine'
 import {
   appendLookupRule,
   applyLookupManageChanges,
@@ -17,30 +18,18 @@ import {
   setLookupItemTitle,
   updateLookupRule,
 } from '../domain/lookup-manage'
-import { previewLookupStats } from '../domain/lookup-engine'
 import type { TableBundle } from '../shared/api-types'
 import type { SmartColumn, SmartRecord } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
 import { ROLLUP_AGG_OPTIONS } from './LookupWizardModal'
-import {
-  AlertTriangleIcon,
-  CheckCircleIcon,
-  CircleIcon,
-  PlusIcon,
-  SettingsIcon,
-  TrashIcon,
-  XIcon,
-} from './Icons'
 
 export interface LookupFieldPanelProps {
   columnKey: string
-  /** 列头（或唤起按钮）在浏览器视口中的矩形，面板锚定其下方 */
   rect: Region
   sourceTable: TableBundle
   sourceComputedRecords: readonly SmartRecord[]
   allTables: readonly TableBundle[]
   onClose: () => void
-  /** 保存全部修改：应用删改后的完整列数组由 App 落 meta */
   onSave: (nextColumns: SmartColumn[]) => Promise<void>
   onDeleteColumn: (columnKey: string) => Promise<void>
 }
@@ -103,7 +92,7 @@ export function LookupFieldPanel({
       await onSave(nextColumns)
       onClose()
     } catch {
-      // 保存失败留在面板内，错误由 Toast 展现
+      // 留在面板内
     } finally {
       setSubmitting(false)
     }
@@ -119,52 +108,58 @@ export function LookupFieldPanel({
     }
   }
 
-  // 面板贴靠视口：优先列头下方，空间不足则翻到上方，整体不越界
   const panelWidth = 380
   const left = Math.min(Math.max(12, rect.x), Math.max(12, window.innerWidth - panelWidth - 12))
   const belowTop = rect.y + rect.height + 6
   const top = belowTop + 480 <= window.innerHeight - 12 ? belowTop : Math.max(12, rect.y - 486)
 
   return (
-    <div className="st-cell-popover-backdrop" onClick={() => !submitting && onClose()}>
+    <div className="fixed inset-0 z-[1050]" onClick={() => !submitting && onClose()}>
       <div
-        className="st-field-panel"
+        className="fixed w-[380px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
         style={{ left, top }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`关联字段设置 ${item.title}`}
       >
-        <div className="st-popover-header">
+        <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3">
           <div>
-            <div className="st-popover-title">
-              <SettingsIcon size={14} className="st-primary-icon" />
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
+              <Settings className="h-3.5 w-3.5 text-blue-600" />
               <span>关联字段设置</span>
             </div>
-            <div className="st-popover-sub">
+            <div className="mt-0.5 text-[11px] text-slate-500">
               {sourceTable.meta.name} → {targetBundle?.meta.name ?? group.targetTableId}（
               {group.mode === 'one' ? '一对一带出' : '一对多汇总'}）
             </div>
           </div>
           <button
             type="button"
-            className="st-icon-btn"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
           >
-            <XIcon size={14} />
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        <div className="st-field-panel-body">
-          <div className="st-field-panel-section">
-            <label className="st-label" htmlFor="st-lookup-field-title">
+        <div className="max-h-[420px] space-y-4 overflow-y-auto p-4">
+          <div className="space-y-1.5">
+            <label
+              className="block text-xs font-medium text-slate-700"
+              htmlFor="st-lookup-field-title"
+            >
               列名
             </label>
             <input
               id="st-lookup-field-title"
               type="text"
-              className={`st-input st-input-sm ${item.title.trim() === '' ? 'is-invalid' : ''}`}
+              className={`h-8 w-full rounded-md border px-2.5 text-xs text-slate-800 focus:outline-none ${
+                item.title.trim() === ''
+                  ? 'border-red-400 bg-red-50/40'
+                  : 'border-slate-200 focus:border-blue-500'
+              }`}
               value={item.title}
               disabled={submitting}
               onChange={(e) =>
@@ -175,12 +170,13 @@ export function LookupFieldPanel({
             />
           </div>
 
-          <div className="st-field-panel-section">
-            <div className="st-field-head">
-              <label className="st-label">匹配条件（AND 联合，同组列共用）</label>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-slate-700">
+                匹配条件（AND 联合，同组列共用）
+              </label>
               <button
                 type="button"
-                className="st-btn st-btn-xs"
                 disabled={submitting}
                 onClick={() =>
                   setDraft((prev) =>
@@ -190,20 +186,22 @@ export function LookupFieldPanel({
                     }),
                   )
                 }
+                className="inline-flex h-6 items-center gap-0.5 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-700 hover:bg-slate-50"
               >
-                <PlusIcon size={12} />
+                <Plus className="h-3 w-3" />
                 <span>追加</span>
               </button>
             </div>
-            <div className="st-rule-list">
+
+            <div className="space-y-1.5">
               {group.matchRules.map((rule, idx) => (
                 <div
                   key={`${rule.sourceField}-${rule.targetField}-${idx}`}
-                  className="st-match-rule-row"
+                  className="flex items-center gap-1.5"
                 >
                   <CustomSelect
                     size="sm"
-                    className="st-flex-1"
+                    className="flex-1"
                     value={rule.sourceField}
                     ariaLabel="本表匹配字段"
                     options={sourceTable.meta.columns.map((c) => ({
@@ -217,10 +215,10 @@ export function LookupFieldPanel({
                       )
                     }
                   />
-                  <span className="st-eq-sign">=</span>
+                  <span className="text-xs font-semibold text-slate-400">=</span>
                   <CustomSelect
                     size="sm"
-                    className="st-flex-1"
+                    className="flex-1"
                     value={rule.targetField}
                     ariaLabel="目标表匹配字段"
                     options={(targetBundle?.meta.columns ?? []).map((c) => ({
@@ -237,32 +235,37 @@ export function LookupFieldPanel({
                   {group.matchRules.length > 1 && (
                     <button
                       type="button"
-                      className="st-icon-btn st-icon-danger"
                       disabled={submitting}
                       onClick={() => setDraft((prev) => removeLookupRule(prev, group.groupId, idx))}
                       aria-label="删除此匹配条件"
+                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
                     >
-                      <XIcon size={13} />
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </div>
               ))}
             </div>
-            <div className="st-preview-stats">
-              <div className="st-stat-item is-ok">
-                <CheckCircleIcon size={14} />
+
+            <div className="grid grid-cols-3 gap-1.5 rounded-lg bg-slate-50 p-2 text-[11px]">
+              <div className="flex items-center gap-1 text-emerald-700">
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  唯一命中 <strong>{stats.matchedRows}</strong>
+                  命中 <strong>{stats.matchedRows}</strong>
                 </span>
               </div>
-              <div className={`st-stat-item ${stats.conflictRows > 0 ? 'is-warn' : ''}`}>
-                <AlertTriangleIcon size={14} />
+              <div
+                className={`flex items-center gap-1 ${
+                  stats.conflictRows > 0 ? 'text-amber-700' : 'text-slate-500'
+                }`}
+              >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  多候选 <strong>{stats.conflictRows}</strong>
+                  冲突 <strong>{stats.conflictRows}</strong>
                 </span>
               </div>
-              <div className="st-stat-item">
-                <CircleIcon size={14} />
+              <div className="flex items-center gap-1 text-slate-500">
+                <Circle className="h-3.5 w-3.5 shrink-0" />
                 <span>
                   未命中 <strong>{stats.unmatchedRows}</strong>
                 </span>
@@ -271,9 +274,12 @@ export function LookupFieldPanel({
           </div>
 
           {group.mode === 'one' ? (
-            <div className="st-field-panel-section">
-              <label className="st-label">带出字段（从目标表取哪一列）</label>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-700">
+                带出字段（从目标表取哪一列）
+              </label>
               <CustomSelect
+                className="w-full"
                 value={item.field}
                 ariaLabel="带出字段"
                 options={targetFieldOptions}
@@ -292,12 +298,14 @@ export function LookupFieldPanel({
               />
             </div>
           ) : (
-            <div className="st-field-panel-section">
-              <label className="st-label">聚合字段与方式（对匹配到的全部行计算）</label>
-              <div className="st-match-rule-row">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-700">
+                聚合字段与方式（对匹配到的全部行计算）
+              </label>
+              <div className="flex items-center gap-2">
                 <CustomSelect
                   size="sm"
-                  className="st-flex-1"
+                  className="flex-1"
                   value={item.field}
                   ariaLabel="聚合字段"
                   options={targetFieldOptions}
@@ -316,7 +324,7 @@ export function LookupFieldPanel({
                 />
                 <CustomSelect
                   size="sm"
-                  className="st-flex-1"
+                  className="flex-1"
                   value={item.rollupAgg ?? 'sum'}
                   ariaLabel="聚合方式"
                   options={ROLLUP_AGG_OPTIONS}
@@ -330,55 +338,59 @@ export function LookupFieldPanel({
           )}
         </div>
 
-        {error && <div className="st-field-panel-error">{error}</div>}
+        {error && (
+          <div className="border-t border-red-100 bg-red-50 px-4 py-2 text-xs text-red-600">
+            {error}
+          </div>
+        )}
 
-        <div className="st-field-panel-footer">
+        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-2.5">
           {confirmDelete ? (
-            <div className="st-row-actions">
-              <span className="st-field-panel-delete-hint">删除此列？</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-red-600">删除此列？</span>
               <button
                 type="button"
-                className="st-btn st-btn-xs st-btn-danger"
                 disabled={submitting}
                 onClick={() => void handleDelete()}
+                className="h-6 rounded bg-red-600 px-2 text-[11px] font-medium text-white hover:bg-red-700"
               >
                 确认删除
               </button>
               <button
                 type="button"
-                className="st-btn st-btn-xs"
                 disabled={submitting}
                 onClick={() => setConfirmDelete(false)}
+                className="h-6 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600"
               >
-                再想想
+                取消
               </button>
             </div>
           ) : (
             <button
               type="button"
-              className="st-icon-btn st-icon-danger"
               disabled={submitting}
               title="删除此关联列"
               aria-label="删除此关联列"
               onClick={() => setConfirmDelete(true)}
+              className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
             >
-              <TrashIcon size={13} />
+              <Trash2 className="h-3.5 w-3.5" />
             </button>
           )}
-          <div className="st-row-actions">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              className="st-btn st-btn-sm"
               disabled={submitting}
               onClick={onClose}
+              className="h-7 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               取消
             </button>
             <button
               type="button"
-              className="st-btn st-btn-sm st-btn-primary"
               disabled={submitting || !dirty || error !== null}
               onClick={() => void handleSave()}
+              className="h-7 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
             >
               {submitting ? '保存中...' : '保存'}
             </button>
