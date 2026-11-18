@@ -35,7 +35,7 @@ import type {
   WorkspaceView,
 } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
-import { DrawerDashboardPanel } from './DrawerDashboardPanel'
+import { type DashboardSelectedItem, DrawerDashboardPanel } from './DrawerDashboardPanel'
 import { DrawerKanbanPanel } from './DrawerKanbanPanel'
 import { DrawerPivotPanel } from './DrawerPivotPanel'
 import { DrawerStylePanel } from './DrawerStylePanel'
@@ -50,10 +50,12 @@ export interface ViewConfigDrawerProps {
   selectionInfo: SmartGridSelectionInfo
   focusedColumnKey?: string
   pivotConfig: SmartPivotConfig
+  selectedDashboardItem?: DashboardSelectedItem | null
   busy?: boolean
   onTabChange: (tab: ConfigDrawerTab) => void
   onClose: () => void
   onUpdateView: (patch: Partial<WorkspaceView>) => void
+  onSelectDashboardItem?: (item: DashboardSelectedItem | null) => void
   onOpenAddColumn: () => void
   onOpenColumnManager: () => void
   onOpenLookupWizard: () => void
@@ -82,10 +84,12 @@ export function ViewConfigDrawer({
   selectionInfo,
   focusedColumnKey,
   pivotConfig,
+  selectedDashboardItem,
   busy = false,
   onTabChange,
   onClose,
   onUpdateView,
+  onSelectDashboardItem,
   onOpenAddColumn,
   onOpenColumnManager,
   onOpenLookupWizard,
@@ -445,6 +449,8 @@ export function ViewConfigDrawer({
           <DrawerDashboardPanel
             columns={tableMeta.columns}
             config={view.dashboardConfig ?? buildDefaultDashboardConfig(tableMeta.columns)}
+            selectedItem={selectedDashboardItem}
+            onSelectItem={onSelectDashboardItem}
             onChangeConfig={(nextDashboard) => onUpdateView({ dashboardConfig: nextDashboard })}
           />
         )}
