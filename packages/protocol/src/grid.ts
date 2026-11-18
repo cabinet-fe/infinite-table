@@ -95,6 +95,8 @@ export interface GridReadView {
   readonly rowCount: number
   /** 数据列数 */
   readonly colCount: number
+  /** 可选底部冻结行数（缺省 0） */
+  readonly frozenBottomRowCount?: number
   /** 行高读取（CSS 像素，含逐行覆盖） */
   getRowHeight(row: number): number
   /** 列宽读取（CSS 像素） */

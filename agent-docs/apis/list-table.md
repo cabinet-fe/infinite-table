@@ -1,8 +1,8 @@
 ---
 title: ListTable 表格主类
-description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结与合并运行时变更、事件订阅（onCellChange/onSelectionChange/onScrollFrame 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions：mode 原生/画布双档、显隐档与主题 token 三态样式、原生档 scrollbar-gutter 预留与宿主滚轮让位）。含 TableModel/SheetModel。
+description: infinitable 表格主类 ListTable 与构造选项 ListTableOptions：数据三形态（records/model/rowCount+hook）、虚拟滚动 API、冻结（含底部冻结行 frozenBottomRowCount）与合并运行时变更、列头自定义样式/局部刷新/热区点击隔离、事件订阅（onCellChange/onSelectionChange/onColHeaderClick/onBottomCellClick 等）、插件注册与生命周期、内建滚动条（ScrollbarOptions）。含 TableModel/SheetModel。
 aliases: [Table, DataTable, Grid, 表格, ListTable]
-keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, scrollBy, batchUpdate, updateCell, frozenColCount, mergeCells, setMergeCells, sanitizeMerges, MergeOverlapError, onCellChange, onSelectionChange, editorInsideBorder, 编辑浮层内缩, 虚拟滚动, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
+keywords: [ListTable, ListTableOptions, ColumnDefine, records, model, rowCount, resolveDisplayValue, TableModel, SheetModel, ScrollbarOptions, ScrollbarMode, scrollbar, mode, native, visibility, hideDelay, usesNativeScrollbar, scrollbar-gutter, fillHandle, 填充柄开关, scrollBy, batchUpdate, updateCell, frozenColCount, frozenBottomRowCount, bottomRowHeight, resolveColHeaderStyle, resolveColHeaderRegions, ColHeaderHitRegion, onColHeaderClick, onBottomCellClick, refreshColHeader, refreshBottomCell, mergeCells, setMergeCells, sanitizeMerges, MergeOverlapError, onCellChange, onSelectionChange, editorInsideBorder, 编辑浮层内缩, 虚拟滚动, 底部冻结行, 合并单元格, merge ranges overlap, 滚动条, 原生滚动条]
 ---
 
 # ListTable 表格主类
@@ -95,6 +95,70 @@ export interface CellRef {
   row: number
 }
 
+/** 列头内交互热区描述（如排序按钮、菜单按钮），坐标相对该列头格左上角 */
+export interface ColHeaderHitRegion {
+  /** 热区标识（命中时经 ColHeaderClickEvent.hitId 回传） */
+  id: string
+  /** 相对列头格左上角的局部矩形（CSS 像素） */
+  rect: Region
+  /** 悬停该热区时的指针光标（缺省 'pointer'） */
+  cursor?: string
+}
+
+/** 列头交互热区解析 hook：同步 O(1)；点击命中热区时仅派发列头单击事件而不触发整列选中 */
+export type ResolveColHeaderRegions = (
+  col: number,
+  size: Size,
+) => readonly ColHeaderHitRegion[] | null | undefined
+
+/** 按列头样式 hook：同步 O(1)；返回 null/undefined 表示沿用主题 header 分区基础样式 */
+export type ResolveColHeaderStyle = (col: number) => CellStyle | null | undefined
+
+/** 底部冻结格样式 hook：row 为 0 基底部冻结行索引；返回 null/undefined 沿用基础样式 */
+export type ResolveBottomCellStyle = (col: number, row: number) => CellStyle | null | undefined
+
+/** 底部冻结格自定义渲染 hook：row 为 0 基底部冻结行索引；返回 null/undefined 走默认文本渲染 */
+export type ResolveBottomCellRenderer = (
+  col: number,
+  row: number,
+) => CellRenderer | null | undefined
+
+/** 底部冻结行行头格样式 hook：row 为 0 基底部冻结行索引 */
+export type ResolveBottomRowHeaderStyle = (row: number) => CellStyle | null | undefined
+
+/** 底部冻结行行头格自定义渲染 hook：row 为 0 基底部冻结行索引 */
+export type ResolveBottomRowHeaderRenderer = (row: number) => CellRenderer | null | undefined
+
+/** 列头单击事件：主键按下抬起落在同一列头且位移在阈值内（非 resize 手柄）时派发 */
+export interface ColHeaderClickEvent {
+  col: number
+  x: number
+  y: number
+  /** 列头格在画布视口中的矩形（CSS 像素） */
+  rect: Region
+  /** 命中的列头交互热区标识；点在列头本体时为 null */
+  hitId: string | null
+  /** 命中的交互热区在画布视口中的矩形（CSS 像素）；点在列头本体时为 null */
+  hitRect: Region | null
+  originalEvent: SceneEvent['originalEvent']
+}
+
+export type ColHeaderClickListener = (event: ColHeaderClickEvent) => void
+
+/** 底部冻结格单击事件：主键按下抬起落在同一底部冻结格且位移在阈值内时派发 */
+export interface BottomCellClickEvent {
+  col: number
+  /** 0 基底部冻结行索引 */
+  row: number
+  /** 命中格在画布视口中的矩形（CSS 像素） */
+  rect: Region
+  x: number
+  y: number
+  originalEvent: SceneEvent['originalEvent']
+}
+
+export type BottomCellClickListener = (event: BottomCellClickEvent) => void
+
 export interface ListTableOptions {
   width: number
   height: number
@@ -107,6 +171,20 @@ export interface ListTableOptions {
   resolveCellStyle?: (col: number, row: number) => CellStyle | null
   /** 自定义渲染 hook（未导出为独立类型）：返回 CellRenderer 或 null（走内置 cellType 渲染） */
   resolveCellRenderer?: (col: number, row: number) => CellRenderer | null
+  /** 按列头自定义渲染 hook（未导出为独立类型）：返回渲染器即接管该列头内容绘制 */
+  resolveColHeaderRenderer?: (col: number) => CellRenderer | null
+  /** 按列头自定义样式 hook：返回样式片段覆盖主题 header 分区基础样式 */
+  resolveColHeaderStyle?: ResolveColHeaderStyle
+  /** 列头交互热区解析 hook：返回局部坐标热区列表，命中热区不触发整列选中 */
+  resolveColHeaderRegions?: ResolveColHeaderRegions
+  /** 底部冻结格自定义渲染 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomCellRenderer?: ResolveBottomCellRenderer
+  /** 底部冻结格自定义样式 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomCellStyle?: ResolveBottomCellStyle
+  /** 底部冻结行行头格自定义渲染 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomRowHeaderRenderer?: ResolveBottomRowHeaderRenderer
+  /** 底部冻结行行头格自定义样式 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomRowHeaderStyle?: ResolveBottomRowHeaderStyle
   /** 按格图片 hook（未导出为独立类型）：返回 URL 的格按图片渲染，null 走常规管线 */
   resolveCellImage?: (col: number, row: number) => string | null | undefined
   resolveEditable?: (col: number, row: number) => boolean
@@ -127,6 +205,10 @@ export interface ListTableOptions {
   }
   frozenColCount?: number
   frozenRowCount?: number
+  /** 底部冻结行数（独立于数据行之外，钉固于数据区视口底部；缺省 0） */
+  frozenBottomRowCount?: number
+  /** 底部冻结行行高（CSS 像素；缺省沿用 rowHeight，有限值下限 20px） */
+  bottomRowHeight?: number
   mergeCells?: readonly CellRange[]
   rowHeight?: number
   defaultColWidth?: number
@@ -141,6 +223,7 @@ export interface ListTableOptions {
   canResizeCol?: (col: number) => boolean
   canResizeRow?: (row: number) => boolean
   ctrlMultiSelect?: boolean
+  fillHandle?: boolean
   scrollbar?: boolean | ScrollbarOptions
 }
 
@@ -217,6 +300,13 @@ ListTableOptions 全部字段（五要素）：
 | `resolveDisplayValue` | `(col, row, value) => string` | — | 否 | 作用于取值管线末端，可与另两形态叠加 |
 | `resolveCellStyle` | `(col, row) => CellStyle \| null` | — | 否 | 按格样式 hook，返回 null 沿用基础样式 |
 | `resolveCellRenderer` | `(col, row) => CellRenderer \| null` | — | 否 | 返回渲染器即接管该格内容绘制 |
+| `resolveColHeaderRenderer` | `(col) => CellRenderer \| null` | — | 否 | 按列头自定义渲染 hook，返回渲染器即接管该列头内容绘制 |
+| `resolveColHeaderStyle` | `ResolveColHeaderStyle` | — | 否 | 按列头样式 hook（`(col) => CellStyle \| null \| undefined`），覆盖主题 `header` 分区基础样式 |
+| `resolveColHeaderRegions` | `ResolveColHeaderRegions` | — | 否 | 列头交互热区解析 hook（`(col, size) => readonly ColHeaderHitRegion[] \| null \| undefined`），局部坐标相对列头格左上角；点击命中热区仅派发 `onColHeaderClick`（带 `hitId`/`hitRect`），不触发整列选中 |
+| `resolveBottomCellRenderer` | `ResolveBottomCellRenderer` | — | 否 | 底部冻结格自定义渲染 hook（`(col, row) => CellRenderer \| null \| undefined`），`row` 为 0 基底部冻结行索引 |
+| `resolveBottomCellStyle` | `ResolveBottomCellStyle` | — | 否 | 底部冻结格样式 hook（`(col, row) => CellStyle \| null \| undefined`），覆盖基于 `theme.header` 的底部冻结格基础样式 |
+| `resolveBottomRowHeaderRenderer` | `ResolveBottomRowHeaderRenderer` | — | 否 | 底部冻结行行头格自定义渲染 hook（`(row) => CellRenderer \| null \| undefined`） |
+| `resolveBottomRowHeaderStyle` | `ResolveBottomRowHeaderStyle` | — | 否 | 底部冻结行行头格样式 hook（`(row) => CellStyle \| null \| undefined`），覆盖基于 `theme.rowHeader` 的底部行头基础样式 |
 | `resolveCellImage` | `(col, row) => string \| null` | — | 否 | 返回 URL 的格按图片渲染（L2 media 层） |
 | `resolveEditable` | `(col, row) => boolean` | — | 否 | 返回 false 该格不可编（缺省全部可编） |
 | `editCellOnEnter` | `boolean` | `false` | 否 | 开启后非编辑态按 Enter 进入焦点格编辑 |
@@ -226,6 +316,8 @@ ListTableOptions 全部字段（五要素）：
 | `imageServiceOptions` | 图片服务配置对象 | `maxCacheBytes: 256MB`、`maxCacheCount: 1000`、`concurrency: 10`、`placeholderDelay: 80` | 否 | 位图 LRU 预算/并发/占位延迟/加载器注入（字段见 `apis/media-float.md`；类型未导出） |
 | `frozenColCount` | `number` | `0` | 否 | 左侧冻结列数（数据列，不含行号列），构造时夹取到 [0, 列数] |
 | `frozenRowCount` | `number` | `0` | 否 | 顶部冻结行数（数据行，不含列头），构造时夹取到 [0, 行数] |
+| `frozenBottomRowCount` | `number` | `0` | 否 | 底部冻结行数（独立于数据行之外，钉固于数据区视口底部、不随纵向滚动移出），非有限值回落 `0`、小数向下夹取为非负整数 |
+| `bottomRowHeight` | `number` | `rowHeight` | 否 | 底部冻结行行高（CSS 像素）；非有限值回落 `rowHeight`，有限值下限 `20`px |
 | `mergeCells` | `readonly CellRange[]` | `[]` | 否 | 闭区间；重叠项自动规范化（0.2.0 起：保留先声明、丢弃冲突项并 console 提示，不抛错）、越出表格抛错；跨冻结边界合法 |
 | `rowHeight` | `number` | 主题 `rowHeight`（32） | 否 | 全表行高基准；逐行覆盖走 `setRowHeight` |
 | `defaultColWidth` | `number` | 主题 `defaultColWidth`（100） | 否 | 列未给 width 时的列宽 |
@@ -240,6 +332,7 @@ ListTableOptions 全部字段（五要素）：
 | `canResizeCol` | `(col) => boolean` | 全部允许 | 否 | 返回 false 禁止该列拖拽改宽 |
 | `canResizeRow` | `(row) => boolean` | 全部允许 | 否 | 返回 false 禁止该行拖拽改高 |
 | `ctrlMultiSelect` | `boolean` | `false` | 否 | 开启后 Ctrl/Cmd 点数据格追加选区段 |
+| `fillHandle` | `boolean` | `true` | 否 | `false` 时整体关闭选区右下角填充柄（0.4.0 起）：不绘制柄方点与拖拽预览、柄位按下不命中（无 crosshair 光标）、不触发 `onFillHandleDown`/`onFillDragEnd`/`onFillHandleDoubleClick`；选区交互（拖选/加选/键盘导航）不受影响 |
 | `scrollbar` | `boolean \| ScrollbarOptions` | `true` | 否 | 内建滚动条：`false` 整体关闭（不绘制、右/下缘条带不拦截指针）；`true`/缺省 `'always'` 常驻；对象形态 `mode: 'native'`（0.1.4 起）切换浏览器原生滚动条档（见下方「原生滚动条模式」节）；对象形态配显隐档——`visibility: 'scrolling'` 时滚动或滚动条交互（拖拽/点按/悬停）显示、静止 `hideDelay`（默认回落主题 `interaction.scrollbarHideDelay` = 1000ms）后隐藏。内容溢出该轴才显示该轴；支持拖滑块/点轨道跳转 |
 
 `CellRange`（合并区，闭区间）：`{ startCol, startRow, endCol, endRow }`，构造与 `setMergeCells` 前先归一化（start ≤ end），1×1 单格区间不算合并。
@@ -259,12 +352,15 @@ ListTableOptions 全部字段（五要素）：
 - `getCellText(col, row): string` — 最终显示文本（经取值管线，同步 O(1)）；被合并覆盖的格取主格文本。
 - `updateCell(col, row, value): void` — 表格回驱模型（仅 model 形态生效；无 binding 直接返回）。模型同步 echo 回来的派生格变更收集去重后统一局部刷新。
 - `refreshCell(col, row): void` — 局部刷新单格（cell 级失效；合并区失效为主格包围盒）。
+- `refreshColHeader(col): void` / `refreshColHeaders(): void` — 局部刷新单个列头或当前可视窗口内的全部列头（重算样式与自定义渲染器，窗外列安全跳过）。
+- `refreshBottomCell(col, row): void` / `refreshBottomRow(row): void` — 局部刷新单个底部冻结格（`col = -1` 刷新底部行头格）或整行底部冻结格（`row` 为 0 基底部冻结行索引；窗外或越界安全跳过）。
 - `batchUpdate(fn: () => void): void` — fn 内多次变更的失效区域收集，结束时只提交一次 band 失效。
 - `resize(width, height): void` — 原地调整视口（不重建实例）；滚动位置与选区保留。
 - `getColWidth(col)` / `setColWidth(col, width)` / `getRowHeight(row)` / `setRowHeight(row, height)` — 越界索引为空操作/返回 0；宽度夹取最小 20px。
-- `getFrozenColCount()` / `setFrozenColCount(count)` / `getFrozenRowCount()` / `setFrozenRowCount(count)` — 运行时修改夹取到 [0, 列数/行数]。
+- `getFrozenColCount()` / `setFrozenColCount(count)` / `getFrozenRowCount()` / `setFrozenRowCount(count)` / `getFrozenBottomRowCount()` / `setFrozenBottomRowCount(count)`（及只读属性 `frozenBottomRowCount`）— 运行时修改冻结数：`frozenColCount`/`frozenRowCount` 夹取到 [0, 列数/行数]，`frozenBottomRowCount` 夹取为非负整数并重算底部冻结带与滚动视口。
 - `setMergeCells(ranges)` / `addMergeCell(range)` / `removeMergeCell(range)` — 运行时整体替换/新增/移除合并区。`setMergeCells` 重叠项规范化（保留先声明、丢弃冲突项并 console 提示）、越界抛错保持原状；`addMergeCell` 重叠抛 `MergeOverlapError`、越界抛错并保持原状；`removeMergeCell` 按归一化后精确匹配，未命中为空操作。
 - `getCellRelativeRect(col, row): Region | null` — 数据格视口矩形（CSS 像素）；窗口外返回 null。
+- `getBottomCellRelativeRect(col, row): Region | null` — 底部冻结格视口矩形（CSS 像素）；`row` 或 `col` 越界、或列不在当前可视窗口（含左侧冻结列）内返回 `null`。
 - `getCellAtRelativePosition(x, y): CellRef | null` — 视口坐标命中数据格；点在行列头/空白处返回 null。
 - `getDrawRange(): Region` — 内容区矩形（扣除行号列与列头）。
 - `isSeriesNumber(col, row): boolean` — 是否行号列格。
@@ -287,6 +383,8 @@ ListTableOptions 全部字段（五要素）：
 | `onSelectionChange` | 选区变更 | `SelectionSnapshot` |
 | `onScrollFrame` | 滚动帧（同帧多次滚动只触发一次） | `{ left, top }`（滚动状态，类型未单独导出） |
 | `onContextMenu` | 右键 | `{ cell: CellRef \| null, region: 'body' \| 'row-header' \| 'col-header', x, y, originalEvent }` |
+| `onColHeaderClick` | 列头单击（主键按下抬起落在同一列头且位移在阈值内、非 resize 手柄；按下与抬起须落在同一热区或同在本体） | `ColHeaderClickEvent`：`{ col, x, y, rect, hitId, hitRect, originalEvent }`（`rect` 为列头视口矩形；点在本体时 `hitId` 与 `hitRect` 均为 `null`） |
+| `onBottomCellClick` | 底部冻结格单击（主键按下抬起落在同一底部冻结格且位移在阈值内） | `BottomCellClickEvent`：`{ col, row, rect, x, y, originalEvent }`（`row` 为 0 基底部冻结行索引，`rect` 为命中格视口矩形） |
 | `onColResizeEnd` / `onRowResizeEnd` | 列宽/行高拖拽会话结束 | `{ col, width }` / `{ row, height }`（夹取后生效值） |
 | `onFillHandleDown` / `onFillDragEnd` / `onFillHandleDoubleClick` | 填充柄按下/拖拽结束/双击 | 按下载荷 `{ range }`（柄所在选区段，start/end 可反向）；拖拽结束载荷 `{ anchor, target }`（均 min/max 序，轴锁定：位移绝对值大的轴为主轴、相等取纵向）；双击与拖拽结束互斥。填充生成不在内核，写入由宿主完成 |
 
@@ -339,9 +437,12 @@ export interface EngineReadView {
 /** 表格引擎协议面：EngineAssembly + 表格领域公共操作增量（G17 领域需求不上提进协议） */
 export interface TableEngine extends EngineAssembly {
   // 视口与几何（width/height/colCount/resize/getRowHeight/setRowCount…）、滚动与命中
-  // （scrollBy/getBodyVisibleCellRange/getCellAtRelativePosition…）、冻结与合并、选区
-  // （applyExternalSelection/onSelectionChange/setHighlightRanges…）——即上文
-  // 「方法与事件」实例面的签名集合，SheetGrid 等适配层经本面消费、不触碰具体类
+  // （scrollBy/getBodyVisibleCellRange/getCellAtRelativePosition/getBottomCellRelativeRect…）、
+  // 局部刷新（refreshCell/refreshColHeader/refreshColHeaders/refreshBottomCell/refreshBottomRow）、
+  // 冻结（含 getFrozenBottomRowCount/setFrozenBottomRowCount）与合并、选区
+  // （applyExternalSelection/onSelectionChange/setHighlightRanges…）及交互事件
+  // （onColHeaderClick/onBottomCellClick…）——即上文「方法与事件」实例面的签名集合，
+  // SheetGrid 等适配层经本面消费、不触碰具体类
 }
 ```
 
@@ -442,13 +543,68 @@ table.batchUpdate(() => {
 table.setFrozenColCount(2) // 运行时改冻结（跨冻结边界的既有合并区合法）
 ```
 
+### 底部冻结汇总行 + 列头热区隔离与局部刷新
+
+```ts
+import type { ColHeaderHitRegion } from 'infinitable'
+import { ListTable } from 'infinitable'
+
+let activeSortCol: number | null = null
+const container = document.querySelector<HTMLDivElement>('#table')!
+
+const table = new ListTable({
+  width: 720,
+  height: 360,
+  columns: [
+    { field: 'name', title: '名称', width: 180 },
+    { field: 'amount', title: '金额', width: 140 },
+  ],
+  records: [
+    { name: '华东', amount: 120 },
+    { name: '华南', amount: 80 },
+  ],
+  frozenBottomRowCount: 1,
+  bottomRowHeight: 30,
+  resolveColHeaderStyle: (col) =>
+    col === activeSortCol ? { color: '#2563eb', fontWeight: 'bold' } : null,
+  resolveColHeaderRegions: (col, size): readonly ColHeaderHitRegion[] => [
+    // 列头右侧 22×22 排序按钮热区（局部坐标）
+    { id: `sort:${col}`, rect: { x: size.width - 26, y: (size.height - 22) / 2, width: 22, height: 22 } },
+  ],
+  resolveBottomCellStyle: () => ({ fontWeight: 'bold', background: '#f8fafc' }),
+  resolveBottomCellRenderer: (col) => ({ ctx, height }) => {
+    ctx.fillStyle = '#0f172a'
+    ctx.font = 'bold 12px sans-serif'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(col === 0 ? '汇总' : '200', 8, height / 2)
+  },
+  hostOptions: { container },
+})
+
+table.onColHeaderClick((event) => {
+  if (event.hitId?.startsWith('sort:')) {
+    // 命中按钮热区：仅触发排序并局部刷新列头（未触发整列选中）
+    activeSortCol = event.col
+    table.refreshColHeaders()
+  }
+})
+
+table.onBottomCellClick((event) => {
+  // 宿主可按 event.rect 锚定统计菜单；修改汇总状态后局部刷新该底部格
+  console.log('bottom click', event.col, event.row, event.rect)
+  table.refreshBottomCell(event.col, event.row)
+})
+```
+
 ## 注意事项
 
 > [!WARNING]
+> - 底部冻结行（`frozenBottomRowCount`）：独立于数据源行数之外，始终钉固于数据区视口底部、不随纵向滚动移出，与左侧冻结列（`frozenColCount`）及横向滚动像素级同步；纵向最大可滚动量与数据区可见裁剪高度自动扣除底部冻结带高度；点击底部冻结格仅派发 `onBottomCellClick`，不触发数据区选区与编辑。
+> - 列头交互热区（`resolveColHeaderRegions`）：按返回数组逆序命中（后声明者优先）；悬停命中热区时光标取 `region.cursor ?? 'pointer'`；按下命中热区时不启动整列拖选，仅当按下与抬起命中同一列头同一热区时派发 `onColHeaderClick`（带 `hitId` 与视口 `hitRect`）；列宽 resize 手柄（列右缘）优先级高于列头热区。
 > - 0.1.2 起公共导出面大幅收敛：`ScrollManager`/`ModelBinding`/`CellValuePipeline`/`SelectionState`/`InteractionOverlay`/`EditManager`/`createTextEditor`/`ImageService`/`MediaCache`/`FloatObjectLayer`/`CellNode`/网格布局纯函数族不再从 `infinitable` 导出（滚动/选区/编辑/媒体/布局原语经引擎内置接线消费，实例面见 `table.scroll`/`table.selection`/`table.imageService`/`table.floatObjects` 与本表方法）。
 > - 鼠标滚轮滚动不内置（canvas 档）：引擎内置触控惯性/键盘/内建滚动条，滚轮必须宿主自行 `container.addEventListener('wheel', ...)` 接线到 `table.scrollBy`（`preventDefault` + `passive: false`）。
 > - 原生滚动条模式（`scrollbar: { mode: 'native' }`，0.1.4 起）：**由浏览器原生渲染的真实滚动条**——引擎在挂载容器内装配真实 DOM 滚动容器（`overflow` 滚动 + `scrollbar-gutter: stable`），非 canvas 自绘、非 DOM 模拟假滚动条；外观/显隐/触控板惯性/系统辅助功能完全随 OS，`visibility`/`hideDelay` 不适用（给出即忽略）。**gutter 口径**：横向、纵向（含右下角 corner）独立预留、从视口布局扣除、永不覆盖任何单元格（含行号列/列头/冻结区）；视口口径取滚动容器 `clientWidth`/`clientHeight`（已含原生 gutter 扣除），`table.width`/`height` 语义不变。**宿主滚轮接线让位**：原生档下引擎滚轮/触控板由原生滚动容器接管，宿主既有 wheel 接线不得造成双滚——引擎提供只读判定 `table.usesNativeScrollbar`，宿主接线处按 `if (table.usesNativeScrollbar) return` 让位（playground `attachWheel` 即此模式）。程序化滚动（`scrollTo`/`scrollBy`/键盘导航 `ensureCellVisible`）与原生容器双向同步，`ScrollManager` 仍是唯一滚动状态源；canvas 滚动条不再绘制、右/下缘条带不拦截指针。不支持 `scrollbar-gutter` 的旧浏览器回落为原生覆盖式行为（仅滚动显隐时短暂覆盖），不做 polyfill。
-> - 内建滚动条（0.1.2 重构，canvas 档）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。
+> - 内建滚动条（0.1.2 重构，canvas 档）行为：圆角胶囊滑块三态取色（拖拽激活 > hover > 默认，主题 `interaction.scrollbarThumb*` token）；hover/拖拽时收窄内缩视觉变粗（`scrollbarMarginHover`）；拖拽会话支持画布外指针接续（window 级监听，画布外松手正常终结会话，窗外释放后回画布不续滚）；一帧内多次拖拽位移合帧为一次滚动提交；`'scrolling'` 档悬停滑块期间保持可见、离开后重新计时隐藏。样式 token 见 `apis/theme-style.md`。0.4.0 起滑块落在无可拾取节点的空白区（列总宽 ≤ 视口时的纵向滑块、末行下方的横向滑块）同样可按住拖拽、悬停高亮与 `'scrolling'` 档显影（sky 根接回 pointerdown/pointermove）；空白区非滚动条落点的按下被忽略，不会误启选区。
 > - `CellRef` 在统一入口有两个：grid 的格坐标以 `GridCellRef` 导出，`CellRef` 是 formulas 层的 A1 引用（含 `colAbsolute`/`rowAbsolute`/`sheet` 字段）。
 > - 合并区重叠分两层（0.2.0 起）：批量入口（构造 `mergeCells` / `setMergeCells`）自动规范化——保留先声明区间、丢弃冲突项并 console.warn（`[infinitable] <来源>: dropped overlapping merge range ...`），不再抛错打断渲染；程序化单命令（`addMergeCell`）抛 `MergeOverlapError`（携带 `coord`/`range`/`existing`，报错原文 `merge ranges overlap at (col, row): existing [...] vs incoming [...]`）。越出表格抛 `assertMergesWithinTable` 系列错误。跨冻结边界的合并区合法（主格按冻结带钉固绘制）。
 > - `updateCell` 只对 model 形态生效；records 形态直接改行对象字段后调 `refreshCell`。

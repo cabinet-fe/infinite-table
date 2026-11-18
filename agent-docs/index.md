@@ -2,7 +2,7 @@
 title: infinitable 总览
 description: infinitable 是高性能 canvas 表格引擎（多层 canvas 失效驱动渲染 + 全量虚拟滚动），npm 包名 infinitable，@cat-kit/core 为 peerDependency 须自装。主入口含六层模块（render/grid/protocol/table/formulas/plugins，core 已拆为 grid+table，协议归位起新增 protocol 契约层）与全部公共导出到文档路径的速查表（主入口显式导出 + ./sheet、./pivot 子路径逐项）；plugins 层三插件（chart/watermark/print）均为 createXxxPlugin 工厂对象形态，sheet 能力由 @infinitable/sheet 提供、透视表引擎由 @infinitable/pivot 提供，分别经 infinitable 的 ./sheet、./pivot 子路径转出；protocol 层为引擎装配协议契约包（EngineAssembly/EngineReadView/EnginePlugin，纯类型零运行时），table 层承载表格引擎协议面 TableEngine。导出面判据、core 拆分迁移登记与移出项过渡方案见 apis/exports.md，符号集合被 public-surface 快照测试冻结。
 aliases: [infinitable, infinite-table, InfiniTable, 表格引擎, canvas 表格]
-keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', '@infinitable/pivot', PivotGrid, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, SHEET_DEFAULT_ROW_HEIGHT, SHEET_DEFAULT_COL_WIDTH, formatByNumFmt, sheetStyleToEngineStyle, 引擎装配协议, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
+keywords: [infinitable, ListTable, createRenderHost, extendsTheme, evaluate, parseFormula, '@infinitable/sheet', '@infinitable/pivot', PivotGrid, createChartPlugin, createWatermarkPlugin, createPrintPlugin, ScrollbarOptions, ScrollbarMode, EditorRegistry, CellChartMedia, EngineAssembly, EngineReadView, TableEngine, createEnginePrintSource, SHEET_DEFAULT_ROW_HEIGHT, SHEET_DEFAULT_COL_WIDTH, formatByNumFmt, sheetStyleToEngineStyle, frozenBottomRowCount, ColHeaderHitRegion, BottomCellClickEvent, 引擎装配协议, 虚拟滚动, 安装, 模块列表, canvas, 表格, 插件, 导出面]
 ---
 
 # infinitable 总览
@@ -33,6 +33,9 @@ bun add infinitable @cat-kit/core
 | `ResolveDisplayValue` / `ResolveCellLink` / `ResolveCellImageLink` | 按格显示与链接解析 hook（取值管线末端；链接格自动链接外观/悬停/单击事件） | `apis/list-table.md` |
 | `ScrollbarOptions` / `ScrollbarMode` | 内建滚动条配置（`scrollbar` 选项对象形态：mode/visibility/hideDelay；`mode: 'native'` 浏览器原生滚动条档，0.1.4 起） | `apis/list-table.md` |
 | `CellChangeEvent` / `CellRef` / `GridCellRef` / `TableContextMenuEvent` / `CellLink` / `CellLinkClickEvent` / `CellLinkHoverEvent` / `CellLinkLeaveEvent` | 格坐标与事件载荷（含单元格超链接载荷与悬停/离开/单击事件） | `apis/list-table.md` |
+| `ResolveColHeaderStyle` / `ResolveColHeaderRegions` / `ColHeaderHitRegion` | 列头样式 hook 与列头交互热区描述/解析（命中热区隔离整列选中） | `apis/list-table.md` |
+| `ResolveBottomCellStyle` / `ResolveBottomCellRenderer` / `ResolveBottomRowHeaderStyle` / `ResolveBottomRowHeaderRenderer` | 底部冻结行格与底部行头格的样式与自定义渲染 hook | `apis/list-table.md` |
+| `BottomCellClickEvent` / `BottomCellClickListener` | 底部冻结格单击事件载荷与监听类型（`onBottomCellClick`） | `apis/list-table.md` |
 | `EnginePlugin` | 插件契约（mount 只收 EngineAssembly；协议插件/领域面插件/注册表插件三分类判据） | `apis/engine-protocol.md` |
 | `UnderlayPainter` / `OverlayPainter` | ground/sky 整层绘制预留位（painter 槽位词汇） | `apis/engine-protocol.md` |
 | `extendsTheme` / `TableTheme` / `ThemeOverride` | 主题深覆盖派生与分区 token（含滚动条 token） | `apis/theme-style.md` |

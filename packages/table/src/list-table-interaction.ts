@@ -4,7 +4,9 @@
 // 只触碰表实例上的 @internal 状态容器。
 
 import {
+  computeScrollableViewportHeight,
   cursorForEdge,
+  findBottomRowAt,
   findColAt,
   findRowAt,
   floatHandleEdge,
@@ -15,6 +17,7 @@ import {
   normalizeRange,
   planScrollbarThumb,
   ResizeSession,
+  resolveBottomCellYFromOffsets,
   resolveCellX,
   resolveCellYFromOffsets,
   spanHeight,
@@ -48,12 +51,14 @@ import { nextActiveCell, revealAxis } from './keyboard-navigation'
 import type { ListTable } from './list-table'
 import { applyHeaderHighlight, editorBorderInsets } from './list-table-scene'
 import type {
+  BottomCellClickEvent,
   CellAddress,
   CellLink,
   CellLinkClickEvent,
   CellLinkHoverEvent,
   CellLinkLeaveEvent,
   ColHeaderClickEvent,
+  ColHeaderHitRegion,
   ImageLinkClickEvent,
   PointerEventHost,
   TableContextMenuEvent,
@@ -114,12 +119,128 @@ export function bindInteractionEvents(table: ListTable): void {
   )
 }
 
+function bodyDataBottomY(table: ListTable): number {
+  return (
+    table.headerHeight +
+    Math.max(0, table.viewportHeight - table.geometryState.frozenBottomRowsHeight)
+  )
+}
+
 function colHeaderAt(table: ListTable, x: number, y: number): number | null {
-  if (table.headerHeight <= 0 || y < 0 || y >= table.headerHeight || x < table.rowHeaderWidth) {
+  if (
+    table.headerHeight <= 0 ||
+    y < 0 ||
+    y >= table.headerHeight ||
+    x < table.rowHeaderWidth ||
+    x >= table.rowHeaderWidth + table.viewportWidth
+  ) {
     return null
   }
   const col = findColAt(table.geometryState.colOffsets, toContentX(table, x))
   return col >= 0 ? col : null
+}
+
+function colHeaderRectInViewport(table: ListTable, col: number): Region {
+  const { geometryState } = table
+  return {
+    x: resolveCellX(
+      col,
+      table.scroll.state.left,
+      geometryState.colOffsets,
+      geometryState.frozenColCount,
+      table.rowHeaderWidth,
+    ),
+    y: 0,
+    width: table.getColWidth(col),
+    height: table.headerHeight,
+  }
+}
+
+function colHeaderRegionAt(
+  table: ListTable,
+  col: number,
+  colRect: Region,
+  x: number,
+  y: number,
+): ColHeaderHitRegion | null {
+  const regions = table.options.resolveColHeaderRegions?.(col, {
+    width: colRect.width,
+    height: colRect.height,
+  })
+  if (!regions || regions.length === 0) {
+    return null
+  }
+  const localX = x - colRect.x
+  const localY = y - colRect.y
+  for (let i = regions.length - 1; i >= 0; i--) {
+    const region = regions[i]!
+    const r = region.rect
+    if (localX >= r.x && localX < r.x + r.width && localY >= r.y && localY < r.y + r.height) {
+      return region
+    }
+  }
+  return null
+}
+
+function bottomCellAt(table: ListTable, x: number, y: number): CellAddress | null {
+  const { geometryState } = table
+  if (
+    geometryState.frozenBottomRowCount <= 0 ||
+    x < table.rowHeaderWidth ||
+    x >= table.rowHeaderWidth + table.viewportWidth
+  ) {
+    return null
+  }
+  const row = findBottomRowAt(
+    geometryState.bottomRowOffsets,
+    y,
+    table.headerHeight,
+    table.viewportHeight,
+  )
+  if (row < 0) {
+    return null
+  }
+  const col = findColAt(geometryState.colOffsets, toContentX(table, x))
+  return col >= 0 ? { col, row } : null
+}
+
+export function bottomCellRectInViewport(
+  table: ListTable,
+  col: number,
+  bottomRow: number,
+): Region | null {
+  const { geometryState } = table
+  if (
+    bottomRow < 0 ||
+    bottomRow >= geometryState.frozenBottomRowCount ||
+    col < 0 ||
+    col >= table.columns.length
+  ) {
+    return null
+  }
+  const colVisible =
+    col < geometryState.frozenColCount ||
+    (col >= geometryState.cols.start && col < geometryState.cols.end)
+  if (!colVisible) {
+    return null
+  }
+  return {
+    x: resolveCellX(
+      col,
+      table.scroll.state.left,
+      geometryState.colOffsets,
+      geometryState.frozenColCount,
+      table.rowHeaderWidth,
+    ),
+    y: resolveBottomCellYFromOffsets(
+      bottomRow,
+      geometryState.bottomRowOffsets,
+      table.headerHeight,
+      table.viewportHeight,
+    ),
+    width: table.getColWidth(col),
+    height: table.bottomRowHeight,
+  }
 }
 
 function onPointerDown(table: ListTable, event: SceneEvent, fromSkyRoot = false): void {
@@ -137,6 +258,8 @@ function onPointerDown(table: ListTable, event: SceneEvent, fromSkyRoot = false)
   interactionState.pointerDownAt = { x: event.x, y: event.y }
   interactionState.pointerDownCell = null
   interactionState.pointerDownColHeader = null
+  interactionState.pointerDownColHeaderHitId = null
+  interactionState.pointerDownBottomCell = null
   interactionState.headerDrag = null
 
   const floats = table.floatLayer
@@ -232,8 +355,11 @@ function onPointerDown(table: ListTable, event: SceneEvent, fromSkyRoot = false)
   if (event.y < table.headerHeight) {
     const col = colHeaderAt(table, event.x, event.y)
     if (col !== null) {
+      const colRect = colHeaderRectInViewport(table, col)
+      const hitRegion = colHeaderRegionAt(table, col, colRect, event.x, event.y)
       interactionState.pointerDownColHeader = col
-      if (selectionInteractive(table) && table.pipeline.rowCount > 0) {
+      interactionState.pointerDownColHeaderHitId = hitRegion?.id ?? null
+      if (!hitRegion && selectionInteractive(table) && table.pipeline.rowCount > 0) {
         interactionState.headerDrag = { axis: 'col', anchor: col }
         interactionState.selection.beginDragRange(
           { col, row: 0 },
@@ -241,6 +367,15 @@ function onPointerDown(table: ListTable, event: SceneEvent, fromSkyRoot = false)
           { col, row: table.getBodyVisibleCellRange().rows.start },
         )
       }
+    }
+    return
+  }
+
+  const dataBottomY = bodyDataBottomY(table)
+  if (event.y >= dataBottomY) {
+    const bottomCell = bottomCellAt(table, event.x, event.y)
+    if (bottomCell) {
+      interactionState.pointerDownBottomCell = bottomCell
     }
     return
   }
@@ -335,7 +470,13 @@ function onPointerMove(table: ListTable, event: SceneEvent): void {
     if (scrollFillEdge(table)) {
       scheduleFillEdgeScroll(table)
     }
-    const cell = cellAt(table, event.x, event.y)
+    const cell = cellAt(
+      table,
+      event.x,
+      table.geometryState.frozenBottomRowsHeight > 0
+        ? Math.min(event.y, bodyDataBottomY(table) - 1)
+        : event.y,
+    )
     if (cell) {
       updateFillCurrent(drag, cell)
     }
@@ -456,6 +597,10 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   interactionState.dragAnchor = null
   interactionState.selection.endDrag()
   updatePointerCursor(table, event)
+  if (interactionState.pointerDownBottomCell !== null) {
+    dispatchBottomCellClick(table, event)
+    return
+  }
   if (interactionState.pointerDownColHeader !== null) {
     dispatchColHeaderClick(table, event)
     return
@@ -471,11 +616,13 @@ function onPointerUp(table: ListTable, event: SceneEvent): void {
   }
 }
 
-/** 列头单击派发：主键按下与抬起落在同一列头且位移在阈值内（非 resize 手柄） */
+/** 列头单击派发：主键按下与抬起落在同一列头且位移在阈值内（非 resize 手柄），且按下/抬起命中同一热区或同为本体 */
 function dispatchColHeaderClick(table: ListTable, event: SceneEvent): void {
   const { interactionState } = table
   const downCol = interactionState.pointerDownColHeader
+  const downHitId = interactionState.pointerDownColHeaderHitId
   interactionState.pointerDownColHeader = null
+  interactionState.pointerDownColHeaderHitId = null
   if (event.button !== undefined && event.button !== 0) {
     return
   }
@@ -489,6 +636,11 @@ function dispatchColHeaderClick(table: ListTable, event: SceneEvent): void {
   if (colHeaderAt(table, event.x, event.y) !== downCol) {
     return
   }
+  const colRect = colHeaderRectInViewport(table, downCol)
+  const hitRegion = colHeaderRegionAt(table, downCol, colRect, event.x, event.y)
+  if ((hitRegion?.id ?? null) !== downHitId) {
+    return
+  }
   if (interactionState.colHeaderClickListeners.size === 0) {
     return
   }
@@ -496,9 +648,58 @@ function dispatchColHeaderClick(table: ListTable, event: SceneEvent): void {
     col: downCol,
     x: event.x,
     y: event.y,
+    rect: colRect,
+    hitId: hitRegion?.id ?? null,
+    hitRect: hitRegion
+      ? {
+          x: colRect.x + hitRegion.rect.x,
+          y: colRect.y + hitRegion.rect.y,
+          width: hitRegion.rect.width,
+          height: hitRegion.rect.height,
+        }
+      : null,
     originalEvent: event.originalEvent,
   }
   for (const listener of interactionState.colHeaderClickListeners) {
+    listener(emitted)
+  }
+}
+
+/** 底部冻结格单击派发：主键按下与抬起落在同一底部冻结格且位移在阈值内 */
+function dispatchBottomCellClick(table: ListTable, event: SceneEvent): void {
+  const { interactionState } = table
+  const downCell = interactionState.pointerDownBottomCell
+  interactionState.pointerDownBottomCell = null
+  if (event.button !== undefined && event.button !== 0) {
+    return
+  }
+  const down = interactionState.pointerDownAt
+  if (!down || !downCell) {
+    return
+  }
+  if (Math.hypot(event.x - down.x, event.y - down.y) > CLICK_SLOP) {
+    return
+  }
+  const hit = bottomCellAt(table, event.x, event.y)
+  if (!hit || hit.col !== downCell.col || hit.row !== downCell.row) {
+    return
+  }
+  if (interactionState.bottomCellClickListeners.size === 0) {
+    return
+  }
+  const rect = bottomCellRectInViewport(table, hit.col, hit.row)
+  if (!rect) {
+    return
+  }
+  const emitted: BottomCellClickEvent = {
+    col: hit.col,
+    row: hit.row,
+    rect,
+    x: event.x,
+    y: event.y,
+    originalEvent: event.originalEvent,
+  }
+  for (const listener of interactionState.bottomCellClickListeners) {
     listener(emitted)
   }
 }
@@ -545,7 +746,7 @@ function fillEdgeVelocity(table: ListTable, x: number, y: number): { dx: number;
   const { geometryState } = table
   let dx = 0
   let dy = 0
-  if (y >= table.height - table.scrollbarGutterHeight - FILL_EDGE_ZONE) {
+  if (y >= bodyDataBottomY(table) - FILL_EDGE_ZONE) {
     dy = FILL_EDGE_STEP
   } else if (y <= table.headerHeight + geometryState.frozenRowsHeight + FILL_EDGE_ZONE) {
     dy = -FILL_EDGE_STEP
@@ -570,7 +771,13 @@ function scrollFillEdge(table: ListTable): boolean {
     drag.edge = { dx: 0, dy: 0 }
     return false
   }
-  const cell = cellAt(table, drag.pointer.x, drag.pointer.y)
+  const cell = cellAt(
+    table,
+    drag.pointer.x,
+    table.geometryState.frozenBottomRowsHeight > 0
+      ? Math.min(drag.pointer.y, bodyDataBottomY(table) - 1)
+      : drag.pointer.y,
+  )
   if (cell) {
     updateFillCurrent(drag, cell)
   }
@@ -826,7 +1033,7 @@ function contextMenuRegion(
   if (y < table.headerHeight && x >= table.rowHeaderWidth) {
     return 'col-header'
   }
-  if (x < table.rowHeaderWidth && y >= table.headerHeight) {
+  if (x < table.rowHeaderWidth && y >= table.headerHeight && y < bodyDataBottomY(table)) {
     return 'row-header'
   }
   return 'body'
@@ -843,7 +1050,11 @@ function toContentY(table: ListTable, y: number): number {
 }
 
 export function cellAt(table: ListTable, x: number, y: number): CellAddress | null {
-  if (x < table.rowHeaderWidth || y < table.headerHeight) {
+  if (
+    x < table.rowHeaderWidth ||
+    y < table.headerHeight ||
+    (table.geometryState.frozenBottomRowsHeight > 0 && y >= bodyDataBottomY(table))
+  ) {
     return null
   }
   const { geometryState } = table
@@ -943,7 +1154,11 @@ export function ensureCellVisible(table: ListTable, col: number, row: number): v
   if (row >= geometryState.frozenRowCount) {
     nextTop = revealAxis(
       top,
-      table.viewportHeight - geometryState.frozenRowsHeight,
+      computeScrollableViewportHeight(
+        table.viewportHeight,
+        geometryState.frozenRowsHeight,
+        geometryState.frozenBottomRowsHeight,
+      ),
       (geometryState.rowOffsets[row] ?? 0) - geometryState.frozenRowsHeight,
       table.rowHeightAt(row),
     )
@@ -989,6 +1204,15 @@ function updatePointerCursor(table: ListTable, event: SceneEvent): void {
   if (handle) {
     table.setContainerCursor(RESIZE_CURSOR[handle.kind])
     return
+  }
+  const col = colHeaderAt(table, x, y)
+  if (col !== null) {
+    const colRect = colHeaderRectInViewport(table, col)
+    const hitRegion = colHeaderRegionAt(table, col, colRect, x, y)
+    if (hitRegion) {
+      table.setContainerCursor(hitRegion.cursor ?? 'pointer')
+      return
+    }
   }
   table.setContainerCursor(fillHandleHit(table, x, y) ? 'crosshair' : link ? 'pointer' : 'auto')
 }
@@ -1169,10 +1393,14 @@ function scrollbarGeometry(
   table: ListTable,
   axis: 'vertical' | 'horizontal',
 ): ScrollbarThumbGeometry | null {
-  const { scroll } = table
+  const { scroll, geometryState } = table
   return planScrollbarThumb(
     axis === 'vertical'
-      ? { maxScroll: scroll.maxTop, viewport: table.viewportHeight, offset: table.getScrollTop() }
+      ? {
+          maxScroll: scroll.maxTop,
+          viewport: Math.max(0, table.viewportHeight - geometryState.frozenBottomRowsHeight),
+          offset: table.getScrollTop(),
+        }
       : { maxScroll: scroll.maxLeft, viewport: table.viewportWidth, offset: table.getScrollLeft() },
     Math.max(
       0,

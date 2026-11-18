@@ -19,6 +19,7 @@ import type { FloatObjectLayer } from './float/float-object-layer'
 import type { HighlightRange } from './interaction-overlay'
 import type { ScrollFrameListener } from './list-table'
 import type {
+  BottomCellClickListener,
   ColHeaderClickListener,
   ColumnDefine,
   ContextMenuListener,
@@ -78,6 +79,14 @@ export interface TableEngine extends EngineAssembly {
   batchUpdate(fn: () => void): void
   /** 局部刷新单格（窗外格安全跳过；被合并覆盖坐标路由主格） */
   refreshCell(col: number, row: number): void
+  /** 局部刷新单个列头（窗外列安全跳过） */
+  refreshColHeader(col: number): void
+  /** 局部刷新当前可视窗口内的全部列头 */
+  refreshColHeaders(): void
+  /** 局部刷新单个底部冻结格（col = -1 时刷新底部行头格；窗外安全跳过） */
+  refreshBottomCell(col: number, row: number): void
+  /** 局部刷新整行底部冻结格 */
+  refreshBottomRow(row: number): void
 
   // ---- 数据与主题 ----
   /** 单元格原始值（数据面口径；合并区路由主格） */
@@ -106,6 +115,8 @@ export interface TableEngine extends EngineAssembly {
   getBodyVisibleCellRange(): { rows: WindowRange; cols: WindowRange }
   /** 数据格视口矩形（CSS 像素）；窗口外返回 null */
   getCellRelativeRect(col: number, row: number): Region | null
+  /** 底部冻结格视口矩形（CSS 像素）；窗口外或越界返回 null */
+  getBottomCellRelativeRect(col: number, row: number): Region | null
   /** 视口坐标命中的数据格；行列头 / 空白返回 null */
   getCellAtRelativePosition(x: number, y: number): CellAddress | null
   /** 是否装配了浏览器原生滚动条（宿主滚轮接线让位判定） */
@@ -114,8 +125,10 @@ export interface TableEngine extends EngineAssembly {
   // ---- 冻结与合并 ----
   getFrozenColCount(): number
   getFrozenRowCount(): number
+  getFrozenBottomRowCount(): number
   setFrozenColCount(count: number): void
   setFrozenRowCount(count: number): void
+  setFrozenBottomRowCount(count: number): void
   /** 运行时整体替换合并区（重叠项规范化，跨冻结边界合法） */
   setMergeCells(ranges: readonly CellRange[]): void
 
@@ -148,6 +161,8 @@ export interface TableEngine extends EngineAssembly {
   onContextMenu(listener: ContextMenuListener): () => void
   /** 列头单击事件（主键按下抬起落在同一列头且位移在阈值内） */
   onColHeaderClick(listener: ColHeaderClickListener): () => void
+  /** 底部冻结格单击事件（主键按下抬起落在同一底部冻结格且位移在阈值内） */
+  onBottomCellClick(listener: BottomCellClickListener): () => void
   /** 列宽拖拽会话结束事件 */
   onColResizeEnd(listener: (event: { col: number; width: number }) => void): () => void
   /** 行高拖拽会话结束事件 */

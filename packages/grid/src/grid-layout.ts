@@ -22,6 +22,11 @@ export function clampFrozenCount(count: number, total: number): number {
   return Math.min(Math.max(count, 0), total)
 }
 
+/** 夹取底部冻结行数到非负整数 */
+export function clampFrozenBottomCount(count: number): number {
+  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0
+}
+
 /**
  * 窗口向两端扩 overscan（滚动缓冲：场景装配窗口预建缓冲区，不改变滚动边界）。
  * 夹取到 [0, count]；overscan ≤ 0 原样返回。
@@ -204,6 +209,80 @@ export function resolveCellYFromOffsets(
   headerHeight: number,
 ): number {
   return headerHeight + (rowOffsets[row] ?? 0) - (row < frozenRowCount ? 0 : scrollTop)
+}
+
+/**
+ * 扣除顶部与底部冻结行高后的可滚动表体视口高度（CSS 像素，夹取到 >= 0）。
+ */
+export function computeScrollableViewportHeight(
+  viewportHeight: number,
+  frozenTopHeight: number,
+  frozenBottomHeight: number,
+): number {
+  return Math.max(0, viewportHeight - frozenTopHeight - frozenBottomHeight)
+}
+
+/**
+ * 计算表体最大 scrollTop：可滚动内容高（总内容高 − 顶部冻结高）减去
+ * 可滚动视口高（总视口高 − 顶部冻结高 − 底部冻结高），夹取到 >= 0。
+ */
+export function computeMaxScrollTop(
+  contentHeight: number,
+  viewportHeight: number,
+  frozenTopHeight: number,
+  frozenBottomHeight: number,
+): number {
+  const scrollableContent = Math.max(0, contentHeight - frozenTopHeight)
+  const scrollableViewport = computeScrollableViewportHeight(
+    viewportHeight,
+    frozenTopHeight,
+    frozenBottomHeight,
+  )
+  return Math.max(0, scrollableContent - scrollableViewport)
+}
+
+/**
+ * 底部冻结带顶缘的层坐标 y：钉固于数据视口底缘上方（不随纵向滚动移出），
+ * 视口极小时最小回落到 headerHeight（不遮挡列头）。
+ */
+export function resolveBottomFrozenTop(
+  headerHeight: number,
+  viewportHeight: number,
+  frozenBottomHeight: number,
+): number {
+  return headerHeight + Math.max(0, viewportHeight - frozenBottomHeight)
+}
+
+/** 底部冻结行上缘的层坐标 y（0 基底部冻结行索引，固定于视口底部） */
+export function resolveBottomCellYFromOffsets(
+  bottomRow: number,
+  bottomRowOffsets: readonly number[],
+  headerHeight: number,
+  viewportHeight: number,
+): number {
+  const totalBottomHeight = bottomRowOffsets[bottomRowOffsets.length - 1] ?? 0
+  const bandTop = resolveBottomFrozenTop(headerHeight, viewportHeight, totalBottomHeight)
+  return bandTop + (bottomRowOffsets[bottomRow] ?? 0)
+}
+
+/** 层坐标 y 命中的底部冻结行索引；未落入底部冻结带或越界返回 -1 */
+export function findBottomRowAt(
+  bottomRowOffsets: readonly number[],
+  y: number,
+  headerHeight: number,
+  viewportHeight: number,
+): number {
+  const count = bottomRowOffsets.length - 1
+  if (count <= 0) {
+    return -1
+  }
+  const totalBottomHeight = bottomRowOffsets[count] ?? 0
+  const bandTop = resolveBottomFrozenTop(headerHeight, viewportHeight, totalBottomHeight)
+  const bandBottom = headerHeight + viewportHeight
+  if (y < bandTop || y >= bandBottom) {
+    return -1
+  }
+  return findRowAt(bottomRowOffsets, y - bandTop)
 }
 
 /**

@@ -109,6 +109,8 @@ export type {
 export { EditorRegistry, ListTable, SheetModel, projectCellStyle } from '@infinitable/table'
 export type {
   // 文档源注入形态（ListTableOptions.doc：无 DOM 环境经它创建 canvas 构造出图）
+  BottomCellClickEvent,
+  BottomCellClickListener,
   CanvasDocSource,
   CellChartMedia,
   CellEditor,
@@ -120,6 +122,7 @@ export type {
   CellRenderer,
   ColHeaderClickEvent,
   ColHeaderClickListener,
+  ColHeaderHitRegion,
   ColumnDefine,
   DataRecord,
   FillDragEndEvent,
@@ -131,8 +134,14 @@ export type {
   ImageLinkClickEvent,
   ImageLinkClickListener,
   ListTableOptions,
+  ResolveBottomCellRenderer,
+  ResolveBottomCellStyle,
+  ResolveBottomRowHeaderRenderer,
+  ResolveBottomRowHeaderStyle,
   ResolveCellImageLink,
   ResolveCellLink,
+  ResolveColHeaderRegions,
+  ResolveColHeaderStyle,
   ResolveDisplayValue,
   TableContextMenuEvent,
   TableEngine,

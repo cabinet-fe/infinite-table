@@ -9,9 +9,11 @@
 // - list-table-internal.ts：共享常量与纯辅助（cellKey/HEADER_COORD/合并区越界校验）
 
 import {
+  clampFrozenBottomCount,
   clampFrozenCount,
   computeColOffsets,
   computeRowOffsets,
+  computeScrollableViewportHeight,
   extendsTheme,
   ImageService,
   InertiaScroller,
@@ -55,13 +57,7 @@ import type {
 import { createRenderHost, type Region, type RenderHost } from '@infinitable/render'
 
 import { TextAdvanceTable, type CellNode } from './cell-node'
-import {
-  cellStyleFont,
-  projectCellStyle,
-  type CellBorder,
-  type CellBorderEdge,
-  type CellStyle,
-} from './cell-style'
+import { cellStyleFont, projectCellStyle, type CellStyle } from './cell-style'
 import { CellValuePipeline } from './cell-value'
 import { EditManager, type EditCommitMove } from './editing/edit-manager'
 import type { TextEditorHost } from './editing/text-editor'
@@ -85,13 +81,19 @@ import {
 import { nextActiveCell } from './keyboard-navigation'
 import {
   bindInteractionEvents,
+  bottomCellRectInViewport,
   cellAt,
   cellRectInViewport,
   editorCellRect,
   ensureCellVisible,
   refreshOverlay,
 } from './list-table-interaction'
-import { assertMergesWithinTable, cellKey, HEADER_COORD } from './list-table-internal'
+import {
+  assertMergesWithinTable,
+  cellKey,
+  HEADER_COORD,
+  sameCellBorder,
+} from './list-table-internal'
 import {
   onImageServiceLoad,
   refreshChartCell,
@@ -101,6 +103,7 @@ import {
 } from './list-table-media'
 import {
   appendCell,
+  colHeaderBaseStyle,
   dataColBands,
   effectiveBorder,
   headerStyles,
@@ -108,6 +111,10 @@ import {
   overflowSourceCol,
   overflowSourceColRight,
   rebuildScene,
+  refreshBottomCellNode,
+  refreshBottomRowNodes,
+  refreshColHeaderNode,
+  refreshColHeadersNodes,
   resizeSceneGroups,
   resolveOffWindowOverflowSource,
   syncCellGroupAndOverflowOrder,
@@ -117,6 +124,7 @@ import {
 import { MediaCache } from './media/media-cache'
 import { ModelBinding } from './model-binding'
 import type {
+  BottomCellClickListener,
   CanvasDocSource,
   CellAddress,
   CellChangeEvent,
@@ -165,29 +173,6 @@ function forEachIndexSize(
   }
 }
 
-function sameBorderEdge(a: CellBorderEdge | undefined, b: CellBorderEdge | undefined): boolean {
-  if (a === b) {
-    return true
-  }
-  if (!a || !b) {
-    return false
-  }
-  return a.width === b.width && a.color === b.color && a.style === b.style && a.grid === b.grid
-}
-
-/** 边框浅值相等判定：避免每次投影新对象时误触发邻格级联刷新 */
-function sameCellBorder(a: CellBorder | undefined, b: CellBorder | undefined): boolean {
-  if (a === b) {
-    return true
-  }
-  return (
-    sameBorderEdge(a?.top, b?.top) &&
-    sameBorderEdge(a?.right, b?.right) &&
-    sameBorderEdge(a?.bottom, b?.bottom) &&
-    sameBorderEdge(a?.left, b?.left)
-  )
-}
-
 /** 宿主环境 dpr 缺省读取 */
 function resolveHostDpr(): number {
   const win = (globalThis as { window?: { devicePixelRatio?: number } | undefined }).window
@@ -230,6 +215,8 @@ export class ListTable implements TableEngine, GridReadView {
   /** @internal 生效主题 */
   theme: TableTheme
   readonly rowHeight: number
+  /** @internal 底部冻结行行高 */
+  readonly bottomRowHeight: number
   /** 列头带高 */
   readonly headerHeight: number
   /** @internal 行号列宽 */
@@ -307,6 +294,10 @@ export class ListTable implements TableEngine, GridReadView {
         : null
 
     this.rowHeight = options.rowHeight ?? this.theme.rowHeight
+    this.bottomRowHeight =
+      options.bottomRowHeight !== undefined && Number.isFinite(options.bottomRowHeight)
+        ? Math.max(MIN_ROW_HEIGHT, options.bottomRowHeight)
+        : this.rowHeight
     this.headerHeight =
       options.showColHeader === false ? 0 : (options.headerHeight ?? this.theme.headerHeight)
     this.rowHeaderWidth =
@@ -342,6 +333,8 @@ export class ListTable implements TableEngine, GridReadView {
     const rowOffsets = computeRowOffsets(this.pipeline.rowCount, this.rowHeight, rowHeights)
     const frozenColCount = clampFrozenCount(options.frozenColCount ?? 0, this.columns.length)
     const frozenRowCount = clampFrozenCount(options.frozenRowCount ?? 0, this.pipeline.rowCount)
+    const frozenBottomRowCount = clampFrozenBottomCount(options.frozenBottomRowCount ?? 0)
+    const bottomRowOffsets = computeRowOffsets(frozenBottomRowCount, this.bottomRowHeight)
     const sanitizedMerges = sanitizeMerges(options.mergeCells)
     warnMergeConflicts(sanitizedMerges.conflicts, 'ListTable constructor')
     const mergeCells = new MergeCellMap(sanitizedMerges.ranges)
@@ -354,8 +347,11 @@ export class ListTable implements TableEngine, GridReadView {
       rowOffsets,
       frozenColCount,
       frozenRowCount,
+      frozenBottomRowCount,
       frozenColsWidth: colOffsets[frozenColCount] ?? 0,
       frozenRowsHeight: rowOffsets[frozenRowCount] ?? 0,
+      bottomRowOffsets,
+      frozenBottomRowsHeight: bottomRowOffsets[frozenBottomRowCount] ?? 0,
       mergeCells,
       rows: { start: 0, end: 0 },
       cols: { start: 0, end: 0 },
@@ -400,14 +396,12 @@ export class ListTable implements TableEngine, GridReadView {
       cellNodes: new Map(),
       colHeaderNodes: new Map(),
       rowHeaderNodes: new Map(),
+      bottomCellNodes: new Map(),
+      bottomRowHeaderNodes: new Map(),
       cornerNode: null,
-      frameNode: null,
-      headerGroup: null,
-      underlayNode: null,
       painters: new PainterRegistry(),
       underlayPaintersNode: null,
       overlayPaintersNode: null,
-      sceneInitialized: false,
       textAdvances: new TextAdvanceTable((char, font) => this.host.measure(char, font).width),
       batchDepth: 0,
       batchRegions: [],
@@ -467,6 +461,8 @@ export class ListTable implements TableEngine, GridReadView {
       linkHover: null,
       pointerDownCell: null,
       pointerDownColHeader: null,
+      pointerDownColHeaderHitId: null,
+      pointerDownBottomCell: null,
       lastTap: null,
       pointerDownAt: null,
       editPickMode: false,
@@ -486,6 +482,7 @@ export class ListTable implements TableEngine, GridReadView {
       fillDragEndListeners: new Set(),
       fillHandleDoubleClickListeners: new Set(),
       colHeaderClickListeners: new Set(),
+      bottomCellClickListeners: new Set(),
     }
 
     this.capabilities = {
@@ -497,11 +494,15 @@ export class ListTable implements TableEngine, GridReadView {
 
     this.scroll.setViewportSize(
       this.viewportWidth - this.geometryState.frozenColsWidth,
-      this.viewportHeight - this.geometryState.frozenRowsHeight,
+      computeScrollableViewportHeight(
+        this.viewportHeight,
+        this.geometryState.frozenRowsHeight,
+        this.geometryState.frozenBottomRowsHeight,
+      ),
     )
     this.scroll.setContentSize(
       this.contentWidth - this.geometryState.frozenColsWidth,
-      this.contentHeight - this.geometryState.frozenRowsHeight,
+      Math.max(0, this.contentHeight - this.geometryState.frozenRowsHeight),
     )
     nativeScrollbar?.updateScrollRange()
     this.scroll.onScroll((_state, delta) => this.onScroll(delta))
@@ -561,7 +562,6 @@ export class ListTable implements TableEngine, GridReadView {
     }
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
-    this.sceneState.sceneInitialized = true
     refreshOverlay(this)
   }
 
@@ -577,11 +577,15 @@ export class ListTable implements TableEngine, GridReadView {
     this.interactionState.overlay.updateTheme(this.theme.interaction)
     this.scroll.setViewportSize(
       this.viewportWidth - this.geometryState.frozenColsWidth,
-      this.viewportHeight - this.geometryState.frozenRowsHeight,
+      computeScrollableViewportHeight(
+        this.viewportHeight,
+        this.geometryState.frozenRowsHeight,
+        this.geometryState.frozenBottomRowsHeight,
+      ),
     )
     this.scroll.setContentSize(
       this.contentWidth - this.geometryState.frozenColsWidth,
-      this.contentHeight - this.geometryState.frozenRowsHeight,
+      Math.max(0, this.contentHeight - this.geometryState.frozenRowsHeight),
     )
     rebuildScene(this)
     this.host.submitInvalidation('body', { type: 'full' })
@@ -758,6 +762,26 @@ export class ListTable implements TableEngine, GridReadView {
     const echoed = this.binding.writeBack(col, row, value)
     this.refreshEchoedCells(echoed, col, row)
     this.refreshCell(col, row)
+  }
+
+  /** 局部刷新单个列头（窗外安全跳过） */
+  refreshColHeader(col: number): void {
+    refreshColHeaderNode(this, col)
+  }
+
+  /** 局部刷新当前可视窗口内的全部列头 */
+  refreshColHeaders(): void {
+    refreshColHeadersNodes(this)
+  }
+
+  /** 局部刷新单个底部冻结格（col = -1 时刷新底部行头格；窗外安全跳过） */
+  refreshBottomCell(col: number, row: number): void {
+    refreshBottomCellNode(this, col, row)
+  }
+
+  /** 局部刷新整行底部冻结格 */
+  refreshBottomRow(row: number): void {
+    refreshBottomRowNodes(this, row)
   }
 
   /** 局部刷新单格 */
@@ -1301,6 +1325,10 @@ export class ListTable implements TableEngine, GridReadView {
     return cellRectInViewport(this, col, row)
   }
 
+  getBottomCellRelativeRect(col: number, row: number): Region | null {
+    return bottomCellRectInViewport(this, col, row)
+  }
+
   getCellAtRelativePosition(x: number, y: number): CellAddress | null {
     return cellAt(this, x, y)
   }
@@ -1361,12 +1389,31 @@ export class ListTable implements TableEngine, GridReadView {
     return this.geometryState.frozenRowCount
   }
 
+  get frozenBottomRowCount(): number {
+    return this.geometryState.frozenBottomRowCount
+  }
+
+  getFrozenBottomRowCount(): number {
+    return this.geometryState.frozenBottomRowCount
+  }
+
   setFrozenColCount(count: number): void {
     this.applyFrozenCounts(count, this.geometryState.frozenRowCount)
   }
 
   setFrozenRowCount(count: number): void {
     this.applyFrozenCounts(this.geometryState.frozenColCount, count)
+  }
+
+  setFrozenBottomRowCount(count: number): void {
+    const next = clampFrozenBottomCount(count)
+    const { geometryState } = this
+    if (next === geometryState.frozenBottomRowCount) {
+      return
+    }
+    geometryState.frozenBottomRowCount = next
+    geometryState.bottomRowOffsets = computeRowOffsets(next, this.bottomRowHeight)
+    this.commitGeometryChange()
   }
 
   setMergeCells(ranges: readonly CellRange[]): void {
@@ -1422,6 +1469,11 @@ export class ListTable implements TableEngine, GridReadView {
   onColHeaderClick(listener: ColHeaderClickListener): () => void {
     this.interactionState.colHeaderClickListeners.add(listener)
     return () => this.interactionState.colHeaderClickListeners.delete(listener)
+  }
+
+  onBottomCellClick(listener: BottomCellClickListener): () => void {
+    this.interactionState.bottomCellClickListeners.add(listener)
+    return () => this.interactionState.bottomCellClickListeners.delete(listener)
   }
 
   onCellLinkHover(listener: CellLinkHoverListener): () => void {
@@ -1564,7 +1616,8 @@ export class ListTable implements TableEngine, GridReadView {
     ) {
       return 0
     }
-    return this.contentHeight > this.height - this.headerHeight
+    return this.contentHeight >
+      this.height - this.headerHeight - this.geometryState.frozenBottomRowsHeight
       ? this.theme.interaction.scrollbarSize
       : 0
   }
@@ -1604,7 +1657,7 @@ export class ListTable implements TableEngine, GridReadView {
       x: this.rowHeaderWidth,
       y: this.headerHeight,
       width: this.viewportWidth,
-      height: this.viewportHeight,
+      height: Math.max(0, this.viewportHeight - this.geometryState.frozenBottomRowsHeight),
     }
   }
 
@@ -1650,7 +1703,7 @@ export class ListTable implements TableEngine, GridReadView {
       if (col === HEADER_COORD && row === HEADER_COORD) {
         return styles.corner
       }
-      return row === HEADER_COORD ? styles.col : styles.row
+      return row === HEADER_COORD ? colHeaderBaseStyle(this, col, styles.col) : styles.row
     }
     return this.resolveStyle(col, row)
   }
@@ -1663,7 +1716,12 @@ export class ListTable implements TableEngine, GridReadView {
     }
     if (delta.dy !== 0) {
       const y = this.headerHeight + geometryState.frozenRowsHeight
-      const band = { x: 0, y, width: this.width, height: Math.max(0, this.height - y) }
+      const bottom =
+        geometryState.frozenBottomRowsHeight > 0
+          ? this.headerHeight +
+            Math.max(0, this.viewportHeight - geometryState.frozenBottomRowsHeight)
+          : this.height
+      const band = { x: 0, y, width: this.width, height: Math.max(0, bottom - y) }
       this.host.submitInvalidation('body', { type: 'band', region: band })
       if (sceneState.media) {
         this.host.submitInvalidation('media', { type: 'band', region: band })
@@ -1773,13 +1831,19 @@ export class ListTable implements TableEngine, GridReadView {
     const { geometryState, sceneState, interactionState } = this
     geometryState.frozenColsWidth = geometryState.colOffsets[geometryState.frozenColCount] ?? 0
     geometryState.frozenRowsHeight = geometryState.rowOffsets[geometryState.frozenRowCount] ?? 0
+    geometryState.frozenBottomRowsHeight =
+      geometryState.bottomRowOffsets[geometryState.frozenBottomRowCount] ?? 0
     this.scroll.setViewportSize(
       this.viewportWidth - geometryState.frozenColsWidth,
-      this.viewportHeight - geometryState.frozenRowsHeight,
+      computeScrollableViewportHeight(
+        this.viewportHeight,
+        geometryState.frozenRowsHeight,
+        geometryState.frozenBottomRowsHeight,
+      ),
     )
     this.scroll.setContentSize(
       this.contentWidth - geometryState.frozenColsWidth,
-      this.contentHeight - geometryState.frozenRowsHeight,
+      Math.max(0, this.contentHeight - geometryState.frozenRowsHeight),
     )
     interactionState.nativeScrollbar?.updateScrollRange()
     rebuildScene(this)

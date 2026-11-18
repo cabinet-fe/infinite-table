@@ -9,6 +9,8 @@ import {
   type SelectionSnapshot,
 } from '@infinitable/grid'
 
+import type { CellBorder, CellBorderEdge } from './cell-style'
+
 /** 行号列/表头节点用 -1 标记非数据格坐标 */
 export const HEADER_COORD = -1
 
@@ -117,4 +119,27 @@ export function isColHeaderHighlighted(input: HeaderHighlightInput, col: number)
     // 列跨度非满（普通选区/整列）或双跨度满（全选）点亮；整行形态（列满×行非满）不跨轴
     return !colspanFull || rowspanFull
   })
+}
+
+function sameBorderEdge(a: CellBorderEdge | undefined, b: CellBorderEdge | undefined): boolean {
+  if (a === b) {
+    return true
+  }
+  if (!a || !b) {
+    return false
+  }
+  return a.width === b.width && a.color === b.color && a.style === b.style && a.grid === b.grid
+}
+
+/** 边框浅值相等判定：避免每次投影新对象时误触发邻格级联刷新 */
+export function sameCellBorder(a: CellBorder | undefined, b: CellBorder | undefined): boolean {
+  if (a === b) {
+    return true
+  }
+  return (
+    sameBorderEdge(a?.top, b?.top) &&
+    sameBorderEdge(a?.right, b?.right) &&
+    sameBorderEdge(a?.bottom, b?.bottom) &&
+    sameBorderEdge(a?.left, b?.left)
+  )
 }

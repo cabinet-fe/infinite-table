@@ -7,9 +7,11 @@
 import {
   computeScrollableColWindow,
   computeScrollableRowWindowFromOffsets,
+  computeScrollableViewportHeight,
   expandWindowRange,
   opaqueHeaderHighlight,
   rangeCrossesBoundary,
+  resolveBottomCellYFromOffsets,
   resolveCellX,
   resolveCellYFromOffsets,
   resolveSharedEdges,
@@ -28,18 +30,24 @@ import { CellNode } from './cell-node'
 import { cellTextAnchorX } from './cell-renderer'
 import {
   cellStyleFont,
+  projectCellStyle,
   type BorderInset,
   type CellBorder,
   type CellBorderEdge,
   type CellStyle,
 } from './cell-style'
-import type { TableBodyGroups, TableMediaGroups } from './internal/table-states'
+import {
+  ClippedContainerNode,
+  type TableBodyGroups,
+  type TableMediaGroups,
+} from './internal/table-states'
 import type { ListTable } from './list-table'
 import {
   cellKey,
   HEADER_COORD,
   isColHeaderHighlighted,
   isRowHeaderHighlighted,
+  sameCellBorder,
   type HeaderHighlightInput,
 } from './list-table-internal'
 import { appendChartCell, appendImageCell } from './list-table-media'
@@ -117,11 +125,46 @@ export function ensureMediaGroups(table: ListTable): TableMediaGroups {
   return mediaGroups
 }
 
-/** 同步容器组尺寸（视口 resize 后更新组包围盒） */
+function bodyDataClipRect(table: ListTable): Region | null {
+  if (table.geometryState.frozenBottomRowsHeight <= 0) {
+    return null
+  }
+  return {
+    x: 0,
+    y: table.headerHeight,
+    width: table.width,
+    height: Math.max(0, table.viewportHeight - table.geometryState.frozenBottomRowsHeight),
+  }
+}
+
+function bottomBandClipRect(table: ListTable): Region | null {
+  if (table.geometryState.frozenBottomRowsHeight <= 0) {
+    return null
+  }
+  return {
+    x: 0,
+    y: table.headerHeight,
+    width: table.width,
+    height: table.viewportHeight,
+  }
+}
+
+/** 同步容器组尺寸（视口 resize 后更新组包围盒与底部冻结裁剪框） */
 export function resizeSceneGroups(table: ListTable): void {
   const { width, height } = table
   const groups = table.sceneState.groups
   if (groups) {
+    const dataClip = bodyDataClipRect(table)
+    for (const node of [
+      groups.scrollableGroup,
+      groups.scrollableOverflowGroup,
+      groups.frozenGroup,
+      groups.frozenOverflowGroup,
+      groups.crossMergeGroup,
+    ]) {
+      node.clipRect = dataClip
+    }
+    groups.bottomFrozenGroup.clipRect = bottomBandClipRect(table)
     for (const node of [
       groups.underlayNode,
       groups.scrollableGroup,
@@ -132,6 +175,9 @@ export function resizeSceneGroups(table: ListTable): void {
       groups.headerGroup,
       groups.scrollableHeadersGroup,
       groups.frozenHeadersGroup,
+      groups.bottomFrozenGroup,
+      groups.bottomScrollableGroup,
+      groups.bottomFrozenColsGroup,
       groups.frameNode,
     ]) {
       node.width = width
@@ -152,7 +198,7 @@ export function resizeSceneGroups(table: ListTable): void {
 }
 
 /** 根据格归属与溢出状态路由到 body 场景树的固定容器组 */
-export function targetBodyGroup(
+function targetBodyGroup(
   table: ListTable,
   col: number,
   row: number,
@@ -222,7 +268,7 @@ function clearRootChildren(root: SceneNode): void {
   }
 }
 
-/** 重建可视窗口场景：按固定分层顺序建组，数据格/表头/外框直接入对应容器组 */
+/** 重建可视窗口场景：按固定分层顺序建组，数据格/表头/底部冻结行/外框直接入对应容器组 */
 export function rebuildScene(table: ListTable): void {
   const { sceneState, geometryState, mediaState } = table
   const root = sceneState.body.root
@@ -230,10 +276,9 @@ export function rebuildScene(table: ListTable): void {
   sceneState.cellNodes.clear()
   sceneState.colHeaderNodes.clear()
   sceneState.rowHeaderNodes.clear()
+  sceneState.bottomCellNodes.clear()
+  sceneState.bottomRowHeaderNodes.clear()
   sceneState.cornerNode = null
-  sceneState.headerGroup = null
-  sceneState.frameNode = null
-  sceneState.underlayNode = null
   sceneState.groups = null
 
   mediaState.imageCellNodes.clear()
@@ -245,23 +290,31 @@ export function rebuildScene(table: ListTable): void {
   }
 
   const { width, height } = table
+  const dataClip = bodyDataClipRect(table)
+  const bottomClip = bottomBandClipRect(table)
   const underlayNode = new UnderlayNode(table.theme.underlayBackgroundColor)
   underlayNode.width = width
   underlayNode.height = height
-  const scrollableGroup = newContainerGroup(width, height)
-  const scrollableOverflowGroup = newContainerGroup(width, height)
-  const frozenGroup = newContainerGroup(width, height)
-  const frozenOverflowGroup = newContainerGroup(width, height)
-  const crossMergeGroup = newContainerGroup(width, height)
+  const scrollableGroup = new ClippedContainerNode(width, height, dataClip)
+  const scrollableOverflowGroup = new ClippedContainerNode(width, height, dataClip)
+  const frozenGroup = new ClippedContainerNode(width, height, dataClip)
+  const frozenOverflowGroup = new ClippedContainerNode(width, height, dataClip)
+  const crossMergeGroup = new ClippedContainerNode(width, height, dataClip)
   const headerGroup = newContainerGroup(width, height)
   const scrollableHeadersGroup = newContainerGroup(width, height)
   const frozenHeadersGroup = newContainerGroup(width, height)
+  const bottomFrozenGroup = new ClippedContainerNode(width, height, bottomClip)
+  const bottomScrollableGroup = newContainerGroup(width, height)
+  const bottomFrozenColsGroup = newContainerGroup(width, height)
   const frameNode = new FrameNode(table.theme.frameStyle)
   frameNode.width = width
   frameNode.height = height
 
+  bottomFrozenGroup.appendChild(bottomScrollableGroup)
+  bottomFrozenGroup.appendChild(bottomFrozenColsGroup)
   headerGroup.appendChild(scrollableHeadersGroup)
   headerGroup.appendChild(frozenHeadersGroup)
+  headerGroup.appendChild(bottomFrozenGroup)
 
   root.appendChild(underlayNode)
   root.appendChild(scrollableGroup)
@@ -282,12 +335,12 @@ export function rebuildScene(table: ListTable): void {
     headerGroup,
     scrollableHeadersGroup,
     frozenHeadersGroup,
+    bottomFrozenGroup,
+    bottomScrollableGroup,
+    bottomFrozenColsGroup,
     frameNode,
   }
   sceneState.groups = groups
-  sceneState.underlayNode = underlayNode
-  sceneState.headerGroup = headerGroup
-  sceneState.frameNode = frameNode
 
   const { left, top } = table.scroll.state
   const { rows: scrollableRows, cols: scrollableCols } = computeAssemblyWindow(table, left, top)
@@ -311,6 +364,7 @@ export function rebuildScene(table: ListTable): void {
   remountOverflowSources(table)
 
   appendHeaders(table, groups, left, top, frozenRows, scrollableRows, frozenCols, scrollableCols)
+  appendBottomRows(table, groups, left, frozenCols, scrollableCols)
 }
 
 /**
@@ -505,6 +559,38 @@ export function updateSceneWindow(table: ListTable): void {
   if (showsColHeader(table) && showsRowHeader(table) && !sceneState.cornerNode) {
     sceneState.cornerNode = newCornerNode(table, styles)
     groups.headerGroup.appendChild(sceneState.cornerNode)
+  }
+
+  // 6) 底部冻结行增量维护：y 固定不随纵向滚动移动，仅同步横向列窗口与 x 平移
+  if (geometryState.frozenBottomRowCount > 0) {
+    for (const [key, node] of sceneState.bottomCellNodes) {
+      if (inRange(node.col, frozenCols) || inRange(node.col, scrollableCols)) {
+        node.x = resolveCellX(
+          node.col,
+          left,
+          geometryState.colOffsets,
+          geometryState.frozenColCount,
+          table.rowHeaderWidth,
+        )
+      } else {
+        node.removeFromParent()
+        sceneState.bottomCellNodes.delete(key)
+      }
+    }
+    for (let bottomRow = 0; bottomRow < geometryState.frozenBottomRowCount; bottomRow++) {
+      for (const cols of [scrollableCols, frozenCols]) {
+        const targetGroup =
+          cols === frozenCols ? groups.bottomFrozenColsGroup : groups.bottomScrollableGroup
+        for (let col = cols.start; col < cols.end; col++) {
+          const key = cellKey(col, bottomRow)
+          if (!sceneState.bottomCellNodes.has(key)) {
+            const node = newBottomCellNode(table, col, bottomRow, left)
+            targetGroup.appendChild(node)
+            sceneState.bottomCellNodes.set(key, node)
+          }
+        }
+      }
+    }
   }
 }
 
@@ -715,7 +801,11 @@ function computeAssemblyWindow(
       expandWindowRange(
         computeScrollableRowWindowFromOffsets(
           top,
-          table.viewportHeight - geometryState.frozenRowsHeight,
+          computeScrollableViewportHeight(
+            table.viewportHeight,
+            geometryState.frozenRowsHeight,
+            geometryState.frozenBottomRowsHeight,
+          ),
           geometryState.rowOffsets,
           geometryState.frozenRowCount,
         ),
@@ -1189,12 +1279,62 @@ function headerBorder(
     resolveSharedEdges(
       style.border,
       {
-        right: table.columns.length > 0 ? styles.col.border?.left : undefined,
+        right:
+          table.columns.length > 0
+            ? colHeaderBaseStyle(table, 0, styles.col).border?.left
+            : undefined,
         bottom: table.pipeline.rowCount > 0 ? styles.row.border?.top : undefined,
       },
       { firstCol: true, firstRow: true },
     ) ?? null
   )
+}
+
+/** 列头基础样式：主题 header 分区 token 经 resolveColHeaderStyle 逐字段覆盖 */
+export function colHeaderBaseStyle(
+  table: ListTable,
+  col: number,
+  defaultColStyle: CellStyle,
+): CellStyle {
+  const custom = table.options.resolveColHeaderStyle?.(col)
+  return custom ? projectCellStyle(defaultColStyle, custom) : defaultColStyle
+}
+
+function colHeaderBorder(
+  table: ListTable,
+  col: number,
+  baseStyle: CellStyle,
+  styles: HeaderStyles,
+): CellBorder | null {
+  const facingRight =
+    col + 1 < table.columns.length
+      ? colHeaderBaseStyle(table, col + 1, styles.col).border?.left
+      : undefined
+  return (
+    resolveSharedEdges(
+      baseStyle.border,
+      { right: facingRight },
+      { firstCol: false, firstRow: true },
+    ) ?? null
+  )
+}
+
+function resolveColHeaderEffectiveStyle(
+  table: ListTable,
+  col: number,
+  baseStyle: CellStyle,
+  input: HeaderHighlightInput,
+): CellStyle {
+  if (!isColHeaderHighlighted(input, col)) {
+    return baseStyle
+  }
+  return {
+    ...baseStyle,
+    background: opaqueHeaderHighlight(
+      table.theme.interaction.headerHighlight,
+      baseStyle.background,
+    ),
+  }
 }
 
 function headerHighlightInput(table: ListTable): HeaderHighlightInput {
@@ -1213,7 +1353,9 @@ function newColHeaderNode(
   styles: HeaderStyles,
 ): CellNode {
   const { geometryState } = table
-  const node = new CellNode({
+  const baseStyle = colHeaderBaseStyle(table, col, styles.col)
+  const input = headerHighlightInput(table)
+  return new CellNode({
     col,
     row: HEADER_COORD,
     x: resolveCellX(
@@ -1227,20 +1369,10 @@ function newColHeaderNode(
     width: geometryState.colWidths[col] ?? 0,
     height: table.headerHeight,
     text: table.columns[col]?.title ?? table.options.resolveColTitle?.(col) ?? '',
-    style: styles.col,
-    border: headerBorder(table, 'col', styles),
+    style: resolveColHeaderEffectiveStyle(table, col, baseStyle, input),
+    border: colHeaderBorder(table, col, baseStyle, styles),
     renderer: table.options.resolveColHeaderRenderer?.(col) ?? null,
   })
-  if (isColHeaderHighlighted(headerHighlightInput(table), col)) {
-    node.style = {
-      ...styles.col,
-      background: opaqueHeaderHighlight(
-        table.theme.interaction.headerHighlight,
-        styles.col.background,
-      ),
-    }
-  }
-  return node
 }
 
 function newRowHeaderNode(
@@ -1285,18 +1417,17 @@ export function applyHeaderHighlight(table: ListTable): {
 } {
   const styles = headerStyles(table)
   const highlight = table.theme.interaction.headerHighlight
-  const colHighlight = opaqueHeaderHighlight(highlight, styles.col.background)
   const rowHighlight = opaqueHeaderHighlight(highlight, styles.row.background)
   const input = headerHighlightInput(table)
   let rowsRegion: Region | null = null
   let colsRegion: Region | null = null
   for (const [col, node] of table.sceneState.colHeaderNodes) {
-    const highlighted = isColHeaderHighlighted(input, col)
-    const background = highlighted ? colHighlight : styles.col.background
-    if (node.style.background === background) {
+    const baseStyle = colHeaderBaseStyle(table, col, styles.col)
+    const nextStyle = resolveColHeaderEffectiveStyle(table, col, baseStyle, input)
+    if (node.style.background === nextStyle.background) {
       continue
     }
-    node.style = highlighted ? { ...styles.col, background } : styles.col
+    node.style = nextStyle
     const bounds = node.getGlobalBounds()
     colsRegion = colsRegion ? unionRegions([colsRegion, bounds])! : bounds
   }
@@ -1324,4 +1455,336 @@ function newCornerNode(table: ListTable, styles: HeaderStyles): CellNode {
     style: styles.corner,
     border: headerBorder(table, 'corner', styles),
   })
+}
+
+function submitBodyRegions(table: ListTable, regions: readonly Region[]): void {
+  const region = unionRegions(regions)
+  if (!region) {
+    return
+  }
+  if (table.sceneState.batchDepth > 0) {
+    table.sceneState.batchRegions.push(region)
+    return
+  }
+  table.host.submitInvalidation('body', { type: 'region', region })
+}
+
+function applyColHeaderRefresh(
+  table: ListTable,
+  col: number,
+  node: CellNode,
+  styles: HeaderStyles,
+  input: HeaderHighlightInput,
+): boolean {
+  const prevBorder = node.style.border
+  const baseStyle = colHeaderBaseStyle(table, col, styles.col)
+  node.setContent(
+    table.columns[col]?.title ?? table.options.resolveColTitle?.(col) ?? '',
+    undefined,
+  )
+  node.style = resolveColHeaderEffectiveStyle(table, col, baseStyle, input)
+  node.border = colHeaderBorder(table, col, baseStyle, styles)
+  node.renderer = table.options.resolveColHeaderRenderer?.(col) ?? null
+  return !sameCellBorder(prevBorder, baseStyle.border)
+}
+
+/** 局部刷新单个列头（窗外安全跳过） */
+export function refreshColHeaderNode(table: ListTable, col: number): void {
+  if (table.headerHeight <= 0 || col < 0 || col >= table.columns.length) {
+    return
+  }
+  const node = table.sceneState.colHeaderNodes.get(col)
+  if (!node) {
+    return
+  }
+  const styles = headerStyles(table)
+  const input = headerHighlightInput(table)
+  const borderChanged = applyColHeaderRefresh(table, col, node, styles, input)
+  const regions: Region[] = [node.getGlobalBounds()]
+  if (borderChanged && col > 0) {
+    const prevNode = table.sceneState.colHeaderNodes.get(col - 1)
+    if (prevNode) {
+      applyColHeaderRefresh(table, col - 1, prevNode, styles, input)
+      regions.push(prevNode.getGlobalBounds())
+    }
+  }
+  submitBodyRegions(table, regions)
+}
+
+/** 局部刷新当前可视窗口内的全部列头 */
+export function refreshColHeadersNodes(table: ListTable): void {
+  if (table.headerHeight <= 0 || table.sceneState.colHeaderNodes.size === 0) {
+    return
+  }
+  const styles = headerStyles(table)
+  const input = headerHighlightInput(table)
+  const regions: Region[] = []
+  for (const [col, node] of table.sceneState.colHeaderNodes) {
+    applyColHeaderRefresh(table, col, node, styles, input)
+    regions.push(node.getGlobalBounds())
+  }
+  submitBodyRegions(table, regions)
+}
+
+// ---- 底部冻结行（装配、样式、边框、局部刷新） ----
+
+function bottomRowDefaultStyle(
+  table: ListTable,
+  bottomRow: number,
+  tokens: typeof table.theme.header,
+): CellStyle {
+  const base: CellStyle = { textOverflow: 'ellipsis', ...themeCellBase(tokens) }
+  if (bottomRow === 0) {
+    base.border = {
+      ...base.border,
+      top: {
+        width: 1,
+        color: table.theme.interaction.freezeDividerColor,
+        grid: true,
+      },
+    }
+  }
+  return base
+}
+
+function bottomCellBaseStyle(table: ListTable, col: number, bottomRow: number): CellStyle {
+  const base = bottomRowDefaultStyle(table, bottomRow, table.theme.header)
+  const custom = table.options.resolveBottomCellStyle?.(col, bottomRow)
+  return custom ? projectCellStyle(base, custom) : base
+}
+
+function bottomRowHeaderBaseStyle(table: ListTable, bottomRow: number): CellStyle {
+  const base = bottomRowDefaultStyle(table, bottomRow, table.theme.rowHeader)
+  const custom = table.options.resolveBottomRowHeaderStyle?.(bottomRow)
+  return custom ? projectCellStyle(base, custom) : base
+}
+
+function bottomCellBorder(
+  table: ListTable,
+  col: number,
+  bottomRow: number,
+  style: CellStyle,
+): CellBorder | null {
+  const facingRight =
+    col + 1 < table.columns.length
+      ? bottomCellBaseStyle(table, col + 1, bottomRow).border?.left
+      : undefined
+  const facingBottom =
+    bottomRow + 1 < table.geometryState.frozenBottomRowCount
+      ? bottomCellBaseStyle(table, col, bottomRow + 1).border?.top
+      : undefined
+  return (
+    resolveSharedEdges(
+      style.border,
+      { right: facingRight, bottom: facingBottom },
+      { firstCol: col === 0 && !showsRowHeader(table), firstRow: bottomRow === 0 },
+    ) ?? null
+  )
+}
+
+function bottomRowHeaderBorder(
+  table: ListTable,
+  bottomRow: number,
+  style: CellStyle,
+): CellBorder | null {
+  const facingRight =
+    table.columns.length > 0 ? bottomCellBaseStyle(table, 0, bottomRow).border?.left : undefined
+  const facingBottom =
+    bottomRow + 1 < table.geometryState.frozenBottomRowCount
+      ? bottomRowHeaderBaseStyle(table, bottomRow + 1).border?.top
+      : undefined
+  return (
+    resolveSharedEdges(
+      style.border,
+      { right: facingRight, bottom: facingBottom },
+      { firstCol: true, firstRow: bottomRow === 0 },
+    ) ?? null
+  )
+}
+
+function newBottomCellNode(
+  table: ListTable,
+  col: number,
+  bottomRow: number,
+  left: number,
+): CellNode {
+  const { geometryState } = table
+  const style = bottomCellBaseStyle(table, col, bottomRow)
+  return new CellNode({
+    col,
+    row: bottomRow,
+    x: resolveCellX(
+      col,
+      left,
+      geometryState.colOffsets,
+      geometryState.frozenColCount,
+      table.rowHeaderWidth,
+    ),
+    y: resolveBottomCellYFromOffsets(
+      bottomRow,
+      geometryState.bottomRowOffsets,
+      table.headerHeight,
+      table.viewportHeight,
+    ),
+    width: geometryState.colWidths[col] ?? 0,
+    height: table.bottomRowHeight,
+    text: '',
+    style,
+    border: bottomCellBorder(table, col, bottomRow, style),
+    renderer: table.options.resolveBottomCellRenderer?.(col, bottomRow) ?? null,
+  })
+}
+
+function newBottomRowHeaderNode(table: ListTable, bottomRow: number): CellNode {
+  const { geometryState } = table
+  const style = bottomRowHeaderBaseStyle(table, bottomRow)
+  return new CellNode({
+    col: HEADER_COORD,
+    row: bottomRow,
+    x: 0,
+    y: resolveBottomCellYFromOffsets(
+      bottomRow,
+      geometryState.bottomRowOffsets,
+      table.headerHeight,
+      table.viewportHeight,
+    ),
+    width: table.rowHeaderWidth,
+    height: table.bottomRowHeight,
+    text: '',
+    style,
+    border: bottomRowHeaderBorder(table, bottomRow, style),
+    renderer: table.options.resolveBottomRowHeaderRenderer?.(bottomRow) ?? null,
+  })
+}
+
+function appendBottomRows(
+  table: ListTable,
+  groups: TableBodyGroups,
+  left: number,
+  frozenCols: WindowRange,
+  scrollableCols: WindowRange,
+): void {
+  const { geometryState, sceneState } = table
+  const count = geometryState.frozenBottomRowCount
+  if (count <= 0) {
+    return
+  }
+  for (let bottomRow = 0; bottomRow < count; bottomRow++) {
+    for (const cols of [scrollableCols, frozenCols]) {
+      const targetGroup =
+        cols === frozenCols ? groups.bottomFrozenColsGroup : groups.bottomScrollableGroup
+      for (let col = cols.start; col < cols.end; col++) {
+        const node = newBottomCellNode(table, col, bottomRow, left)
+        targetGroup.appendChild(node)
+        sceneState.bottomCellNodes.set(cellKey(col, bottomRow), node)
+      }
+    }
+    if (showsRowHeader(table)) {
+      const headerNode = newBottomRowHeaderNode(table, bottomRow)
+      groups.bottomFrozenColsGroup.appendChild(headerNode)
+      sceneState.bottomRowHeaderNodes.set(bottomRow, headerNode)
+    }
+  }
+}
+
+function applyBottomCellRefresh(
+  table: ListTable,
+  col: number,
+  bottomRow: number,
+  node: CellNode,
+): boolean {
+  const prevBorder = node.style.border
+  const style = bottomCellBaseStyle(table, col, bottomRow)
+  node.style = style
+  node.border = bottomCellBorder(table, col, bottomRow, style)
+  node.renderer = table.options.resolveBottomCellRenderer?.(col, bottomRow) ?? null
+  return !sameCellBorder(prevBorder, style.border)
+}
+
+function applyBottomRowHeaderRefresh(table: ListTable, bottomRow: number, node: CellNode): boolean {
+  const prevBorder = node.style.border
+  const style = bottomRowHeaderBaseStyle(table, bottomRow)
+  node.style = style
+  node.border = bottomRowHeaderBorder(table, bottomRow, style)
+  node.renderer = table.options.resolveBottomRowHeaderRenderer?.(bottomRow) ?? null
+  return !sameCellBorder(prevBorder, style.border)
+}
+
+/** 局部刷新单个底部冻结格（col = HEADER_COORD 时刷新底部行头格；窗外安全跳过） */
+export function refreshBottomCellNode(table: ListTable, col: number, bottomRow: number): void {
+  const count = table.geometryState.frozenBottomRowCount
+  if (bottomRow < 0 || bottomRow >= count) {
+    return
+  }
+  if (col === HEADER_COORD) {
+    const headerNode = table.sceneState.bottomRowHeaderNodes.get(bottomRow)
+    if (!headerNode) {
+      return
+    }
+    const borderChanged = applyBottomRowHeaderRefresh(table, bottomRow, headerNode)
+    const regions: Region[] = [headerNode.getGlobalBounds()]
+    if (borderChanged && bottomRow > 0) {
+      const upper = table.sceneState.bottomRowHeaderNodes.get(bottomRow - 1)
+      if (upper) {
+        applyBottomRowHeaderRefresh(table, bottomRow - 1, upper)
+        regions.push(upper.getGlobalBounds())
+      }
+    }
+    submitBodyRegions(table, regions)
+    return
+  }
+  if (col < 0 || col >= table.columns.length) {
+    return
+  }
+  const node = table.sceneState.bottomCellNodes.get(cellKey(col, bottomRow))
+  if (!node) {
+    return
+  }
+  const borderChanged = applyBottomCellRefresh(table, col, bottomRow, node)
+  const regions: Region[] = [node.getGlobalBounds()]
+  if (borderChanged) {
+    if (col > 0) {
+      const leftNode = table.sceneState.bottomCellNodes.get(cellKey(col - 1, bottomRow))
+      if (leftNode) {
+        applyBottomCellRefresh(table, col - 1, bottomRow, leftNode)
+        regions.push(leftNode.getGlobalBounds())
+      }
+    } else if (showsRowHeader(table)) {
+      const headerNode = table.sceneState.bottomRowHeaderNodes.get(bottomRow)
+      if (headerNode) {
+        applyBottomRowHeaderRefresh(table, bottomRow, headerNode)
+        regions.push(headerNode.getGlobalBounds())
+      }
+    }
+    if (bottomRow > 0) {
+      const upperNode = table.sceneState.bottomCellNodes.get(cellKey(col, bottomRow - 1))
+      if (upperNode) {
+        applyBottomCellRefresh(table, col, bottomRow - 1, upperNode)
+        regions.push(upperNode.getGlobalBounds())
+      }
+    }
+  }
+  submitBodyRegions(table, regions)
+}
+
+/** 局部刷新整行底部冻结格（含底部行头格） */
+export function refreshBottomRowNodes(table: ListTable, bottomRow: number): void {
+  const count = table.geometryState.frozenBottomRowCount
+  if (bottomRow < 0 || bottomRow >= count) {
+    return
+  }
+  const regions: Region[] = []
+  const headerNode = table.sceneState.bottomRowHeaderNodes.get(bottomRow)
+  if (headerNode) {
+    applyBottomRowHeaderRefresh(table, bottomRow, headerNode)
+    regions.push(headerNode.getGlobalBounds())
+  }
+  for (const node of table.sceneState.bottomCellNodes.values()) {
+    if (node.row !== bottomRow) {
+      continue
+    }
+    applyBottomCellRefresh(table, node.col, bottomRow, node)
+    regions.push(node.getGlobalBounds())
+  }
+  submitBodyRegions(table, regions)
 }

@@ -5,7 +5,14 @@
 import type { CellAddress, CellRange, ScrollbarOptions, ThemeOverride } from '@infinitable/grid'
 import type { ImageFit } from '@infinitable/grid'
 import type { ImageServiceOptions, LoadedImage } from '@infinitable/grid'
-import type { RenderCanvas, RenderHost, RenderHostOptions, SceneEvent } from '@infinitable/render'
+import type {
+  Region,
+  RenderCanvas,
+  RenderHost,
+  RenderHostOptions,
+  SceneEvent,
+  Size,
+} from '@infinitable/render'
 
 import type { CellRenderer, CellType, ResolveCellRenderer } from './cell-renderer'
 import type { CellStyle, ResolveCellStyle } from './cell-style'
@@ -250,6 +257,18 @@ export interface ListTableOptions {
   resolveCellRenderer?: ResolveCellRenderer
   /** 按列头自定义渲染 hook：返回渲染器即接管该列头内容绘制 */
   resolveColHeaderRenderer?: (col: number) => CellRenderer | null
+  /** 按列头自定义样式 hook：返回样式片段覆盖主题 header 分区基础样式 */
+  resolveColHeaderStyle?: ResolveColHeaderStyle
+  /** 列头交互热区解析 hook：返回列头内独立按钮/热区列表（局部坐标），点击命中热区不触发整列选中 */
+  resolveColHeaderRegions?: ResolveColHeaderRegions
+  /** 底部冻结格自定义渲染 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomCellRenderer?: ResolveBottomCellRenderer
+  /** 底部冻结格自定义样式 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomCellStyle?: ResolveBottomCellStyle
+  /** 底部冻结行行头格自定义渲染 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomRowHeaderRenderer?: ResolveBottomRowHeaderRenderer
+  /** 底部冻结行行头格自定义样式 hook：row 为 0 基底部冻结行索引 */
+  resolveBottomRowHeaderStyle?: ResolveBottomRowHeaderStyle
   /** 按格图片 hook：返回 URL 的格在 L2 media 层按图片渲染（ImageService 窗口化加载 + 无闪协议） */
   resolveCellImage?: ResolveCellImage
   /** 按格图片缩放 hook：返回 fill/contain 覆盖缩放语义（缺省 contain 保比例） */
@@ -295,6 +314,10 @@ export interface ListTableOptions {
   frozenColCount?: number
   /** 顶部冻结行数（数据行，不含列头；缺省 0）。合并区跨冻结边界合法（主格按冻结带钉固） */
   frozenRowCount?: number
+  /** 底部冻结行数（独立于数据行之外，钉固于数据区视口底部；缺省 0） */
+  frozenBottomRowCount?: number
+  /** 底部冻结行行高（CSS 像素；缺省沿用 rowHeight） */
+  bottomRowHeight?: number
   /**
    * 合并单元格区间列表（闭区间；跨冻结边界合法）。重叠项构造时规范化：
    * 保留先声明、丢弃冲突项并 console 提示，不抛错
@@ -420,12 +443,78 @@ export interface TableContextMenuEvent {
 
 export type ContextMenuListener = (event: TableContextMenuEvent) => void
 
+/** 列头内交互热区描述（如排序按钮、菜单按钮），坐标相对该列头格左上角 */
+export interface ColHeaderHitRegion {
+  /** 热区标识（命中时经 ColHeaderClickEvent.hitId 回传） */
+  id: string
+  /** 相对列头格左上角的局部矩形（CSS 像素） */
+  rect: Region
+  /** 悬停该热区时的指针光标（缺省 'pointer'） */
+  cursor?: string
+}
+
+/**
+ * 列头交互热区解析 hook：纯函数、同步、O(1)。
+ * 返回列头内可独立点击的自定义按钮/热区；命中热区时仅派发列头单击事件而不触发整列选中。
+ */
+export type ResolveColHeaderRegions = (
+  col: number,
+  size: Size,
+) => readonly ColHeaderHitRegion[] | null | undefined
+
+/**
+ * 按列头样式 hook：纯函数、同步、O(1)。
+ * 返回 null/undefined 表示沿用主题 header 分区基础样式。
+ */
+export type ResolveColHeaderStyle = (col: number) => CellStyle | null | undefined
+
+/**
+ * 底部冻结格样式 hook：纯函数、同步、O(1)。
+ * row 为 0 基底部冻结行索引；返回 null/undefined 沿用基础样式。
+ */
+export type ResolveBottomCellStyle = (col: number, row: number) => CellStyle | null | undefined
+
+/**
+ * 底部冻结格自定义渲染 hook：纯函数、同步、O(1)。
+ * row 为 0 基底部冻结行索引；返回 null/undefined 走默认文本渲染。
+ */
+export type ResolveBottomCellRenderer = (
+  col: number,
+  row: number,
+) => CellRenderer | null | undefined
+
+/** 底部冻结行行头格样式 hook */
+export type ResolveBottomRowHeaderStyle = (row: number) => CellStyle | null | undefined
+
+/** 底部冻结行行头格自定义渲染 hook */
+export type ResolveBottomRowHeaderRenderer = (row: number) => CellRenderer | null | undefined
+
 /** 列头单击事件：主键按下并抬起落在同一列头且位移在阈值内（非 resize 手柄）时派发 */
 export interface ColHeaderClickEvent {
   col: number
   x: number
   y: number
+  /** 列头格在画布视口中的矩形（CSS 像素） */
+  rect: Region
+  /** 命中的列头交互热区标识；点在列头本体时为 null */
+  hitId: string | null
+  /** 命中的交互热区在画布视口中的矩形（CSS 像素）；点在列头本体时为 null */
+  hitRect: Region | null
   originalEvent: SceneEvent['originalEvent']
 }
 
 export type ColHeaderClickListener = (event: ColHeaderClickEvent) => void
+
+/** 底部冻结格单击事件：主键按下并抬起落在同一底部冻结格且位移在阈值内时派发 */
+export interface BottomCellClickEvent {
+  col: number
+  /** 0 基底部冻结行索引 */
+  row: number
+  /** 命中格在画布视口中的矩形（CSS 像素） */
+  rect: Region
+  x: number
+  y: number
+  originalEvent: SceneEvent['originalEvent']
+}
+
+export type BottomCellClickListener = (event: BottomCellClickEvent) => void

@@ -35,6 +35,7 @@ import type { ChartCellNode } from '../media/chart-cell-node'
 import type { ImageCellNode } from '../media/image-cell-node'
 import type { MediaCache } from '../media/media-cache'
 import type {
+  BottomCellClickListener,
   CellAddress,
   CellChangeEvent,
   CellLinkClickListener,
@@ -75,17 +76,39 @@ export class OverlayPaintersNode extends SlotPaintersNode {
   }
 }
 
+/** 裁剪容器组：clipRect 非空时按该矩形裁剪全部子节点绘制，置空无额外开销 */
+export class ClippedContainerNode extends SceneNode {
+  clipRect: Region | null
+
+  constructor(width: number, height: number, clipRect: Region | null = null) {
+    super({ pickable: false, hitTestChildren: false, width, height })
+    this.clipRect = clipRect
+  }
+
+  override paint(ctx: RenderContext): void {
+    if (!this.clipRect) {
+      return
+    }
+    ctx.beginPath()
+    ctx.rect(this.clipRect.x, this.clipRect.y, this.clipRect.width, this.clipRect.height)
+    ctx.clip()
+  }
+}
+
 /** body 场景树固定层级容器组（按绘制 z 序排列，全部 pickable:false / hitTestChildren:false） */
 export interface TableBodyGroups {
   readonly underlayNode: SceneNode
-  readonly scrollableGroup: SceneNode
-  readonly scrollableOverflowGroup: SceneNode
-  readonly frozenGroup: SceneNode
-  readonly frozenOverflowGroup: SceneNode
-  readonly crossMergeGroup: SceneNode
+  readonly scrollableGroup: ClippedContainerNode
+  readonly scrollableOverflowGroup: ClippedContainerNode
+  readonly frozenGroup: ClippedContainerNode
+  readonly frozenOverflowGroup: ClippedContainerNode
+  readonly crossMergeGroup: ClippedContainerNode
   readonly headerGroup: SceneNode
   readonly scrollableHeadersGroup: SceneNode
   readonly frozenHeadersGroup: SceneNode
+  readonly bottomFrozenGroup: ClippedContainerNode
+  readonly bottomScrollableGroup: SceneNode
+  readonly bottomFrozenColsGroup: SceneNode
   readonly frameNode: SceneNode
 }
 
@@ -104,8 +127,11 @@ export interface TableGeometryState {
   rowOffsets: number[]
   frozenColCount: number
   frozenRowCount: number
+  frozenBottomRowCount: number
   frozenColsWidth: number
   frozenRowsHeight: number
+  bottomRowOffsets: number[]
+  frozenBottomRowsHeight: number
   mergeCells: MergeCellMap
   rows: WindowRange
   cols: WindowRange
@@ -123,14 +149,12 @@ export interface TableSceneState {
   readonly cellNodes: Map<number, CellNode>
   readonly colHeaderNodes: Map<number, CellNode>
   readonly rowHeaderNodes: Map<number, CellNode>
+  readonly bottomCellNodes: Map<number, CellNode>
+  readonly bottomRowHeaderNodes: Map<number, CellNode>
   cornerNode: CellNode | null
-  frameNode: SceneNode | null
-  headerGroup: SceneNode | null
-  underlayNode: SceneNode | null
   readonly painters: PainterRegistry
   underlayPaintersNode: GroundPaintersNode | null
   overlayPaintersNode: OverlayPaintersNode | null
-  sceneInitialized: boolean
   readonly textAdvances: TextAdvanceTable
   batchDepth: number
   readonly batchRegions: Region[]
@@ -176,6 +200,8 @@ export interface TableInteractionState {
   linkHover: CellAddress | null
   pointerDownCell: CellAddress | null
   pointerDownColHeader: number | null
+  pointerDownColHeaderHitId: string | null
+  pointerDownBottomCell: CellAddress | null
   lastTap: { col: number; row: number; x: number; y: number; time: number } | null
   pointerDownAt: { x: number; y: number } | null
   editPickMode: boolean
@@ -195,4 +221,5 @@ export interface TableInteractionState {
   readonly fillDragEndListeners: Set<FillDragEndListener>
   readonly fillHandleDoubleClickListeners: Set<FillHandleDoubleClickListener>
   readonly colHeaderClickListeners: Set<ColHeaderClickListener>
+  readonly bottomCellClickListeners: Set<BottomCellClickListener>
 }
