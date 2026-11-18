@@ -243,7 +243,8 @@ export class PivotModel implements TableModel {
   private rowDimKeys: readonly string[]
   private columnDimKeys: readonly string[]
   private measureKeys: readonly string[]
-  private readonly showGrandTotal: boolean
+  /** 是否显示总计行（缺省 true） */
+  private showGrandTotalEnabled = true
   /** 行维度树是否可折叠（false 时始终平铺，折叠操作整体禁用） */
   private collapsibleEnabled = true
   /** 折叠态 branch 节点键（结构变更清空，数据刷新保留；不可折叠时恒空） */
@@ -295,7 +296,7 @@ export class PivotModel implements TableModel {
     this.measureKeys = dedupe(
       options.activeMeasures ?? this.measurePool.map((measure) => measure.key),
     )
-    this.showGrandTotal = options.showGrandTotal ?? true
+    this.showGrandTotalEnabled = options.showGrandTotal ?? true
     this.collapsibleEnabled = options.collapsible ?? true
     this.rebuildDataTree()
     this.materializeView()
@@ -354,6 +355,22 @@ export class PivotModel implements TableModel {
   /** 表头行数（列维度层数 + 度量行；引擎冻结行数） */
   get headerRowCount(): number {
     return this.headerRows
+  }
+
+  /** 是否显示总计行 */
+  get showGrandTotal(): boolean {
+    return this.showGrandTotalEnabled
+  }
+
+  /**
+   * 切换总计行显示：仅重算阶段 2 物化行矩阵与合并区，不清空折叠态、零记录扫描。
+   * 状态变化返回 true，由 PivotGrid 落地引擎几何。
+   */
+  setShowGrandTotal(enabled: boolean): boolean {
+    if (enabled === this.showGrandTotalEnabled) return false
+    this.showGrandTotalEnabled = enabled
+    this.materializeView()
+    return true
   }
 
   /** 行维度树是否可折叠（false 时始终平铺展开） */
@@ -795,7 +812,7 @@ export class PivotModel implements TableModel {
       visit(child)
     }
 
-    if (this.showGrandTotal) {
+    if (this.showGrandTotalEnabled) {
       rows.push({ type: 'grand', path: [], depth: -1, expanded: true, hasChildren: false })
       matrix.push(materializeRowValues(this.rootNode, colLeafRawIds, measures))
     }

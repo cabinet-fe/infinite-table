@@ -249,6 +249,115 @@ describe('PivotGrid 列宽保留与短路', () => {
   })
 })
 
+describe('PivotGrid 运行时切换 showGrandTotal', () => {
+  it('原地增删总计行，保留用户列宽、折叠态与选区高亮对齐，且交叉数据与下钻准确', () => {
+    const { pivot, table, container } = createPivot()
+    const drillEvents: Array<{ col: number; row: number; count: number }> = []
+    const stopDrill = pivot.onCellDrill((event) => {
+      drillEvents.push({ col: event.col, row: event.row, count: event.records.length })
+    })
+    try {
+      expect(pivot.getShowGrandTotal()).toBe(true)
+      expect(pivot.getVisibleRowCount()).toBe(5) // 4 leaf + 1 grand
+      expect(pivot.rowCount).toBe(6)
+      expect(pivot.getCellValue(2, 5)).toBe(10)
+
+      // 调整用户列宽 + 折叠「已完成」+ 选中列头（覆盖到旧总计行 row 4）
+      simulateColResizeEnd(table, 0, 185)
+      simulateColResizeEnd(table, 2, 205)
+      pivot.toggleNode(['已完成'])
+      expect(pivot.getVisibleRowCount()).toBe(4) // 1 branch + 2 leaf + 1 grand
+      click(container, 185 + 100 + 60, 16)
+      expect(table.getSelection().ranges).toEqual([
+        { start: { col: 2, row: 1 }, end: { col: 2, row: 4 } },
+      ])
+
+      // 同值短路：不清空既有选区
+      pivot.setShowGrandTotal(true)
+      expect(table.getSelection().ranges).toHaveLength(1)
+
+      // 关闭总计行：原地移除总计行与合并区，清空滞后选区，保留列宽与折叠载体
+      const setColWidthSpy = vi.spyOn(table, 'setColWidth')
+      pivot.setShowGrandTotal(false)
+      expect(pivot.getShowGrandTotal()).toBe(false)
+      expect(pivot.getTable()).toBe(table)
+      expect(pivot.getVisibleRowCount()).toBe(3) // 1 branch + 2 leaf
+      expect(pivot.rowCount).toBe(4)
+      expect(table.rowCount).toBe(4)
+      expect(pivot.getSubtotalRowCount()).toBe(1)
+      expect(pivot.getCellValue(0, 1)).toBe('已完成')
+      expect(pivot.getCellValue(2, 1)).toBe(3)
+      expect(pivot.getCellValue(2, 4)).toBeUndefined()
+      expect(table.getColWidth(0)).toBe(185)
+      expect(table.getColWidth(2)).toBe(205)
+      expect(setColWidthSpy).not.toHaveBeenCalled()
+      expect(table.getSelection().ranges).toEqual([])
+      expect(table.geometryState.mergeCells.rangeAt(0, 4)).toBeNull()
+
+      // 点击列头重新高亮：末行精确落在新尾行 row 3
+      click(container, 185 + 100 + 60, 16)
+      expect(table.getSelection().ranges).toEqual([
+        { start: { col: 2, row: 1 }, end: { col: 2, row: 3 } },
+      ])
+
+      // 再次开启总计行：恢复总计行、合并区与下钻，仍保留折叠态与列宽
+      pivot.setShowGrandTotal(true)
+      expect(pivot.getShowGrandTotal()).toBe(true)
+      expect(pivot.getVisibleRowCount()).toBe(4)
+      expect(pivot.rowCount).toBe(5)
+      expect(pivot.getSubtotalRowCount()).toBe(1)
+      expect(pivot.getCellValue(0, 4)).toBe('总计')
+      expect(pivot.getCellValue(2, 4)).toBe(10)
+      expect(pivot.getCellValue(3, 4)).toBe(4)
+      expect(table.geometryState.mergeCells.rangeAt(0, 4)).toEqual({
+        startCol: 0,
+        endCol: 1,
+        startRow: 4,
+        endRow: 4,
+      })
+      expect(table.getColWidth(0)).toBe(185)
+      expect(table.getColWidth(2)).toBe(205)
+      expect(pivot.getCellRecords(2, 4)).toHaveLength(4)
+      expect(pivot.getCellRecords(2, 1)).toHaveLength(2)
+
+      // 双击总计数据格触发下钻，返回全部 4 条明细
+      container.dispatchEvent(
+        new MouseEvent('dblclick', { clientX: 185 + 100 + 60, clientY: rowMidY(4) }),
+      )
+      expect(drillEvents).toEqual([{ col: 2, row: 4, count: 4 }])
+    } finally {
+      stopDrill()
+      pivot.destroy()
+    }
+  })
+
+  it('初始 showGrandTotal=false 时，运行时开启可正常展示总计行与下钻', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const pivot = new PivotGrid({
+      container,
+      dimensions: DIMENSIONS,
+      measures: MEASURES,
+      records: RECORDS,
+      rowDimensions: ['status', 'priority'],
+      columnDimensions: [],
+      showGrandTotal: false,
+    })
+    try {
+      expect(pivot.getShowGrandTotal()).toBe(false)
+      expect(pivot.getVisibleRowCount()).toBe(4)
+      pivot.setShowGrandTotal(true)
+      expect(pivot.getShowGrandTotal()).toBe(true)
+      expect(pivot.getVisibleRowCount()).toBe(5)
+      expect(pivot.getCellValue(0, 5)).toBe('总计')
+      expect(pivot.getCellValue(2, 5)).toBe(10)
+      expect(pivot.getCellRecords(2, 5)).toHaveLength(4)
+    } finally {
+      pivot.destroy()
+    }
+  })
+})
+
 /** 绘制坐标捕获桩：记录 treeCell 绘制的三角路径 y 坐标与文本基线 y 坐标 */
 function paintTreeCellAndCapture(
   table: ListTable,

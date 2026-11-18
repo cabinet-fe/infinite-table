@@ -2,7 +2,7 @@
 title: "@infinitable/pivot 透视表引擎"
 description: infinitable 透视表能力（infinitable/pivot 子路径转出 @infinitable/pivot 白名单）：PivotGrid 领域引擎——行维度树多列树形布局（同组跨行合并、折叠组收敛为小计载体行）× 列维度多级表头（冻结行 + 合并区落地）× 度量交叉聚合（PivotModel 展平为引擎 TableModel 数据面）；维度/度量运行时勾选与改聚合结构原地落地不重建实例；双击数据格下钻明细记录；实现 EngineAssembly 装配协议面，水印/打印等协议插件跨引擎挂载。
 aliases: [pivot, 透视表, 交叉表, 数据透视, PivotGrid, PivotModel, 多级表头]
-keywords: [PivotGrid, PivotModel, PivotGridOptions, PivotDimension, PivotMeasure, PivotAggregator, PivotRecord, PivotRow, PivotColumn, PivotCellDrillEvent, setRowDimensions, setColumnDimensions, setMeasures, updateMeasure, toggleNode, expandAll, collapseAll, onCellDrill, getCellRecords, getVisibleRowCount, EngineAssembly, 维度, 度量, 聚合, 小计, 总计, 下钻, 折叠, 多级表头, 树形布局]
+keywords: [PivotGrid, PivotModel, PivotGridOptions, PivotDimension, PivotMeasure, PivotAggregator, PivotRecord, PivotRow, PivotColumn, PivotCellDrillEvent, setRowDimensions, setColumnDimensions, setMeasures, updateMeasure, toggleNode, getShowGrandTotal, setShowGrandTotal, expandAll, collapseAll, onCellDrill, getCellRecords, getVisibleRowCount, EngineAssembly, 维度, 度量, 聚合, 小计, 总计, 下钻, 折叠, 多级表头, 树形布局]
 ---
 
 # @infinitable/pivot 透视表引擎
@@ -120,6 +120,8 @@ export class PivotGrid implements EngineAssembly {
   setDimensions(dimensions: readonly PivotDimension[]): void // 原地更新维度池
   setMeasurePool(measures: readonly PivotMeasure[]): void // 原地更新度量池
   toggleNode(path: readonly string[]): void // 切换 branch 节点展开态
+  getShowGrandTotal(): boolean // 是否显示总计行
+  setShowGrandTotal(enabled: boolean): void // 切换总计行显示（原地增删总计行并刷新几何与选区，保留列宽与折叠态，不重建实例）
   getCollapsible(): boolean
   setCollapsible(enabled: boolean): void // 关闭时既有折叠态清空，整树平铺
   expandAll(): void
@@ -182,6 +184,8 @@ export class PivotModel implements TableModel {
   get columns(): readonly PivotColumn[] // 列序列快照
   get rowHeaderCount(): number
   get headerRowCount(): number
+  get showGrandTotal(): boolean // 是否显示总计行
+  setShowGrandTotal(enabled: boolean): boolean // 仅重算阶段 2 物化行矩阵与合并区，零记录扫描、保留折叠态；状态变化返回 true
   get collapsible(): boolean
   setCollapsible(enabled: boolean): boolean // 结构变化返回 true
   get dataColumnCount(): number
@@ -295,7 +299,7 @@ pivot.updateTheme({}) // 主题与 painter 槽位同经协议面操作
 > - 聚合口径：`count` 忽略 `field` 记记录数；`sum`/`avg`/`min`/`max` 只聚合有限数值（非有限数跳过）；空集 `count`/`sum` 为 0，`avg`/`min`/`max` 无值（显示层出空）。
 > - 维度值空值（`null`/`undefined`/空串/非标量）归 `(空)` 组；维度值与列头序均为码点比较（不走 `localeCompare`），跨环境确定。
 > - 勾选序列去重且按调用方顺序生效（不回池序）；`setRowDimensions`/`setMeasures` 至少一项有效，空序列整体忽略。
-> - 结构变化（行/列维度序列、度量序列、度量聚合、折叠态）全部原地落地：引擎行列数、冻结带、合并区、列宽经 `batchUpdate` 收敛单次失效提交，不重建实例、不丢滚动位置语义之外的引擎状态。
+> - 结构变化（行/列维度序列、度量序列、度量聚合、总计行开关 `setShowGrandTotal`、折叠态）全部原地落地：引擎行列数、冻结带、合并区、列宽经 `batchUpdate` 收敛单次失效提交，不重建实例、不丢滚动位置语义之外的引擎状态；其中 `setShowGrandTotal(enabled)` 仅重算视图物化与合并区（零记录扫描），保留用户列宽与既有折叠态。
 > - 主题注入会压 `interaction.selectionBorderWidth = 0`（高亮为纯填充）：宿主显式给 `theme.interaction.selectionBorderWidth` 仍可覆盖。
 > - `getTable()` 返回 `TableEngine` 协议面（窄接口），不暴露 `ListTable` 具体类型；领域操作一律走 `PivotGrid` 方法，勿经引擎面改结构。
 > - 本子路径转售符号集合（6 值 + 8 类型）与 `packages/pivot/src/index.ts` 白名单同步维护，被 `packages/infinitable/tests/public-surface.test.ts` 快照冻结（判据与逐项清单见 `apis/exports.md`）。

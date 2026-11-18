@@ -566,4 +566,63 @@ describe('两阶段架构：零记录重扫与 100k 行性能回归', () => {
     expect(collapseCost).toBeLessThan(50)
     expect(expandCost).toBeLessThan(50)
   })
+
+  it('setShowGrandTotal 运行时切换：零记录扫描、保留折叠态并同步行矩阵/合并区/下钻', () => {
+    let elementReads = 0
+    const proxyRecords = new Proxy(RECORDS, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+          elementReads += 1
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+
+    const pivot = new PivotModel({
+      dimensions: DIMENSIONS,
+      measures: MEASURES,
+      records: proxyRecords,
+      rowDimensions: ['region', 'product'],
+      columnDimensions: ['channel'],
+    })
+    elementReads = 0
+
+    expect(pivot.showGrandTotal).toBe(true)
+    expect(pivot.setShowGrandTotal(true)).toBe(false)
+    expect(pivot.rowCount).toBe(7)
+    expect(pivot.mergeRanges).toContainEqual({ startCol: 0, endCol: 1, startRow: 6, endRow: 6 })
+
+    // 折叠 [东] 后关闭总计行：折叠载体保留，总计移除且合并区同步更新
+    expect(pivot.toggleNode(['东'])).toBe(true)
+    expect(pivot.setShowGrandTotal(false)).toBe(true)
+    expect(pivot.showGrandTotal).toBe(false)
+    expect(pivot.rows.map((r) => `${r.type}:${r.path.join('/')}`)).toEqual([
+      'branch:东',
+      'leaf:西/A',
+      'leaf:西/B',
+    ])
+    expect(pivot.rowCount).toBe(5)
+    expect(pivot.mergeRanges).not.toContainEqual({ startCol: 0, endCol: 1, startRow: 5, endRow: 5 })
+    expect(elementReads).toBe(0)
+
+    // 再次开启总计行：总计值、横并区恢复，且不清空既有折叠态、零记录扫描
+    expect(pivot.setShowGrandTotal(true)).toBe(true)
+    expect(pivot.showGrandTotal).toBe(true)
+    expect(pivot.rows.map((r) => `${r.type}:${r.path.join('/')}`)).toEqual([
+      'branch:东',
+      'leaf:西/A',
+      'leaf:西/B',
+      'grand:',
+    ])
+    expect(pivot.getCellValue(0, 5)).toBe('总计')
+    expect(pivot.getCellValue(2, 5)).toBe(14) // 线上 数量和 总计：1+3+4+6
+    expect(pivot.mergeRanges).toContainEqual({ startCol: 0, endCol: 1, startRow: 5, endRow: 5 })
+    expect(elementReads).toBe(0)
+
+    // 下钻边界与记录映射准确性
+    expect(pivot.getCellRecords(2, 5)).toHaveLength(4)
+    expect(pivot.getCellRecords(2, 2)).toHaveLength(2)
+    expect(pivot.setShowGrandTotal(false)).toBe(true)
+    expect(pivot.getCellRecords(2, 5)).toEqual([])
+  })
 })

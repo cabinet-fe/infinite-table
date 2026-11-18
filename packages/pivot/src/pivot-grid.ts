@@ -253,6 +253,16 @@ export class PivotGrid implements EngineAssembly {
     if (this.model.toggleNode(path)) this.applyStructure()
   }
 
+  /** 是否显示总计行 */
+  getShowGrandTotal(): boolean {
+    return this.model.showGrandTotal
+  }
+
+  /** 切换总计行显示（原地增删总计行并刷新引擎几何与选区，保留列宽与折叠态，不重建实例） */
+  setShowGrandTotal(enabled: boolean): void {
+    if (this.model.setShowGrandTotal(enabled)) this.applyStructure()
+  }
+
   /** 行维度树是否可折叠（false 时始终平铺展开，无展开钮） */
   getCollapsible(): boolean {
     return this.model.collapsible
