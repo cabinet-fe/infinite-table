@@ -761,6 +761,44 @@ describe('SmartGridAdapter', () => {
     adapter.destroy()
   })
 
+  it('右键列头触发 onHeaderContextMenu 并带列头视口矩形，行号带与表体不触发', () => {
+    const onHeaderContextMenu =
+      vi.fn<
+        (info: {
+          column: SmartColumn
+          rect: { x: number; y: number; width: number; height: number }
+        }) => void
+      >()
+    const { container, adapter } = mountGrid({ onHeaderContextMenu })
+    const table = adapter.getTable()
+    const headerY = table.headerHeight / 2
+    const nameX = table.rowHeaderWidth + 100 + 70
+
+    const menuEvent = new MouseEvent('contextmenu', {
+      clientX: nameX,
+      clientY: headerY,
+      cancelable: true,
+    })
+    container.dispatchEvent(menuEvent)
+    expect(onHeaderContextMenu).toHaveBeenCalledTimes(1)
+    const info = onHeaderContextMenu.mock.calls[0]![0]
+    expect(info.column.key).toBe('name')
+    expect(info.rect.height).toBe(table.headerHeight)
+    expect(info.rect.y).toBeGreaterThanOrEqual(0)
+    expect(menuEvent.defaultPrevented).toBe(true)
+
+    // 行号带与表体区右键不触发
+    container.dispatchEvent(
+      new MouseEvent('contextmenu', { clientX: 10, clientY: headerY, cancelable: true }),
+    )
+    container.dispatchEvent(
+      new MouseEvent('contextmenu', { clientX: nameX, clientY: 200, cancelable: true }),
+    )
+    expect(onHeaderContextMenu).toHaveBeenCalledTimes(1)
+
+    adapter.destroy()
+  })
+
   it('双击可编辑 link 单元格进入编辑时只触发一次链接打开，不打开两次新标签页', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     try {

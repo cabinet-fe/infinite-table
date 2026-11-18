@@ -37,7 +37,8 @@ interface ReturnSelection {
   checked: boolean
 }
 
-const ROLLUP_AGG_OPTIONS: { value: LookupRollupAgg; label: string }[] = [
+/** Rollup 聚合方式选项（向导与关联管理弹窗共用） */
+export const ROLLUP_AGG_OPTIONS: { value: LookupRollupAgg; label: string }[] = [
   { value: 'sum', label: '求和 (SUM)' },
   { value: 'count', label: '计数 (COUNT)' },
   { value: 'avg', label: '平均值 (AVG)' },

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
+import type { Region } from '@infinitable/render'
 import {
   ApiError,
   createRecord,
@@ -24,7 +25,7 @@ import { DisambiguatePopover } from './components/DisambiguatePopover'
 import { DrillDownDrawer } from './components/DrillDownDrawer'
 import { FilterIcon, PlusIcon, RotateCcwIcon, TableIcon } from './components/Icons'
 import { ImportExcelModal } from './components/ImportExcelModal'
-import { LookupManageModal } from './components/LookupManageModal'
+import { LookupFieldPanel } from './components/LookupFieldPanel'
 import { LookupWizardModal } from './components/LookupWizardModal'
 import { PivotConfigBar } from './components/PivotConfigBar'
 import { Sidebar } from './components/Sidebar'
@@ -187,7 +188,9 @@ export function App() {
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([])
   const [watermarkEnabled, setWatermarkEnabled] = useState(false)
   const [showLookupWizard, setShowLookupWizard] = useState(false)
-  const [showLookupManage, setShowLookupManage] = useState(false)
+  const [fieldSettings, setFieldSettings] = useState<{ columnKey: string; rect: Region } | null>(
+    null,
+  )
   const [showImportModal, setShowImportModal] = useState(false)
   const [activeConflict, setActiveConflict] = useState<SmartGridConflictClickInfo | null>(null)
   const [activeCellEdit, setActiveCellEdit] = useState<RichCellEditInfo | null>(null)
@@ -290,6 +293,7 @@ export function App() {
     setActiveConflict(null)
     setActiveCellEdit(null)
     setDrillEvent(null)
+    setFieldSettings(null)
     setGridScrollLeft(0)
   }, [])
 
@@ -407,6 +411,11 @@ export function App() {
     onCellDrill: (ev: PivotCellDrillEvent) => setDrillEvent(ev),
     onHeaderColumnSort: (field: string, meta: { additive: boolean }) =>
       handleHeaderColumnSort(field, meta),
+    onHeaderContextMenu: (info: { column: SmartColumn; rect: Region }) => {
+      if (info.column.type === 'lookup') {
+        setFieldSettings({ columnKey: info.column.key, rect: info.rect })
+      }
+    },
   })
   handlersRef.current = {
     onCellValueChange: handleUpdateRecord,
@@ -418,6 +427,11 @@ export function App() {
     onCellDrill: (ev: PivotCellDrillEvent) => setDrillEvent(ev),
     onHeaderColumnSort: (field: string, meta: { additive: boolean }) =>
       handleHeaderColumnSort(field, meta),
+    onHeaderContextMenu: (info: { column: SmartColumn; rect: Region }) => {
+      if (info.column.type === 'lookup') {
+        setFieldSettings({ columnKey: info.column.key, rect: info.rect })
+      }
+    },
   }
 
   const viewIdentity = activeTable && activeView ? `${activeTable.meta.id}:${activeView.id}` : ''
@@ -460,6 +474,7 @@ export function App() {
         onValidationError: (msg) => handlersRef.current.onValidationError(msg),
         onScrollChange: (scrollLeft) => handlersRef.current.onScrollChange(scrollLeft),
         onHeaderColumnClick: (field, meta) => handlersRef.current.onHeaderColumnSort(field, meta),
+        onHeaderContextMenu: (info) => handlersRef.current.onHeaderContextMenu(info),
         onFooterLayoutChange: (layout) => setFooterLayout(layout),
       })
       adapter.setWatermark(watermarkEnabled, `${activeTable.meta.name} · 内部数据`)
@@ -724,7 +739,8 @@ export function App() {
       columns: [...activeTable.meta.columns, ...newColumns],
       summaries: nextSummaries,
     })
-    pushToast('success', `已添加 ${newColumns.length} 个字段列`)
+    const hint = newColumns.some((col) => col.type === 'lookup') ? '，右键关联列头可随时编辑' : ''
+    pushToast('success', `已添加 ${newColumns.length} 个字段列${hint}`)
   }
 
   async function handleRenameColumn(columnKey: string, nextTitle: string) {
@@ -784,8 +800,8 @@ export function App() {
     pushToast('success', '已追加联合匹配条件')
   }
 
-  /** 关联管理保存：nextColumns 已含删改增结果，被删列同步清理视图/汇总配置 */
-  async function handleSaveLookupManage(nextColumns: SmartColumn[]) {
+  /** 关联字段设置保存：nextColumns 已含删改增结果，被删列同步清理视图/汇总配置 */
+  async function handleSaveLookupColumns(nextColumns: SmartColumn[]) {
     if (!activeTable) return
     let nextMeta = activeTable.meta
     const nextKeys = new Set(nextColumns.map((c) => c.key))
@@ -795,7 +811,7 @@ export function App() {
       }
     }
     await handleSaveMeta(activeTable.meta.id, { ...nextMeta, columns: nextColumns })
-    pushToast('success', '关联查找配置已更新')
+    pushToast('success', '关联字段设置已保存')
   }
 
   function handleJumpToFirstConflict() {
@@ -878,12 +894,6 @@ export function App() {
   const activePivotConfig =
     activeView.pivotConfig ?? buildDefaultPivotConfig(activeTable.meta.columns)
 
-  const lookupGroupCount = new Set(
-    activeTable.meta.columns
-      .filter((c) => c.type === 'lookup' && c.lookupConfig)
-      .map((c) => c.lookupConfig!.groupId),
-  ).size
-
   const hasActiveFilters =
     activeView.filterGroup.conditions.length > 0 ||
     Object.values(activeView.quickFilterValues ?? {}).some((v) => v.length > 0)
@@ -939,8 +949,9 @@ export function App() {
           onRenameColumn={handleRenameColumn}
           onDeleteColumn={handleDeleteColumn}
           onOpenLookupWizard={() => setShowLookupWizard(true)}
-          lookupGroupCount={lookupGroupCount}
-          onOpenLookupManage={() => setShowLookupManage(true)}
+          onEditLookupColumn={(columnKey, anchor) =>
+            setFieldSettings({ columnKey, rect: anchor.getBoundingClientRect() })
+          }
           onJumpToFirstConflict={handleJumpToFirstConflict}
           onToggleWatermark={() => setWatermarkEnabled((v) => !v)}
         />
@@ -1031,15 +1042,21 @@ export function App() {
         />
       )}
 
-      {showLookupManage && (
-        <LookupManageModal
-          sourceTable={activeTable}
-          sourceComputedRecords={pipeline.allComputedRecords}
-          allTables={tables}
-          onClose={() => setShowLookupManage(false)}
-          onSave={handleSaveLookupManage}
-        />
-      )}
+      {fieldSettings &&
+        activeTable.meta.columns.some(
+          (col) => col.key === fieldSettings.columnKey && col.type === 'lookup',
+        ) && (
+          <LookupFieldPanel
+            columnKey={fieldSettings.columnKey}
+            rect={fieldSettings.rect}
+            sourceTable={activeTable}
+            sourceComputedRecords={pipeline.allComputedRecords}
+            allTables={tables}
+            onClose={() => setFieldSettings(null)}
+            onSave={handleSaveLookupColumns}
+            onDeleteColumn={handleDeleteColumn}
+          />
+        )}
 
       {showImportModal && (
         <ImportExcelModal

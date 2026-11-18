@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   appendMatchRuleToLookupGroup,
-  applyLookupManageChanges,
   createLookupColumnsFromWizard,
   evaluateTableLookups,
   previewLookupStats,
@@ -465,82 +464,5 @@ describe('lookup-engine', () => {
     })
     expect(second[0]?.key).not.toBe(first[0]?.key)
     expect(second[0]?.numberFormat).toBe('integer')
-  })
-
-  it('applyLookupManageChanges：删列、改标题/格式/lookupConfig、追加新列一次应用', () => {
-    const [deptCol, levelCol] = createLookupColumnsFromWizard({
-      groupId: 'grp_emp',
-      targetTableId: 'tbl_emp',
-      matchRules: [{ sourceField: 'owner', targetField: 'name' }],
-      mode: 'one',
-      returnFields: [
-        { field: 'dept', title: '部门' },
-        { field: 'level', title: '职级' },
-      ],
-    })
-    const columns = [
-      { key: 'owner', title: '负责人', type: 'text' as const, width: 100 },
-      deptCol!,
-      levelCol!,
-    ]
-
-    const next = applyLookupManageChanges(columns, {
-      deletedKeys: [levelCol!.key],
-      updates: [
-        {
-          key: deptCol!.key,
-          title: '所属部门',
-          lookupConfig: {
-            ...deptCol!.lookupConfig!,
-            matchRules: [
-              { sourceField: 'owner', targetField: 'name' },
-              { sourceField: 'region', targetField: 'dept' },
-            ],
-          },
-        },
-      ],
-      addedColumns: createLookupColumnsFromWizard({
-        groupId: 'grp_emp',
-        targetTableId: 'tbl_emp',
-        matchRules: [{ sourceField: 'owner', targetField: 'name' }],
-        mode: 'one',
-        existingKeys: columns.map((c) => c.key),
-        returnFields: [{ field: 'emp_id', title: '工号' }],
-      }),
-    })
-
-    expect(next.map((c) => c.key)).toEqual(['owner', deptCol!.key, 'lookup_grp_emp_emp_id_0'])
-    const updatedDept = next.find((c) => c.key === deptCol!.key)!
-    expect(updatedDept.title).toBe('所属部门')
-    expect(updatedDept.lookupConfig?.matchRules).toHaveLength(2)
-    const appended = next.at(-1)!
-    expect(appended.lookupConfig?.groupId).toBe('grp_emp')
-    expect(appended.lookupConfig?.targetReturnField).toBe('emp_id')
-  })
-
-  it('applyLookupManageChanges：numberFormat 传 null 清除该属性', () => {
-    const [countCol] = createLookupColumnsFromWizard({
-      groupId: 'grp_pay',
-      targetTableId: 'tbl_pay',
-      matchRules: [{ sourceField: 'code', targetField: 'project_code' }],
-      mode: 'rollup',
-      returnFields: [{ field: 'amount', title: '回款笔数', rollupAgg: 'count' }],
-    })
-    const next = applyLookupManageChanges([countCol!], {
-      deletedKeys: [],
-      updates: [
-        {
-          key: countCol!.key,
-          lookupConfig: {
-            ...countCol!.lookupConfig!,
-            rollupAgg: 'join',
-          },
-          numberFormat: null,
-        },
-      ],
-      addedColumns: [],
-    })
-    expect(next[0]!.numberFormat).toBeUndefined()
-    expect(next[0]!.lookupConfig?.rollupAgg).toBe('join')
   })
 })

@@ -20,9 +20,9 @@ import {
   AlertTriangleIcon,
   ColumnsIcon,
   FilterIcon,
-  Link2Icon,
   LockIcon,
   PlusIcon,
+  SettingsIcon,
   SlidersIcon,
   SortIcon,
   SparklesIcon,
@@ -49,9 +49,8 @@ export interface ToolbarProps {
   onRenameColumn: (columnKey: string, nextTitle: string) => Promise<void>
   onDeleteColumn: (columnKey: string) => Promise<void>
   onOpenLookupWizard: () => void
-  /** 当前表既有关联组数量（管理按钮展示与禁用依据） */
-  lookupGroupCount: number
-  onOpenLookupManage: () => void
+  /** 字段管理中打开关联列的字段设置面板（锚定到唤起按钮） */
+  onEditLookupColumn: (columnKey: string, anchor: HTMLElement) => void
   onJumpToFirstConflict: () => void
   onToggleWatermark: () => void
 }
@@ -125,8 +124,7 @@ export function Toolbar({
   onRenameColumn,
   onDeleteColumn,
   onOpenLookupWizard,
-  lookupGroupCount,
-  onOpenLookupManage,
+  onEditLookupColumn,
   onJumpToFirstConflict,
   onToggleWatermark,
 }: ToolbarProps) {
@@ -808,21 +806,6 @@ export function Toolbar({
 
         <button
           type="button"
-          className={`st-btn st-btn-sm ${lookupGroupCount > 0 ? 'st-btn-accent' : ''}`}
-          disabled={busy || lookupGroupCount === 0}
-          onClick={onOpenLookupManage}
-          title={
-            lookupGroupCount === 0
-              ? '当前表暂无关联查找列'
-              : '管理既有关联：匹配条件 / 带出列 / 删除'
-          }
-        >
-          <Link2Icon size={13} />
-          <span>管理关联{lookupGroupCount > 0 ? ` (${lookupGroupCount})` : ''}</span>
-        </button>
-
-        <button
-          type="button"
           className={`st-btn st-btn-sm ${watermarkEnabled ? 'st-btn-accent' : ''}`}
           onClick={onToggleWatermark}
         >
@@ -1094,6 +1077,21 @@ export function Toolbar({
                             onClick={() => void onRenameColumn(col.key, draftTitle.trim())}
                           >
                             保存名称
+                          </button>
+                        )}
+                        {col.type === 'lookup' && (
+                          <button
+                            type="button"
+                            className="st-icon-btn"
+                            disabled={busy}
+                            title={`设置关联列 ${col.title}（也可右键表格列头唤起）`}
+                            aria-label={`设置关联列 ${col.title}`}
+                            onClick={(e) => {
+                              setPopover(null)
+                              onEditLookupColumn(col.key, e.currentTarget)
+                            }}
+                          >
+                            <SettingsIcon size={14} />
                           </button>
                         )}
                         {deletable && (

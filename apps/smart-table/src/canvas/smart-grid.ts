@@ -69,6 +69,8 @@ export interface SmartGridOptions {
   onScrollChange?: (scrollLeft: number, scrollTop: number) => void
   onRowSelectionChange?: (recordIds: string[]) => void
   onHeaderColumnClick?: (field: string, meta: { additive: boolean }) => void
+  /** 列头右键（仅数据列）：抛列定义与列头视口矩形，供宿主挂字段设置面板 */
+  onHeaderContextMenu?: (info: { column: SmartColumn; rect: Region }) => void
   onFooterLayoutChange?: (layout: FooterLayout) => void
 }
 
@@ -658,6 +660,7 @@ export class SmartGridAdapter {
   private readonly onScrollChange: SmartGridOptions['onScrollChange']
   private readonly onRowSelectionChange: SmartGridOptions['onRowSelectionChange']
   private readonly onHeaderColumnClick: SmartGridOptions['onHeaderColumnClick']
+  private readonly onHeaderContextMenu: SmartGridOptions['onHeaderContextMenu']
   private readonly onFooterLayoutChange: SmartGridOptions['onFooterLayoutChange']
 
   private columns: readonly SmartColumn[]
@@ -687,6 +690,7 @@ export class SmartGridAdapter {
     this.onScrollChange = options.onScrollChange
     this.onRowSelectionChange = options.onRowSelectionChange
     this.onHeaderColumnClick = options.onHeaderColumnClick
+    this.onHeaderContextMenu = options.onHeaderContextMenu
     this.onFooterLayoutChange = options.onFooterLayoutChange
 
     this.columns = options.columns
@@ -1062,12 +1066,12 @@ export class SmartGridAdapter {
   }
 
   /**
-   * 列头单击命中：行表头/角格、checkbox 列与列边界拖拽热区（±RESIZE_HOT_PX，与引擎
-   * resize 命中同口径）不触发；命中数据列时按 shiftKey 抛 additive 点击排序回调。
+   * 列头命中解析：行表头/角格、checkbox 列与列边界拖拽热区（±RESIZE_HOT_PX，与引擎
+   * resize 命中同口径）不命中；命中数据列返回其索引与列定义。
    */
-  private handleHeaderColumnClick(x: number, additive: boolean): void {
-    if (!this.onHeaderColumnClick || x < this.table.rowHeaderWidth) {
-      return
+  private resolveHeaderColumnAt(x: number): { index: number; colDef: SmartColumn } | null {
+    if (x < this.table.rowHeaderWidth) {
+      return null
     }
     const table = this.table
     const rel = x - table.rowHeaderWidth
@@ -1079,16 +1083,42 @@ export class SmartGridAdapter {
       }
       const colDef = this.columns[i]
       if (!colDef || colDef.type === 'checkbox') {
-        return
+        return null
       }
-      // 落在列边界热区（列宽拖拽把手）让位给 resize，不触发排序
+      // 落在列边界热区（列宽拖拽把手）让位给 resize
       const distToEdges = Math.min(contentX - offsets[i]!, offsets[i + 1]! - contentX)
       if (distToEdges <= RESIZE_HOT_PX) {
-        return
+        return null
       }
-      this.onHeaderColumnClick(colDef.key, { additive })
+      return { index: i, colDef }
+    }
+    return null
+  }
+
+  /** 列头单击命中数据列时按 shiftKey 抛 additive 点击排序回调 */
+  private handleHeaderColumnClick(x: number, additive: boolean): void {
+    if (!this.onHeaderColumnClick) {
       return
     }
+    const hit = this.resolveHeaderColumnAt(x)
+    if (hit) {
+      this.onHeaderColumnClick(hit.colDef.key, { additive })
+    }
+  }
+
+  /** 列头单元格在浏览器视口中的矩形（列头恒在可视区，直接由列几何换算） */
+  private getHeaderViewportRect(index: number): Region {
+    const table = this.table
+    const offsets = table.geometryState.colOffsets
+    const contentX = offsets[index] ?? 0
+    const rel =
+      contentX < table.geometryState.frozenColsWidth ? contentX : contentX - table.getScrollLeft()
+    return this.toViewportRect({
+      x: rel + table.rowHeaderWidth,
+      y: 0,
+      width: (offsets[index + 1] ?? contentX + table.getColWidth(index)) - contentX,
+      height: table.headerHeight,
+    })
   }
 
   private bindContainerEvents(): void {
@@ -1188,6 +1218,23 @@ export class SmartGridAdapter {
       })
     }
 
+    const onContextMenu = (event: MouseEvent): void => {
+      if (!this.onHeaderContextMenu) {
+        return
+      }
+      const rect = this.container.getBoundingClientRect()
+      const y = event.clientY - rect.top
+      if (y >= this.table.headerHeight) {
+        return
+      }
+      const hit = this.resolveHeaderColumnAt(event.clientX - rect.left)
+      if (!hit) {
+        return
+      }
+      event.preventDefault()
+      this.onHeaderContextMenu({ column: hit.colDef, rect: this.getHeaderViewportRect(hit.index) })
+    }
+
     const onWheel = (event: WheelEvent): void => {
       if (this.table.usesNativeScrollbar) {
         return
@@ -1218,11 +1265,13 @@ export class SmartGridAdapter {
     this.container.addEventListener('pointerdown', onPointerDown)
     this.container.addEventListener('click', onClick)
     this.container.addEventListener('dblclick', onDblClick)
+    this.container.addEventListener('contextmenu', onContextMenu)
     this.container.addEventListener('wheel', onWheel, { passive: false })
     this.containerDisposers.push(() => {
       this.container.removeEventListener('pointerdown', onPointerDown)
       this.container.removeEventListener('click', onClick)
       this.container.removeEventListener('dblclick', onDblClick)
+      this.container.removeEventListener('contextmenu', onContextMenu)
       this.container.removeEventListener('wheel', onWheel)
     })
   }

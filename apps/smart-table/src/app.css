@@ -1978,68 +1978,54 @@ input:focus-visible {
   flex-direction: column;
 }
 
-/* 关联查找管理弹窗 */
-.st-lookup-group-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.st-lookup-group-card {
+/* 关联列字段设置面板（企微式：右键列头唤起） */
+.st-field-panel {
+  position: fixed;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  background: var(--st-surface);
   border: 1px solid var(--st-border);
-  border-radius: var(--st-radius);
-  padding: 12px 14px;
+  border-radius: var(--st-radius-lg);
+  box-shadow: var(--st-shadow-lg);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  z-index: 320;
 }
 
-.st-lookup-group-head {
+.st-field-panel-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.st-field-panel-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--st-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.st-field-panel-error {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--st-danger);
+  background: var(--st-danger-soft);
+  border-bottom: 1px solid var(--st-border);
+}
+
+.st-field-panel-footer {
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.st-lookup-group-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.st-lookup-group-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.st-lookup-item-row {
-  display: grid;
-  grid-template-columns: minmax(96px, 150px) auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.st-lookup-item-row.is-staged {
-  background: var(--st-primary-soft);
-  border-radius: var(--st-radius-sm);
-  padding: 4px 6px;
-  margin: 0 -6px;
-}
-
-.st-lookup-item-source {
+.st-field-panel-delete-hint {
   font-size: 12px;
-  color: var(--st-text-sub);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.st-lookup-item-agg {
-  width: 132px;
+  color: var(--st-danger);
 }
 
 .st-popover-header {

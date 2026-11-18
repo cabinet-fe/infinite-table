@@ -509,46 +509,6 @@ export function appendMatchRuleToLookupGroup(
   })
 }
 
-/** 关联管理弹窗的单列编辑项：改标题、数值格式或整体替换 lookupConfig（携带编辑后的 matchRules / rollupAgg） */
-export interface LookupColumnUpdate {
-  key: string
-  title?: string
-  lookupConfig?: LookupConfig
-  /** 数值格式调整（null 表示清除，聚合切文本拼接时用） */
-  numberFormat?: SmartColumn['numberFormat'] | null
-}
-
-/** 关联管理弹窗的一次性保存载荷：删列、改列与追加新带出列 */
-export interface LookupManageChanges {
-  deletedKeys: readonly string[]
-  updates: readonly LookupColumnUpdate[]
-  addedColumns: readonly SmartColumn[]
-}
-
-/** 关联管理编辑结果应用到表列：先删、再改（标题/数值格式/lookupConfig）、最后追加新列 */
-export function applyLookupManageChanges(
-  columns: readonly SmartColumn[],
-  changes: LookupManageChanges,
-): SmartColumn[] {
-  const deleted = new Set(changes.deletedKeys)
-  const updatesByKey = new Map(changes.updates.map((update) => [update.key, update]))
-  const edited = columns
-    .filter((col) => !deleted.has(col.key))
-    .map((col) => {
-      const update = updatesByKey.get(col.key)
-      if (!update) return col
-      return {
-        ...col,
-        ...(update.title !== undefined ? { title: update.title } : {}),
-        ...(update.numberFormat !== undefined
-          ? { numberFormat: update.numberFormat ?? undefined }
-          : {}),
-        ...(update.lookupConfig !== undefined ? { lookupConfig: update.lookupConfig } : {}),
-      }
-    })
-  return [...edited, ...changes.addedColumns]
-}
-
 /**
  * 向导实时预览匹配统计：统计唯一命中、存在重名冲突、未命中的源表行数。
  */
