@@ -1,9 +1,55 @@
-// 仪表盘交互式 SVG 图表组件集：柱状图、折线图、饼图/环形图，支持悬停数值提示与图例联动高亮。
+// 仪表盘 Chart.js 图表组件集：按需注册六类图型，支持单/多系列（并列/堆叠）渲染与图例点击隔离。
 
-import { useState } from 'react'
-import type { DashboardChartDatum, DashboardChartResult } from '../domain/dashboard-engine'
+import { useEffect, useRef } from 'react'
+import {
+  ArcElement,
+  BarController,
+  BarElement,
+  CategoryScale,
+  Chart,
+  DoughnutController,
+  Filler,
+  Legend,
+  LinearScale,
+  LineController,
+  LineElement,
+  PieController,
+  PointElement,
+  RadarController,
+  RadialLinearScale,
+  Tooltip,
+  type ChartConfiguration,
+  type ChartDataset,
+  type ChartType,
+  type Plugin,
+  type TooltipItem,
+} from 'chart.js'
+import { getRelativePosition } from 'chart.js/helpers'
+import type { DashboardChartResult } from '../domain/dashboard-engine'
 import { formatSummaryValue } from '../domain/query-engine'
-import type { SmartColumn } from '../shared/schema'
+import type { DashboardChartType, SmartColumn } from '../shared/schema'
+
+Chart.register(
+  BarController,
+  BarElement,
+  LineController,
+  LineElement,
+  PointElement,
+  PieController,
+  DoughnutController,
+  ArcElement,
+  RadarController,
+  RadialLinearScale,
+  CategoryScale,
+  LinearScale,
+  Filler,
+  Tooltip,
+  Legend,
+)
+
+export type SupportedChartJsType = 'bar' | 'line' | 'pie' | 'doughnut' | 'radar'
+
+export type DashboardChartConfigOutput = ChartConfiguration<SupportedChartJsType, number[], string>
 
 const CHART_PALETTE = [
   '#2563eb',
@@ -14,16 +60,65 @@ const CHART_PALETTE = [
   '#0284c7',
   '#059669',
   '#4f46e5',
-]
+] as const
+
+const CHART_ARIA_LABELS: Record<Exclude<DashboardChartType, 'pie'>, string> = {
+  bar: '柱状图',
+  horizontalBar: '横向条形图',
+  line: '折线图',
+  area: '面积图',
+  radar: '雷达图',
+}
+
+interface LegendHitBox {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+interface ChartLegendWithHitBoxes {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  options?: { display?: boolean }
+  legendHitBoxes?: readonly LegendHitBox[]
+}
+
+function resolveChartAriaLabel(chart: DashboardChartResult): string {
+  if (chart.chartType === 'pie') {
+    return chart.donut ? '环形图' : '饼图'
+  }
+  return CHART_ARIA_LABELS[chart.chartType]
+}
+
+function toAlphaColor(color: string, alpha: number): string {
+  const hex = color.trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    const r = Number.parseInt(hex.slice(1, 3), 16)
+    const g = Number.parseInt(hex.slice(3, 5), 16)
+    const b = Number.parseInt(hex.slice(5, 7), 16)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
+    const r = Number.parseInt(hex[1]! + hex[1]!, 16)
+    const g = Number.parseInt(hex[2]! + hex[2]!, 16)
+    const b = Number.parseInt(hex[3]! + hex[3]!, 16)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+  return color
+}
 
 function resolveSeriesColor(
-  datum: DashboardChartDatum,
+  label: string,
   index: number,
-  dimensionCol?: SmartColumn,
+  explicitColor?: string,
+  col?: SmartColumn,
 ): string {
-  const opt = dimensionCol?.options?.find((o) => o.label === datum.label)
+  const opt = col?.options?.find((o) => o.label === label)
   if (opt?.textColor) return opt.textColor
-  if (datum.color) return datum.color
+  if (explicitColor) return explicitColor
   return CHART_PALETTE[index % CHART_PALETTE.length]!
 }
 
@@ -38,10 +133,6 @@ function formatChartMetric(
   return formatSummaryValue(value, 'sum', measureCol?.numberFormat)
 }
 
-function truncateLabel(text: string, maxLen = 9): string {
-  return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text
-}
-
 function formatAxisTick(value: number): string {
   if (Math.abs(value) >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}亿`
   if (Math.abs(value) >= 10_000) return `${(value / 10_000).toFixed(1)}万`
@@ -49,447 +140,407 @@ function formatAxisTick(value: number): string {
   return value.toFixed(1)
 }
 
+/** 判断点击事件是否命中 Chart.js 图例交互区域（hitBox） */
+export function isLegendClick<
+  TType extends ChartType = SupportedChartJsType,
+  TData = number[],
+  TLabel = string,
+>(
+  chart: Chart<TType, TData, TLabel> | null | undefined,
+  event: MouseEvent | React.MouseEvent,
+): boolean {
+  const legend = chart?.legend as unknown as ChartLegendWithHitBoxes | undefined
+  if (!chart || !legend || legend.options?.display === false) return false
+  if (chart.width <= 0 || chart.height <= 0) return false
+
+  const nativeEvent = 'nativeEvent' in event ? event.nativeEvent : event
+  const pos = getRelativePosition(nativeEvent, chart as unknown as Chart)
+  if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return false
+
+  const inLegendBox =
+    pos.x >= legend.left && pos.x <= legend.right && pos.y >= legend.top && pos.y <= legend.bottom
+  if (!inLegendBox) return false
+
+  const hitBoxes = legend.legendHitBoxes
+  if (!hitBoxes || hitBoxes.length === 0) return false
+
+  return hitBoxes.some(
+    (box) =>
+      pos.x >= box.left &&
+      pos.x <= box.left + box.width &&
+      pos.y >= box.top &&
+      pos.y <= box.top + box.height,
+  )
+}
+
+function createDonutCenterPlugin(totalText: string): Plugin<'doughnut'> {
+  return {
+    id: 'donutCenterText',
+    afterDraw(chart) {
+      const { ctx, chartArea } = chart
+      if (!ctx || !chartArea) return
+      const firstArc = chart.getDatasetMeta(0)?.data[0]
+      const cx = firstArc ? firstArc.x : (chartArea.left + chartArea.right) / 2
+      const cy = firstArc ? firstArc.y : (chartArea.top + chartArea.bottom) / 2
+
+      ctx.save()
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#64748b'
+      ctx.font = '10px sans-serif'
+      ctx.fillText('合计', cx, cy - 8)
+      ctx.fillStyle = '#0f172a'
+      ctx.font = '700 12px sans-serif'
+      ctx.fillText(totalText, cx, cy + 9)
+      ctx.restore()
+    },
+  }
+}
+
+function buildTooltipLabel(
+  ctx: TooltipItem<SupportedChartJsType>,
+  chart: DashboardChartResult,
+  hasMultiSeries: boolean,
+  measureCol?: SmartColumn,
+): string {
+  const raw = typeof ctx.raw === 'number' ? ctx.raw : 0
+  const formatted = formatChartMetric(raw, chart.agg, measureCol)
+
+  if (chart.chartType === 'pie') {
+    const datum = chart.data[ctx.dataIndex]
+    const pct = datum ? `${(datum.ratio * 100).toFixed(1)}%` : ''
+    const cnt = datum ? `${datum.count} 条` : ''
+    const meta = [cnt, pct].filter(Boolean).join(' · ')
+    return meta ? `${ctx.label}: ${formatted} (${meta})` : `${ctx.label}: ${formatted}`
+  }
+
+  if (hasMultiSeries && chart.series) {
+    const series = chart.series[ctx.datasetIndex]
+    const count = series?.counts[ctx.dataIndex]
+    return count !== undefined
+      ? `${series!.name}: ${formatted} (${count} 条)`
+      : `${ctx.dataset.label ?? ''}: ${formatted}`
+  }
+
+  const datum = chart.data[ctx.dataIndex]
+  return datum ? `${formatted} (${datum.count} 条)` : formatted
+}
+
+/** 将 DashboardChartResult 映射为 Chart.js 配置对象 */
+export function buildChartConfiguration(
+  chart: DashboardChartResult,
+  dimensionCol?: SmartColumn,
+  measureCol?: SmartColumn,
+  seriesCol?: SmartColumn,
+): DashboardChartConfigOutput {
+  const measureLabel =
+    chart.agg === 'count' ? '记录数' : (measureCol?.title ?? (chart.measureField || chart.title))
+  const hasMultiSeries =
+    chart.chartType !== 'pie' && Boolean(chart.series && chart.series.length > 0)
+  const labels = hasMultiSeries ? chart.categories : chart.data.map((d) => d.label)
+
+  const legendOptions = {
+    display: chart.chartType === 'pie' || hasMultiSeries,
+    position: (chart.chartType === 'pie' ? 'right' : 'top') as 'right' | 'top',
+    labels: {
+      boxWidth: 10,
+      boxHeight: 10,
+      usePointStyle: true,
+      padding: 12,
+      color: '#475569',
+      font: { size: 11 },
+    },
+    onHover: (_event: unknown, _item: unknown, legend: { chart: Chart }) => {
+      legend.chart.canvas.style.cursor = 'pointer'
+    },
+    onLeave: (_event: unknown, _item: unknown, legend: { chart: Chart }) => {
+      legend.chart.canvas.style.cursor = ''
+    },
+  }
+
+  const tooltipOptions = {
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    padding: 10,
+    cornerRadius: 8,
+    callbacks: {
+      label: (ctx: TooltipItem<SupportedChartJsType>) =>
+        buildTooltipLabel(ctx, chart, hasMultiSeries, measureCol),
+    },
+  }
+
+  if (chart.chartType === 'pie') {
+    const type: 'pie' | 'doughnut' = chart.donut ? 'doughnut' : 'pie'
+    const datasets: ChartDataset<'pie' | 'doughnut', number[]>[] = [
+      {
+        label: measureLabel,
+        data: chart.data.map((d) => Math.max(0, d.value)),
+        backgroundColor: chart.data.map((d, idx) =>
+          resolveSeriesColor(d.label, idx, d.color, dimensionCol),
+        ),
+        borderColor: '#ffffff',
+        borderWidth: 2,
+        hoverOffset: 6,
+      },
+    ]
+
+    const totalText = formatChartMetric(chart.totalValue, chart.agg, measureCol)
+    return {
+      type,
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: chart.donut ? '58%' : 0,
+        plugins: {
+          legend: legendOptions,
+          tooltip: tooltipOptions,
+        },
+      },
+      ...(chart.donut
+        ? { plugins: [createDonutCenterPlugin(totalText) as Plugin<SupportedChartJsType>] }
+        : {}),
+    } as DashboardChartConfigOutput
+  }
+
+  if (chart.chartType === 'radar') {
+    const datasets: ChartDataset<'radar', number[]>[] = hasMultiSeries
+      ? chart.series!.map((s, idx) => {
+          const color = resolveSeriesColor(s.name, idx, s.color, seriesCol)
+          return {
+            label: s.name,
+            data: s.values,
+            borderColor: color,
+            backgroundColor: toAlphaColor(color, 0.18),
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          }
+        })
+      : [
+          {
+            label: measureLabel,
+            data: chart.data.map((d) => d.value),
+            borderColor: CHART_PALETTE[0],
+            backgroundColor: toAlphaColor(CHART_PALETTE[0], 0.18),
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          },
+        ]
+
+    return {
+      type: 'radar',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          r: {
+            beginAtZero: true,
+            grid: { color: '#e2e8f0' },
+            angleLines: { color: '#e2e8f0' },
+            pointLabels: { color: '#475569', font: { size: 11 } },
+            ticks: {
+              backdropColor: 'transparent',
+              color: '#64748b',
+              font: { size: 10 },
+              callback: (val) => formatAxisTick(Number(val)),
+            },
+          },
+        },
+        plugins: {
+          legend: legendOptions,
+          tooltip: tooltipOptions,
+        },
+      },
+    } as DashboardChartConfigOutput
+  }
+
+  if (chart.chartType === 'line' || chart.chartType === 'area') {
+    const isArea = chart.chartType === 'area'
+    const tension = isArea ? 0.35 : 0.2
+    const datasets: ChartDataset<'line', number[]>[] = hasMultiSeries
+      ? chart.series!.map((s, idx) => {
+          const color = resolveSeriesColor(s.name, idx, s.color, seriesCol)
+          return {
+            label: s.name,
+            data: s.values,
+            borderColor: color,
+            backgroundColor: isArea ? toAlphaColor(color, 0.18) : color,
+            fill: isArea,
+            tension,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+          }
+        })
+      : [
+          {
+            label: measureLabel,
+            data: chart.data.map((d) => d.value),
+            borderColor: CHART_PALETTE[0],
+            backgroundColor: isArea ? toAlphaColor(CHART_PALETTE[0], 0.16) : CHART_PALETTE[0],
+            fill: isArea,
+            tension,
+            borderWidth: 2.2,
+            pointRadius: 3.5,
+            pointHoverRadius: 5.5,
+          },
+        ]
+
+    return {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#64748b', font: { size: 11 } },
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#f1f5f9' },
+            ticks: {
+              color: '#64748b',
+              font: { size: 11 },
+              callback: (val) => formatAxisTick(Number(val)),
+            },
+          },
+        },
+        plugins: {
+          legend: legendOptions,
+          tooltip: tooltipOptions,
+        },
+      },
+    } as DashboardChartConfigOutput
+  }
+
+  const isHorizontal = chart.chartType === 'horizontalBar'
+  const stacked = Boolean(chart.stacked)
+  const datasets: ChartDataset<'bar', number[]>[] = hasMultiSeries
+    ? chart.series!.map((s, idx) => ({
+        label: s.name,
+        data: s.values,
+        backgroundColor: resolveSeriesColor(s.name, idx, s.color, seriesCol),
+        borderRadius: 4,
+        maxBarThickness: isHorizontal ? 26 : 36,
+      }))
+    : [
+        {
+          label: measureLabel,
+          data: chart.data.map((d) => d.value),
+          backgroundColor: chart.data.map((d, idx) =>
+            resolveSeriesColor(d.label, idx, d.color, dimensionCol),
+          ),
+          borderRadius: 4,
+          maxBarThickness: isHorizontal ? 28 : 40,
+        },
+      ]
+
+  const categoryAxis = {
+    stacked,
+    grid: { display: false },
+    ticks: { color: '#64748b', font: { size: 11 } },
+  }
+  const valueAxis = {
+    stacked,
+    beginAtZero: true,
+    grid: { color: '#f1f5f9' },
+    ticks: {
+      color: '#64748b',
+      font: { size: 11 },
+      callback: (val: string | number) => formatAxisTick(Number(val)),
+    },
+  }
+
+  return {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: isHorizontal ? 'y' : 'x',
+      scales: isHorizontal ? { x: valueAxis, y: categoryAxis } : { x: categoryAxis, y: valueAxis },
+      plugins: {
+        legend: legendOptions,
+        tooltip: tooltipOptions,
+      },
+    },
+  } as DashboardChartConfigOutput
+}
+
 export interface DashboardChartBodyProps {
   chart: DashboardChartResult
   dimensionCol?: SmartColumn
   measureCol?: SmartColumn
+  seriesCol?: SmartColumn
+  onChartBodyClick?: (event: React.MouseEvent<HTMLDivElement>) => void
 }
 
-export function DashboardChartBody({ chart, dimensionCol, measureCol }: DashboardChartBodyProps) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+export function DashboardChartBody({
+  chart,
+  dimensionCol,
+  measureCol,
+  seriesCol,
+  onChartBodyClick,
+}: DashboardChartBodyProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const chartRef = useRef<Chart<SupportedChartJsType, number[], string> | null>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || chart.data.length === 0) {
+      return
+    }
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      return
+    }
+
+    const config = buildChartConfiguration(chart, dimensionCol, measureCol, seriesCol)
+    const instance = new Chart(canvas, config)
+    chartRef.current = instance
+
+    return () => {
+      instance.destroy()
+      if (chartRef.current === instance) {
+        chartRef.current = null
+      }
+    }
+  }, [chart, dimensionCol, measureCol, seriesCol])
 
   if (chart.data.length === 0) {
     return (
-      <div className="flex h-56 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-400">
+      <div
+        onClick={onChartBodyClick}
+        className="flex h-56 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-400"
+      >
         暂无满足当前筛选条件的数据
       </div>
     )
   }
 
-  const hoveredDatum = hoveredIdx !== null ? chart.data[hoveredIdx] : undefined
-  const activeColor =
-    hoveredIdx !== null && hoveredDatum
-      ? resolveSeriesColor(hoveredDatum, hoveredIdx, dimensionCol)
-      : '#2563eb'
-
   return (
-    <div className="relative" onMouseLeave={() => setHoveredIdx(null)}>
-      {hoveredDatum && (
-        <div
-          data-chart-tooltip="true"
-          className="pointer-events-none absolute right-2 top-1 z-10 rounded-lg border border-slate-200 bg-slate-900/95 px-2.5 py-1.5 text-[11px] text-white shadow-lg"
-        >
-          <div className="flex items-center gap-1.5 font-medium">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: activeColor }}
-            />
-            <span>{hoveredDatum.label}</span>
-          </div>
-          <div className="mt-0.5 flex items-center gap-2.5 text-slate-200">
-            <strong className="font-semibold text-white">
-              {formatChartMetric(hoveredDatum.value, chart.agg, measureCol)}
-            </strong>
-            <span>{hoveredDatum.count} 条</span>
-            <span>{(hoveredDatum.ratio * 100).toFixed(1)}%</span>
-          </div>
-        </div>
-      )}
-
-      {chart.chartType === 'bar' && (
-        <BarChartSvg
-          data={chart.data}
-          dimensionCol={dimensionCol}
-          hoveredIdx={hoveredIdx}
-          onHover={setHoveredIdx}
-        />
-      )}
-
-      {chart.chartType === 'line' && (
-        <LineChartSvg data={chart.data} hoveredIdx={hoveredIdx} onHover={setHoveredIdx} />
-      )}
-
-      {chart.chartType === 'pie' && (
-        <PieChartSvg
-          chart={chart}
-          dimensionCol={dimensionCol}
-          measureCol={measureCol}
-          hoveredIdx={hoveredIdx}
-          onHover={setHoveredIdx}
-        />
-      )}
-    </div>
-  )
-}
-
-function BarChartSvg({
-  data,
-  dimensionCol,
-  hoveredIdx,
-  onHover,
-}: {
-  data: readonly DashboardChartDatum[]
-  dimensionCol?: SmartColumn
-  hoveredIdx: number | null
-  onHover: (idx: number | null) => void
-}) {
-  const width = 480
-  const height = 224
-  const pad = { top: 18, right: 16, bottom: 42, left: 54 }
-  const plotW = width - pad.left - pad.right
-  const plotH = height - pad.top - pad.bottom
-  const maxVal = Math.max(1, ...data.map((d) => Math.max(0, d.value)))
-  const ticks = [0, 0.25, 0.5, 0.75, 1]
-  const step = plotW / Math.max(1, data.length)
-  const barW = Math.min(40, Math.max(12, step * 0.56))
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-56 w-full select-none"
-      role="img"
-      aria-label="柱状图"
+    <div
+      className="relative h-56 w-full"
+      onClick={(event) => {
+        if (isLegendClick(chartRef.current, event.nativeEvent)) {
+          event.stopPropagation()
+          return
+        }
+        onChartBodyClick?.(event)
+      }}
     >
-      {ticks.map((ratio) => {
-        const y = pad.top + plotH * (1 - ratio)
-        return (
-          <g key={ratio}>
-            <line
-              x1={pad.left}
-              y1={y}
-              x2={width - pad.right}
-              y2={y}
-              stroke={ratio === 0 ? '#cbd5e1' : '#f1f5f9'}
-              strokeWidth={1}
-            />
-            <text x={pad.left - 8} y={y + 3} textAnchor="end" fontSize={10} fill="#64748b">
-              {formatAxisTick(maxVal * ratio)}
-            </text>
-          </g>
-        )
-      })}
-
-      {data.map((datum, idx) => {
-        const val = Math.max(0, datum.value)
-        const barH = (val / maxVal) * plotH
-        const cx = pad.left + step * idx + step / 2
-        const x = cx - barW / 2
-        const y = pad.top + plotH - barH
-        const color = resolveSeriesColor(datum, idx, dimensionCol)
-        const isHovered = hoveredIdx === idx
-
-        return (
-          <g
-            key={`${datum.label}-${idx}`}
-            onMouseEnter={() => onHover(idx)}
-            className="cursor-pointer"
-          >
-            <rect
-              x={pad.left + step * idx}
-              y={pad.top}
-              width={step}
-              height={plotH}
-              fill="transparent"
-            />
-            <rect
-              x={x}
-              y={y}
-              width={barW}
-              height={Math.max(2, barH)}
-              rx={4}
-              fill={color}
-              fillOpacity={hoveredIdx === null || isHovered ? 0.92 : 0.45}
-            />
-            <text
-              x={cx}
-              y={height - 18}
-              textAnchor="middle"
-              fontSize={10}
-              fill={isHovered ? '#0f172a' : '#64748b'}
-              fontWeight={isHovered ? 600 : 400}
-            >
-              {truncateLabel(datum.label, data.length > 7 ? 6 : 9)}
-            </text>
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-function LineChartSvg({
-  data,
-  hoveredIdx,
-  onHover,
-}: {
-  data: readonly DashboardChartDatum[]
-  hoveredIdx: number | null
-  onHover: (idx: number | null) => void
-}) {
-  const width = 480
-  const height = 224
-  const pad = { top: 20, right: 20, bottom: 42, left: 54 }
-  const plotW = width - pad.left - pad.right
-  const plotH = height - pad.top - pad.bottom
-  const maxVal = Math.max(1, ...data.map((d) => Math.max(0, d.value)))
-  const ticks = [0, 0.25, 0.5, 0.75, 1]
-
-  const points = data.map((datum, idx) => {
-    const x =
-      data.length === 1 ? pad.left + plotW / 2 : pad.left + (idx / (data.length - 1)) * plotW
-    const y = pad.top + plotH - (Math.max(0, datum.value) / maxVal) * plotH
-    return { x, y, datum, idx }
-  })
-
-  const linePath = points
-    .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
-    .join(' ')
-  const areaPath =
-    points.length > 1
-      ? `${linePath} L ${points[points.length - 1]!.x.toFixed(1)} ${(pad.top + plotH).toFixed(1)} L ${points[0]!.x.toFixed(1)} ${(pad.top + plotH).toFixed(1)} Z`
-      : ''
-
-  const labelStep = Math.max(1, Math.ceil(data.length / 8))
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-56 w-full select-none"
-      role="img"
-      aria-label="折线图"
-    >
-      {ticks.map((ratio) => {
-        const y = pad.top + plotH * (1 - ratio)
-        return (
-          <g key={ratio}>
-            <line
-              x1={pad.left}
-              y1={y}
-              x2={width - pad.right}
-              y2={y}
-              stroke={ratio === 0 ? '#cbd5e1' : '#f1f5f9'}
-              strokeWidth={1}
-            />
-            <text x={pad.left - 8} y={y + 3} textAnchor="end" fontSize={10} fill="#64748b">
-              {formatAxisTick(maxVal * ratio)}
-            </text>
-          </g>
-        )
-      })}
-
-      {areaPath && <path d={areaPath} fill="#2563eb" fillOpacity={0.09} />}
-      {points.length > 1 && (
-        <path
-          d={linePath}
-          fill="none"
-          stroke="#2563eb"
-          strokeWidth={2.2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      )}
-
-      {points.map((pt) => {
-        const isHovered = hoveredIdx === pt.idx
-        const showLabel = pt.idx % labelStep === 0 || pt.idx === points.length - 1
-        const hitW = plotW / Math.max(1, points.length)
-        return (
-          <g
-            key={`${pt.datum.label}-${pt.idx}`}
-            onMouseEnter={() => onHover(pt.idx)}
-            className="cursor-pointer"
-          >
-            {isHovered && (
-              <line
-                x1={pt.x}
-                y1={pad.top}
-                x2={pt.x}
-                y2={pad.top + plotH}
-                stroke="#93c5fd"
-                strokeDasharray="3 3"
-              />
-            )}
-            <rect x={pt.x - hitW / 2} y={pad.top} width={hitW} height={plotH} fill="transparent" />
-            <circle
-              cx={pt.x}
-              cy={pt.y}
-              r={isHovered ? 5.5 : 3.5}
-              fill="#ffffff"
-              stroke="#2563eb"
-              strokeWidth={isHovered ? 2.5 : 2}
-            />
-            {(showLabel || isHovered) && (
-              <text
-                x={pt.x}
-                y={height - 18}
-                textAnchor="middle"
-                fontSize={10}
-                fill={isHovered ? '#0f172a' : '#64748b'}
-                fontWeight={isHovered ? 600 : 400}
-              >
-                {truncateLabel(pt.datum.label, 8)}
-              </text>
-            )}
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-function describePieSlicePath(
-  cx: number,
-  cy: number,
-  outerR: number,
-  innerR: number,
-  startAngle: number,
-  endAngle: number,
-): string {
-  const x1 = cx + outerR * Math.cos(startAngle)
-  const y1 = cy + outerR * Math.sin(startAngle)
-  const x2 = cx + outerR * Math.cos(endAngle)
-  const y2 = cy + outerR * Math.sin(endAngle)
-  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0
-
-  if (innerR <= 0) {
-    return `M ${cx} ${cy} L ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2} Z`
-  }
-
-  const x3 = cx + innerR * Math.cos(endAngle)
-  const y3 = cy + innerR * Math.sin(endAngle)
-  const x4 = cx + innerR * Math.cos(startAngle)
-  const y4 = cy + innerR * Math.sin(startAngle)
-  return [
-    `M ${x1} ${y1}`,
-    `A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2}`,
-    `L ${x3} ${y3}`,
-    `A ${innerR} ${innerR} 0 ${largeArc} 0 ${x4} ${y4}`,
-    'Z',
-  ].join(' ')
-}
-
-function PieChartSvg({
-  chart,
-  dimensionCol,
-  measureCol,
-  hoveredIdx,
-  onHover,
-}: {
-  chart: DashboardChartResult
-  dimensionCol?: SmartColumn
-  measureCol?: SmartColumn
-  hoveredIdx: number | null
-  onHover: (idx: number | null) => void
-}) {
-  const positiveItems = chart.data
-    .map((datum, idx) => ({ datum, idx }))
-    .filter((item) => item.datum.ratio > 0)
-
-  const cx = 104
-  const cy = 104
-  const outerR = 84
-  const innerR = chart.donut ? 48 : 0
-
-  let currentAngle = -Math.PI / 2
-
-  return (
-    <div className="flex flex-col items-center gap-4 sm:flex-row">
-      <svg
-        viewBox="0 0 208 208"
-        className="h-52 w-52 shrink-0 select-none"
+      <canvas
+        ref={canvasRef}
         role="img"
-        aria-label={chart.donut ? '环形图' : '饼图'}
-      >
-        {positiveItems.length === 0 ? (
-          <circle cx={cx} cy={cy} r={outerR} fill="#e2e8f0" />
-        ) : positiveItems.length === 1 ? (
-          (() => {
-            const only = positiveItems[0]!
-            const color = resolveSeriesColor(only.datum, only.idx, dimensionCol)
-            return (
-              <g onMouseEnter={() => onHover(only.idx)} className="cursor-pointer">
-                <circle cx={cx} cy={cy} r={outerR} fill={color} />
-                {innerR > 0 && <circle cx={cx} cy={cy} r={innerR} fill="#ffffff" />}
-              </g>
-            )
-          })()
-        ) : (
-          positiveItems.map((item) => {
-            const sweep = item.datum.ratio * Math.PI * 2
-            const start = currentAngle
-            const end = currentAngle + sweep
-            currentAngle = end
-            const color = resolveSeriesColor(item.datum, item.idx, dimensionCol)
-            const isHovered = hoveredIdx === item.idx
-            return (
-              <path
-                key={`${item.datum.label}-${item.idx}`}
-                d={describePieSlicePath(
-                  cx,
-                  cy,
-                  isHovered ? outerR + 4 : outerR,
-                  innerR,
-                  start,
-                  end,
-                )}
-                fill={color}
-                fillOpacity={hoveredIdx === null || isHovered ? 0.94 : 0.45}
-                stroke="#ffffff"
-                strokeWidth={1.5}
-                onMouseEnter={() => onHover(item.idx)}
-                className="cursor-pointer transition-opacity"
-              />
-            )
-          })
-        )}
-
-        {chart.donut && (
-          <g pointerEvents="none">
-            <text x={cx} y={cy - 4} textAnchor="middle" fontSize={10} fill="#64748b">
-              合计
-            </text>
-            <text
-              x={cx}
-              y={cy + 13}
-              textAnchor="middle"
-              fontSize={12}
-              fontWeight={700}
-              fill="#0f172a"
-            >
-              {formatChartMetric(chart.totalValue, chart.agg, measureCol)}
-            </text>
-          </g>
-        )}
-      </svg>
-
-      {/* 交互图例 */}
-      <div className="min-w-0 flex-1 space-y-1.5 self-stretch overflow-y-auto py-1">
-        {chart.data.map((datum, idx) => {
-          const color = resolveSeriesColor(datum, idx, dimensionCol)
-          const isHovered = hoveredIdx === idx
-          return (
-            <div
-              key={`${datum.label}-${idx}`}
-              onMouseEnter={() => onHover(idx)}
-              className={`flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1 text-xs transition-colors ${
-                isHovered ? 'bg-slate-100 font-medium text-slate-900' : 'text-slate-600'
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-xs"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="truncate">{datum.label}</span>
-              </span>
-              <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
-                {formatChartMetric(datum.value, chart.agg, measureCol)} ·{' '}
-                {(datum.ratio * 100).toFixed(1)}%
-              </span>
-            </div>
-          )
-        })}
-      </div>
+        aria-label={resolveChartAriaLabel(chart)}
+        className="h-full w-full"
+      />
     </div>
   )
 }
