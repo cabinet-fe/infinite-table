@@ -132,7 +132,19 @@ describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 
     const viewsRes = await app.request('/api/views')
     expect(viewsRes.status).toBe(200)
     const { views } = (await viewsRes.json()) as AllViewsResponse
-    expect(views.length).toBeGreaterThanOrEqual(8)
+    expect(views.length).toBeGreaterThanOrEqual(10)
+
+    const coveredTables = new Set(views.map((v) => v.tableId))
+    expect(coveredTables).toEqual(
+      new Set([
+        'tbl_projects',
+        'tbl_employees',
+        'tbl_payments',
+        'tbl_inventory',
+        'tbl_suppliers',
+        'tbl_tickets',
+      ]),
+    )
 
     const types = new Set(views.map((v) => v.type))
     expect(types).toEqual(new Set(['table', 'kanban', 'pivot', 'dashboard']))

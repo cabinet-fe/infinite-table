@@ -25,8 +25,9 @@ import { runInTransaction } from './db'
  *   rollup 汇总列前置），打开即见关联查找示例
  * - 3：新增独立应用视图空间（workspace_views），预置跨 6 表的四类示范应用视图
  *   （含列样式/选区样式/条件格式/冻结列/汇总的表格、看板、多维透视、KPI+图表仪表盘）
+ * - 4：补齐企业员工花名册与供应商名录应用视图，确保 6 张种子表均可在应用视图空间直接浏览
  */
-export const SEED_VERSION = 3
+export const SEED_VERSION = 4
 
 /** 种子内置表 id 集合：smart_tables 中出现集合之外的表即视为用户自建表 */
 const SEED_TABLE_IDS: ReadonlySet<string> = new Set([
@@ -2514,6 +2515,65 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
         formula_stock_gap: 'sum',
         capacity_rate: 'avg',
         counted: 'filled_rate',
+      },
+    },
+    {
+      id: 'wv_employees_table',
+      tableId: 'tbl_employees',
+      name: '企业员工花名册',
+      type: 'table',
+      sortOrder: 8,
+      description: '企业主数据 SQL 物理表视图：按部门/大区/职级快速筛选（含同名「张三」示例）',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['dept', 'region', 'level'],
+      sortRules: [{ field: 'emp_id', direction: 'asc' }],
+      frozenColCount: 2,
+      rowHeight: 'standard',
+      columnStyles: {
+        emp_id: {
+          align: 'left',
+          headerBgColor: '#f8fafc',
+          headerTextColor: '#334155',
+        },
+        level: { align: 'center' },
+      },
+      summaries: {
+        emp_id: 'count',
+      },
+    },
+    {
+      id: 'wv_suppliers_table',
+      tableId: 'tbl_suppliers',
+      name: '核心供应商名录',
+      type: 'table',
+      sortOrder: 9,
+      description: '供应链主数据视图：高评分供应商高亮与标准交期汇总',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['main_category'],
+      sortRules: [{ field: 'rating', direction: 'desc' }],
+      frozenColCount: 2,
+      rowHeight: 'standard',
+      columnStyles: {
+        rating: { align: 'right' },
+        lead_days: { align: 'right' },
+      },
+      conditionalFormats: [
+        {
+          id: 'cf_sup_top_rating',
+          name: '高评分优质供应商标绿',
+          enabled: true,
+          field: 'rating',
+          operator: 'gte',
+          value: 4.8,
+          scope: 'cell',
+          bgColor: '#dcfce7',
+          textColor: '#166534',
+        },
+      ],
+      summaries: {
+        supplier_id: 'count',
+        rating: 'avg',
+        lead_days: 'avg',
       },
     },
   ]

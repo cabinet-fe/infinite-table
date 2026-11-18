@@ -17,6 +17,8 @@ import {
 import type { SmartGridSelectionInfo } from '../canvas/smart-grid'
 import { scalarToText } from '../domain/utils'
 import {
+  buildDefaultDashboardConfig,
+  buildDefaultKanbanConfig,
   getAvailableSummaryTypes,
   normalizeColumnOrder,
   reorderStringList,
@@ -33,10 +35,12 @@ import type {
   WorkspaceView,
 } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
+import { DrawerDashboardPanel } from './DrawerDashboardPanel'
+import { DrawerKanbanPanel } from './DrawerKanbanPanel'
 import { DrawerPivotPanel } from './DrawerPivotPanel'
 import { DrawerStylePanel } from './DrawerStylePanel'
 
-export type ConfigDrawerTab = 'fields' | 'styles' | 'data' | 'pivot'
+export type ConfigDrawerTab = 'fields' | 'styles' | 'data' | 'pivot' | 'kanban' | 'dashboard'
 
 export interface ViewConfigDrawerProps {
   open: boolean
@@ -130,8 +134,17 @@ export function ViewConfigDrawer({
         { id: 'data', label: '筛选与排序' },
       ]
     }
-    if (view.type === 'kanban' || view.type === 'dashboard') {
-      return [{ id: 'data', label: '筛选与基础' }]
+    if (view.type === 'kanban') {
+      return [
+        { id: 'kanban', label: '看板配置' },
+        { id: 'data', label: '筛选与排序' },
+      ]
+    }
+    if (view.type === 'dashboard') {
+      return [
+        { id: 'dashboard', label: '仪表盘配置' },
+        { id: 'data', label: '筛选与排序' },
+      ]
     }
     return [
       { id: 'fields', label: '字段' },
@@ -420,16 +433,24 @@ export function ViewConfigDrawer({
           />
         )}
 
+        {effectiveTab === 'kanban' && (
+          <DrawerKanbanPanel
+            columns={tableMeta.columns}
+            config={view.kanbanConfig ?? buildDefaultKanbanConfig(tableMeta.columns)}
+            onChangeConfig={(nextKanban) => onUpdateView({ kanbanConfig: nextKanban })}
+          />
+        )}
+
+        {effectiveTab === 'dashboard' && (
+          <DrawerDashboardPanel
+            columns={tableMeta.columns}
+            config={view.dashboardConfig ?? buildDefaultDashboardConfig(tableMeta.columns)}
+            onChangeConfig={(nextDashboard) => onUpdateView({ dashboardConfig: nextDashboard })}
+          />
+        )}
+
         {effectiveTab === 'data' && (
           <div className="space-y-5">
-            {(view.type === 'kanban' || view.type === 'dashboard') && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs text-blue-800">
-                {view.type === 'kanban'
-                  ? '看板视图主画布及泳道配置将在 P6 接入；下方筛选与排序已生效并持久化。'
-                  : '仪表盘视图主画布及图表配置将在 P6 接入；下方筛选与排序已生效并持久化。'}
-              </div>
-            )}
-
             {/* 快捷筛选字段 */}
             <section className="space-y-2">
               <h3 className="text-xs font-semibold text-slate-800">工具栏快捷筛选字段</h3>

@@ -15,6 +15,7 @@ import {
   deleteWorkspaceView,
   fetchAllTables,
   fetchAllViews,
+  moveKanbanCard,
   reorderWorkspaceViews,
   resetDemoSeedWorkspace,
   updateRecord,
@@ -32,6 +33,7 @@ import { AddColumnModal } from './components/AddColumnModal'
 import { CellEditorPopover, type RichCellEditInfo } from './components/CellEditorPopover'
 import { ColumnManagerModal } from './components/ColumnManagerModal'
 import { ConfirmModal } from './components/ConfirmModal'
+import { DashboardView } from './components/DashboardView'
 import { DisambiguatePopover } from './components/DisambiguatePopover'
 import { DrillDownDrawer } from './components/DrillDownDrawer'
 import {
@@ -40,6 +42,7 @@ import {
   type GridMenuContext,
 } from './components/GridPopupMenu'
 import { ImportExcelModal } from './components/ImportExcelModal'
+import { KanbanView } from './components/KanbanView'
 import { LookupFieldPanel } from './components/LookupFieldPanel'
 import { LookupWizardModal } from './components/LookupWizardModal'
 import { Sidebar, type WorkspaceTarget } from './components/Sidebar'
@@ -47,13 +50,13 @@ import { SummaryMenuPopover } from './components/SummaryMenuPopover'
 import { ToastHost, type ToastItem, type ToastType } from './components/Toast'
 import { Toolbar } from './components/Toolbar'
 import { ViewConfigDrawer, type ConfigDrawerTab } from './components/ViewConfigDrawer'
-import { ViewTypePlaceholder } from './components/ViewTypePlaceholder'
 import { appendMatchRuleToLookupGroup } from './domain/lookup-engine'
 import { runSmartTablePipeline } from './domain/query-engine'
 import { resolveVisibleColumns } from './domain/style-engine'
 import { scalarToText } from './domain/utils'
 import {
   applyCellStyleToSelection,
+  buildDefaultKanbanConfig,
   buildDefaultPivotConfig,
   buildModeSearchUrl,
   resolveAppModeFromSearch,
@@ -215,6 +218,33 @@ function stripDeletedColumnFromView(
           remainingMeasures.length > 0
             ? remainingMeasures
             : [{ key: '__count__', title: '记录数', field: '__count__', agg: 'count', width: 100 }],
+      }
+    }
+  }
+  if (view.kanbanConfig) {
+    const k = view.kanbanConfig
+    if (k.displayFields.includes(columnKey) || k.titleField === columnKey) {
+      changed = true
+      patch.kanbanConfig = {
+        ...k,
+        ...(k.titleField === columnKey ? { titleField: undefined } : {}),
+        displayFields: k.displayFields.filter((f) => f !== columnKey),
+      }
+    }
+  }
+  if (view.dashboardConfig) {
+    const d = view.dashboardConfig
+    const hasKpiRef = d.kpis.some((kpi) => kpi.field === columnKey)
+    const hasChartRef = d.charts.some(
+      (c) => c.dimensionField === columnKey || c.measureField === columnKey,
+    )
+    if (hasKpiRef || hasChartRef) {
+      changed = true
+      patch.dashboardConfig = {
+        kpis: d.kpis.filter((kpi) => kpi.field !== columnKey),
+        charts: d.charts.filter(
+          (c) => c.dimensionField !== columnKey && c.measureField !== columnKey,
+        ),
       }
     }
   }
@@ -557,6 +587,66 @@ export function App() {
       }
     },
     [activeTable, mode, pushToast],
+  )
+
+  const handleMoveKanbanCard = useCallback(
+    async (recordId: string, targetLaneKey: string) => {
+      if (!activeTable || !activeStoredView || mode === 'viewer') return
+      const tableId = activeTable.meta.id
+      const kanbanCfg =
+        activeStoredView.kanbanConfig ?? buildDefaultKanbanConfig(activeTable.meta.columns)
+      const field = kanbanCfg.groupByField
+      let previousRecord: SmartRecord | undefined
+
+      setTables((prev) =>
+        prev.map((bundle) => {
+          if (bundle.meta.id !== tableId) return bundle
+          return {
+            ...bundle,
+            records: bundle.records.map((r) => {
+              if (r._id !== recordId) return r
+              previousRecord = r
+              return { ...r, [field]: targetLaneKey }
+            }),
+          }
+        }),
+      )
+
+      try {
+        const updated = await moveKanbanCard(activeStoredView.id, recordId, {
+          field,
+          targetValue: targetLaneKey,
+        })
+        setTables((prev) =>
+          prev.map((bundle) =>
+            bundle.meta.id === tableId
+              ? {
+                  ...bundle,
+                  records: bundle.records.map((r) => (r._id === recordId ? updated : r)),
+                }
+              : bundle,
+          ),
+        )
+        pushToast('success', targetLaneKey ? `已移动至「${targetLaneKey}」` : '已移动至「未分组」')
+      } catch (error) {
+        if (previousRecord) {
+          const rollback = previousRecord
+          setTables((prev) =>
+            prev.map((bundle) =>
+              bundle.meta.id === tableId
+                ? {
+                    ...bundle,
+                    records: bundle.records.map((r) => (r._id === recordId ? rollback : r)),
+                  }
+                : bundle,
+            ),
+          )
+        }
+        const msg = error instanceof ApiError ? error.message : '看板移动写回失败'
+        pushToast('error', msg)
+      }
+    },
+    [activeTable, activeStoredView, mode, pushToast],
   )
 
   const focusAndOpenConflict = useCallback(
@@ -1568,11 +1658,16 @@ export function App() {
           onToggleConfigDrawer={() => {
             if (activeStoredView?.type === 'pivot') {
               setConfigDrawerTab('pivot')
+            } else if (activeStoredView?.type === 'kanban') {
+              setConfigDrawerTab('kanban')
+            } else if (activeStoredView?.type === 'dashboard') {
+              setConfigDrawerTab('dashboard')
             } else if (
-              activeStoredView?.type === 'kanban' ||
-              activeStoredView?.type === 'dashboard'
+              configDrawerTab === 'pivot' ||
+              configDrawerTab === 'kanban' ||
+              configDrawerTab === 'dashboard'
             ) {
-              setConfigDrawerTab('data')
+              setConfigDrawerTab('fields')
             }
             setConfigDrawerOpen((v) => !v)
           }}
@@ -1592,14 +1687,40 @@ export function App() {
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {/* 工作区主画布 */}
           <div className="relative min-w-0 flex-1 overflow-hidden bg-white">
-            {activeRenderKind === 'kanban' || activeRenderKind === 'dashboard' ? (
-              effectiveView && (
-                <ViewTypePlaceholder
-                  view={effectiveView}
-                  tableMeta={activeTable.meta}
-                  recordCount={pipeline.displayRecords.length}
-                />
-              )
+            {activeRenderKind === 'kanban' && effectiveView ? (
+              <KanbanView
+                view={effectiveView}
+                columns={activeTable.meta.columns}
+                records={pipeline.displayRecords}
+                readonly={mode === 'viewer'}
+                primaryKeyField={activeTable.meta.primaryKeyField}
+                onMoveCard={handleMoveKanbanCard}
+                onUpdateRecord={handleUpdateRecord}
+                onAddCard={mode === 'operator' ? () => handleAddRow() : undefined}
+                onOpenConfig={
+                  mode === 'operator'
+                    ? () => {
+                        setConfigDrawerTab('kanban')
+                        setConfigDrawerOpen(true)
+                      }
+                    : undefined
+                }
+              />
+            ) : activeRenderKind === 'dashboard' && effectiveView ? (
+              <DashboardView
+                view={effectiveView}
+                columns={activeTable.meta.columns}
+                records={pipeline.displayRecords}
+                readonly={mode === 'viewer'}
+                onOpenConfig={
+                  mode === 'operator'
+                    ? () => {
+                        setConfigDrawerTab('dashboard')
+                        setConfigDrawerOpen(true)
+                      }
+                    : undefined
+                }
+              />
             ) : (
               <>
                 <div ref={canvasContainerRef} className="h-full w-full" />
