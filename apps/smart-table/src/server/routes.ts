@@ -3,11 +3,16 @@ import type { Database } from 'bun:sqlite'
 import type { Context, Hono } from 'hono'
 import type {
   AllTablesResponse,
+  AllViewsResponse,
   CreateRecordRequest,
   CreateTableRequest,
+  CreateViewRequest,
   ImportCommitRequest,
+  KanbanMoveCardRequest,
+  ReorderViewsRequest,
   UpdateRecordRequest,
   UpdateTableMetaRequest,
+  UpdateViewRequest,
 } from '../shared/api-types'
 import {
   ValidationError,
@@ -16,16 +21,22 @@ import {
   deleteTableRecord,
   getTableBundle,
   insertNormalTable,
+  isPlainObject,
   listTableBundles,
   updateTableMeta,
   updateTableRecord,
 } from './db'
 import { commitImport } from './import'
 import { seedSmartTableDemo } from './seed'
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
+import {
+  createWorkspaceView,
+  deleteWorkspaceView,
+  getWorkspaceView,
+  listWorkspaceViews,
+  moveKanbanCard,
+  reorderWorkspaceViews,
+  updateWorkspaceView,
+} from './views-store'
 
 function isCreateTableBody(body: unknown): body is CreateTableRequest {
   if (!isPlainObject(body)) return false
@@ -69,6 +80,27 @@ function isImportCommitBody(body: unknown): body is ImportCommitRequest {
   if (body.kind !== 'normal' && body.kind !== 'advanced') return false
   if (typeof body.tableName !== 'string' || body.tableName.trim() === '') return false
   return Array.isArray(body.columns) && Array.isArray(body.rows)
+}
+
+function isCreateViewBody(body: unknown): body is CreateViewRequest {
+  if (!isPlainObject(body)) return false
+  return (
+    typeof body.name === 'string' &&
+    body.name.trim() !== '' &&
+    typeof body.type === 'string' &&
+    typeof body.tableId === 'string' &&
+    body.tableId.trim() !== ''
+  )
+}
+
+function isReorderViewsBody(body: unknown): body is ReorderViewsRequest {
+  return isPlainObject(body) && Array.isArray(body.viewIds)
+}
+
+function isKanbanMoveCardBody(body: unknown): body is KanbanMoveCardRequest {
+  if (!isPlainObject(body)) return false
+  if (body.field !== undefined && typeof body.field !== 'string') return false
+  return 'targetValue' in body
 }
 
 function handleRouteError(c: Context, error: unknown, uniquePrefix: string): Response {
@@ -200,9 +232,100 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     }
   })
 
+  app.get('/api/views', (c) => {
+    const response: AllViewsResponse = { views: listWorkspaceViews(db) }
+    return c.json(response)
+  })
+
+  app.post('/api/views', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isCreateViewBody(body)) {
+      return c.json({ message: '请求体不合法：需提供非空 name、type 与 tableId' }, 400)
+    }
+    try {
+      const view = createWorkspaceView(db, body)
+      return c.json({ view }, 201)
+    } catch (error) {
+      return handleRouteError(c, error, '视图冲突')
+    }
+  })
+
+  app.put('/api/views/reorder', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isReorderViewsBody(body)) {
+      return c.json({ message: '请求体不合法：需提供 viewIds 数组' }, 400)
+    }
+    try {
+      const views = reorderWorkspaceViews(db, body.viewIds)
+      return c.json({ views })
+    } catch (error) {
+      return handleRouteError(c, error, '视图重排失败')
+    }
+  })
+
+  app.get('/api/views/:id', (c) => {
+    const view = getWorkspaceView(db, c.req.param('id'))
+    if (!view) {
+      return c.json({ message: '视图不存在' }, 404)
+    }
+    return c.json({ view })
+  })
+
+  const handleUpdateWorkspaceView = async (c: Context, viewId: string) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isPlainObject(body)) {
+      return c.json({ message: '请求体不合法：需提供视图更新对象' }, 400)
+    }
+    try {
+      const updated = updateWorkspaceView(db, viewId, body as UpdateViewRequest)
+      if (!updated) {
+        return c.json({ message: '视图不存在' }, 404)
+      }
+      return c.json({ view: updated })
+    } catch (error) {
+      return handleRouteError(c, error, '视图配置冲突')
+    }
+  }
+
+  app.put('/api/views/:id', (c) => handleUpdateWorkspaceView(c, c.req.param('id')))
+  app.patch('/api/views/:id', (c) => handleUpdateWorkspaceView(c, c.req.param('id')))
+
+  app.delete('/api/views/:id', (c) => {
+    const deleted = deleteWorkspaceView(db, c.req.param('id'))
+    if (!deleted) {
+      return c.json({ message: '视图不存在' }, 404)
+    }
+    return c.json({ ok: true })
+  })
+
+  app.patch('/api/views/:id/kanban/cards/:recordId', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!isKanbanMoveCardBody(body)) {
+      return c.json({ message: '请求体不合法：需提供 targetValue' }, 400)
+    }
+    try {
+      const updated = moveKanbanCard(
+        db,
+        c.req.param('id'),
+        c.req.param('recordId'),
+        body.targetValue,
+        body.field,
+      )
+      if (!updated) {
+        return c.json({ message: '视图或记录不存在' }, 404)
+      }
+      return c.json({ record: updated })
+    } catch (error) {
+      return handleRouteError(c, error, '看板写回冲突')
+    }
+  })
+
   app.post('/api/reset-seed', (c) => {
     seedSmartTableDemo(db, { force: true })
-    const response: AllTablesResponse = { tables: listTableBundles(db) }
+    const response: AllTablesResponse = {
+      tables: listTableBundles(db),
+      views: listWorkspaceViews(db),
+    }
     return c.json(response)
   })
 }

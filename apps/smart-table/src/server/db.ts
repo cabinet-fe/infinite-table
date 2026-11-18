@@ -10,6 +10,7 @@ import type {
   SmartRecord,
   SmartTableMeta,
   SmartView,
+  SmartViewType,
   SummaryType,
   TableKind,
 } from '../shared/schema'
@@ -62,6 +63,13 @@ const VALID_COLUMN_TYPES: ReadonlySet<SmartColumnType> = new Set([
   'formula',
 ])
 
+export const VALID_VIEW_TYPES: ReadonlySet<SmartViewType> = new Set([
+  'table',
+  'kanban',
+  'pivot',
+  'dashboard',
+])
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS smart_tables (
   id TEXT PRIMARY KEY,
@@ -73,6 +81,17 @@ CREATE TABLE IF NOT EXISTS smart_tables (
   views_json TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS workspace_views (
+  id TEXT PRIMARY KEY,
+  table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  config_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_views_order ON workspace_views(sort_order);
 
 CREATE TABLE IF NOT EXISTS smart_table_records (
   id TEXT NOT NULL,
@@ -154,6 +173,95 @@ function migrateLegacySchema(db: Database): void {
   }
 }
 
+/**
+ * 旧库平滑升级：将 smart_tables.views_json 中的内嵌视图迁移到独立的 workspace_views 表。
+ * 仅在本次启动首次创建 workspace_views 表且表内尚无数据时执行，避免已迁移库清空视图后回流。
+ */
+function migrateLegacyViewsToWorkspace(db: Database): void {
+  const existingCount = db.query('SELECT COUNT(*) AS cnt FROM workspace_views').get() as
+    | { cnt: number }
+    | undefined
+    | null
+  if (existingCount && existingCount.cnt > 0) return
+
+  const tableRows = db
+    .query('SELECT id, views_json, updated_at FROM smart_tables ORDER BY rowid ASC')
+    .all() as { id: string; views_json: string; updated_at: string }[]
+  if (tableRows.length === 0) return
+
+  const usedIds = new Set<string>()
+  const insertStmt = db.query(
+    'INSERT INTO workspace_views (id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  )
+
+  runInTransaction(db, () => {
+    let sortOrder = 0
+    for (const row of tableRows) {
+      let parsedViews: unknown
+      try {
+        parsedViews = JSON.parse(row.views_json)
+      } catch {
+        continue
+      }
+      if (!Array.isArray(parsedViews)) continue
+
+      for (const rawView of parsedViews) {
+        if (!isPlainObject(rawView)) continue
+        const rawId =
+          typeof rawView.id === 'string' && rawView.id.trim() !== ''
+            ? rawView.id.trim()
+            : `view_${sortOrder}`
+        let viewId = rawId
+        if (usedIds.has(viewId)) {
+          viewId = `${rawId}_${row.id}`
+        }
+        while (usedIds.has(viewId)) {
+          viewId = `${rawId}_${row.id}_${sortOrder}`
+        }
+        usedIds.add(viewId)
+
+        const viewName =
+          typeof rawView.name === 'string' && rawView.name.trim() !== ''
+            ? rawView.name.trim()
+            : '未命名视图'
+        const viewType: SmartViewType =
+          typeof rawView.type === 'string' && VALID_VIEW_TYPES.has(rawView.type as SmartViewType)
+            ? (rawView.type as SmartViewType)
+            : 'table'
+
+        const {
+          id: _id,
+          name: _name,
+          type: _type,
+          tableId: _tid,
+          sortOrder: _so,
+          updatedAt: _ua,
+          ...rest
+        } = rawView
+        const config = {
+          filterGroup: isPlainObject(rest.filterGroup)
+            ? rest.filterGroup
+            : { conjunction: 'and', conditions: [] },
+          quickFilterFields: Array.isArray(rest.quickFilterFields) ? rest.quickFilterFields : [],
+          sortRules: Array.isArray(rest.sortRules) ? rest.sortRules : [],
+          ...rest,
+        }
+
+        insertStmt.run(
+          viewId,
+          row.id,
+          viewName,
+          viewType,
+          sortOrder,
+          JSON.stringify(config),
+          row.updated_at || new Date().toISOString(),
+        )
+        sortOrder += 1
+      }
+    }
+  })
+}
+
 export function openDatabase(path: string): Database {
   if (path !== ':memory:') {
     mkdirSync(dirname(path), { recursive: true })
@@ -162,8 +270,12 @@ export function openDatabase(path: string): Database {
   db.exec('PRAGMA journal_mode = WAL;')
   db.exec('PRAGMA busy_timeout = 5000;')
   db.exec('PRAGMA foreign_keys = ON;')
+  const hadWorkspaceViews = physicalTableExists(db, 'workspace_views')
   db.exec(SCHEMA_SQL)
   migrateLegacySchema(db)
+  if (!hadWorkspaceViews) {
+    migrateLegacyViewsToWorkspace(db)
+  }
   return db
 }
 
@@ -452,7 +564,7 @@ function getAdvancedSpec(
   return { tableName: sourceSqlTable, primaryKey, idPrefix: 'ADV', columns, numericColumns }
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -501,8 +613,8 @@ function validateViews(views: readonly unknown[]): SmartView[] {
     if (typeof view.name !== 'string' || view.name.trim() === '') {
       throw new ValidationError(`视图 "${view.id}" 缺少非空名称`)
     }
-    if (view.type !== 'table' && view.type !== 'pivot') {
-      throw new ValidationError(`视图 "${view.id}" 的类型必须为 table 或 pivot`)
+    if (typeof view.type !== 'string' || !VALID_VIEW_TYPES.has(view.type as SmartViewType)) {
+      throw new ValidationError(`视图 "${view.id}" 的类型必须为 table / kanban / pivot / dashboard`)
     }
     if (seenViewIds.has(view.id)) {
       throw new ValidationError(`存在重复视图 id: "${view.id}"`)

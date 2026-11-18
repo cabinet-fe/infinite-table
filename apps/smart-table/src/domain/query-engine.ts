@@ -164,9 +164,10 @@ function compareForFilter(raw: unknown, target: unknown, col?: SmartColumn): num
   return scalarToText(raw).localeCompare(scalarToText(target), 'zh-CN', { numeric: true })
 }
 
-function matchCondition(
+/** 判定单条记录是否命中筛选/条件格式规则（共享操作符求值单一事实源） */
+export function matchFilterCondition(
   record: SmartRecord,
-  condition: FilterCondition,
+  condition: Pick<FilterCondition, 'field' | 'operator' | 'value'>,
   colMap: ReadonlyMap<string, SmartColumn>,
 ): boolean {
   const raw = record[condition.field]
@@ -278,9 +279,9 @@ export function filterRecords(
     }
 
     if (filterGroup.conjunction === 'or') {
-      return filterGroup.conditions.some((cond) => matchCondition(record, cond, colMap))
+      return filterGroup.conditions.some((cond) => matchFilterCondition(record, cond, colMap))
     }
-    return filterGroup.conditions.every((cond) => matchCondition(record, cond, colMap))
+    return filterGroup.conditions.every((cond) => matchFilterCondition(record, cond, colMap))
   })
 }
 
@@ -495,7 +496,8 @@ export function runSmartTablePipeline(
     ? sortRecords(filteredRecords, meta.columns, activeView.sortRules)
     : filteredRecords
 
-  const summaries = computeSummaries(displayRecords, meta.columns, meta.summaries)
+  const activeSummaries = activeView?.summaries ?? meta.summaries
+  const summaries = computeSummaries(displayRecords, meta.columns, activeSummaries)
 
   return {
     allComputedRecords,

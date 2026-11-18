@@ -9,7 +9,13 @@
 // 种子版本约定：SEED_VERSION 随种子内容演进 +1（列序、行数据、system 标记等任何变化都要升），
 // 存 PRAGMA user_version；ensureSeeded 依据它对旧库自愈重种（见文件尾部）。
 import type { Database } from 'bun:sqlite'
-import type { SmartColumn, SmartRecord, SmartView, SummaryType } from '../shared/schema'
+import type {
+  SmartColumn,
+  SmartRecord,
+  SmartView,
+  SummaryType,
+  WorkspaceView,
+} from '../shared/schema'
 import { runInTransaction } from './db'
 
 /**
@@ -17,8 +23,10 @@ import { runInTransaction } from './db'
  * - <2（含未写入 user_version 的旧库）：初始六表种子（进阶表无 system 标记、项目表 lookup 列离 owner_name 较远）
  * - 2：进阶表补 system:true；项目表默认视图列序调整（lookup_emp_id/dept/level 紧邻 owner_name，
  *   rollup 汇总列前置），打开即见关联查找示例
+ * - 3：新增独立应用视图空间（workspace_views），预置跨 6 表的四类示范应用视图
+ *   （含列样式/选区样式/条件格式/冻结列/汇总的表格、看板、多维透视、KPI+图表仪表盘）
  */
-export const SEED_VERSION = 2
+export const SEED_VERSION = 3
 
 /** 种子内置表 id 集合：smart_tables 中出现集合之外的表即视为用户自建表 */
 const SEED_TABLE_IDS: ReadonlySet<string> = new Set([
@@ -2118,6 +2126,399 @@ const TICKET_RECORDS: SmartRecord[] = [
   },
 ]
 
+function buildDemoWorkspaceViews(): WorkspaceView[] {
+  return [
+    {
+      id: 'wv_projects_table',
+      tableId: 'tbl_projects',
+      name: '项目跟进总台账',
+      type: 'table',
+      sortOrder: 0,
+      description:
+        '核心项目总台账：含冻结列、列级对齐/配色、重点单元格高亮、条件格式预警与底部汇总',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['status', 'region', 'lookup_emp_dept'],
+      sortRules: [],
+      frozenColCount: 2,
+      rowHeight: 'standard',
+      columnStyles: {
+        project_code: {
+          align: 'left',
+          headerBgColor: '#f8fafc',
+          headerTextColor: '#334155',
+        },
+        contract_amount: {
+          align: 'right',
+          headerBgColor: '#eff6ff',
+          headerTextColor: '#1d4ed8',
+          bgColor: '#f8fafc',
+        },
+        lookup_paid_sum: {
+          align: 'right',
+          headerBgColor: '#ecfdf5',
+          headerTextColor: '#047857',
+        },
+        lookup_paid_count: {
+          align: 'right',
+        },
+        formula_pay_rate: {
+          align: 'right',
+          headerBgColor: '#f0fdf4',
+          headerTextColor: '#15803d',
+        },
+        progress: {
+          align: 'center',
+        },
+      },
+      cellStyles: {
+        rec_prj_003: {
+          contract_amount: { bgColor: '#fef9c3', textColor: '#854d0e' },
+        },
+        rec_prj_001: {
+          project_name: { bgColor: '#eff6ff', textColor: '#1e40af' },
+        },
+      },
+      conditionalFormats: [
+        {
+          id: 'cf_prj_risk_row',
+          name: '风险预警整行高亮',
+          enabled: true,
+          field: 'status',
+          operator: 'eq',
+          value: '风险预警',
+          scope: 'row',
+          bgColor: '#fef2f2',
+          textColor: '#991b1b',
+        },
+        {
+          id: 'cf_prj_rate_high',
+          name: '高回款达成率标绿',
+          enabled: true,
+          field: 'formula_pay_rate',
+          operator: 'gte',
+          value: 0.8,
+          scope: 'cell',
+          bgColor: '#dcfce7',
+          textColor: '#166534',
+        },
+        {
+          id: 'cf_prj_progress_low',
+          name: '低进度单元格橙色预警',
+          enabled: true,
+          field: 'progress',
+          operator: 'lt',
+          value: 40,
+          scope: 'cell',
+          bgColor: '#fff7ed',
+          textColor: '#c2410c',
+        },
+      ],
+      summaries: {
+        project_code: 'count',
+        contract_amount: 'sum',
+        lookup_paid_sum: 'sum',
+        lookup_paid_count: 'sum',
+        progress: 'avg',
+        formula_pay_rate: 'avg',
+        verified: 'filled_rate',
+      },
+    },
+    {
+      id: 'wv_projects_kanban',
+      tableId: 'tbl_projects',
+      name: '项目交付状态看板',
+      type: 'kanban',
+      sortOrder: 1,
+      description: '按项目状态分泳道展示，运维态支持拖拽卡片变更状态并实时写回数据源',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['region', 'lookup_emp_dept'],
+      sortRules: [],
+      kanbanConfig: {
+        groupByField: 'status',
+        titleField: 'project_name',
+        displayFields: [
+          'project_code',
+          'owner_name',
+          'region',
+          'contract_amount',
+          'progress',
+          'plan_delivery_date',
+        ],
+        laneOrder: ['待启动', '进行中', '风险预警', '已交付'],
+      },
+    },
+    {
+      id: 'wv_projects_pivot',
+      tableId: 'tbl_projects',
+      name: '部门 × 状态业绩透视',
+      type: 'pivot',
+      sortOrder: 2,
+      description: '跨表关联部门与项目状态多维交叉透视，支持双击下钻底层明细',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['status', 'region'],
+      sortRules: [],
+      pivotConfig: {
+        rowDimensions: ['lookup_emp_dept', 'lookup_emp_level'],
+        columnDimensions: ['status'],
+        measures: [
+          { key: 'm_contract', title: '合同总额', field: 'contract_amount', agg: 'sum' },
+          { key: 'm_paid', title: '累计回款', field: 'lookup_paid_sum', agg: 'sum' },
+          { key: 'm_count', title: '项目数', field: '', agg: 'count' },
+        ],
+        showGrandTotal: true,
+        collapsible: true,
+      },
+    },
+    {
+      id: 'wv_exec_dashboard',
+      tableId: 'tbl_projects',
+      name: '项目经营总览仪表盘',
+      type: 'dashboard',
+      sortOrder: 3,
+      description: '经营核心指标卡与多维图表总览，支持筛选联动',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['region', 'status'],
+      sortRules: [],
+      dashboardConfig: {
+        kpis: [
+          {
+            id: 'kpi_prj_count',
+            title: '在管项目数',
+            field: 'project_code',
+            agg: 'count',
+            suffix: '个',
+            accentColor: '#2563eb',
+          },
+          {
+            id: 'kpi_contract_sum',
+            title: '合同总金额',
+            field: 'contract_amount',
+            agg: 'sum',
+            numberFormat: 'currency',
+            accentColor: '#0f766e',
+          },
+          {
+            id: 'kpi_paid_sum',
+            title: '累计回款总额',
+            field: 'lookup_paid_sum',
+            agg: 'sum',
+            numberFormat: 'currency',
+            accentColor: '#15803d',
+          },
+          {
+            id: 'kpi_pay_rate',
+            title: '平均回款达成率',
+            field: 'formula_pay_rate',
+            agg: 'avg',
+            numberFormat: 'percent',
+            accentColor: '#7c3aed',
+          },
+        ],
+        charts: [
+          {
+            id: 'chart_region_contract',
+            title: '各大区合同总额对比',
+            chartType: 'bar',
+            dimensionField: 'region',
+            measureField: 'contract_amount',
+            agg: 'sum',
+            sortBy: 'value_desc',
+          },
+          {
+            id: 'chart_status_pie',
+            title: '项目状态占比分布',
+            chartType: 'pie',
+            dimensionField: 'status',
+            measureField: '',
+            agg: 'count',
+            donut: true,
+          },
+          {
+            id: 'chart_dept_paid',
+            title: '各部门累计回款排行',
+            chartType: 'bar',
+            dimensionField: 'lookup_emp_dept',
+            measureField: 'lookup_paid_sum',
+            agg: 'sum',
+            sortBy: 'value_desc',
+          },
+          {
+            id: 'chart_delivery_trend',
+            title: '计划交付日期合同分布趋势',
+            chartType: 'line',
+            dimensionField: 'plan_delivery_date',
+            measureField: 'contract_amount',
+            agg: 'sum',
+            sortBy: 'label_asc',
+          },
+        ],
+      },
+    },
+    {
+      id: 'wv_tickets_kanban',
+      tableId: 'tbl_tickets',
+      name: '客户工单处理看板',
+      type: 'kanban',
+      sortOrder: 4,
+      description: '跨表关联项目名称的售后工单泳道看板',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['priority', 'issue_category'],
+      sortRules: [],
+      kanbanConfig: {
+        groupByField: 'ticket_status',
+        titleField: 'customer_name',
+        displayFields: [
+          'ticket_id',
+          'lookup_project_name',
+          'priority',
+          'issue_category',
+          'assignee',
+          'sla_progress',
+          'formula_sla_flag',
+        ],
+        laneOrder: ['待受理', '处理中', '待客户确认', '已关闭'],
+      },
+    },
+    {
+      id: 'wv_payments_pivot',
+      tableId: 'tbl_payments',
+      name: '年度 × 大区回款透视',
+      type: 'pivot',
+      sortOrder: 5,
+      description: '基于客户回款 SQL 物理表的年度×月度×大区多维透视分析',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['year', 'pay_method'],
+      sortRules: [],
+      pivotConfig: {
+        rowDimensions: ['year', 'month'],
+        columnDimensions: ['region'],
+        measures: [
+          { key: 'm_amount', title: '回款金额', field: 'amount', agg: 'sum' },
+          { key: 'm_cnt', title: '笔数', field: '', agg: 'count' },
+        ],
+        showGrandTotal: true,
+        collapsible: true,
+      },
+    },
+    {
+      id: 'wv_payments_dashboard',
+      tableId: 'tbl_payments',
+      name: '回款流水趋势仪表盘',
+      type: 'dashboard',
+      sortOrder: 6,
+      description: '回款流水指标总览与月度趋势/结算方式分布',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['year', 'region'],
+      sortRules: [],
+      dashboardConfig: {
+        kpis: [
+          {
+            id: 'kpi_pay_cnt',
+            title: '回款总笔数',
+            field: 'pay_id',
+            agg: 'count',
+            suffix: '笔',
+            accentColor: '#2563eb',
+          },
+          {
+            id: 'kpi_pay_total',
+            title: '回款总金额',
+            field: 'amount',
+            agg: 'sum',
+            numberFormat: 'currency',
+            accentColor: '#15803d',
+          },
+          {
+            id: 'kpi_pay_avg',
+            title: '单笔平均回款',
+            field: 'amount',
+            agg: 'avg',
+            numberFormat: 'currency',
+            accentColor: '#0284c7',
+          },
+          {
+            id: 'kpi_pay_max',
+            title: '最大单笔回款',
+            field: 'amount',
+            agg: 'max',
+            numberFormat: 'currency',
+            accentColor: '#d97706',
+          },
+        ],
+        charts: [
+          {
+            id: 'chart_pay_month',
+            title: '月度回款金额趋势',
+            chartType: 'line',
+            dimensionField: 'month',
+            measureField: 'amount',
+            agg: 'sum',
+            sortBy: 'label_asc',
+            span: 2,
+          },
+          {
+            id: 'chart_pay_method',
+            title: '结算方式金额占比',
+            chartType: 'pie',
+            dimensionField: 'pay_method',
+            measureField: 'amount',
+            agg: 'sum',
+            donut: true,
+          },
+          {
+            id: 'chart_pay_region',
+            title: '各大区回款总额',
+            chartType: 'bar',
+            dimensionField: 'region',
+            measureField: 'amount',
+            agg: 'sum',
+            sortBy: 'value_desc',
+          },
+        ],
+      },
+    },
+    {
+      id: 'wv_inventory_table',
+      tableId: 'tbl_inventory',
+      name: '库存补货预警台账',
+      type: 'table',
+      sortOrder: 7,
+      description: '供应链库存与采购台账：缺口公式列 + 需补货整行条件格式高亮',
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: ['category', 'warehouse_region', 'formula_restock_alert'],
+      sortRules: [{ field: 'formula_stock_gap', direction: 'desc' }],
+      frozenColCount: 2,
+      rowHeight: 'compact',
+      columnStyles: {
+        current_stock: { align: 'right' },
+        safety_stock: { align: 'right' },
+        formula_stock_gap: { align: 'right' },
+      },
+      conditionalFormats: [
+        {
+          id: 'cf_inv_restock',
+          name: '需补货整行提醒',
+          enabled: true,
+          field: 'formula_restock_alert',
+          operator: 'eq',
+          value: '需补货',
+          scope: 'row',
+          bgColor: '#fef2f2',
+          textColor: '#b91c1c',
+        },
+      ],
+      summaries: {
+        sku: 'count',
+        current_stock: 'sum',
+        safety_stock: 'sum',
+        formula_stock_gap: 'sum',
+        capacity_rate: 'avg',
+        counted: 'filled_rate',
+      },
+    },
+  ]
+}
+
 export function seedSmartTableDemo(db: Database, options?: { force?: boolean }): void {
   runInTransaction(db, () => {
     if (!options?.force) {
@@ -2131,6 +2532,7 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       }
     } else {
       db.exec(`
+        DELETE FROM workspace_views;
         DELETE FROM smart_table_records;
         DELETE FROM smart_tables;
         DELETE FROM biz_employees;
@@ -2268,6 +2670,15 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       buildTicketsMeta(),
       TICKET_RECORDS,
     )
+
+    // 7. 预置独立应用视图空间示范视图（覆盖表格/看板/透视/仪表盘四类）
+    const insertViewStmt = db.query(
+      'INSERT INTO workspace_views (id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    for (const view of buildDemoWorkspaceViews()) {
+      const { id, tableId, name, type, sortOrder, updatedAt: _ua, ...config } = view
+      insertViewStmt.run(id, tableId, name, type, sortOrder, JSON.stringify(config), now)
+    }
   })
 }
 

@@ -2,13 +2,18 @@
 
 import type {
   AllTablesResponse,
+  AllViewsResponse,
   CreateRecordRequest,
   CreateTableRequest,
+  CreateViewRequest,
   ImportCommitRequest,
+  KanbanMoveCardRequest,
+  ReorderViewsRequest,
   TableBundle,
   UpdateTableMetaRequest,
+  UpdateViewRequest,
 } from './shared/api-types'
-import type { SmartRecord, SmartTableMeta } from './shared/schema'
+import type { SmartRecord, SmartTableMeta, WorkspaceView } from './shared/schema'
 
 export class ApiError extends Error {
   readonly status: number
@@ -120,11 +125,85 @@ export async function deleteRecord(tableId: string, recordId: string): Promise<v
   )
 }
 
+export async function fetchAllViews(): Promise<WorkspaceView[]> {
+  const data = await requestJson<AllViewsResponse>('/api/views')
+  return data.views
+}
+
+export async function fetchWorkspaceView(viewId: string): Promise<WorkspaceView> {
+  const data = await requestJson<{ view: WorkspaceView }>(
+    `/api/views/${encodeURIComponent(viewId)}`,
+  )
+  return data.view
+}
+
+export async function createWorkspaceView(payload: CreateViewRequest): Promise<WorkspaceView> {
+  const data = await requestJson<{ view: WorkspaceView }>('/api/views', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return data.view
+}
+
+export async function updateWorkspaceView(
+  viewId: string,
+  patch: UpdateViewRequest,
+): Promise<WorkspaceView> {
+  const data = await requestJson<{ view: WorkspaceView }>(
+    `/api/views/${encodeURIComponent(viewId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  )
+  return data.view
+}
+
+export async function reorderWorkspaceViews(viewIds: string[]): Promise<WorkspaceView[]> {
+  const body: ReorderViewsRequest = { viewIds }
+  const data = await requestJson<AllViewsResponse>('/api/views/reorder', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+  return data.views
+}
+
+export async function deleteWorkspaceView(viewId: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/views/${encodeURIComponent(viewId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function moveKanbanCard(
+  viewId: string,
+  recordId: string,
+  payload: KanbanMoveCardRequest,
+): Promise<SmartRecord> {
+  const data = await requestJson<{ record: SmartRecord }>(
+    `/api/views/${encodeURIComponent(viewId)}/kanban/cards/${encodeURIComponent(recordId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  )
+  return data.record
+}
+
 export async function resetDemoSeed(): Promise<TableBundle[]> {
   const data = await requestJson<AllTablesResponse>('/api/reset-seed', {
     method: 'POST',
   })
   return data.tables
+}
+
+export async function resetDemoSeedWorkspace(): Promise<{
+  tables: TableBundle[]
+  views: WorkspaceView[]
+}> {
+  const data = await requestJson<AllTablesResponse>('/api/reset-seed', {
+    method: 'POST',
+  })
+  return { tables: data.tables, views: data.views ?? [] }
 }
 
 /** 进阶导入提交（SQL 物理表）：文件解析在前端完成，这里只提交列配置与行数据 */

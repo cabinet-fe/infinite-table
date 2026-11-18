@@ -114,18 +114,143 @@ export interface SmartPivotConfig {
   collapsible?: boolean
 }
 
+export type SmartViewType = 'table' | 'kanban' | 'pivot' | 'dashboard'
+
+export type RowHeightPreset = 'compact' | 'standard' | 'comfortable'
+
+export const ROW_HEIGHT_VALUES: Record<RowHeightPreset, number> = {
+  compact: 32,
+  standard: 38,
+  comfortable: 52,
+}
+
+export type CellTextAlign = 'left' | 'center' | 'right'
+
+/** 列级样式配置（水平对齐、列头与整列背景/文字色） */
+export interface ColumnStyleConfig {
+  align?: CellTextAlign
+  headerBgColor?: string
+  headerTextColor?: string
+  bgColor?: string
+  textColor?: string
+}
+
+/** 单元格/选区级自定义样式配置 */
+export interface CellStyleConfig {
+  bgColor?: string
+  textColor?: string
+  align?: CellTextAlign
+}
+
+export type ConditionalFormatScope = 'cell' | 'row'
+
+/** 条件格式规则（复用筛选操作符，支持整行或单格作用域） */
+export interface ConditionalFormatRule {
+  id: string
+  name?: string
+  enabled?: boolean
+  field: string
+  operator: FilterOperator
+  value: unknown
+  scope: ConditionalFormatScope
+  bgColor?: string
+  textColor?: string
+}
+
+/** 看板视图配置 */
+export interface KanbanConfig {
+  /** 用于泳道分组的字段 key（通常为 select 类型，也支持文本/lookup） */
+  groupByField: string
+  /** 卡片主标题字段 key（未指定时回退首个文本列） */
+  titleField?: string
+  /** 卡片展示的摘要字段 key 列表 */
+  displayFields: string[]
+  /** 是否隐藏无记录的空泳道 */
+  hideEmptyLanes?: boolean
+  /** 自定义泳道顺序（未列出的选项按列定义/数据顺序追加） */
+  laneOrder?: string[]
+}
+
+export type DashboardKpiAgg = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'filled_rate'
+
+export interface DashboardKpiConfig {
+  id: string
+  title: string
+  field: string
+  agg: DashboardKpiAgg
+  numberFormat?: SmartColumn['numberFormat']
+  prefix?: string
+  suffix?: string
+  accentColor?: string
+}
+
+export type DashboardChartType = 'bar' | 'line' | 'pie'
+
+export interface DashboardChartConfig {
+  id: string
+  title: string
+  chartType: DashboardChartType
+  dimensionField: string
+  measureField: string
+  agg: SmartPivotAgg
+  sortBy?: 'value_desc' | 'value_asc' | 'label_asc'
+  limit?: number
+  donut?: boolean
+  span?: 1 | 2
+}
+
+/** 统计仪表盘视图配置 */
+export interface DashboardConfig {
+  kpis: DashboardKpiConfig[]
+  charts: DashboardChartConfig[]
+}
+
 export interface SmartView {
   id: string
   name: string
-  type: 'table' | 'pivot'
+  type: SmartViewType
+  /** 绑定的数据源表 ID（独立应用视图模型必带；兼容表内嵌视图可选） */
+  tableId?: string
+  /** 应用视图空间中的排序序号 */
+  sortOrder?: number
+  description?: string
   filterGroup: FilterGroup
   /** 快捷筛选胶囊字段 key 列表（如 ['status', 'lookup_dept']） */
   quickFilterFields: string[]
   /** 快捷筛选当前激活值（field -> 选中值数组） */
   quickFilterValues?: Record<string, string[]>
   sortRules: SortRule[]
+  /** 字段顺序（columnKey 列表）；未列出的表列按表定义顺序追加 */
+  columnOrder?: string[]
+  /** 隐藏列 key 列表 */
+  hiddenColumns?: string[]
+  /** 视图级列宽覆盖：columnKey -> width */
+  columnWidths?: Record<string, number>
+  /** 左侧冻结列数 */
+  frozenColCount?: number
+  /** 行高档位 */
+  rowHeight?: RowHeightPreset
+  /** 列级样式映射：columnKey -> ColumnStyleConfig */
+  columnStyles?: Record<string, ColumnStyleConfig>
+  /** 单元格/选区样式映射：recordId -> fieldKey -> CellStyleConfig */
+  cellStyles?: Record<string, Record<string, CellStyleConfig>>
+  /** 条件格式规则列表 */
+  conditionalFormats?: ConditionalFormatRule[]
+  /** 视图级汇总配置：columnKey -> SummaryType */
+  summaries?: Record<string, SummaryType>
   /** type === 'pivot' 时的透视表配置 */
   pivotConfig?: SmartPivotConfig
+  /** type === 'kanban' 时的看板配置 */
+  kanbanConfig?: KanbanConfig
+  /** type === 'dashboard' 时的仪表盘配置 */
+  dashboardConfig?: DashboardConfig
+}
+
+/** 独立应用视图模型（应用视图空间的核心实体，显式绑定数据源表 tableId） */
+export interface WorkspaceView extends SmartView {
+  tableId: string
+  sortOrder: number
+  updatedAt?: string
 }
 
 export interface SmartTableMeta {

@@ -12,7 +12,7 @@ infinitable/
 ├── packages/            # monorepo 主体
 │   ├── render/          # 通用 canvas 渲染工具包（场景树/分层 canvas/失效登记/事件/路径原语与内建图元）
 │   ├── grid/            # 共享网格内核（自 core 拆出：ScrollManager/虚拟窗口/二分命中/共享边/选区状态/主题投影）
-│   ├── protocol/        # 引擎装配协议契约包（纯类型零运行时：EngineAssembly/EngineReadView/EnginePlugin）
+│   ├── protocol/        # 引擎装配协议契约包（纯类型零运行时：EngineAssembly/GridReadView/EnginePlugin）
 │   ├── table/           # ListTable 引擎（自 core 拆出：装配/溢出/填充柄/表头/取值/编辑；实现引擎装配协议）
 │   ├── formulas/        # 公式引擎（tokenizer/Pratt parser/求值/49 内置函数/依赖图）
 │   ├── plugins/         # 官方插件（EnginePlugin 契约自 protocol 转出 + chart/print/watermark 插件）
@@ -32,14 +32,14 @@ infinitable/
 | protocol | `packages/protocol` | 引擎装配协议契约包（纯类型、零运行时）：EngineAssembly 中立本体、EngineCapabilities / GridReadView / GridDataModel / WritableGridDataModel 能力契约、EnginePlugin 插件契约（逆变函数签名）、PainterRegistration / PainterSlot 具名多槽位画家与 CellAddress / CellRange / CellChangeEvent 词汇；仅依赖 render 的类型 | `src/index.ts` |
 | table | `packages/table` | ListTable 引擎：ListTable 主体（四内聚状态对象 + 结构化场景容器组）、溢出走廊、填充柄、表头渲染/点击扩展缝、取值三形态、会话式原生编辑器注册表与编辑链路、交互、浮动对象 UI 层（FloatObjectLayer）、图片/图表媒体（resolveCellChart）、插件注册路径；依赖 grid、render 与 protocol（实现 EngineAssembly 与 TableEngine） | `src/index.ts` |
 | formulas | `packages/formulas` | 公式引擎：地址与错误码、tokenizer、Pratt parser、evaluate/evaluateAst、FormulaLookupCache 按批流式查找索引、49 内置函数注册表（全局 + 实例函数集覆盖集）、依赖图与容错引用扫描 | `src/index.ts` |
-| plugins | `packages/plugins` | 官方插件承载：EnginePlugin 契约自 `@infinitable/protocol` 具名转出 + chart/print/watermark 插件（watermark/print 为协议插件——mount 只收 EngineAssembly 任意引擎可挂，watermark 支持离屏 CanvasPattern 复用；chart 提供 createChartPlugin 离屏出图与 resolveCellChart 注入；print 直接消费协议 GridReadView 并公开 derivePrintableArea）；仅依赖 protocol 与 render | `src/index.ts` |
+| plugins | `packages/plugins` | 官方插件承载：EnginePlugin 契约自 `@infinitable/protocol` 具名转出 + chart/print/watermark 插件（watermark/print 为协议插件——mount 只收 EngineAssembly 任意引擎可挂，watermark 支持离屏 CanvasPattern 复用；chart 提供 createChartPlugin 离屏出图与 resolveCellChart 注入；print 直接消费协议 GridReadView 并公开 derivePrintableArea）；依赖 protocol、render 与 grid（类型） | `src/index.ts` |
 | pivot | `packages/pivot` | 透视表引擎：PivotGrid（内部 new ListTable 后以 TableEngine 持有，对外实现 EngineAssembly 统一装配面，合并树格支持视口内贴顶居中绘制与同源点击折叠命中）+ PivotModel 两阶段聚合模型（Phase 1 单趟扫描构建内存行维度树与预聚合累加器，Phase 2 展开/折叠零原始记录扫描 $O(\text{VisibleRows})$ 物化 rowList/matrix/mergeList）；依赖 table、grid 与 protocol | `src/index.ts` |
 | sheet | `packages/sheet` | 电子表格核心：sheet 模型（SheetRange / SheetCellStyle / SheetSelectionState / addressKey）、命令、XLSX/CSV IO（独立子路径 `./io`）、SheetGrid 适配（统一实现 EngineAssembly，完整同步 structure-change 与命令周期 batchUpdate）；依赖 table、grid、formulas 与 protocol | `src/index.ts`、`src/io.ts` |
 | infinitable | `packages/infinitable` | 唯一 npm 发布包：主入口显式转售各层公共 API + `./sheet`、`./sheet/io`、`./pivot` 子路径，vp build 整体打成自包含 dist（render/grid/table 钉进单一共享 engine chunk 保跨入口 `instanceof`、formulas 从 engine chunk 摘出使纯表格/透视表脱离公式与 @cat-kit/core、hucre 隔离在 `./sheet/io`、chart 保持动态分包，契约由 `scripts/check-package-exports.mjs` 守卫），`scripts/build-types.mjs` 装配类型树并改写跨包说明符 | `src/index.ts`、`src/sheet.ts`、`src/sheet-io.ts`、`src/pivot.ts` |
 | playground | `playground` | 应用（React + shadcn/ui + Tailwind CSS，vite MPA：index 示例 + bench.html 基准）：示例总览、架构与 API 边界页、量化基准、冒烟自检 | `src/main.tsx`、`bench.html`、`src/app/views/ArchitecturePage.tsx`、`src/bench/headless.test.ts` |
 | website | `website` | 开发者文档站（VitePress + mermaid）：指南、架构、API 参考、可交互示例（Vue 组件挂载真实 `ListTable`） | `.vitepress/config.mts`、`index.md` |
 | print-form-designer | `apps/print-form-designer` | 独立全栈应用：打印表单设计器（前端设计器 + Bun/bun:sqlite/Hono 后端），`packages/` 分层与 playground 之外的应用边界；app 内分层为 shared（前后端契约：模板 schema/迁移与 REST 类型单源）、domain（领域模型：FormDoc/区域操作/聚合）、designer（表现层：画布与 React 组件）、data（数据视图 + REST 客户端与取数服务 dataset-service）、server（Hono 路由/建库/种子，种子惰性构建）；server 不 import designer；设计器内含公式栏与函数库（消费 @infinitable/formulas 的 49 个内置函数） | `src/server/index.ts`、`src/main.tsx` |
-| smart-table | `apps/smart-table` | 独立全栈应用：飞书/企微风格多维智能表格（React 19 + Hono + bun:sqlite）；app 内分层为 shared（前后端 schema 与 REST 契约单源）、domain（VLOOKUP 联合匹配/消歧/汇总、公式列求值、筛选排序汇总管线、透视下钻拆解）、canvas（SmartGridAdapter 富媒体自绘与角标 + SmartPivotAdapter 原地刷新与双击下钻）、server（普通表 JSON + 进阶物理表 SQL 双模持久层与 3 表演示种子）、components（工作台与向导/消歧/下钻 UI）；server 不 import canvas/components | `src/server/index.ts`、`src/main.tsx` |
+| smart-table | `apps/smart-table` | 独立全栈应用：飞书/企微风格多维智能表格（React 19 + Hono + bun:sqlite）；app 内分层为 shared（前后端 schema 与 REST 契约单源，含独立应用视图与样式/条件格式/看板/仪表盘类型）、domain（VLOOKUP 联合匹配/消歧/汇总、公式列求值、筛选排序汇总管线、透视下钻拆解、条件格式与多层次样式合并、看板泳道分组、仪表盘 KPI/图表聚合）、canvas（SmartGridAdapter 富媒体自绘与角标 + SmartPivotAdapter 原地刷新与双击下钻）、server（普通表 JSON + 进阶物理表 SQL 双模持久层、独立应用视图持久化与 6 表演示种子）、components（工作台与向导/消歧/下钻 UI）；server 不 import canvas/components | `src/server/index.ts`、`src/main.tsx` |
 
 ## 模块内检索
 
@@ -55,7 +55,7 @@ infinitable/
 
 ### protocol — `packages/protocol/src`
 
-- 引擎装配协议契约（纯类型）：`engine.ts`（EngineAssembly 中立本体 + EngineReadView + CellChangeEvent/painter 槽位词汇）、`plugin.ts`（EnginePlugin 契约与三分类判据）；文件清单以盘上为准
+- 引擎装配协议契约（纯类型）：`engine.ts`（EngineAssembly 中立本体 + EngineTheme/PainterRegistration 等词汇）、`grid.ts`（GridReadView/GridDataModel/WritableGridDataModel 与纯结构网格值类型）、`plugin.ts`（EnginePlugin 契约与三分类判据）；文件清单以盘上为准
 
 ### render — `packages/render/src`
 
@@ -68,7 +68,7 @@ infinitable/
 ### plugins — `packages/plugins/src`
 
 - chart 插件 `chart/`：声明解析、Chart.js 按需加载、插件工厂、离屏出图；`scripts/assert-chart-chunk.mjs` 构建断言守 chart.js 不进主产物
-- print 插件 `print/`：headless 分页引擎（fitpage/fixrows 双模式）+ 页面 HTML 构建（页眉页脚占位符）+ iframe 打印输出与 DOM 预览薄壳；数据经 PrintSource 抽象供数
+- print 插件 `print/`：headless 分页引擎（fitpage/fixrows 双模式）+ 页面 HTML 构建（页眉页脚占位符）+ iframe 打印输出与 DOM 预览薄壳；数据经协议 GridReadView 抽象供数
 - watermark 插件 `watermark/`：文字平铺水印，经引擎装配协议 overlay 绘制槽位挂载（锚定视口）
 - 接口面红线：`docs/plugin-interface-map.md`
 

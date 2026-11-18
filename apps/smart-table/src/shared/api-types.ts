@@ -1,6 +1,13 @@
 // 前后端 REST 接口请求/响应契约
 
-import type { SmartRecord, SmartTableMeta, TableKind } from './schema'
+import type {
+  SmartRecord,
+  SmartTableMeta,
+  SmartView,
+  SmartViewType,
+  TableKind,
+  WorkspaceView,
+} from './schema'
 
 export interface TableBundle {
   meta: SmartTableMeta
@@ -9,6 +16,47 @@ export interface TableBundle {
 
 export interface AllTablesResponse {
   tables: TableBundle[]
+  views?: WorkspaceView[]
+}
+
+export interface AllViewsResponse {
+  views: WorkspaceView[]
+}
+
+export interface CreateViewRequest {
+  name: string
+  type: SmartViewType
+  tableId: string
+  description?: string
+  filterGroup?: SmartView['filterGroup']
+  quickFilterFields?: string[]
+  quickFilterValues?: Record<string, string[]>
+  sortRules?: SmartView['sortRules']
+  columnOrder?: string[]
+  hiddenColumns?: string[]
+  columnWidths?: Record<string, number>
+  frozenColCount?: number
+  rowHeight?: SmartView['rowHeight']
+  columnStyles?: SmartView['columnStyles']
+  cellStyles?: SmartView['cellStyles']
+  conditionalFormats?: SmartView['conditionalFormats']
+  summaries?: SmartView['summaries']
+  pivotConfig?: SmartView['pivotConfig']
+  kanbanConfig?: SmartView['kanbanConfig']
+  dashboardConfig?: SmartView['dashboardConfig']
+}
+
+export type UpdateViewRequest = Partial<Omit<WorkspaceView, 'id' | 'updatedAt'>>
+
+export interface ReorderViewsRequest {
+  viewIds: string[]
+}
+
+export interface KanbanMoveCardRequest {
+  /** 指定分组字段 key（可选，未传时取看板视图 kanbanConfig.groupByField） */
+  field?: string
+  /** 目标泳道状态值 */
+  targetValue: unknown
 }
 
 export interface CreateTableRequest {
