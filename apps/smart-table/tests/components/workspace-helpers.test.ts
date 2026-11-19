@@ -1,24 +1,43 @@
-// 工作台双态权限、URL 参数同步、三区域右键菜单裁剪、选区样式更新、列顺序/显隐与 CSV/XLSX 导出单测
+// 工作台权限能力解析、三区域右键菜单权限裁剪、选区样式更新、列顺序/显隐与 CSV/XLSX 导出单测
 
 import { readXlsx } from 'hucre/xlsx'
 import { describe, expect, test } from 'vitest'
 import { buildGridMenuItems, type GridMenuContext } from '../../src/components/GridPopupMenu'
+import { computeUserCapabilities } from '../../src/domain/permissions'
 import {
   applyCellStyleToSelection,
   buildDefaultViewPayload,
-  buildEntryShareUrl,
-  buildModeSearchUrl,
-  formatRecordsAsCsv,
   buildRecordsXlsxBytes,
+  canAccessNavSection,
+  canConfigureAppItem,
+  canConfigureViewItem,
+  canEditEntryTableItem,
+  formatRecordsAsCsv,
   getAvailableSummaryTypes,
+  getVisibleNavSections,
   normalizeColumnOrder,
   reorderStringList,
-  resolveAppModeFromSearch,
-  resolveEntryTableIdFromSearch,
+  resolveWorkspaceActionCapabilities,
   toggleHiddenColumn,
 } from '../../src/domain/workspace-helpers'
 import type { TableBundle } from '../../src/shared/api-types'
-import type { SmartColumn, SmartRecord } from '../../src/shared/schema'
+import type {
+  AuthUser,
+  SmartApp,
+  SmartColumn,
+  SmartRecord,
+  SmartTableMeta,
+  WorkspaceView,
+} from '../../src/shared/schema'
+
+const ADMIN: AuthUser = { id: 'usr_admin', username: 'admin', displayName: '管理员', role: 'admin' }
+const MANAGER: AuthUser = { id: 'usr_mgr', username: 'lisi', displayName: '李四', role: 'manager' }
+const MEMBER: AuthUser = {
+  id: 'usr_member',
+  username: 'qianqi',
+  displayName: '钱七',
+  role: 'member',
+}
 
 const COLUMNS: SmartColumn[] = [
   { key: 'code', title: '编号', type: 'text', width: 100, isUniqueKey: true },
@@ -53,40 +72,152 @@ const RECORDS: SmartRecord[] = [
   { _id: 'r2', code: 'PRJ-02', status: '已交付', amount: 8500.5, dept: '市场,一组' },
 ]
 
-describe('双态 URL 解析与生成', () => {
-  test('?mode=viewer 直达查看态，缺省或其它值进入运维配置态', () => {
-    expect(resolveAppModeFromSearch('')).toBe('operator')
-    expect(resolveAppModeFromSearch('?mode=operator')).toBe('operator')
-    expect(resolveAppModeFromSearch('?mode=viewer')).toBe('viewer')
-    expect(resolveAppModeFromSearch('?foo=1&mode=VIEWER')).toBe('viewer')
+describe('角色导航入口与资源操作能力解析', () => {
+  test('getVisibleNavSections 与 canAccessNavSection 严格区分 admin/manager 与 member', () => {
+    expect(getVisibleNavSections(null)).toEqual([])
+    expect(getVisibleNavSections(ADMIN)).toEqual([
+      'apps',
+      'entries',
+      'datasources',
+      'shares',
+      'permissions',
+    ])
+    expect(getVisibleNavSections(MANAGER)).toEqual([
+      'apps',
+      'entries',
+      'datasources',
+      'shares',
+      'permissions',
+    ])
+    expect(getVisibleNavSections(MEMBER)).toEqual(['apps', 'entries'])
+
+    expect(canAccessNavSection('datasources', MEMBER)).toBe(false)
+    expect(canAccessNavSection('permissions', MEMBER)).toBe(false)
+    expect(canAccessNavSection('shares', MEMBER)).toBe(false)
+    expect(canAccessNavSection('entries', MEMBER)).toBe(true)
+    expect(canAccessNavSection('datasources', MANAGER)).toBe(true)
   })
 
-  test('buildModeSearchUrl 切换模式时保留其余查询参数与 hash', () => {
-    expect(buildModeSearchUrl('/', '?view=v1', '#sec', 'viewer')).toBe('/?view=v1&mode=viewer#sec')
-    expect(buildModeSearchUrl('/', '?view=v1&mode=viewer', '#sec', 'operator')).toBe(
-      '/?view=v1#sec',
-    )
-    expect(buildModeSearchUrl('/', '?mode=viewer', '', 'operator')).toBe('/')
-  })
+  test('resolveWorkspaceActionCapabilities 按角色与资源授权准确区分可配置、仅可写行与只读', () => {
+    const table: SmartTableMeta = {
+      id: 'tbl_1',
+      name: '项目表',
+      kind: 'normal',
+      columns: COLUMNS,
+      views: [],
+      summaries: {},
+      createdBy: ADMIN.id,
+      memberAccess: 'readonly',
+    }
+    const appRo: SmartApp = {
+      id: 'app_ro',
+      name: '只读应用',
+      tableId: 'tbl_1',
+      sortOrder: 0,
+      createdBy: MANAGER.id,
+      visibilityScope: 'all',
+      memberAccess: 'readonly',
+    }
+    const viewEd: WorkspaceView = {
+      id: 'v_ed',
+      appId: 'app_ro',
+      tableId: 'tbl_1',
+      name: '成员可编辑视图',
+      type: 'table',
+      sortOrder: 0,
+      filterGroup: { conjunction: 'and', conditions: [] },
+      quickFilterFields: [],
+      sortRules: [],
+      visibilityScope: 'all',
+      memberAccess: 'editable',
+    }
+    const viewRo: WorkspaceView = {
+      ...viewEd,
+      id: 'v_ro',
+      memberAccess: undefined,
+    }
 
-  test('resolveEntryTableIdFromSearch 与 buildEntryShareUrl 解析和生成独立数据录入页链接', () => {
-    expect(resolveEntryTableIdFromSearch('')).toBeNull()
-    expect(resolveEntryTableIdFromSearch('?entry=   ')).toBeNull()
-    expect(resolveEntryTableIdFromSearch('?entry=tbl_projects&mode=viewer')).toBe('tbl_projects')
-
+    // 成员在 readonly 视图：只读、不可配置、不可进数据源、不可建分享
     expect(
-      buildEntryShareUrl('https://demo.local/app?view=v1&mode=viewer#sec', 'tbl_projects'),
-    ).toBe('https://demo.local/app?entry=tbl_projects')
-    expect(buildEntryShareUrl('/smart-table?view=v1', 'tbl_demo')).toBe(
-      '/smart-table?entry=tbl_demo',
-    )
+      resolveWorkspaceActionCapabilities({
+        user: MEMBER,
+        userCapabilities: computeUserCapabilities(MEMBER),
+        targetKind: 'app',
+        app: appRo,
+        view: viewRo,
+      }),
+    ).toEqual({
+      canView: true,
+      canEditRecords: false,
+      canConfigure: false,
+      canManagePermissions: false,
+      canCreateShare: false,
+      canManageDataSource: false,
+      canAccessDataSources: false,
+    })
+
+    // 成员在 editable 视图：仅可写行，仍不可配置、不可进数据源、不可建分享
+    expect(
+      resolveWorkspaceActionCapabilities({
+        user: MEMBER,
+        userCapabilities: computeUserCapabilities(MEMBER),
+        targetKind: 'app',
+        app: appRo,
+        view: viewEd,
+      }),
+    ).toEqual({
+      canView: true,
+      canEditRecords: true,
+      canConfigure: false,
+      canManagePermissions: false,
+      canCreateShare: false,
+      canManageDataSource: false,
+      canAccessDataSources: false,
+    })
+
+    // 负责人对本人创建的应用：全部可用
+    expect(
+      resolveWorkspaceActionCapabilities({
+        user: MANAGER,
+        userCapabilities: computeUserCapabilities(MANAGER),
+        targetKind: 'app',
+        app: appRo,
+        view: viewRo,
+      }),
+    ).toEqual({
+      canView: true,
+      canEditRecords: true,
+      canConfigure: true,
+      canManagePermissions: true,
+      canCreateShare: true,
+      canManageDataSource: true,
+      canAccessDataSources: true,
+    })
+
+    // 成员即使传入 datasource 目标也无任何操作权限
+    expect(
+      resolveWorkspaceActionCapabilities({
+        user: MEMBER,
+        targetKind: 'datasource',
+        table,
+        allApps: [appRo],
+        allViews: [viewRo],
+      }).canView,
+    ).toBe(false)
+
+    expect(canConfigureAppItem(MANAGER, appRo)).toBe(true)
+    expect(canConfigureAppItem(MEMBER, appRo)).toBe(false)
+    expect(canConfigureViewItem(MANAGER, viewRo, appRo)).toBe(true)
+    expect(canEditEntryTableItem(MEMBER, table, [appRo], [viewRo])).toBe(false)
+    expect(canEditEntryTableItem(MEMBER, table, [appRo], [viewEd])).toBe(true)
   })
 })
 
-describe('三区域右键菜单双态权限裁剪', () => {
+describe('三区域右键菜单真实权限裁剪', () => {
   function baseCtx(overrides: Partial<GridMenuContext>): GridMenuContext {
     return {
-      mode: 'operator',
+      canEditRecords: true,
+      canConfigure: true,
       region: 'body',
       x: 100,
       y: 100,
@@ -105,29 +236,68 @@ describe('三区域右键菜单双态权限裁剪', () => {
     }
   }
 
-  test('用户查看态（viewer）严格移除写操作与配置类菜单项，仅保留只读交互', () => {
-    const colItems = buildGridMenuItems(baseCtx({ mode: 'viewer', region: 'col-header' }))
+  test('只读权限（!canEditRecords && !canConfigure）严格移除写操作与配置类菜单项', () => {
+    const colItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: false, canConfigure: false, region: 'col-header' }),
+    )
     expect(colItems.map((i) => i.id)).toEqual(['sort_asc', 'sort_desc', 'sort_clear'])
 
-    const rowItems = buildGridMenuItems(baseCtx({ mode: 'viewer', region: 'row-header' }))
+    const rowItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: false, canConfigure: false, region: 'row-header' }),
+    )
     expect(rowItems.map((i) => i.id)).toEqual(['copy_row'])
 
-    const bodyItems = buildGridMenuItems(baseCtx({ mode: 'viewer', region: 'body' }))
+    const bodyItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: false, canConfigure: false, region: 'body' }),
+    )
     expect(bodyItems.map((i) => i.id)).toEqual(['copy_cell', 'filter_by_cell'])
   })
 
-  test('运维配置态（operator）在三区域均露出对应配置与编辑动作', () => {
-    const colItems = buildGridMenuItems(baseCtx({ mode: 'operator', region: 'col-header' }))
+  test('成员可编辑授权（canEditRecords && !canConfigure）仅允许编辑/增删行，隐藏配置与消歧写操作', () => {
+    const bodyItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: true, canConfigure: false, region: 'body' }),
+    )
+    expect(bodyItems.map((i) => i.id)).toEqual([
+      'copy_cell',
+      'filter_by_cell',
+      'edit_cell',
+      'add_row',
+      'delete_row',
+    ])
+
+    // 无配置权时，lookup 列不可在右键菜单触发消歧（lookupOverrides 需配置权）
+    const lookupBodyItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: true, canConfigure: false, region: 'body', column: COLUMNS[3]! }),
+    )
+    expect(lookupBodyItems.map((i) => i.id)).not.toContain('edit_cell')
+
+    const colItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: true, canConfigure: false, region: 'col-header' }),
+    )
+    expect(colItems.map((i) => i.id)).toEqual(['sort_asc', 'sort_desc', 'sort_clear'])
+  })
+
+  test('具备配置与写行权限时在三区域均露出对应配置与编辑动作', () => {
+    const colItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: true, canConfigure: true, region: 'col-header' }),
+    )
     expect(colItems.map((i) => i.id)).toContain('freeze_to_col')
     expect(colItems.map((i) => i.id)).toContain('open_col_style')
     expect(colItems.map((i) => i.id)).toContain('delete_col')
 
     const lookupColItems = buildGridMenuItems(
-      baseCtx({ mode: 'operator', region: 'col-header', column: COLUMNS[3]! }),
+      baseCtx({
+        canEditRecords: true,
+        canConfigure: true,
+        region: 'col-header',
+        column: COLUMNS[3]!,
+      }),
     )
     expect(lookupColItems.map((i) => i.id)).toContain('edit_lookup_col')
 
-    const bodyItems = buildGridMenuItems(baseCtx({ mode: 'operator', region: 'body' }))
+    const bodyItems = buildGridMenuItems(
+      baseCtx({ canEditRecords: true, canConfigure: true, region: 'body' }),
+    )
     expect(bodyItems.map((i) => i.id)).toContain('edit_cell')
     expect(bodyItems.map((i) => i.id)).toContain('open_selection_style')
     expect(bodyItems.map((i) => i.id)).toContain('clear_selection_style')

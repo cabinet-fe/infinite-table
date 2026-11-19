@@ -1,13 +1,17 @@
-// 独立数据录入端主视图（?entry=<tableId>）：无侧边栏、无视图配置、无 VLOOKUP/分析视图，
-// 聚焦 normal 表的快速行内编辑、单行表单抽屉录入/编辑、批量追加导入与 CSV/XLSX 导出。
+// 数据录入端主视图（/entries/:tableId）：无视图配置、无 VLOOKUP/分析视图，
+// 聚焦 normal 表的快速行内编辑、单行表单抽屉录入/编辑、批量追加导入与 CSV/XLSX 导出，并按权限支持只读浏览。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  Check,
+  ChevronDown,
   ClipboardList,
   Download,
+  Eye,
   FilePenLine,
   FileSpreadsheet,
+  Link2,
   Plus,
   Table2,
   Trash2,
@@ -31,6 +35,11 @@ import { exportRecordsAsFile } from './Toolbar'
 export interface EntryWorkspaceProps {
   bundle: TableBundle
   busy?: boolean
+  readonly?: boolean
+  switchableTables?: readonly { id: string; name: string }[]
+  onSwitchTable?: (tableId: string) => void
+  onLoadSwitchableTables?: () => Promise<void> | void
+  onCopyEntryLink?: () => void | Promise<void>
   onCreateRecord: (record: Record<string, unknown>) => Promise<SmartRecord | void>
   onUpdateRecord: (recordId: string, patch: Record<string, unknown>) => Promise<SmartRecord | void>
   onDeleteRecords: (recordIds: string[]) => Promise<void>
@@ -56,6 +65,11 @@ function nextLocalSortRules(
 export function EntryWorkspace({
   bundle,
   busy = false,
+  readonly = false,
+  switchableTables,
+  onSwitchTable,
+  onLoadSwitchableTables,
+  onCopyEntryLink,
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecords,
@@ -79,13 +93,44 @@ export function EntryWorkspace({
   >({ open: false })
   const [showAppendModal, setShowAppendModal] = useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [richEditInfo, setRichEditInfo] = useState<SmartGridRichEditInfo | null>(null)
 
+  const switcherMenuRef = useRef<HTMLDivElement | null>(null)
   const exportMenuRef = useRef<HTMLDivElement | null>(null)
   const gridContainerRef = useRef<HTMLDivElement | null>(null)
   const gridAdapterRef = useRef<SmartGridAdapter | null>(null)
+
+  const switcherOptions = useMemo(() => {
+    const list = switchableTables && switchableTables.length > 0 ? [...switchableTables] : []
+    if (!list.some((item) => item.id === bundle.meta.id)) {
+      list.unshift({ id: bundle.meta.id, name: bundle.meta.name })
+    }
+    return list
+  }, [switchableTables, bundle.meta.id, bundle.meta.name])
+
+  useEffect(() => {
+    setSortRules([])
+    setSelectedRecordIds([])
+    setFocusedRecordId(null)
+    setDrawerState({ open: false })
+    setShowAppendModal(false)
+    setConfirmDeleteOpen(false)
+    setSwitcherOpen(false)
+    setExportOpen(false)
+    setRichEditInfo(null)
+  }, [bundle.meta.id])
+
+  useEffect(() => {
+    if (readonly) {
+      setDrawerState({ open: false })
+      setShowAppendModal(false)
+      setConfirmDeleteOpen(false)
+      setRichEditInfo(null)
+    }
+  }, [readonly])
 
   const sortView = useMemo<SmartView>(
     () => ({
@@ -134,14 +179,19 @@ export function EntryWorkspace({
   }
 
   useEffect(() => {
-    if (!exportOpen) return
+    if (!exportOpen && !switcherOpen) return
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null
       if (target && exportMenuRef.current?.contains(target)) return
+      if (target && switcherMenuRef.current?.contains(target)) return
       setExportOpen(false)
+      setSwitcherOpen(false)
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setExportOpen(false)
+      if (e.key === 'Escape') {
+        setExportOpen(false)
+        setSwitcherOpen(false)
+      }
     }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -149,7 +199,7 @@ export function EntryWorkspace({
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [exportOpen])
+  }, [exportOpen, switcherOpen])
 
   useEffect(() => {
     const container = gridContainerRef.current
@@ -159,12 +209,13 @@ export function EntryWorkspace({
       container,
       columns: rawColumns,
       records: pipeline.displayRecords,
-      readonly: false,
+      readonly,
       sortRules,
       summaries: bundle.meta.summaries,
       summaryResults: pipeline.summaries,
       totalCount: bundle.records.length,
       onCellValueChange: (recordId, fieldKey, newValue) => {
+        if (readonly) return
         void handlersRef.current
           .onUpdateRecord(recordId, { [fieldKey]: newValue })
           .catch((error) => {
@@ -172,7 +223,9 @@ export function EntryWorkspace({
             handlersRef.current.onNotify?.('error', msg)
           })
       },
-      onRichCellEdit: (info) => setRichEditInfo(info),
+      onRichCellEdit: (info) => {
+        if (!readonly) setRichEditInfo(info)
+      },
       onValidationError: (msg) => handlersRef.current.onNotify?.('error', msg),
       onRowSelectionChange: (ids) => setSelectedRecordIds(ids),
       onSelectionInfoChange: (info: SmartGridSelectionInfo) => {
@@ -186,6 +239,7 @@ export function EntryWorkspace({
     })
 
     const onRowHeaderDblClick = (event: MouseEvent) => {
+      if (readonly) return
       const rect = container.getBoundingClientRect()
       const x = event.clientX - rect.left
       const y = event.clientY - rect.top
@@ -207,7 +261,7 @@ export function EntryWorkspace({
       gridAdapterRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bundle.meta.id])
+  }, [bundle.meta.id, readonly])
 
   useEffect(() => {
     gridAdapterRef.current?.setData(rawColumns, pipeline.displayRecords, undefined, sortRules, {
@@ -225,6 +279,7 @@ export function EntryWorkspace({
   ])
 
   async function handleQuickAddRow() {
+    if (readonly) return
     if (hasRequiredColumns) {
       setDrawerState({ open: true, mode: 'create' })
       return
@@ -238,6 +293,7 @@ export function EntryWorkspace({
   }
 
   async function handleDrawerSubmit(values: Record<string, unknown>, recordId?: string) {
+    if (readonly) return
     if (recordId) {
       await onUpdateRecord(recordId, values)
       onNotify?.('success', '记录修改已保存')
@@ -266,6 +322,7 @@ export function EntryWorkspace({
   }
 
   async function handleRichCommit(recordId: string, fieldKey: string, value: unknown) {
+    if (readonly) return
     const col = rawColumns.find((c) => c.key === fieldKey)
     if (col) {
       const check = validateAndCoerceCellValue(col, value)
@@ -280,8 +337,8 @@ export function EntryWorkspace({
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-50 text-slate-900">
-      {/* 独立数据录入端精简顶部工具栏 */}
+    <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50 text-slate-900">
+      {/* 数据录入端精简顶部工具栏 */}
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4">
         <div className="flex min-w-0 items-center gap-2.5">
           {onBackToWorkbench && (
@@ -297,71 +354,146 @@ export function EntryWorkspace({
           <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
             <ClipboardList className="h-4 w-4" />
           </span>
-          <h1 className="truncate text-sm font-semibold text-slate-900">{bundle.meta.name}</h1>
+          {onSwitchTable ? (
+            <div ref={switcherMenuRef} className="relative min-w-0">
+              <button
+                type="button"
+                aria-label="切换数据录入表"
+                aria-expanded={switcherOpen}
+                onClick={() => {
+                  const nextOpen = !switcherOpen
+                  setSwitcherOpen(nextOpen)
+                  if (nextOpen) {
+                    void onLoadSwitchableTables?.()
+                  }
+                }}
+                className="inline-flex h-8 max-w-[260px] items-center gap-1.5 rounded-md border border-transparent px-2 text-sm font-semibold text-slate-900 hover:border-slate-200 hover:bg-slate-50"
+              >
+                <span className="truncate">{bundle.meta.name}</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              </button>
+
+              {switcherOpen && (
+                <div className="absolute left-0 top-full z-[900] mt-1.5 w-60 rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
+                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    切换数据录入表
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {switcherOptions.map((item) => {
+                      const active = item.id === bundle.meta.id
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setSwitcherOpen(false)
+                            if (item.id !== bundle.meta.id) {
+                              onSwitchTable(item.id)
+                            }
+                          }}
+                          className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs ${
+                            active
+                              ? 'bg-emerald-50 font-semibold text-emerald-700'
+                              : 'text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          <span className="truncate">{item.name}</span>
+                          {active && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <h1 className="truncate text-sm font-semibold text-slate-900">{bundle.meta.name}</h1>
+          )}
           <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
             数据录入端
           </span>
+          {readonly && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+              <Eye className="h-3 w-3" />
+              <span>只读</span>
+            </span>
+          )}
           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
             {bundle.records.length} 条记录
           </span>
+          {onCopyEntryLink && (
+            <button
+              type="button"
+              onClick={() => void onCopyEntryLink()}
+              title="复制当前数据录入页分享链接"
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              <span>复制链接</span>
+            </button>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void handleQuickAddRow()}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>新增行</span>
-          </button>
+          {!readonly && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleQuickAddRow()}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>新增行</span>
+              </button>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setDrawerState({ open: true, mode: 'create' })}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>表单录入</span>
-          </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDrawerState({ open: true, mode: 'create' })}
+                className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>表单录入</span>
+              </button>
 
-          <button
-            type="button"
-            disabled={busy || !focusedRecord}
-            title="查看或编辑当前选中行的详情表单（也可双击行号打开）"
-            onClick={() => {
-              if (focusedRecord) {
-                setDrawerState({ open: true, mode: 'edit', recordId: focusedRecord._id })
-              }
-            }}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <FilePenLine className="h-3.5 w-3.5" />
-            <span>行详情</span>
-          </button>
+              <button
+                type="button"
+                disabled={busy || !focusedRecord}
+                title="查看或编辑当前选中行的详情表单（也可双击行号打开）"
+                onClick={() => {
+                  if (focusedRecord) {
+                    setDrawerState({ open: true, mode: 'edit', recordId: focusedRecord._id })
+                  }
+                }}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <FilePenLine className="h-3.5 w-3.5" />
+                <span>行详情</span>
+              </button>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setShowAppendModal(true)}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5" />
-            <span>批量追加导入</span>
-          </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setShowAppendModal(true)}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                <span>批量追加导入</span>
+              </button>
 
-          {selectedRecordIds.length > 0 && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setConfirmDeleteOpen(true)}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-40"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>删除选中 ({selectedRecordIds.length})</span>
-            </button>
+              {selectedRecordIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmDeleteOpen(true)}
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-40"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>删除选中 ({selectedRecordIds.length})</span>
+                </button>
+              )}
+            </>
           )}
 
           <div ref={exportMenuRef} className="relative">
@@ -408,44 +540,50 @@ export function EntryWorkspace({
               <Table2 className="mb-2.5 h-7 w-7 text-slate-400" />
               <div className="text-sm font-semibold text-slate-900">当前数据表暂无记录</div>
               <div className="mt-1 text-xs text-slate-500">
-                点击下方按钮通过表单录入单条数据，或批量追加导入 Excel / CSV 文件。
+                {readonly
+                  ? '当前为只读权限，暂无可查看的记录。'
+                  : '点击下方按钮通过表单录入单条数据，或批量追加导入 Excel / CSV 文件。'}
               </div>
-              <div className="mt-4 flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setDrawerState({ open: true, mode: 'create' })}
-                  className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>表单录入</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setShowAppendModal(true)}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-                >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>批量追加导入</span>
-                </button>
-              </div>
+              {!readonly && (
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setDrawerState({ open: true, mode: 'create' })}
+                    className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>表单录入</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setShowAppendModal(true)}
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    <span>批量追加导入</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
       </main>
 
-      <EntryRecordDrawer
-        open={drawerState.open}
-        mode={drawerState.open ? drawerState.mode : 'create'}
-        record={editingRecord}
-        columns={rawColumns}
-        busy={busy}
-        onClose={() => setDrawerState({ open: false })}
-        onSubmit={handleDrawerSubmit}
-      />
+      {!readonly && (
+        <EntryRecordDrawer
+          open={drawerState.open}
+          mode={drawerState.open ? drawerState.mode : 'create'}
+          record={editingRecord}
+          columns={rawColumns}
+          busy={busy}
+          onClose={() => setDrawerState({ open: false })}
+          onSubmit={handleDrawerSubmit}
+        />
+      )}
 
-      {showAppendModal && (
+      {!readonly && showAppendModal && (
         <AppendImportModal
           tableName={bundle.meta.name}
           columns={rawColumns}
@@ -457,7 +595,7 @@ export function EntryWorkspace({
         />
       )}
 
-      {richEditInfo && (
+      {!readonly && richEditInfo && (
         <CellEditorPopover
           editInfo={richEditInfo}
           allowCreateSelectOption={false}

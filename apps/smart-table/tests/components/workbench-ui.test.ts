@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-// 关键前端工作台组件交互与双态权限隔离测试：
-// 验证 Sidebar 双板块隔离、Toolbar 双态按钮裁剪、ViewConfigDrawer 分栏调序/样式/条件格式、
-// SummaryMenuPopover 统计选择与 GridPopupMenu 菜单动作触发。
+// 关键前端工作台组件交互与真实权限隔离测试：
+// 验证 Sidebar 分板块目录（apps / entries / datasources）按角色过滤、AppViewTabs 权限控制、
+// Toolbar 能力裁剪、ViewConfigDrawer 分栏调序/样式/条件格式、SummaryMenuPopover 与 GridPopupMenu。
 
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -16,9 +16,11 @@ import { Sidebar } from '../../src/components/Sidebar'
 import { SummaryMenuPopover } from '../../src/components/SummaryMenuPopover'
 import { Toolbar } from '../../src/components/Toolbar'
 import { ViewConfigDrawer } from '../../src/components/ViewConfigDrawer'
-import type { AppMode } from '../../src/domain/workspace-helpers'
+import { computeUserCapabilities } from '../../src/domain/permissions'
+import type { WorkspaceActionCapabilities } from '../../src/domain/workspace-helpers'
 import type { TableBundle } from '../../src/shared/api-types'
 import type {
+  AuthUser,
   CellStyleConfig,
   SmartApp,
   SmartColumn,
@@ -33,6 +35,40 @@ import type {
 
 const noop = () => {}
 const noopAsync = async () => {}
+
+const ADMIN: AuthUser = { id: 'usr_admin', username: 'admin', displayName: '管理员', role: 'admin' }
+const MANAGER: AuthUser = { id: 'usr_mgr', username: 'lisi', displayName: '李四', role: 'manager' }
+const MEMBER: AuthUser = {
+  id: 'usr_member',
+  username: 'qianqi',
+  displayName: '钱七',
+  role: 'member',
+}
+
+const FULL_CAPS: WorkspaceActionCapabilities = {
+  canView: true,
+  canEditRecords: true,
+  canConfigure: true,
+  canManagePermissions: true,
+  canCreateShare: true,
+  canManageDataSource: true,
+  canAccessDataSources: true,
+}
+
+const MEMBER_RO_CAPS: WorkspaceActionCapabilities = {
+  canView: true,
+  canEditRecords: false,
+  canConfigure: false,
+  canManagePermissions: false,
+  canCreateShare: false,
+  canManageDataSource: false,
+  canAccessDataSources: false,
+}
+
+const MEMBER_ED_CAPS: WorkspaceActionCapabilities = {
+  ...MEMBER_RO_CAPS,
+  canEditRecords: true,
+}
 
 const COLUMNS: SmartColumn[] = [
   { key: 'code', title: '项目编号', type: 'text', width: 110, isUniqueKey: true },
@@ -159,15 +195,111 @@ afterEach(() => {
   }
 })
 
-describe('Sidebar 与 AppViewTabs 双态隔离', () => {
-  test('运维态同时展示智能表格列表与数据源中心（自建普通表 + SQL 物理表）及新建/导入/重置入口', () => {
-    const { container } = mountComponent(
+describe('Sidebar 二级目录与 AppViewTabs 权限隔离', () => {
+  test('Sidebar 按 section 分栏展示智能表格、数据录入表与数据源中心，并按用户角色过滤操作与重置入口', () => {
+    const onEnterTableEntry = vi.fn<(tableId: string) => void>()
+    const onOpenTableEntryNewTab = vi.fn<(tableId: string) => void>()
+    const onCopyTableEntryLink = vi.fn<(tableId: string) => void>()
+
+    // 1) apps 板块：管理员可见新建按钮与数据源来源提示
+    const handle = mountComponent(
       createElement(Sidebar, {
-        mode: 'operator',
+        section: 'apps',
+        currentUser: ADMIN,
+        userCapabilities: computeUserCapabilities(ADMIN),
         apps: APPS,
         views: VIEWS,
         tables: TABLES,
-        activeTarget: { kind: 'app', appId: 'app_1', viewId: 'v_table' },
+        activeAppId: 'app_1',
+        onSelectApp: noop,
+        onCreateApp: noopAsync,
+        onRenameApp: noopAsync,
+        onDeleteApp: noopAsync,
+        onReorderApps: noopAsync,
+        onSelectTable: noop,
+        onEnterTableEntry,
+        onOpenTableEntryNewTab,
+        onCopyTableEntryLink,
+        onCreateNormalTable: noopAsync,
+        onRenameTable: noopAsync,
+        onDeleteTable: noopAsync,
+        onOpenImport: noop,
+        onResetSeed: noopAsync,
+      }),
+    )
+
+    expect(handle.container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
+    expect(handle.container.textContent).toContain('项目运营台账表')
+    expect(handle.container.textContent).toContain('2 视图')
+    expect(handle.container.textContent).toContain('数据源：项目管理表')
+    expect(handle.container.querySelector('[title="基于数据源新建智能表格"]')).not.toBeNull()
+
+    // 2) entries 板块：普通表支持直达录入/新标签/复制链接，不包含 SQL 物理表
+    handle.rerender(
+      createElement(Sidebar, {
+        section: 'entries',
+        currentUser: ADMIN,
+        userCapabilities: computeUserCapabilities(ADMIN),
+        apps: APPS,
+        views: VIEWS,
+        tables: TABLES,
+        activeEntryTableId: 'tbl_1',
+        onSelectApp: noop,
+        onCreateApp: noopAsync,
+        onRenameApp: noopAsync,
+        onDeleteApp: noopAsync,
+        onReorderApps: noopAsync,
+        onSelectTable: noop,
+        onEnterTableEntry,
+        onOpenTableEntryNewTab,
+        onCopyTableEntryLink,
+        onCreateNormalTable: noopAsync,
+        onRenameTable: noopAsync,
+        onDeleteTable: noopAsync,
+        onOpenImport: noop,
+        onResetSeed: noopAsync,
+      }),
+    )
+
+    const entrySection = handle.container.querySelector('[aria-label="数据录入表"]')!
+    expect(entrySection).not.toBeNull()
+    expect(entrySection.textContent).toContain('项目管理表')
+    expect(entrySection.textContent).not.toContain('员工主数据')
+
+    const entryBtn = Array.from(entrySection.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('项目管理表'),
+    )!
+    act(() => {
+      entryBtn.click()
+    })
+    expect(onEnterTableEntry).toHaveBeenCalledWith('tbl_1')
+
+    const newTabBtn = entrySection.querySelector(
+      'button[aria-label="新标签打开 项目管理表 录入页"]',
+    ) as HTMLButtonElement
+    act(() => {
+      newTabBtn.click()
+    })
+    expect(onOpenTableEntryNewTab).toHaveBeenCalledWith('tbl_1')
+
+    const copyBtn = entrySection.querySelector(
+      'button[aria-label="复制 项目管理表 录入链接"]',
+    ) as HTMLButtonElement
+    act(() => {
+      copyBtn.click()
+    })
+    expect(onCopyTableEntryLink).toHaveBeenCalledWith('tbl_1')
+
+    // 3) datasources 板块：管理员可见重置演示数据，负责人不可见重置按钮
+    handle.rerender(
+      createElement(Sidebar, {
+        section: 'datasources',
+        currentUser: ADMIN,
+        userCapabilities: computeUserCapabilities(ADMIN),
+        apps: APPS,
+        views: VIEWS,
+        tables: TABLES,
+        activeDatasourceTableId: 'tbl_1',
         onSelectApp: noop,
         onCreateApp: noopAsync,
         onRenameApp: noopAsync,
@@ -181,25 +313,46 @@ describe('Sidebar 与 AppViewTabs 双态隔离', () => {
         onResetSeed: noopAsync,
       }),
     )
+    expect(handle.container.querySelector('[aria-label="数据源中心"]')).not.toBeNull()
+    expect(handle.container.textContent).toContain('员工主数据')
+    expect(handle.container.textContent).toContain('重置演示数据')
 
-    expect(container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="数据源中心"]')).not.toBeNull()
-    expect(container.textContent).toContain('项目运营台账表')
-    expect(container.textContent).toContain('2 视图')
-    expect(container.textContent).toContain('数据源：项目管理表')
-    expect(container.textContent).toContain('员工主数据')
-    expect(container.textContent).toContain('重置演示数据')
-  })
-
-  test('用户查看态严格隐藏数据源中心、数据源来源提示、新建智能表格与重置演示数据', () => {
-    const onSelectApp = vi.fn<(appId: string) => void>()
-    const { container } = mountComponent(
+    handle.rerender(
       createElement(Sidebar, {
-        mode: 'viewer',
+        section: 'datasources',
+        currentUser: MANAGER,
+        userCapabilities: computeUserCapabilities(MANAGER),
         apps: APPS,
         views: VIEWS,
         tables: TABLES,
-        activeTarget: { kind: 'app', appId: 'app_1', viewId: 'v_table' },
+        activeDatasourceTableId: 'tbl_1',
+        onSelectApp: noop,
+        onCreateApp: noopAsync,
+        onRenameApp: noopAsync,
+        onDeleteApp: noopAsync,
+        onReorderApps: noopAsync,
+        onSelectTable: noop,
+        onCreateNormalTable: noopAsync,
+        onRenameTable: noopAsync,
+        onDeleteTable: noopAsync,
+        onOpenImport: noop,
+        onResetSeed: noopAsync,
+      }),
+    )
+    expect(handle.container.textContent).not.toContain('重置演示数据')
+  })
+
+  test('普通成员在 apps / datasources 板块隐藏数据源关联提示、管理动作与数据源列表', () => {
+    const onSelectApp = vi.fn<(appId: string) => void>()
+    const handle = mountComponent(
+      createElement(Sidebar, {
+        section: 'apps',
+        currentUser: MEMBER,
+        userCapabilities: computeUserCapabilities(MEMBER),
+        apps: APPS,
+        views: VIEWS,
+        tables: TABLES,
+        activeAppId: 'app_1',
         onSelectApp,
         onCreateApp: noopAsync,
         onRenameApp: noopAsync,
@@ -214,26 +367,50 @@ describe('Sidebar 与 AppViewTabs 双态隔离', () => {
       }),
     )
 
-    expect(container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
-    expect(container.textContent).not.toContain('数据源：')
-    expect(container.textContent).not.toContain('重置演示数据')
-    expect(container.querySelector('[title="基于数据源新建智能表格"]')).toBeNull()
+    expect(handle.container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
+    expect(handle.container.textContent).not.toContain('数据源：')
+    expect(handle.container.querySelector('[title="基于数据源新建智能表格"]')).toBeNull()
+    expect(handle.container.querySelector('button[aria-label^="重命名"]')).toBeNull()
 
-    const secondAppBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+    const secondAppBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('员工档案应用'),
     )!
     act(() => {
       secondAppBtn.click()
     })
     expect(onSelectApp).toHaveBeenCalledWith('app_2')
+
+    handle.rerender(
+      createElement(Sidebar, {
+        section: 'datasources',
+        currentUser: MEMBER,
+        userCapabilities: computeUserCapabilities(MEMBER),
+        apps: APPS,
+        views: VIEWS,
+        tables: TABLES,
+        onSelectApp,
+        onCreateApp: noopAsync,
+        onRenameApp: noopAsync,
+        onDeleteApp: noopAsync,
+        onReorderApps: noopAsync,
+        onSelectTable: noop,
+        onCreateNormalTable: noopAsync,
+        onRenameTable: noopAsync,
+        onDeleteTable: noopAsync,
+        onOpenImport: noop,
+        onResetSeed: noopAsync,
+      }),
+    )
+    expect(handle.container.querySelector('[aria-label="数据源中心"]')).toBeNull()
+    expect(handle.container.textContent).toContain('普通成员无权访问数据源中心')
   })
 
-  test('AppViewTabs 在当前智能表格内展示多种视图，用户查看态隐藏新建/删除/数据源入口', () => {
+  test('AppViewTabs 按权限裁剪新建/重命名/调序/数据源跳转入口', () => {
     const onSelectView = vi.fn<(viewId: string) => void>()
     const handle = mountComponent(
       createElement(AppViewTabs, {
-        mode: 'operator',
+        canConfigureApp: true,
+        canManageDataSource: true,
         app: APPS[0]!,
         bundle: TABLES[0]!,
         views: VIEWS,
@@ -255,7 +432,8 @@ describe('Sidebar 与 AppViewTabs 双态隔离', () => {
 
     handle.rerender(
       createElement(AppViewTabs, {
-        mode: 'viewer',
+        canConfigureApp: false,
+        canManageDataSource: false,
         app: APPS[0]!,
         bundle: TABLES[0]!,
         views: VIEWS,
@@ -281,12 +459,11 @@ describe('Sidebar 与 AppViewTabs 双态隔离', () => {
   })
 })
 
-describe('Toolbar 双态交互隔离', () => {
-  test('用户查看态隐藏新增行/VLOOKUP/水印/视图配置入口，保留临时筛选、导出与模式切换', () => {
-    const onToggleMode = vi.fn<(nextMode: AppMode) => void>()
-    const { container } = mountComponent(
+describe('Toolbar 真实权限能力裁剪', () => {
+  test('只读成员隐藏新增行/VLOOKUP/水印/视图配置入口，可编辑成员仅开放写行而隐藏配置入口', () => {
+    const handle = mountComponent(
       createElement(Toolbar, {
-        mode: 'viewer',
+        capabilities: MEMBER_RO_CAPS,
         targetKind: 'app',
         tableMeta: TABLES[0]!.meta,
         activeView: VIEWS[0],
@@ -297,7 +474,6 @@ describe('Toolbar 双态交互隔离', () => {
         selectedRecordIds: ['r1'],
         watermarkEnabled: false,
         configDrawerOpen: false,
-        onToggleMode,
         onUpdateFilters: noop,
         onToggleConfigDrawer: noop,
         onAddRow: noopAsync,
@@ -312,21 +488,51 @@ describe('Toolbar 双态交互隔离', () => {
       }),
     )
 
-    expect(container.textContent).not.toContain('新增行')
-    expect(container.textContent).not.toContain('删除选中')
-    expect(container.textContent).not.toContain('VLOOKUP')
-    expect(container.textContent).not.toContain('视图配置')
-    expect(container.textContent).not.toContain('待消歧')
-    expect(container.textContent).toContain('临时筛选')
-    expect(container.textContent).toContain('导出')
+    expect(handle.container.textContent).toContain('只读权限')
+    expect(handle.container.textContent).not.toContain('新增行')
+    expect(handle.container.textContent).not.toContain('删除选中')
+    expect(handle.container.textContent).not.toContain('VLOOKUP')
+    expect(handle.container.textContent).not.toContain('视图配置')
+    expect(handle.container.textContent).not.toContain('待消歧')
+    expect(handle.container.textContent).toContain('临时筛选')
+    expect(handle.container.textContent).toContain('导出')
 
-    const opBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('运维态'),
-    )!
-    act(() => {
-      opBtn.click()
-    })
-    expect(onToggleMode).toHaveBeenCalledWith('operator')
+    // 可编辑普通成员：开放新增行/删除选中，仍隐藏配置类按钮与数据源跳转
+    handle.rerender(
+      createElement(Toolbar, {
+        capabilities: MEMBER_ED_CAPS,
+        targetKind: 'app',
+        tableMeta: TABLES[0]!.meta,
+        activeView: VIEWS[0],
+        visibleColumns: COLUMNS,
+        allComputedRecords: RECORDS,
+        displayRecords: RECORDS,
+        unresolvedConflictCount: 2,
+        selectedRecordIds: ['r1'],
+        watermarkEnabled: false,
+        configDrawerOpen: false,
+        onUpdateFilters: noop,
+        onToggleConfigDrawer: noop,
+        onAddRow: noopAsync,
+        onDeleteSelectedRows: noopAsync,
+        onOpenAddColumn: noop,
+        onOpenColumnManager: noop,
+        onOpenLookupWizard: noop,
+        onCreateAppFromTable: noop,
+        onJumpToFirstConflict: noop,
+        onToggleWatermark: noop,
+        onJumpToDatasource: noop,
+        onNotify: noop,
+      }),
+    )
+
+    expect(handle.container.textContent).not.toContain('只读权限')
+    expect(handle.container.textContent).toContain('新增行')
+    expect(handle.container.textContent).toContain('删除选中 (1)')
+    expect(handle.container.textContent).toContain('临时筛选')
+    expect(handle.container.textContent).not.toContain('VLOOKUP')
+    expect(handle.container.textContent).not.toContain('视图配置')
+    expect(handle.container.textContent).not.toContain('数据源')
   })
 })
 
@@ -358,12 +564,13 @@ describe('SummaryMenuPopover 与 GridPopupMenu 交互', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  test('GridPopupMenu 在运维态支持快速标色与列配置动作', () => {
+  test('GridPopupMenu 在具备配置权时支持快速标色与列配置动作', () => {
     const onAction = vi.fn<(action: GridMenuActionId, stylePatch?: CellStyleConfig) => void>()
     const { container } = mountComponent(
       createElement(GridPopupMenu, {
         context: {
-          mode: 'operator',
+          canEditRecords: true,
+          canConfigure: true,
           region: 'body',
           x: 100,
           y: 100,
@@ -498,7 +705,8 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
 
     const handle = mountComponent(
       createElement(Toolbar, {
-        mode: 'operator',
+        capabilities: FULL_CAPS,
+        canCreateApp: true,
         targetKind: 'datasource',
         tableMeta: TABLES[0]!.meta,
         visibleColumns: COLUMNS,
@@ -508,7 +716,6 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
         selectedRecordIds: [],
         watermarkEnabled: false,
         configDrawerOpen: false,
-        onToggleMode: noop,
         onUpdateFilters: noop,
         onToggleConfigDrawer: noop,
         onAddRow: noopAsync,
@@ -548,7 +755,8 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
     // advanced 数据源表不露出打开/复制录入页及新增列
     handle.rerender(
       createElement(Toolbar, {
-        mode: 'operator',
+        capabilities: FULL_CAPS,
+        canCreateApp: true,
         targetKind: 'datasource',
         tableMeta: TABLES[1]!.meta,
         visibleColumns: TABLES[1]!.meta.columns,
@@ -558,7 +766,6 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
         selectedRecordIds: [],
         watermarkEnabled: false,
         configDrawerOpen: false,
-        onToggleMode: noop,
         onUpdateFilters: noop,
         onToggleConfigDrawer: noop,
         onAddRow: noopAsync,
@@ -576,10 +783,11 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
     expect(handle.container.textContent).not.toContain('复制录入链接')
     expect(handle.container.textContent).not.toContain('新增列')
 
-    // app 运维态露出新增公式列、派生列管理、VLOOKUP 与数据源跳转入口
+    // app 可配置态露出新增公式列、派生列管理、VLOOKUP 与数据源跳转入口
     handle.rerender(
       createElement(Toolbar, {
-        mode: 'operator',
+        capabilities: FULL_CAPS,
+        canCreateApp: true,
         targetKind: 'app',
         tableMeta: TABLES[0]!.meta,
         activeView: VIEWS[0],
@@ -590,7 +798,6 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
         selectedRecordIds: [],
         watermarkEnabled: false,
         configDrawerOpen: false,
-        onToggleMode: noop,
         onUpdateFilters: noop,
         onToggleConfigDrawer: noop,
         onAddRow: noopAsync,

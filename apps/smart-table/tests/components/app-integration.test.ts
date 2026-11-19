@@ -1,10 +1,6 @@
 // @vitest-environment happy-dom
 
-// App 主装配与分层集成测试：
-// 1. api.ts 新增 fetchTableBundle / batchAppendRecords（含行级 errors 到 ApiError）及 createSmartApp/updateSmartApp 派生字段透传
-// 2. ?entry=<tableId> 独立录入端入口分流（normal 表单表直达、advanced/404 不可用提示、返回工作台）
-// 3. 数据源中心：仅原始字段求值、onColWidthChange 持久化到 SmartTableMeta.columns、ColumnManagerModal 更新 required/align
-// 4. 智能表格工作区：管线传入 derivedColumns/lookupOverrides、消歧覆盖写回 SmartApp.lookupOverrides、增删改派生列写回 SmartApp.derivedColumns 并同步清理视图引用
+// App 主装配、History 路由门禁、NavRail 双栏架构、认证回跳与真实两层权限集成测试
 
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -14,11 +10,25 @@ import {
   batchAppendRecords,
   createSmartApp,
   fetchTableBundle,
+  setUnauthorizedHandler,
   updateSmartApp,
 } from '../../src/api'
 import type { SmartGridOptions, SmartGridSetDataExtra } from '../../src/canvas/smart-grid'
+import {
+  computeAppCapabilities,
+  computeTableCapabilities,
+  computeUserCapabilities,
+  computeViewCapabilities,
+} from '../../src/domain/permissions'
 import type { TableBundle } from '../../src/shared/api-types'
-import type { SmartApp, SmartColumn, SmartRecord, WorkspaceView } from '../../src/shared/schema'
+import type {
+  AuthUser,
+  DemoAccountInfo,
+  SmartApp,
+  SmartColumn,
+  SmartRecord,
+  WorkspaceView,
+} from '../../src/shared/schema'
 
 const gridBridge = vi.hoisted(() => ({
   lastOptions: null as SmartGridOptions | null,
@@ -81,6 +91,39 @@ interface FetchCallRecord {
   body?: unknown
 }
 
+const ADMIN_USER: AuthUser = {
+  id: 'usr_admin',
+  username: 'admin',
+  displayName: '系统管理员',
+  role: 'admin',
+  avatarColor: '#4f46e5',
+}
+
+const MEMBER_USER: AuthUser = {
+  id: 'usr_member',
+  username: 'member',
+  displayName: '钱七',
+  role: 'member',
+  avatarColor: '#64748b',
+}
+
+const DEMO_ACCOUNTS: DemoAccountInfo[] = [
+  {
+    username: 'admin',
+    password: 'admin123',
+    displayName: '系统管理员',
+    role: 'admin',
+    description: '拥有全空间数据源、应用配置与权限管理权限',
+  },
+  {
+    username: 'member',
+    password: 'member123',
+    displayName: '钱七',
+    role: 'member',
+    description: '普通成员，按资源只读或可编辑授权访问',
+  },
+]
+
 function makeFixtures() {
   const tables: TableBundle[] = [
     {
@@ -88,6 +131,9 @@ function makeFixtures() {
         id: 'tbl_1',
         name: '项目台账',
         kind: 'normal',
+        createdBy: ADMIN_USER.id,
+        rowScope: 'all',
+        memberAccess: 'readonly',
         columns: [
           { key: 'title', title: '项目名称', type: 'text', width: 140, required: true },
           { key: 'owner', title: '负责人', type: 'person', width: 110 },
@@ -115,6 +161,8 @@ function makeFixtures() {
         primaryKeyField: 'emp_id',
         sourceSqlTable: 'biz_employees',
         system: true,
+        createdBy: ADMIN_USER.id,
+        rowScope: 'all',
         columns: [
           { key: 'emp_id', title: '工号', type: 'text', width: 100, isUniqueKey: true },
           { key: 'name', title: '姓名', type: 'person', width: 100 },
@@ -137,6 +185,9 @@ function makeFixtures() {
       name: '项目驾驶舱',
       tableId: 'tbl_1',
       sortOrder: 0,
+      createdBy: ADMIN_USER.id,
+      visibilityScope: 'all',
+      memberAccess: 'readonly',
       derivedColumns: [
         {
           key: 'lookup_dept',
@@ -171,6 +222,8 @@ function makeFixtures() {
       name: '明细表',
       type: 'table',
       sortOrder: 0,
+      createdBy: ADMIN_USER.id,
+      visibilityScope: 'all',
       filterGroup: {
         conjunction: 'and',
         conditions: [{ id: 'f1', field: 'formula_tax', operator: 'gt', value: 0 }],
@@ -225,6 +278,7 @@ function mountApp() {
 beforeEach(() => {
   gridBridge.lastOptions = null
   gridBridge.lastSetData = null
+  setUnauthorizedHandler(null)
   window.history.replaceState(null, '', '/')
 })
 
@@ -232,6 +286,7 @@ afterEach(() => {
   while (mountedRoots.length > 0) {
     mountedRoots.pop()!.unmount()
   }
+  setUnauthorizedHandler(null)
   vi.restoreAllMocks()
 })
 
@@ -330,10 +385,35 @@ describe('api.ts 客户端契约', () => {
   })
 })
 
-describe('App.tsx 入口分流与三层隔离集成', () => {
-  function setupWorkspaceFetch() {
+describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成', () => {
+  function setupWorkspaceFetch(options?: { initialUser?: AuthUser | null }) {
     const state = makeFixtures()
+    let currentUser: AuthUser | null =
+      options?.initialUser === undefined ? ADMIN_USER : options.initialUser
     const calls: FetchCallRecord[] = []
+
+    const decorateAll = (user: AuthUser) => ({
+      tables: state.tables.map((b) => ({
+        ...b,
+        meta: {
+          ...b.meta,
+          capabilities: computeTableCapabilities(user, b.meta, state.apps, state.views),
+        },
+      })),
+      apps: state.apps.map((a) => ({
+        ...a,
+        capabilities: computeAppCapabilities(user, a),
+      })),
+      views: state.views.map((v) => ({
+        ...v,
+        capabilities: computeViewCapabilities(
+          user,
+          v,
+          state.apps.find((a) => a.id === v.appId),
+        ),
+      })),
+    })
+
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
       async (input, init) => {
         const url =
@@ -342,56 +422,119 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
         const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
         calls.push({ method, url, body })
 
+        if (url === '/api/auth/demo-accounts' && method === 'GET') {
+          return jsonResponse({ accounts: DEMO_ACCOUNTS })
+        }
+        if (url === '/api/auth/login' && method === 'POST') {
+          const req = body as { username?: string; password?: string }
+          const nextUser =
+            req.username === 'admin' && req.password === 'admin123'
+              ? ADMIN_USER
+              : req.username === 'member' && req.password === 'member123'
+                ? MEMBER_USER
+                : null
+          if (!nextUser) {
+            return jsonResponse({ message: '账号或密码错误' }, 401)
+          }
+          currentUser = nextUser
+          return jsonResponse({
+            user: nextUser,
+            expiresAt: '2026-12-01T00:00:00.000Z',
+            capabilities: computeUserCapabilities(nextUser),
+          })
+        }
+        if (url === '/api/auth/logout' && method === 'POST') {
+          currentUser = null
+          return jsonResponse({ ok: true })
+        }
+
+        if (!currentUser) {
+          return jsonResponse({ message: '未登录或会话已过期，请先登录' }, 401)
+        }
+
+        if (url === '/api/auth/me' && method === 'GET') {
+          return jsonResponse({
+            user: currentUser,
+            expiresAt: '2026-12-01T00:00:00.000Z',
+            capabilities: computeUserCapabilities(currentUser),
+          })
+        }
+
+        const decorated = decorateAll(currentUser)
         if (url === '/api/tables' && method === 'GET') {
-          return jsonResponse({ tables: state.tables })
+          return jsonResponse({ tables: decorated.tables })
         }
         if (url === '/api/tables/tbl_1' && method === 'GET') {
-          return jsonResponse(state.tables[0])
+          return jsonResponse(decorated.tables[0])
         }
         if (url === '/api/tables/tbl_emp' && method === 'GET') {
-          return jsonResponse(state.tables[1])
+          return jsonResponse(decorated.tables[1])
         }
         if (url === '/api/apps' && method === 'GET') {
-          return jsonResponse({ apps: state.apps })
+          return jsonResponse({ apps: decorated.apps })
         }
         if (url === '/api/views' && method === 'GET') {
-          return jsonResponse({ views: state.views })
+          return jsonResponse({ views: decorated.views })
         }
         if (url === '/api/tables/tbl_1/meta' && method === 'PUT') {
+          if (currentUser.role === 'member') {
+            return jsonResponse({ message: '普通成员无权修改表结构' }, 403)
+          }
           const nextMeta = (body as { meta: TableBundle['meta'] }).meta
           state.tables[0] = { ...state.tables[0]!, meta: nextMeta }
-          return jsonResponse({ meta: nextMeta })
+          return jsonResponse({ meta: decorateAll(currentUser).tables[0]!.meta })
         }
         if (url === '/api/apps/app_1' && method === 'PATCH') {
+          if (currentUser.role === 'member') {
+            return jsonResponse({ message: '普通成员无权修改应用配置' }, 403)
+          }
           state.apps[0] = { ...state.apps[0]!, ...(body as Partial<SmartApp>) }
-          return jsonResponse({ app: state.apps[0] })
+          return jsonResponse({ app: decorateAll(currentUser).apps[0] })
         }
         if (url === '/api/views/v_table' && method === 'PATCH') {
+          if (currentUser.role === 'member') {
+            return jsonResponse({ message: '普通成员无权修改视图配置' }, 403)
+          }
           state.views[0] = { ...state.views[0]!, ...(body as Partial<WorkspaceView>) }
-          return jsonResponse({ view: state.views[0] })
+          return jsonResponse({ view: decorateAll(currentUser).views[0] })
         }
         return jsonResponse({ message: '表不存在' }, 404)
       },
     )
     vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch)
-    return { state, calls }
+    return { state, calls, getUser: () => currentUser }
   }
 
-  test('?entry=<normalTableId> 仅拉取单表进入 EntryWorkspace，返回工作台后清理参数并加载完整工作台', async () => {
+  test('未登录访问旧 /?entry=<tableId> 自动规范为 /entries/:tableId 并跳转 /login，登录后回跳且返回工作台走 /apps 路由', async () => {
     window.history.replaceState(null, '', '/?entry=tbl_1')
-    const { calls } = setupWorkspaceFetch()
+    const { calls } = setupWorkspaceFetch({ initialUser: null })
 
     const { container } = mountApp()
     await flushAsync()
 
-    // 仅请求单表接口，不请求 /api/apps、/api/views、/api/tables
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/tables/tbl_1'])
+    // 应跳转至 /login?redirect=%2Fentries%2Ftbl_1 且无侧栏/导航轨
+    expect(window.location.pathname).toBe('/login')
+    expect(window.location.search).toBe('?redirect=%2Fentries%2Ftbl_1')
+    expect(container.querySelector('[data-testid="login-page"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="主导航栏"]')).toBeNull()
+
+    // 一键登录管理员后自动回跳 /entries/tbl_1 并进入 EntryWorkspace
+    const quickAdminBtn = container.querySelector(
+      'button[aria-label="一键登录 系统管理员"]',
+    ) as HTMLButtonElement
+    await act(async () => {
+      quickAdminBtn.click()
+    })
+    await flushAsync()
+
+    expect(window.location.pathname).toBe('/entries/tbl_1')
+    expect(window.location.search).toBe('')
     expect(container.textContent).toContain('项目台账')
     expect(container.textContent).toContain('数据录入端')
+    expect(container.querySelector('[aria-label="主导航栏"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="智能表格"]')).toBeNull()
-    expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
 
-    // 点击「工作台」返回主工作台
+    // 点击「工作台」按钮跳转至 /apps/app_1/views/v_table
     const backBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('工作台'),
     )!
@@ -400,35 +543,64 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
     })
     await flushAsync()
 
-    expect(window.location.search).toBe('')
+    expect(window.location.pathname).toBe('/apps/app_1/views/v_table')
     expect(calls.some((c) => c.url === '/api/apps')).toBe(true)
     expect(calls.some((c) => c.url === '/api/views')).toBe(true)
     expect(container.textContent).toContain('项目驾驶舱')
   })
 
-  test('?entry=<advancedTableId> 与不存在表展示不可用提示与返回工作台入口', async () => {
-    window.history.replaceState(null, '', '/?entry=tbl_emp')
-    setupWorkspaceFetch()
+  test('已登录访问 /login 跳回工作台，未登录访问 /s/:token 走独立无侧栏分支且不触发登录检查', async () => {
+    // 1) 未登录直接访问 /s/share_demo_tok
+    window.history.replaceState(null, '', '/s/share_demo_tok')
+    const unauthed = setupWorkspaceFetch({ initialUser: null })
+    const shareMount = mountApp()
+    await flushAsync()
+
+    expect(window.location.pathname).toBe('/s/share_demo_tok')
+    expect(
+      shareMount.container.querySelector('[data-testid="share-route-placeholder"]'),
+    ).not.toBeNull()
+    expect(shareMount.container.textContent).toContain('share_demo_tok')
+    expect(shareMount.container.querySelector('[aria-label="主导航栏"]')).toBeNull()
+    expect(unauthed.calls.some((c) => c.url === '/api/auth/me')).toBe(false)
+    shareMount.unmount()
+
+    // 2) 已登录直接访问 /login 自动回跳至工作台
+    window.history.replaceState(null, '', '/login')
+    setupWorkspaceFetch({ initialUser: ADMIN_USER })
+    const authedMount = mountApp()
+    await flushAsync()
+
+    expect(window.location.pathname).toBe('/apps/app_1/views/v_table')
+    expect(authedMount.container.querySelector('[data-testid="login-page"]')).toBeNull()
+    expect(authedMount.container.textContent).toContain('项目驾驶舱')
+  })
+
+  test('/entries/:advancedTableId 与不存在表展示不可用提示与返回工作台入口', async () => {
+    window.history.replaceState(null, '', '/entries/tbl_emp')
+    setupWorkspaceFetch({ initialUser: ADMIN_USER })
 
     const firstMount = mountApp()
     await flushAsync()
 
-    expect(firstMount.container.textContent).toContain('独立数据录入端不可用')
+    expect(firstMount.container.textContent).toContain('数据录入端不可用')
     expect(firstMount.container.textContent).toContain('SQL 主数据表')
     expect(firstMount.container.textContent).toContain('返回工作台')
     firstMount.unmount()
 
-    window.history.replaceState(null, '', '/?entry=tbl_missing')
+    window.history.replaceState(null, '', '/entries/tbl_missing')
     const secondMount = mountApp()
     await flushAsync()
-    expect(secondMount.container.textContent).toContain('独立数据录入端不可用')
+    expect(secondMount.container.textContent).toContain('数据录入端不可用')
     expect(secondMount.container.textContent).toContain('返回工作台')
   })
 
-  test('SmartApp 管线运行派生列与消歧锁定并持久化到 SmartApp，删除派生列同步清理视图引用', async () => {
-    const { state, calls } = setupWorkspaceFetch()
+  test('SmartApp 管线运行派生列与消歧锁定并持久化，跳转数据源中心与录入端路由同步正确', async () => {
+    const { state, calls } = setupWorkspaceFetch({ initialUser: ADMIN_USER })
     const { container } = mountApp()
     await flushAsync()
+
+    expect(window.location.pathname).toBe('/apps/app_1/views/v_table')
 
     // 1) SmartApp 管线产出包含原始列 + 派生列，且按 lookupOverrides/VLOOKUP 求值
     const gridCols = gridBridge.lastSetData?.columns ?? []
@@ -495,12 +667,11 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
 
     expect(state.apps[0]!.derivedColumns?.map((c) => c.key)).toEqual(['lookup_dept'])
     expect(calls.some((c) => c.url === '/api/tables/tbl_1/meta')).toBe(false)
-    // 视图中对该公式列的筛选、列序、汇总引用已同步清理
     expect(state.views[0]!.filterGroup.conditions).toHaveLength(0)
     expect(state.views[0]!.columnOrder).not.toContain('formula_tax')
     expect(state.views[0]!.summaries).not.toHaveProperty('formula_tax')
 
-    // 3b) SmartApp 内新增公式列持久化到 SmartApp.derivedColumns，不修改源表结构
+    // 3b) SmartApp 内新增公式列持久化到 SmartApp.derivedColumns
     const addFormulaBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('新增公式列'),
     )!
@@ -529,9 +700,8 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
     expect(
       state.apps[0]!.derivedColumns?.some((c) => c.title === '净额' && c.type === 'formula'),
     ).toBe(true)
-    expect(calls.some((c) => c.url === '/api/tables/tbl_1/meta')).toBe(false)
 
-    // 4) 从 SmartApp 跳转数据源中心：仅运行原始字段、暴露录入页按钮、拖拽列宽与字段配置写回 SmartTableMeta.columns
+    // 4) 从 SmartApp 跳转数据源中心：路径同步为 /datasources/tbl_1、仅运行原始字段、写回 SmartTableMeta
     const jumpDsBtn = Array.from(container.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === '数据源',
     )!
@@ -540,6 +710,7 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
     })
     await flushAsync()
 
+    expect(window.location.pathname).toBe('/datasources/tbl_1')
     expect(gridBridge.lastSetData?.columns.map((c) => c.key)).toEqual(['title', 'owner', 'amount'])
     expect(container.textContent).toContain('打开录入页')
     expect(container.textContent).toContain('复制录入链接')
@@ -555,11 +726,10 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
     })
     await flushAsync()
 
-    const metaPutCall = calls.find((c) => c.method === 'PUT' && c.url === '/api/tables/tbl_1/meta')
-    expect(metaPutCall).toBeDefined()
+    expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/tables/tbl_1/meta')).toBe(true)
     expect(state.tables[0]!.meta.columns.find((c) => c.key === 'amount')?.width).toBe(215)
 
-    // 数据源中心字段管理修改 required / align 持久化到 SmartTableMeta.columns
+    // 数据源中心字段管理修改 required
     const dsColMgrBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('字段管理'),
     )!
@@ -574,5 +744,98 @@ describe('App.tsx 入口分流与三层隔离集成', () => {
     })
     await flushAsync()
     expect(state.tables[0]!.meta.columns.find((c) => c.key === 'owner')?.required).toBe(true)
+
+    // 5) 通过 NavRail 切至数据录入板块，URL 同步为 /entries/tbl_1
+    const entryRailBtn = container.querySelector(
+      'button[aria-label="数据录入"]',
+    ) as HTMLButtonElement
+    act(() => {
+      entryRailBtn.click()
+    })
+    await flushAsync()
+
+    expect(window.location.pathname).toBe('/entries/tbl_1')
+    expect(container.textContent).toContain('数据录入端')
+    expect(container.querySelector('[aria-label="数据录入表"]')).not.toBeNull()
+  })
+
+  test('NavRail 切换普通成员后隐藏数据源/分享/权限入口，只读资源禁止写操作且直达受限路由被拦截', async () => {
+    const { calls } = setupWorkspaceFetch({ initialUser: ADMIN_USER })
+    const { container } = mountApp()
+    await flushAsync()
+
+    // 管理员可见权限管理与分享管理分支
+    act(() => {
+      ;(container.querySelector('button[aria-label="分享管理"]') as HTMLButtonElement).click()
+    })
+    expect(window.location.pathname).toBe('/shares')
+    expect(container.querySelector('[data-testid="shares-route-placeholder"]')).not.toBeNull()
+
+    act(() => {
+      ;(container.querySelector('button[aria-label="权限管理"]') as HTMLButtonElement).click()
+    })
+    expect(window.location.pathname).toBe('/permissions')
+    expect(container.querySelector('[data-testid="permissions-route-placeholder"]')).not.toBeNull()
+
+    // 通过 NavRail 底部菜单切换为普通成员（钱七）
+    const accountBtn = container.querySelector(
+      'button[aria-label^="账号菜单："]',
+    ) as HTMLButtonElement
+    act(() => {
+      accountBtn.click()
+    })
+    const switchMemberBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('钱七'),
+    )!
+    await act(async () => {
+      switchMemberBtn.click()
+    })
+    await flushAsync()
+
+    expect(window.location.pathname).toBe('/apps/app_1/views/v_table')
+    expect(container.querySelector('button[aria-label="数据源"]')).toBeNull()
+    expect(container.querySelector('button[aria-label="分享管理"]')).toBeNull()
+    expect(container.querySelector('button[aria-label="权限管理"]')).toBeNull()
+    expect(container.textContent).toContain('只读权限')
+    expect(container.textContent).not.toContain('新增行')
+    expect(container.textContent).not.toContain('VLOOKUP')
+    expect(container.textContent).not.toContain('视图配置')
+    expect(gridBridge.lastOptions?.readonly).toBe(true)
+
+    // 普通成员点击快捷筛选仅做本地临时过滤，不回写 PATCH /api/views/v_table
+    const patchCallsBefore = calls.filter(
+      (c) => c.method === 'PATCH' && c.url === '/api/views/v_table',
+    ).length
+    const filterBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('临时筛选'),
+    )!
+    act(() => {
+      filterBtn.click()
+    })
+    const addCondBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('添加条件'),
+    )!
+    act(() => {
+      addCondBtn.click()
+    })
+    await flushAsync()
+    const patchCallsAfter = calls.filter(
+      (c) => c.method === 'PATCH' && c.url === '/api/views/v_table',
+    ).length
+    expect(patchCallsAfter).toBe(patchCallsBefore)
+
+    // 普通成员直接通过 URL 访问 /datasources/tbl_1、/shares、/permissions 均被明确拦截
+    for (const [path, testId] of [
+      ['/datasources/tbl_1', 'datasources-forbidden'],
+      ['/shares', 'shares-forbidden'],
+      ['/permissions', 'permissions-forbidden'],
+    ] as const) {
+      act(() => {
+        window.history.replaceState(null, '', path)
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await flushAsync()
+      expect(container.querySelector(`[data-testid="${testId}"]`)).not.toBeNull()
+    }
   })
 })

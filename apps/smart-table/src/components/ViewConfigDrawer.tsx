@@ -1,4 +1,4 @@
-// 统一右侧滑出式视图配置抽屉（仅运维配置态可用）：
+// 统一右侧滑出式视图配置抽屉（仅具备视图配置权限的用户可用）：
 // 分栏收敛字段显隐与拖拽/上下调序、样式与配色、条件格式、筛选与排序、底部汇总及透视配置。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -44,6 +44,7 @@ export type ConfigDrawerTab = 'fields' | 'styles' | 'data' | 'pivot' | 'kanban' 
 
 export interface ViewConfigDrawerProps {
   open: boolean
+  canConfigure?: boolean
   activeTab: ConfigDrawerTab
   view: WorkspaceView
   tableMeta: SmartTableMeta
@@ -78,6 +79,7 @@ const FILTER_OPERATORS: { value: FilterOperator; label: string }[] = [
 
 export function ViewConfigDrawer({
   open,
+  canConfigure = true,
   activeTab,
   view,
   tableMeta,
@@ -159,7 +161,7 @@ export function ViewConfigDrawer({
 
   const effectiveTab = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0]!.id
 
-  if (!open) {
+  if (!open || !canConfigure) {
     return null
   }
 

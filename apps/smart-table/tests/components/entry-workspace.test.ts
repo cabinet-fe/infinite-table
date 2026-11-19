@@ -316,4 +316,68 @@ describe('EntryWorkspace 独立数据录入端主视图', () => {
       clickSpy.mockRestore()
     }
   })
+
+  test('顶部支持切换其它数据录入表与复制分享链接', async () => {
+    const onSwitchTable = vi.fn<(tableId: string) => void>()
+    const onLoadSwitchableTables = vi.fn<() => Promise<void>>(noopAsync)
+    const onCopyEntryLink = vi.fn<() => void>()
+
+    const { container } = mountComponent(
+      createElement(EntryWorkspace, {
+        bundle: BUNDLE,
+        switchableTables: [
+          { id: 'tbl_entry', name: '合同台账' },
+          { id: 'tbl_inv', name: '库存台账' },
+        ],
+        onSwitchTable,
+        onLoadSwitchableTables,
+        onCopyEntryLink,
+        onCreateRecord: noopAsync,
+        onUpdateRecord: noopAsync,
+        onDeleteRecords: noopAsync,
+        onBatchAppendRecords: noopAsync,
+      }),
+    )
+
+    const switchBtn = container.querySelector('button[aria-label="切换数据录入表"]')!
+    act(() => {
+      ;(switchBtn as HTMLButtonElement).click()
+    })
+    expect(onLoadSwitchableTables).toHaveBeenCalledTimes(1)
+
+    const targetOption = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('库存台账'),
+    )!
+    act(() => {
+      targetOption.click()
+    })
+    expect(onSwitchTable).toHaveBeenCalledWith('tbl_inv')
+
+    const copyBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('复制链接'),
+    )!
+    act(() => {
+      copyBtn.click()
+    })
+    expect(onCopyEntryLink).toHaveBeenCalledTimes(1)
+  })
+
+  test('readonly 模式下隐藏新增行/表单录入/批量追加导入，保留只读标识与导出', () => {
+    const { container } = mountComponent(
+      createElement(EntryWorkspace, {
+        bundle: BUNDLE,
+        readonly: true,
+        onCreateRecord: noopAsync,
+        onUpdateRecord: noopAsync,
+        onDeleteRecords: noopAsync,
+        onBatchAppendRecords: noopAsync,
+      }),
+    )
+
+    expect(container.textContent).toContain('只读')
+    expect(container.textContent).not.toContain('新增行')
+    expect(container.textContent).not.toContain('表单录入')
+    expect(container.textContent).not.toContain('批量追加导入')
+    expect(container.textContent).toContain('导出')
+  })
 })

@@ -1,9 +1,9 @@
 // 智能表格顶部视图 Tab 栏：展示当前智能表格下的多种视图（表格 / 看板 / 透视 / 仪表盘），
-// 支持快速切换；运维态下支持新建视图、双击/按钮重命名、左右调序与删除。
+// 支持快速切换；按真实配置权限控制新建视图、双击/按钮重命名、左右调序、删除及数据源快捷跳转。
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Database, Pencil, Plus, Table2, X } from 'lucide-react'
-import { buildDefaultViewPayload, type AppMode } from '../domain/workspace-helpers'
+import { buildDefaultViewPayload } from '../domain/workspace-helpers'
 import type { CreateViewRequest, TableBundle } from '../shared/api-types'
 import type { SmartApp, SmartViewType, WorkspaceView } from '../shared/schema'
 import { ConfirmModal } from './ConfirmModal'
@@ -17,7 +17,9 @@ const VIEW_TYPE_CHOICES: { value: SmartViewType; label: string; hint: string }[]
 ]
 
 export interface AppViewTabsProps {
-  mode: AppMode
+  canConfigureApp: boolean
+  canManageDataSource?: boolean
+  canConfigureView?: (view: WorkspaceView) => boolean
   app: SmartApp
   bundle: TableBundle
   views: readonly WorkspaceView[]
@@ -32,7 +34,9 @@ export interface AppViewTabsProps {
 }
 
 export function AppViewTabs({
-  mode,
+  canConfigureApp,
+  canManageDataSource = false,
+  canConfigureView,
   app,
   bundle,
   views,
@@ -45,7 +49,6 @@ export function AppViewTabs({
   onReorderViews,
   onJumpToDatasource,
 }: AppViewTabsProps) {
-  const isOperator = mode === 'operator'
   const [creatingOpen, setCreatingOpen] = useState(false)
   const [newViewName, setNewViewName] = useState('')
   const [newViewType, setNewViewType] = useState<SmartViewType>('table')
@@ -53,17 +56,29 @@ export function AppViewTabs({
   const [renameDraft, setRenameDraft] = useState('')
   const [confirmDeleteView, setConfirmDeleteView] = useState<WorkspaceView | null>(null)
 
+  const checkViewConfigurable = useMemo(
+    () => (view: WorkspaceView) =>
+      canConfigureView
+        ? canConfigureView(view)
+        : (view.capabilities?.canConfigure ?? canConfigureApp),
+    [canConfigureView, canConfigureApp],
+  )
+
+  const canReorderViews = useMemo(
+    () => views.length > 1 && views.every((v) => checkViewConfigurable(v)),
+    [views, checkViewConfigurable],
+  )
+
   useEffect(() => {
     setCreatingOpen(false)
     setRenamingViewId(null)
   }, [app.id])
 
   useEffect(() => {
-    if (!isOperator) {
+    if (!canConfigureApp) {
       setCreatingOpen(false)
-      setRenamingViewId(null)
     }
-  }, [isOperator])
+  }, [canConfigureApp])
 
   async function handleCreateSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -114,7 +129,7 @@ export function AppViewTabs({
           <h1 className="max-w-44 truncate text-sm font-semibold text-slate-900" title={app.name}>
             {app.name}
           </h1>
-          {isOperator && onJumpToDatasource && (
+          {canManageDataSource && onJumpToDatasource && (
             <button
               type="button"
               onClick={() => onJumpToDatasource(bundle.meta.id)}
@@ -134,6 +149,7 @@ export function AppViewTabs({
           {views.map((view, idx) => {
             const active = view.id === activeViewId
             const isRenaming = renamingViewId === view.id
+            const canConfigThisView = checkViewConfigurable(view)
 
             if (isRenaming) {
               return (
@@ -170,7 +186,7 @@ export function AppViewTabs({
                   type="button"
                   onClick={() => onSelectView(view.id)}
                   onDoubleClick={() => {
-                    if (!isOperator) return
+                    if (!canConfigThisView) return
                     setRenamingViewId(view.id)
                     setRenameDraft(view.name)
                   }}
@@ -180,9 +196,9 @@ export function AppViewTabs({
                   <span className="max-w-36 truncate">{view.name}</span>
                 </button>
 
-                {isOperator && (
+                {canConfigThisView && (
                   <div className="ml-1 hidden items-center gap-0.5 group-hover:flex">
-                    {idx > 0 && (
+                    {canReorderViews && idx > 0 && (
                       <button
                         type="button"
                         disabled={busy}
@@ -197,7 +213,7 @@ export function AppViewTabs({
                         <ChevronLeft className="h-3 w-3" />
                       </button>
                     )}
-                    {idx < views.length - 1 && (
+                    {canReorderViews && idx < views.length - 1 && (
                       <button
                         type="button"
                         disabled={busy}
@@ -247,7 +263,7 @@ export function AppViewTabs({
             )
           })}
 
-          {isOperator && (
+          {canConfigureApp && (
             <button
               type="button"
               disabled={busy}
@@ -261,8 +277,8 @@ export function AppViewTabs({
         </nav>
       </div>
 
-      {/* 运维态新建视图浮层 */}
-      {isOperator && creatingOpen && (
+      {/* 新建视图浮层 */}
+      {canConfigureApp && creatingOpen && (
         <form
           onSubmit={(e) => void handleCreateSubmit(e)}
           className="absolute top-12 left-56 z-40 w-80 space-y-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-xl"

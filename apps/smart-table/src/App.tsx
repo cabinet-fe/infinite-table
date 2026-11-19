@@ -1,10 +1,19 @@
-// 智能表格应用主壳：串联双态工作模式（运维配置 / 用户查看）、应用视图空间与数据源中心、
-// 领域计算管线、Grid/Pivot 画布挂载、统一配置抽屉、三区域右键菜单与汇总轻量菜单。
+// 多维数据台主壳：串联 History 路由单源、会话认证门禁、最左 NavRail + 二级目录双栏架构、
+// 真实两层权限能力裁剪、领域计算管线、Grid/Pivot/Kanban/Dashboard 视图及独立数据录入端。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
 import type { Region } from '@infinitable/render'
-import { AlertTriangle, ArrowLeft, Filter, Plus, RotateCcw, Table2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Filter,
+  Lock,
+  Plus,
+  Share2,
+  ShieldCheck,
+  Table2,
+} from 'lucide-react'
 import {
   ApiError,
   batchAppendRecords,
@@ -19,15 +28,21 @@ import {
   fetchAllApps,
   fetchAllTables,
   fetchAllViews,
+  fetchDemoAccounts,
+  fetchMe,
   fetchTableBundle,
+  login,
+  logout,
   moveKanbanCard,
   reorderSmartApps,
   reorderWorkspaceViews,
   resetDemoSeedWorkspace,
+  setUnauthorizedHandler,
   updateRecord,
   updateSmartApp,
   updateTableMeta,
   updateWorkspaceView,
+  type RecordWriteContext,
 } from './api'
 import {
   SmartGridAdapter,
@@ -53,29 +68,43 @@ import {
 } from './components/GridPopupMenu'
 import { ImportExcelModal } from './components/ImportExcelModal'
 import { KanbanView } from './components/KanbanView'
+import { LoginPage } from './components/LoginPage'
 import { LookupFieldPanel } from './components/LookupFieldPanel'
 import { LookupWizardModal } from './components/LookupWizardModal'
-import { Sidebar, type WorkspaceTarget } from './components/Sidebar'
+import { NavRail } from './components/NavRail'
+import { Sidebar, type SidebarSection } from './components/Sidebar'
 import { SummaryMenuPopover } from './components/SummaryMenuPopover'
 import { ToastHost, type ToastItem, type ToastType } from './components/Toast'
 import { Toolbar } from './components/Toolbar'
 import { ViewConfigDrawer, type ConfigDrawerTab } from './components/ViewConfigDrawer'
 import { appendMatchRuleToLookupGroup, getBlockedLookupSourceKeys } from './domain/lookup-engine'
+import { computeUserCapabilities } from './domain/permissions'
 import { runSmartTablePipeline } from './domain/query-engine'
+import {
+  buildAbsoluteRouteUrl,
+  buildRoutePath,
+  getNavSectionForRoute,
+  navigateToRoute,
+  parseRouteFromLocation,
+  readCurrentRoute,
+  subscribeRouteChange,
+  type AppRoute,
+  type NavSection,
+} from './domain/router'
 import { resolveVisibleColumns } from './domain/style-engine'
 import { scalarToText } from './domain/utils'
 import {
   applyCellStyleToSelection,
   buildDefaultKanbanConfig,
   buildDefaultPivotConfig,
-  buildEntryShareUrl,
-  buildModeSearchUrl,
-  resolveAppModeFromSearch,
-  resolveEntryTableIdFromSearch,
+  canConfigureAppItem,
+  canConfigureViewItem,
+  canEditEntryTableItem,
+  resolveWorkspaceActionCapabilities,
   toggleHiddenColumn,
-  type AppMode,
 } from './domain/workspace-helpers'
 import type {
+  AuthSessionResponse,
   CreateAppRequest,
   CreateViewRequest,
   TableBundle,
@@ -87,6 +116,7 @@ import {
   isDerivedColumn,
   mergeSmartColumns,
   type CellStyleConfig,
+  type DemoAccountInfo,
   type FilterGroup,
   type LookupMatchRule,
   type SelectOption,
@@ -99,7 +129,7 @@ import {
   type WorkspaceView,
 } from './shared/schema'
 
-interface ViewerFilterOverride {
+interface LocalFilterOverride {
   viewId: string
   filterGroup: FilterGroup
   quickFilterValues: Record<string, string[]>
@@ -160,13 +190,6 @@ function buildNewRowPayload(meta: SmartTableMeta): Record<string, unknown> {
     }
   }
   return row
-}
-
-function buildWorkbenchUrlFromEntry(pathname: string, search: string, hash: string): string {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  params.delete('entry')
-  const qs = params.toString()
-  return `${pathname}${qs ? `?${qs}` : ''}${hash}`
 }
 
 function pruneOrphanedLookupOverrides(
@@ -333,7 +356,7 @@ export function stripDeletedColumnFromView(
 function canRenameColInTable(
   meta: SmartTableMeta,
   col: SmartColumn,
-  targetKind: WorkspaceTarget['kind'],
+  targetKind: 'app' | 'datasource',
 ): boolean {
   if (targetKind === 'app') {
     return isDerivedColumn(col)
@@ -344,7 +367,7 @@ function canRenameColInTable(
 function canDeleteColInTable(
   meta: SmartTableMeta,
   col: SmartColumn,
-  targetKind: WorkspaceTarget['kind'],
+  targetKind: 'app' | 'datasource',
 ): boolean {
   if (targetKind === 'app') {
     return isDerivedColumn(col)
@@ -355,38 +378,92 @@ function canDeleteColInTable(
   return meta.kind === 'normal'
 }
 
-export function App() {
-  const [entryTableId, setEntryTableId] = useState<string | null>(() =>
-    typeof window !== 'undefined' ? resolveEntryTableIdFromSearch(window.location.search) : null,
-  )
-  const [entryBundle, setEntryBundle] = useState<TableBundle | null>(null)
-  const [entryLoading, setEntryLoading] = useState(() =>
-    typeof window !== 'undefined'
-      ? resolveEntryTableIdFromSearch(window.location.search) !== null
-      : false,
-  )
-  const [entryError, setEntryError] = useState<string | null>(null)
+interface RouteStatusCardProps {
+  icon: React.ReactNode
+  title: string
+  description: string
+  actionLabel?: string
+  onAction?: () => void
+  secondaryLabel?: string
+  onSecondaryAction?: () => void
+  testId?: string
+}
 
-  const [mode, setMode] = useState<AppMode>(() =>
-    typeof window !== 'undefined' ? resolveAppModeFromSearch(window.location.search) : 'operator',
+function RouteStatusCard({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+  secondaryLabel,
+  onSecondaryAction,
+  testId,
+}: RouteStatusCardProps) {
+  return (
+    <div
+      data-testid={testId}
+      className="flex h-full w-full flex-col items-center justify-center bg-slate-50 p-6"
+    >
+      <div className="flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <div className="mb-3">{icon}</div>
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{description}</p>
+        {(actionLabel || secondaryLabel) && (
+          <div className="mt-4 flex items-center gap-2">
+            {actionLabel && onAction && (
+              <button
+                type="button"
+                onClick={onAction}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>{actionLabel}</span>
+              </button>
+            )}
+            {secondaryLabel && onSecondaryAction && (
+              <button
+                type="button"
+                onClick={onSecondaryAction}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <span>{secondaryLabel}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
+}
+
+export function App() {
+  const [route, setRoute] = useState<AppRoute>(() => readCurrentRoute().route)
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated'>(
+    () => (readCurrentRoute().route.kind === 'share' ? 'unauthenticated' : 'checking'),
+  )
+  const [session, setSession] = useState<AuthSessionResponse | null>(null)
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccountInfo[]>([])
+  const [loadingDemoAccounts, setLoadingDemoAccounts] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+
   const [tables, setTables] = useState<TableBundle[]>([])
   const [apps, setApps] = useState<SmartApp[]>([])
   const [views, setViews] = useState<WorkspaceView[]>([])
-  const [activeTarget, setActiveTarget] = useState<WorkspaceTarget>({
-    kind: 'app',
-    appId: '',
-    viewId: '',
-  })
-  const [loading, setLoading] = useState(true)
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
-  // 临时状态：用户查看态筛选覆盖、数据源视图临时排序、选中状态、弹窗/抽屉/气泡浮层
-  const [viewerFilterOverride, setViewerFilterOverride] = useState<ViewerFilterOverride | null>(
-    null,
-  )
+  // 未收录在 tables 中的 entryTableId 探测结果（用于精确呈现 403/404 不可用原因）
+  const [probedEntryState, setProbedEntryState] = useState<{
+    tableId: string
+    loading: boolean
+    error: string | null
+  } | null>(null)
+
+  // 临时状态：不可配置用户的本地筛选/排序覆盖、数据源视图临时排序、选中状态、弹窗/抽屉/气泡浮层
+  const [localFilterOverride, setLocalFilterOverride] = useState<LocalFilterOverride | null>(null)
   const [datasourceSortRules, setDatasourceSortRules] = useState<SortRule[]>([])
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([])
   const [selectionInfo, setSelectionInfo] = useState<SmartGridSelectionInfo>(EMPTY_SELECTION)
@@ -423,6 +500,13 @@ export function App() {
   const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const pendingConflictJumpRef = useRef<{ recordId: string; colKey: string } | null>(null)
   const lastViewByAppRef = useRef<Map<string, string>>(new Map())
+  const lastEntryTableIdRef = useRef<string | undefined>(undefined)
+  const lastDatasourceTableIdRef = useRef<string | undefined>(undefined)
+  const probedEntryIdRef = useRef<string | null>(null)
+  const routeRef = useRef<AppRoute>(route)
+  routeRef.current = route
+  const authStatusRef = useRef(authStatus)
+  authStatusRef.current = authStatus
 
   const dismissToast = useCallback((id: string) => {
     const timer = toastTimersRef.current.get(id)
@@ -451,97 +535,580 @@ export function App() {
     }
   }, [])
 
-  const loadEntryTable = useCallback(
-    async (tableId: string) => {
-      setEntryLoading(true)
-      setEntryError(null)
-      setEntryBundle(null)
-      try {
-        const bundle = await fetchTableBundle(tableId)
-        setEntryBundle(bundle)
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : '加载数据录入表失败'
-        setEntryError(msg)
-        pushToast('error', msg)
-      } finally {
-        setEntryLoading(false)
-      }
-    },
-    [pushToast],
-  )
-
-  const handleBackToWorkbench = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      const nextUrl = buildWorkbenchUrlFromEntry(
-        window.location.pathname,
-        window.location.search,
-        window.location.hash,
-      )
-      window.history.replaceState(null, '', nextUrl)
-    }
-    setEntryBundle(null)
-    setEntryError(null)
-    setEntryTableId(null)
+  const clearTransientOverlays = useCallback(() => {
+    setSelectedRecordIds([])
+    setSelectionInfo(EMPTY_SELECTION)
+    setSelectedDashboardItem(null)
+    setActiveConflict(null)
+    setActiveCellEdit(null)
+    setDrillEvent(null)
+    setFieldSettings(null)
+    setSummaryMenu(null)
+    setPopupMenu(null)
   }, [])
 
-  const handleEntryCreateRecord = useCallback(
-    async (record: Record<string, unknown>) => {
-      if (!entryBundle) return
-      setBusy(true)
+  const resetAllWorkspaceState = useCallback(() => {
+    setTables([])
+    setApps([])
+    setViews([])
+    setWorkspaceLoaded(false)
+    setLoadError(null)
+    setProbedEntryState(null)
+    setLocalFilterOverride(null)
+    setDatasourceSortRules([])
+    setConfigDrawerOpen(false)
+    setShowLookupWizard(false)
+    setShowAddColumn(false)
+    setShowColumnManager(false)
+    setShowImportModal(false)
+    setConfirmDeleteCol(null)
+    lastViewByAppRef.current.clear()
+    lastEntryTableIdRef.current = undefined
+    lastDatasourceTableIdRef.current = undefined
+    probedEntryIdRef.current = null
+    clearTransientOverlays()
+  }, [clearTransientOverlays])
+
+  const navigate = useCallback(
+    (nextRoute: AppRoute, options?: { replace?: boolean }) => {
+      navigateToRoute(nextRoute, options)
+      setRoute(nextRoute)
+      clearTransientOverlays()
+    },
+    [clearTransientOverlays],
+  )
+
+  // 订阅浏览器前进/后退
+  useEffect(() => {
+    return subscribeRouteChange((nextRoute) => {
+      setRoute(nextRoute)
+      clearTransientOverlays()
+      setConfigDrawerOpen(false)
+    })
+  }, [clearTransientOverlays])
+
+  // 加载内置演示账号清单
+  const ensureDemoAccountsLoaded = useCallback(async () => {
+    setLoadingDemoAccounts(true)
+    try {
+      const list = await fetchDemoAccounts()
+      setDemoAccounts(list)
+    } catch {
+      // 忽略演示列表拉取失败，仍允许账号密码登录
+    } finally {
+      setLoadingDemoAccounts(false)
+    }
+  }, [])
+
+  // 注册全局 401 会话失效处理器
+  useEffect(() => {
+    return setUnauthorizedHandler(() => {
+      if (authStatusRef.current === 'unauthenticated') return
+      const curRoute = routeRef.current
+      if (curRoute.kind === 'share') return
+      setSession(null)
+      setAuthStatus('unauthenticated')
+      resetAllWorkspaceState()
+      void ensureDemoAccountsLoaded()
+      pushToast('error', '登录会话已过期，请重新登录')
+      if (curRoute.kind !== 'login') {
+        const redirectTo = buildRoutePath(curRoute)
+        navigate({ kind: 'login', redirectTo }, { replace: true })
+      }
+    })
+  }, [ensureDemoAccountsLoaded, navigate, pushToast, resetAllWorkspaceState])
+
+  // 会话初始化校验（仅非 /s/:token 路由执行）
+  useEffect(() => {
+    if (route.kind === 'share') return
+    if (authStatus !== 'checking') return
+    let cancelled = false
+    void (async () => {
       try {
-        const created = await createRecord(entryBundle.meta.id, record)
-        setEntryBundle((prev) => (prev ? { ...prev, records: [...prev.records, created] } : prev))
-        return created
+        const me = await fetchMe({ skipUnauthorizedNotify: true })
+        if (cancelled) return
+        setSession(me)
+        setAuthStatus('authenticated')
+        void ensureDemoAccountsLoaded()
+        if (routeRef.current.kind === 'login') {
+          const target = routeRef.current.redirectTo
+            ? parseRouteFromLocation(routeRef.current.redirectTo)
+            : { kind: 'apps' as const }
+          navigate(target, { replace: true })
+        }
+      } catch {
+        if (cancelled) return
+        setSession(null)
+        setAuthStatus('unauthenticated')
+        void ensureDemoAccountsLoaded()
+        if (routeRef.current.kind !== 'login') {
+          const redirectTo = buildRoutePath(routeRef.current)
+          navigate({ kind: 'login', redirectTo }, { replace: true })
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [authStatus, ensureDemoAccountsLoaded, navigate, route.kind])
+
+  // 已登录访问 /login 自动跳回工作台或原目标路径；未登录访问受保护路由自动跳转 /login
+  useEffect(() => {
+    if (route.kind === 'share') return
+    if (authStatus === 'authenticated' && route.kind === 'login') {
+      const target = route.redirectTo
+        ? parseRouteFromLocation(route.redirectTo)
+        : { kind: 'apps' as const }
+      navigate(target, { replace: true })
+    } else if (authStatus === 'unauthenticated' && route.kind !== 'login') {
+      const redirectTo = buildRoutePath(route)
+      navigate({ kind: 'login', redirectTo }, { replace: true })
+    }
+  }, [authStatus, navigate, route])
+
+  // 加载工作台数据
+  const loadWorkspace = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const [tableList, appList, viewList] = await Promise.all([
+        fetchAllTables(),
+        fetchAllApps(),
+        fetchAllViews(),
+      ])
+      setTables(tableList)
+      setApps(appList)
+      setViews(viewList)
+      setWorkspaceLoaded(true)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        return
+      }
+      const msg = error instanceof Error ? error.message : '加载工作台失败'
+      setLoadError(msg)
+      pushToast('error', msg)
+    } finally {
+      setLoading(false)
+    }
+  }, [pushToast])
+
+  useEffect(() => {
+    if (
+      authStatus === 'authenticated' &&
+      route.kind !== 'login' &&
+      route.kind !== 'share' &&
+      !workspaceLoaded &&
+      !loading
+    ) {
+      void loadWorkspace()
+    }
+  }, [authStatus, route.kind, workspaceLoaded, loading, loadWorkspace])
+
+  const handleLoginSubmit = useCallback(
+    async (username: string, password: string) => {
+      setBusy(true)
+      setLoginError(null)
+      try {
+        const res = await login({ username, password })
+        resetAllWorkspaceState()
+        setSession(res)
+        setAuthStatus('authenticated')
+        void ensureDemoAccountsLoaded()
+        const target =
+          routeRef.current.kind === 'login' && routeRef.current.redirectTo
+            ? parseRouteFromLocation(routeRef.current.redirectTo)
+            : { kind: 'apps' as const }
+        navigate(target, { replace: true })
+        pushToast('success', `欢迎回来，${res.user.displayName}`)
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '登录失败，请检查账号和密码'
+        setLoginError(msg)
+        throw error
       } finally {
         setBusy(false)
       }
     },
-    [entryBundle],
+    [ensureDemoAccountsLoaded, navigate, pushToast, resetAllWorkspaceState],
   )
 
-  const handleEntryUpdateRecord = useCallback(
-    async (recordId: string, patch: Record<string, unknown>) => {
-      if (!entryBundle) return
+  const handleLogout = useCallback(async () => {
+    setBusy(true)
+    try {
+      await logout().catch(() => {})
+      setSession(null)
+      setAuthStatus('unauthenticated')
+      setLoginError(null)
+      resetAllWorkspaceState()
+      void ensureDemoAccountsLoaded()
+      navigate({ kind: 'login' }, { replace: true })
+      pushToast('info', '已退出登录')
+    } finally {
+      setBusy(false)
+    }
+  }, [ensureDemoAccountsLoaded, navigate, pushToast, resetAllWorkspaceState])
+
+  const handleSwitchAccount = useCallback(
+    async (account: DemoAccountInfo) => {
+      setBusy(true)
       try {
-        const updated = await updateRecord(entryBundle.meta.id, recordId, patch)
-        setEntryBundle((prev) =>
-          prev
-            ? {
-                ...prev,
-                records: prev.records.map((r) => (r._id === recordId ? updated : r)),
-              }
-            : prev,
+        const res = await login({ username: account.username, password: account.password })
+        resetAllWorkspaceState()
+        setSession(res)
+        setAuthStatus('authenticated')
+        navigate({ kind: 'apps' }, { replace: true })
+        pushToast('success', `已切换为「${res.user.displayName}」`)
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '切换账号失败'
+        pushToast('error', msg)
+      } finally {
+        setBusy(false)
+      }
+    },
+    [navigate, pushToast, resetAllWorkspaceState],
+  )
+
+  const userCapabilities = useMemo(() => {
+    if (session?.capabilities) return session.capabilities
+    if (session?.user) return computeUserCapabilities(session.user)
+    return {
+      canAccessDataSources: false,
+      canCreateTable: false,
+      canCreateApp: false,
+      canManagePermissions: false,
+      canManageShares: false,
+      canResetSeed: false,
+    }
+  }, [session])
+
+  const tablesById = useMemo(() => {
+    const map = new Map<string, TableBundle>()
+    for (const bundle of tables) map.set(bundle.meta.id, bundle)
+    return map
+  }, [tables])
+
+  const normalEntryTables = useMemo(
+    () =>
+      tables
+        .filter((bundle) => bundle.meta.kind === 'normal')
+        .map((bundle) => ({ id: bundle.meta.id, name: bundle.meta.name })),
+    [tables],
+  )
+
+  const entryRouteTableId = route.kind === 'entries' ? route.tableId : undefined
+  const hasEntryTableInState = entryRouteTableId ? tablesById.has(entryRouteTableId) : false
+
+  // /entries/:tableId 找不到表时尝试单表探测以获取精准 403/404 原因
+  useEffect(() => {
+    if (!entryRouteTableId || !workspaceLoaded) {
+      return
+    }
+    if (hasEntryTableInState) {
+      probedEntryIdRef.current = null
+      setProbedEntryState(null)
+      return
+    }
+    if (probedEntryIdRef.current === entryRouteTableId) {
+      return
+    }
+    probedEntryIdRef.current = entryRouteTableId
+    let cancelled = false
+    setProbedEntryState({ tableId: entryRouteTableId, loading: true, error: null })
+    void fetchTableBundle(entryRouteTableId)
+      .then((bundle) => {
+        if (cancelled) return
+        setTables((prev) =>
+          prev.some((b) => b.meta.id === bundle.meta.id) ? prev : [...prev, bundle],
+        )
+        setProbedEntryState(null)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        if (error instanceof ApiError && error.status === 401) return
+        const msg =
+          error instanceof Error ? error.message : `数据表「${entryRouteTableId}」不存在或无法访问`
+        setProbedEntryState({ tableId: entryRouteTableId, loading: false, error: msg })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [entryRouteTableId, workspaceLoaded, hasEntryTableInState])
+
+  // 默认落点与未指定 ID 路由规范化
+  const activeApp = useMemo(() => {
+    if (route.kind !== 'apps') return undefined
+    if (route.appId) {
+      return apps.find((a) => a.id === route.appId) ?? apps[0]
+    }
+    return apps[0]
+  }, [route, apps])
+
+  const activeAppViews = useMemo(() => {
+    if (!activeApp) return []
+    return views.filter((v) => v.appId === activeApp.id)
+  }, [activeApp, views])
+
+  const activeStoredView = useMemo(() => {
+    if (route.kind !== 'apps' || !activeApp) return undefined
+    if (route.viewId) {
+      const exact = activeAppViews.find((v) => v.id === route.viewId)
+      if (exact) return exact
+    }
+    const remembered = lastViewByAppRef.current.get(activeApp.id)
+    if (remembered) {
+      const found = activeAppViews.find((v) => v.id === remembered)
+      if (found) return found
+    }
+    return activeAppViews[0]
+  }, [route, activeApp, activeAppViews])
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !workspaceLoaded) return
+
+    if (route.kind === 'apps' && activeApp && activeStoredView) {
+      lastViewByAppRef.current.set(activeApp.id, activeStoredView.id)
+      if (route.appId !== activeApp.id || route.viewId !== activeStoredView.id) {
+        navigate(
+          { kind: 'apps', appId: activeApp.id, viewId: activeStoredView.id },
+          { replace: true },
+        )
+      }
+      return
+    }
+
+    if (route.kind === 'entries') {
+      if (route.tableId) {
+        lastEntryTableIdRef.current = route.tableId
+      } else if (normalEntryTables[0]) {
+        navigate({ kind: 'entries', tableId: normalEntryTables[0].id }, { replace: true })
+      }
+      return
+    }
+
+    if (route.kind === 'datasources' && userCapabilities.canAccessDataSources) {
+      if (route.tableId) {
+        lastDatasourceTableIdRef.current = route.tableId
+      } else if (tables[0]) {
+        navigate({ kind: 'datasources', tableId: tables[0].meta.id }, { replace: true })
+      }
+    }
+  }, [
+    authStatus,
+    workspaceLoaded,
+    route,
+    activeApp,
+    activeStoredView,
+    normalEntryTables,
+    tables,
+    userCapabilities.canAccessDataSources,
+    navigate,
+  ])
+
+  const targetKind: 'app' | 'datasource' = route.kind === 'datasources' ? 'datasource' : 'app'
+
+  const activeTable = useMemo(() => {
+    if (route.kind === 'datasources') {
+      if (!userCapabilities.canAccessDataSources) return undefined
+      if (route.tableId) return tablesById.get(route.tableId)
+      return tables[0]
+    }
+    if (route.kind === 'apps') {
+      if (activeStoredView) return tablesById.get(activeStoredView.tableId)
+      if (activeApp) return tablesById.get(activeApp.tableId)
+    }
+    return undefined
+  }, [
+    route,
+    userCapabilities.canAccessDataSources,
+    tablesById,
+    tables,
+    activeStoredView,
+    activeApp,
+  ])
+
+  const actionCapabilities = useMemo(
+    () =>
+      resolveWorkspaceActionCapabilities({
+        user: session?.user,
+        userCapabilities,
+        targetKind,
+        app: targetKind === 'app' ? activeApp : undefined,
+        view: targetKind === 'app' ? activeStoredView : undefined,
+        table: activeTable?.meta,
+        allApps: apps,
+        allViews: views,
+      }),
+    [
+      session?.user,
+      userCapabilities,
+      targetKind,
+      activeApp,
+      activeStoredView,
+      activeTable,
+      apps,
+      views,
+    ],
+  )
+
+  const activeAppDerivedColumns = useMemo(
+    () => (targetKind === 'app' ? (activeApp?.derivedColumns ?? []) : []),
+    [targetKind, activeApp?.derivedColumns],
+  )
+
+  const activeColumns = useMemo(() => {
+    if (!activeTable) return []
+    if (targetKind === 'datasource') {
+      return filterRawColumns(activeTable.meta.columns)
+    }
+    return mergeSmartColumns(activeTable.meta.columns, activeAppDerivedColumns)
+  }, [activeTable, targetKind, activeAppDerivedColumns])
+
+  const effectiveTableMeta = useMemo(
+    () => (activeTable ? { ...activeTable.meta, columns: activeColumns } : undefined),
+    [activeTable, activeColumns],
+  )
+
+  const effectiveTableBundle = useMemo(
+    () =>
+      activeTable && effectiveTableMeta ? { ...activeTable, meta: effectiveTableMeta } : undefined,
+    [activeTable, effectiveTableMeta],
+  )
+
+  // 无视图配置权时，临时筛选与排序保留在会话内存而不回写视图接口
+  const effectiveView: WorkspaceView | undefined = useMemo(() => {
+    if (!activeStoredView) return undefined
+    if (!actionCapabilities.canConfigure && localFilterOverride?.viewId === activeStoredView.id) {
+      return {
+        ...activeStoredView,
+        filterGroup: localFilterOverride.filterGroup,
+        quickFilterValues: localFilterOverride.quickFilterValues,
+        sortRules: localFilterOverride.sortRules,
+      }
+    }
+    return activeStoredView
+  }, [activeStoredView, actionCapabilities.canConfigure, localFilterOverride])
+
+  const pipelineView = useMemo(() => {
+    if (targetKind === 'datasource' && activeTable) {
+      return {
+        id: `ds_${activeTable.meta.id}`,
+        name: activeTable.meta.name,
+        type: 'table' as const,
+        filterGroup: { conjunction: 'and' as const, conditions: [] },
+        quickFilterFields: [],
+        sortRules: datasourceSortRules,
+        summaries: activeTable.meta.summaries,
+      }
+    }
+    return effectiveView
+  }, [targetKind, activeTable, datasourceSortRules, effectiveView])
+
+  const pipeline = useMemo(() => {
+    if (!activeTable) {
+      return {
+        allComputedRecords: [] as SmartRecord[],
+        displayRecords: [] as SmartRecord[],
+        conflictsByRow: new Map(),
+        unresolvedConflictCount: 0,
+        summaries: {},
+      }
+    }
+    const appContext =
+      targetKind === 'app' && activeApp
+        ? {
+            derivedColumns: activeAppDerivedColumns,
+            lookupOverrides: activeApp.lookupOverrides ?? {},
+          }
+        : undefined
+    return runSmartTablePipeline(
+      activeTable.meta,
+      activeTable.records,
+      tablesById,
+      pipelineView,
+      appContext,
+    )
+  }, [activeTable, targetKind, activeApp, activeAppDerivedColumns, tablesById, pipelineView])
+
+  const visibleColumns = useMemo(() => {
+    if (!activeTable) return []
+    if (targetKind === 'datasource') return [...activeColumns]
+    return resolveVisibleColumns(activeColumns, effectiveView)
+  }, [activeTable, targetKind, activeColumns, effectiveView])
+
+  // 权限收窄时自动关闭配置浮层
+  useEffect(() => {
+    if (!actionCapabilities.canConfigure) {
+      setConfigDrawerOpen(false)
+      setShowLookupWizard(false)
+      setShowAddColumn(false)
+      setShowColumnManager(false)
+      setFieldSettings(null)
+      setActiveConflict(null)
+      setSummaryMenu(null)
+    }
+    if (!actionCapabilities.canEditRecords) {
+      setActiveCellEdit(null)
+    }
+  }, [actionCapabilities.canConfigure, actionCapabilities.canEditRecords])
+
+  // ---- 统一表记录变更（工作台与录入端共用）----
+  const updateRecordInTable = useCallback(
+    async (
+      tableId: string,
+      recordId: string,
+      patch: Record<string, unknown>,
+      context?: RecordWriteContext,
+    ): Promise<SmartRecord> => {
+      try {
+        const updated = await updateRecord(tableId, recordId, patch, context)
+        setTables((prev) =>
+          prev.map((bundle) =>
+            bundle.meta.id === tableId
+              ? {
+                  ...bundle,
+                  records: bundle.records.map((r) => (r._id === recordId ? updated : r)),
+                }
+              : bundle,
+          ),
         )
         return updated
       } catch (error) {
-        setEntryBundle((prev) =>
-          prev ? { ...prev, records: prev.records.map((r) => ({ ...r })) } : prev,
+        setTables((prev) =>
+          prev.map((bundle) =>
+            bundle.meta.id === tableId
+              ? { ...bundle, records: bundle.records.map((r) => ({ ...r })) }
+              : bundle,
+          ),
         )
         throw error
       }
     },
-    [entryBundle],
+    [],
   )
 
-  const handleEntryDeleteRecords = useCallback(
-    async (recordIds: string[]) => {
-      if (!entryBundle || recordIds.length === 0) return
-      const tableId = entryBundle.meta.id
+  const deleteRecordsInTable = useCallback(
+    async (tableId: string, recordIds: readonly string[], context?: RecordWriteContext) => {
+      if (recordIds.length === 0) return
+      const targetIds = [...recordIds]
       setBusy(true)
       try {
-        const results = await Promise.allSettled(recordIds.map((id) => deleteRecord(tableId, id)))
+        const results = await Promise.allSettled(
+          targetIds.map((id) => deleteRecord(tableId, id, context)),
+        )
         const succeededIds = new Set<string>()
         let failedCount = 0
         results.forEach((res, idx) => {
-          if (res.status === 'fulfilled') succeededIds.add(recordIds[idx]!)
+          if (res.status === 'fulfilled') succeededIds.add(targetIds[idx]!)
           else failedCount += 1
         })
         if (succeededIds.size > 0) {
-          setEntryBundle((prev) =>
-            prev
-              ? { ...prev, records: prev.records.filter((r) => !succeededIds.has(r._id)) }
-              : prev,
+          setTables((prev) =>
+            prev.map((b) =>
+              b.meta.id === tableId
+                ? { ...b, records: b.records.filter((r) => !succeededIds.has(r._id)) }
+                : b,
+            ),
           )
+          setSelectedRecordIds((prev) => prev.filter((id) => !succeededIds.has(id)))
         }
         if (failedCount > 0) {
           const msg =
@@ -555,232 +1122,65 @@ export function App() {
         setBusy(false)
       }
     },
-    [entryBundle, pushToast],
+    [pushToast],
   )
 
-  const handleEntryBatchAppendRecords = useCallback(
-    async (records: Record<string, unknown>[]) => {
-      if (!entryBundle) return
-      setBusy(true)
-      try {
-        const res = await batchAppendRecords(entryBundle.meta.id, records)
-        setEntryBundle((prev) =>
-          prev ? { ...prev, records: [...prev.records, ...res.records] } : prev,
-        )
-      } finally {
-        setBusy(false)
-      }
-    },
-    [entryBundle],
-  )
-
-  const loadWorkspace = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const [tableList, appList, viewList] = await Promise.all([
-        fetchAllTables(),
-        fetchAllApps(),
-        fetchAllViews(),
-      ])
-      setTables(tableList)
-      setApps(appList)
-      setViews(viewList)
-      const firstApp = appList[0]
-      if (firstApp) {
-        const firstView = viewList.find((v) => v.appId === firstApp.id) ?? viewList[0]
-        setActiveTarget({
-          kind: 'app',
-          appId: firstApp.id,
-          viewId: firstView?.id ?? '',
-        })
-      } else if (tableList[0]) {
-        setActiveTarget({ kind: 'datasource', tableId: tableList[0].meta.id })
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : '加载工作台失败'
-      setLoadError(msg)
-      pushToast('error', msg)
-    } finally {
-      setLoading(false)
-    }
-  }, [pushToast])
-
-  useEffect(() => {
-    if (entryTableId !== null) {
-      void loadEntryTable(entryTableId)
-    } else {
-      void loadWorkspace()
-    }
-  }, [entryTableId, loadEntryTable, loadWorkspace])
-
-  const tablesById = useMemo(() => {
-    const map = new Map<string, TableBundle>()
-    for (const bundle of tables) map.set(bundle.meta.id, bundle)
-    return map
-  }, [tables])
-
-  const activeApp = useMemo(() => {
-    if (activeTarget.kind !== 'app') return undefined
-    return apps.find((a) => a.id === activeTarget.appId) ?? apps[0]
-  }, [activeTarget, apps])
-
-  const activeAppViews = useMemo(() => {
-    if (!activeApp) return []
-    return views.filter((v) => v.appId === activeApp.id)
-  }, [activeApp, views])
-
-  const activeStoredView = useMemo(() => {
-    if (activeTarget.kind !== 'app') return undefined
-    return activeAppViews.find((v) => v.id === activeTarget.viewId) ?? activeAppViews[0]
-  }, [activeTarget, activeAppViews])
-
-  const activeTable = useMemo(() => {
-    if (activeTarget.kind === 'datasource') {
-      return tablesById.get(activeTarget.tableId) ?? tables[0]
-    }
-    if (activeStoredView) {
-      return tablesById.get(activeStoredView.tableId) ?? tables[0]
-    }
-    if (activeApp) {
-      return tablesById.get(activeApp.tableId) ?? tables[0]
-    }
-    return tables[0]
-  }, [activeTarget, activeStoredView, activeApp, tablesById, tables])
-
-  const activeAppDerivedColumns = useMemo(
-    () => (activeTarget.kind === 'app' ? (activeApp?.derivedColumns ?? []) : []),
-    [activeTarget.kind, activeApp?.derivedColumns],
-  )
-
-  const activeColumns = useMemo(() => {
-    if (!activeTable) return []
-    if (activeTarget.kind === 'datasource') {
-      return filterRawColumns(activeTable.meta.columns)
-    }
-    return mergeSmartColumns(activeTable.meta.columns, activeAppDerivedColumns)
-  }, [activeTable, activeTarget.kind, activeAppDerivedColumns])
-
-  const effectiveTableMeta = useMemo(
-    () => (activeTable ? { ...activeTable.meta, columns: activeColumns } : undefined),
-    [activeTable, activeColumns],
-  )
-
-  const effectiveTableBundle = useMemo(
-    () =>
-      activeTable && effectiveTableMeta ? { ...activeTable, meta: effectiveTableMeta } : undefined,
-    [activeTable, effectiveTableMeta],
-  )
-
-  // 应用了查看态临时筛选/排序后的有效视图对象
-  const effectiveView: WorkspaceView | undefined = useMemo(() => {
-    if (!activeStoredView) return undefined
-    if (mode === 'viewer' && viewerFilterOverride?.viewId === activeStoredView.id) {
+  const activeWriteContext = useMemo<RecordWriteContext | undefined>(() => {
+    if (targetKind === 'app' && activeApp) {
       return {
-        ...activeStoredView,
-        filterGroup: viewerFilterOverride.filterGroup,
-        quickFilterValues: viewerFilterOverride.quickFilterValues,
-        sortRules: viewerFilterOverride.sortRules,
+        appId: activeApp.id,
+        ...(activeStoredView ? { viewId: activeStoredView.id } : {}),
       }
     }
-    return activeStoredView
-  }, [activeStoredView, mode, viewerFilterOverride])
+    return undefined
+  }, [targetKind, activeApp, activeStoredView])
 
-  const pipelineView = useMemo(() => {
-    if (activeTarget.kind === 'datasource' && activeTable) {
-      return {
-        id: `ds_${activeTable.meta.id}`,
-        name: activeTable.meta.name,
-        type: 'table' as const,
-        filterGroup: { conjunction: 'and' as const, conditions: [] },
-        quickFilterFields: [],
-        sortRules: datasourceSortRules,
-        summaries: activeTable.meta.summaries,
-      }
-    }
-    return effectiveView
-  }, [activeTarget.kind, activeTable, datasourceSortRules, effectiveView])
-
-  const pipeline = useMemo(() => {
-    if (!activeTable) {
-      return {
-        allComputedRecords: [] as SmartRecord[],
-        displayRecords: [] as SmartRecord[],
-        conflictsByRow: new Map(),
-        unresolvedConflictCount: 0,
-        summaries: {},
-      }
-    }
-    const appContext =
-      activeTarget.kind === 'app' && activeApp
-        ? {
-            derivedColumns: activeAppDerivedColumns,
-            lookupOverrides: activeApp.lookupOverrides ?? {},
+  // ---- 导航与路由切换 ----
+  const handleNavSection = useCallback(
+    (section: NavSection) => {
+      switch (section) {
+        case 'apps': {
+          const fallbackApp = activeApp ?? apps[0]
+          if (fallbackApp) {
+            const rememberedViewId = lastViewByAppRef.current.get(fallbackApp.id)
+            const appViews = views.filter((v) => v.appId === fallbackApp.id)
+            const viewId =
+              (rememberedViewId
+                ? appViews.find((v) => v.id === rememberedViewId)?.id
+                : undefined) ?? appViews[0]?.id
+            if (viewId) {
+              navigate({ kind: 'apps', appId: fallbackApp.id, viewId })
+              return
+            }
           }
-        : undefined
-    return runSmartTablePipeline(
-      activeTable.meta,
-      activeTable.records,
-      tablesById,
-      pipelineView,
-      appContext,
-    )
-  }, [activeTable, activeTarget.kind, activeApp, activeAppDerivedColumns, tablesById, pipelineView])
-
-  const visibleColumns = useMemo(() => {
-    if (!activeTable) return []
-    if (activeTarget.kind === 'datasource') return [...activeColumns]
-    return resolveVisibleColumns(activeColumns, effectiveView)
-  }, [activeTable, activeTarget.kind, activeColumns, effectiveView])
-
-  const clearTransientOverlays = useCallback(() => {
-    setSelectedRecordIds([])
-    setSelectionInfo(EMPTY_SELECTION)
-    setSelectedDashboardItem(null)
-    setActiveConflict(null)
-    setActiveCellEdit(null)
-    setDrillEvent(null)
-    setFieldSettings(null)
-    setSummaryMenu(null)
-    setPopupMenu(null)
-  }, [])
-
-  const handleToggleMode = useCallback(
-    (nextMode: AppMode) => {
-      if (nextMode === mode) return
-      setMode(nextMode)
-      if (typeof window !== 'undefined') {
-        const nextUrl = buildModeSearchUrl(
-          window.location.pathname,
-          window.location.search,
-          window.location.hash,
-          nextMode,
-        )
-        window.history.replaceState(null, '', nextUrl)
-      }
-      clearTransientOverlays()
-      if (nextMode === 'viewer') {
-        setConfigDrawerOpen(false)
-        setShowLookupWizard(false)
-        setShowAddColumn(false)
-        setShowColumnManager(false)
-        setShowImportModal(false)
-        if (activeTarget.kind === 'datasource') {
-          const boundApp = apps.find((a) => a.tableId === activeTarget.tableId) ?? apps[0]
-          if (boundApp) {
-            const firstView = views.find((v) => v.appId === boundApp.id)
-            setActiveTarget({
-              kind: 'app',
-              appId: boundApp.id,
-              viewId: firstView?.id ?? '',
-            })
-          }
+          navigate({ kind: 'apps' })
+          return
         }
-      } else {
-        setViewerFilterOverride(null)
+        case 'entries': {
+          const targetId =
+            (lastEntryTableIdRef.current && tablesById.has(lastEntryTableIdRef.current)
+              ? lastEntryTableIdRef.current
+              : undefined) ?? normalEntryTables[0]?.id
+          navigate(targetId ? { kind: 'entries', tableId: targetId } : { kind: 'entries' })
+          return
+        }
+        case 'datasources': {
+          const targetId =
+            (lastDatasourceTableIdRef.current && tablesById.has(lastDatasourceTableIdRef.current)
+              ? lastDatasourceTableIdRef.current
+              : undefined) ?? tables[0]?.meta.id
+          navigate(targetId ? { kind: 'datasources', tableId: targetId } : { kind: 'datasources' })
+          return
+        }
+        case 'shares':
+          navigate({ kind: 'shares' })
+          return
+        case 'permissions':
+          navigate({ kind: 'permissions' })
+          return
       }
     },
-    [mode, activeTarget, apps, views, clearTransientOverlays],
+    [activeApp, apps, views, tablesById, normalEntryTables, tables, navigate],
   )
 
   const handleSelectApp = useCallback(
@@ -789,40 +1189,66 @@ export function App() {
       const rememberedId = lastViewByAppRef.current.get(appId)
       const nextView =
         (rememberedId ? appViews.find((v) => v.id === rememberedId) : undefined) ?? appViews[0]
-      setActiveTarget({
-        kind: 'app',
+      setLocalFilterOverride(null)
+      navigate({
+        kind: 'apps',
         appId,
-        viewId: nextView?.id ?? '',
+        ...(nextView ? { viewId: nextView.id } : {}),
       })
-      setViewerFilterOverride(null)
-      clearTransientOverlays()
     },
-    [views, clearTransientOverlays],
+    [views, navigate],
   )
 
   const handleSelectView = useCallback(
     (viewId: string) => {
       if (!activeApp) return
       lastViewByAppRef.current.set(activeApp.id, viewId)
-      setActiveTarget({ kind: 'app', appId: activeApp.id, viewId })
-      setViewerFilterOverride(null)
-      clearTransientOverlays()
+      setLocalFilterOverride(null)
+      navigate({ kind: 'apps', appId: activeApp.id, viewId })
     },
-    [activeApp, clearTransientOverlays],
+    [activeApp, navigate],
   )
 
   const handleSelectTable = useCallback(
     (tableId: string) => {
-      if (mode === 'viewer') return
-      setActiveTarget({ kind: 'datasource', tableId })
+      if (!userCapabilities.canAccessDataSources) return
       setDatasourceSortRules([])
       setConfigDrawerOpen(false)
       setShowAddColumn(false)
       setShowColumnManager(false)
       setShowLookupWizard(false)
-      clearTransientOverlays()
+      navigate({ kind: 'datasources', tableId })
     },
-    [mode, clearTransientOverlays],
+    [userCapabilities.canAccessDataSources, navigate],
+  )
+
+  const handleEnterTableEntry = useCallback(
+    (tableId: string) => {
+      navigate({ kind: 'entries', tableId })
+    },
+    [navigate],
+  )
+
+  const handleOpenEntryNewTab = useCallback((tableId: string) => {
+    if (typeof window === 'undefined') return
+    const url = buildAbsoluteRouteUrl(window.location.href, { kind: 'entries', tableId })
+    window.open(url, '_blank', 'noopener')
+  }, [])
+
+  const handleCopyEntryLink = useCallback(
+    async (tableId: string) => {
+      if (typeof window === 'undefined') return
+      const url = buildAbsoluteRouteUrl(window.location.href, { kind: 'entries', tableId })
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url)
+        }
+        pushToast('success', '已复制数据录入链接')
+      } catch {
+        pushToast('error', '复制失败，请手动复制录入链接')
+      }
+    },
+    [pushToast],
   )
 
   const handleSaveMeta = useCallback(
@@ -882,7 +1308,6 @@ export function App() {
         }),
       )
 
-      // 显式传 null 给后端以清除可选配置对象
       const wirePatch: Record<string, unknown> = { ...patch }
       for (const [k, val] of Object.entries(patch)) {
         if (val === undefined) {
@@ -906,40 +1331,28 @@ export function App() {
 
   const handleUpdateRecord = useCallback(
     async (recordId: string, patch: Record<string, unknown>) => {
-      if (!activeTable || mode === 'viewer') return
-      const tableId = activeTable.meta.id
+      if (!activeTable || !actionCapabilities.canEditRecords) return
       try {
-        const updated = await updateRecord(tableId, recordId, patch)
-        setTables((prev) =>
-          prev.map((bundle) =>
-            bundle.meta.id === tableId
-              ? {
-                  ...bundle,
-                  records: bundle.records.map((r) => (r._id === recordId ? updated : r)),
-                }
-              : bundle,
-          ),
-        )
+        await updateRecordInTable(activeTable.meta.id, recordId, patch, activeWriteContext)
         pushToast('success', '已保存')
       } catch (error) {
         const msg = error instanceof ApiError ? error.message : '更新记录失败'
         pushToast('error', msg)
-        setTables((prev) =>
-          prev.map((bundle) =>
-            bundle.meta.id === tableId
-              ? { ...bundle, records: bundle.records.map((r) => ({ ...r })) }
-              : bundle,
-          ),
-        )
         throw error
       }
     },
-    [activeTable, mode, pushToast],
+    [
+      activeTable,
+      actionCapabilities.canEditRecords,
+      updateRecordInTable,
+      activeWriteContext,
+      pushToast,
+    ],
   )
 
   const handleMoveKanbanCard = useCallback(
     async (recordId: string, targetLaneKey: string) => {
-      if (!activeTable || !activeStoredView || mode === 'viewer') return
+      if (!activeTable || !activeStoredView || !actionCapabilities.canEditRecords) return
       const tableId = activeTable.meta.id
       const kanbanCfg = activeStoredView.kanbanConfig ?? buildDefaultKanbanConfig(activeColumns)
       const field = kanbanCfg.groupByField
@@ -993,12 +1406,12 @@ export function App() {
         pushToast('error', msg)
       }
     },
-    [activeTable, activeStoredView, mode, pushToast],
+    [activeTable, activeStoredView, actionCapabilities.canEditRecords, activeColumns, pushToast],
   )
 
   const focusAndOpenConflict = useCallback(
     (adapter: SmartGridAdapter, recordId: string, colKey: string) => {
-      if (!activeTable || activeTarget.kind !== 'app') return
+      if (!activeTable || targetKind !== 'app') return
       const rec = pipeline.displayRecords.find((r) => r._id === recordId)
       const col = activeColumns.find((c) => c.key === colKey)
       const groupId = col?.lookupConfig?.groupId
@@ -1017,20 +1430,14 @@ export function App() {
         setActiveConflict({ record: rec, column: col, conflict, rect })
       })
     },
-    [
-      activeTable,
-      activeTarget.kind,
-      activeColumns,
-      pipeline.conflictsByRow,
-      pipeline.displayRecords,
-    ],
+    [activeTable, targetKind, activeColumns, pipeline.conflictsByRow, pipeline.displayRecords],
   )
 
   const handleUpdateFilters = useCallback(
     (patch: { filterGroup?: FilterGroup; quickFilterValues?: Record<string, string[]> }) => {
       if (!effectiveView) return
-      if (mode === 'viewer') {
-        setViewerFilterOverride({
+      if (!actionCapabilities.canConfigure) {
+        setLocalFilterOverride({
           viewId: effectiveView.id,
           filterGroup: patch.filterGroup ?? effectiveView.filterGroup,
           quickFilterValues: patch.quickFilterValues ?? effectiveView.quickFilterValues ?? {},
@@ -1040,19 +1447,19 @@ export function App() {
       }
       void handlePatchView(effectiveView.id, patch)
     },
-    [effectiveView, mode, handlePatchView],
+    [effectiveView, actionCapabilities.canConfigure, handlePatchView],
   )
 
   const handleHeaderColumnSort = useCallback(
     (field: string, meta: { additive: boolean }) => {
-      if (activeTarget.kind === 'datasource') {
+      if (targetKind === 'datasource') {
         setDatasourceSortRules((prev) => cycleSortRules(prev, field, meta.additive))
         return
       }
       if (!effectiveView || effectiveView.type !== 'table') return
       const nextRules = cycleSortRules(effectiveView.sortRules, field, meta.additive)
-      if (mode === 'viewer') {
-        setViewerFilterOverride({
+      if (!actionCapabilities.canConfigure) {
+        setLocalFilterOverride({
           viewId: effectiveView.id,
           filterGroup: effectiveView.filterGroup,
           quickFilterValues: effectiveView.quickFilterValues ?? {},
@@ -1062,7 +1469,7 @@ export function App() {
       }
       void handlePatchView(effectiveView.id, { sortRules: nextRules })
     },
-    [activeTarget.kind, effectiveView, mode, handlePatchView],
+    [targetKind, effectiveView, actionCapabilities.canConfigure, handlePatchView],
   )
 
   const buildMenuContext = useCallback(
@@ -1077,7 +1484,7 @@ export function App() {
     }): GridMenuContext | null => {
       if (!activeTable) return null
       const meta = activeTable.meta
-      const isDs = activeTarget.kind === 'datasource'
+      const isDs = targetKind === 'datasource'
       const curSortRules = isDs ? datasourceSortRules : (effectiveView?.sortRules ?? [])
       const frozenColCount = isDs ? 0 : (effectiveView?.frozenColCount ?? 0)
       const cellStyles = effectiveView?.cellStyles
@@ -1101,7 +1508,8 @@ export function App() {
       }
 
       return {
-        mode,
+        canEditRecords: actionCapabilities.canEditRecords,
+        canConfigure: actionCapabilities.canConfigure,
         region: params.region,
         x: params.x,
         y: params.y,
@@ -1113,10 +1521,10 @@ export function App() {
         frozenColCount,
         visibleColumnCount: visibleColumns.length,
         canRenameColumn: params.column
-          ? canRenameColInTable(meta, params.column, activeTarget.kind)
+          ? canRenameColInTable(meta, params.column, targetKind)
           : false,
         canDeleteColumn: params.column
-          ? canDeleteColInTable(meta, params.column, activeTarget.kind)
+          ? canDeleteColInTable(meta, params.column, targetKind)
           : false,
         hasSelectionCellStyles,
         isDatasourceMode: isDs,
@@ -1124,18 +1532,19 @@ export function App() {
     },
     [
       activeTable,
-      activeTarget.kind,
+      targetKind,
       datasourceSortRules,
       effectiveView,
-      mode,
+      actionCapabilities.canEditRecords,
+      actionCapabilities.canConfigure,
       visibleColumns.length,
     ],
   )
 
   const handleColWidthChange = useCallback(
     (info: { columnKey: string; width: number }) => {
-      if (mode !== 'operator') return
-      if (activeTarget.kind === 'app' && activeStoredView) {
+      if (!actionCapabilities.canConfigure) return
+      if (targetKind === 'app' && activeStoredView) {
         void handlePatchView(activeStoredView.id, {
           columnWidths: {
             ...activeStoredView.columnWidths,
@@ -1144,7 +1553,7 @@ export function App() {
         })
         return
       }
-      if (activeTarget.kind === 'datasource' && activeTable) {
+      if (targetKind === 'datasource' && activeTable) {
         const nextColumns = filterRawColumns(activeTable.meta.columns).map((col) =>
           col.key === info.columnKey ? { ...col, width: info.width } : col,
         )
@@ -1154,19 +1563,25 @@ export function App() {
         }).catch(() => {})
       }
     },
-    [mode, activeTarget.kind, activeStoredView, activeTable, handlePatchView, handleSaveMeta],
+    [
+      actionCapabilities.canConfigure,
+      targetKind,
+      activeStoredView,
+      activeTable,
+      handlePatchView,
+      handleSaveMeta,
+    ],
   )
 
-  // 用 ref 持有最新回调，避免重建画布
   const handlersRef = useRef({
     onCellValueChange: handleUpdateRecord,
     onConflictClick: (info: SmartGridConflictClickInfo) => {
-      if (mode === 'operator') setActiveConflict(info)
+      if (actionCapabilities.canConfigure) setActiveConflict(info)
     },
     onRowSelectionChange: (ids: string[]) => setSelectedRecordIds(ids),
     onSelectionInfoChange: (info: SmartGridSelectionInfo) => setSelectionInfo(info),
     onRichCellEdit: (info: RichCellEditInfo) => {
-      if (mode === 'operator') setActiveCellEdit(info)
+      if (actionCapabilities.canEditRecords) setActiveCellEdit(info)
     },
     onValidationError: (msg: string) => pushToast('error', msg),
     onCellDrill: (ev: PivotCellDrillEvent) => setDrillEvent(ev),
@@ -1185,7 +1600,7 @@ export function App() {
       if (ctx) setPopupMenu(ctx)
     },
     onSummaryCellClick: (info: SmartGridSummaryClickInfo) => {
-      if (mode === 'operator') setSummaryMenu(info)
+      if (actionCapabilities.canConfigure) setSummaryMenu(info)
     },
     onColWidthChange: handleColWidthChange,
     onContextMenu: (info: {
@@ -1204,12 +1619,12 @@ export function App() {
   handlersRef.current = {
     onCellValueChange: handleUpdateRecord,
     onConflictClick: (info) => {
-      if (mode === 'operator') setActiveConflict(info)
+      if (actionCapabilities.canConfigure) setActiveConflict(info)
     },
     onRowSelectionChange: (ids) => setSelectedRecordIds(ids),
     onSelectionInfoChange: (info) => setSelectionInfo(info),
     onRichCellEdit: (info) => {
-      if (mode === 'operator') setActiveCellEdit(info)
+      if (actionCapabilities.canEditRecords) setActiveCellEdit(info)
     },
     onValidationError: (msg) => pushToast('error', msg),
     onCellDrill: (ev) => setDrillEvent(ev),
@@ -1228,7 +1643,7 @@ export function App() {
       if (ctx) setPopupMenu(ctx)
     },
     onSummaryCellClick: (info) => {
-      if (mode === 'operator') setSummaryMenu(info)
+      if (actionCapabilities.canConfigure) setSummaryMenu(info)
     },
     onColWidthChange: handleColWidthChange,
     onContextMenu: (info) => {
@@ -1238,17 +1653,18 @@ export function App() {
   }
 
   const activeRenderKind: 'grid' | 'pivot' | 'kanban' | 'dashboard' | 'none' = useMemo(() => {
+    if (route.kind !== 'apps' && route.kind !== 'datasources') return 'none'
     if (!activeTable) return 'none'
-    if (activeTarget.kind === 'datasource') return 'grid'
+    if (targetKind === 'datasource') return 'grid'
     if (!effectiveView) return 'none'
     if (effectiveView.type === 'table') return 'grid'
     if (effectiveView.type === 'pivot') return 'pivot'
     return effectiveView.type
-  }, [activeTable, activeTarget.kind, effectiveView])
+  }, [route.kind, activeTable, targetKind, effectiveView])
 
   const canvasMountKey =
     activeTable && (activeRenderKind === 'grid' || activeRenderKind === 'pivot')
-      ? `${activeTarget.kind}:${activeTarget.kind === 'app' ? (effectiveView?.id ?? '') : activeTable.meta.id}:${activeRenderKind}:${mode}`
+      ? `${targetKind}:${targetKind === 'app' ? (effectiveView?.id ?? '') : activeTable.meta.id}:${activeRenderKind}:${actionCapabilities.canEditRecords ? 'rw' : 'ro'}:${actionCapabilities.canConfigure ? 'cfg' : 'nocfg'}`
       : ''
 
   // 创建/销毁 Grid 或 Pivot 画布实例
@@ -1264,7 +1680,7 @@ export function App() {
     pivotAdapterRef.current = null
 
     if (activeRenderKind === 'grid') {
-      const isDs = activeTarget.kind === 'datasource'
+      const isDs = targetKind === 'datasource'
       const curSort = isDs ? datasourceSortRules : (effectiveView?.sortRules ?? [])
       const curSummaries = isDs
         ? activeTable.meta.summaries
@@ -1275,7 +1691,7 @@ export function App() {
         columns: activeColumns,
         records: pipeline.displayRecords,
         conflictsByRow: pipeline.conflictsByRow,
-        readonly: mode === 'viewer',
+        readonly: !actionCapabilities.canEditRecords,
         sortRules: curSort,
         view: isDs ? undefined : effectiveView,
         summaries: curSummaries,
@@ -1334,9 +1750,9 @@ export function App() {
 
   // 数据/配置变化时原地刷新画布
   useEffect(() => {
-    if (!activeTable) return
+    if (!activeTable || (activeRenderKind !== 'grid' && activeRenderKind !== 'pivot')) return
     if (activeRenderKind === 'grid') {
-      const isDs = activeTarget.kind === 'datasource'
+      const isDs = targetKind === 'datasource'
       const curSort = isDs ? datasourceSortRules : (effectiveView?.sortRules ?? [])
       const curSummaries = isDs
         ? activeTable.meta.summaries
@@ -1365,7 +1781,7 @@ export function App() {
     activeTable,
     activeColumns,
     activeRenderKind,
-    activeTarget.kind,
+    targetKind,
     effectiveView,
     datasourceSortRules,
     pipeline.displayRecords,
@@ -1388,12 +1804,7 @@ export function App() {
       setApps((prev) => [...prev, created.app])
       setViews((prev) => [...prev, created.defaultView])
       lastViewByAppRef.current.set(created.app.id, created.defaultView.id)
-      setActiveTarget({
-        kind: 'app',
-        appId: created.app.id,
-        viewId: created.defaultView.id,
-      })
-      clearTransientOverlays()
+      navigate({ kind: 'apps', appId: created.app.id, viewId: created.defaultView.id })
       pushToast('success', `已新建智能表格「${created.app.name}」`)
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '新建智能表格失败'
@@ -1426,18 +1837,20 @@ export function App() {
       setApps(remainingApps)
       setViews(remainingViews)
       lastViewByAppRef.current.delete(appId)
-      if (activeTarget.kind === 'app' && activeTarget.appId === appId) {
+      if (route.kind === 'apps' && activeApp?.id === appId) {
         const nextApp = remainingApps[0]
         if (nextApp) {
           const nextView = remainingViews.find((v) => v.appId === nextApp.id)
-          setActiveTarget({
-            kind: 'app',
-            appId: nextApp.id,
-            viewId: nextView?.id ?? '',
-          })
+          navigate(
+            {
+              kind: 'apps',
+              appId: nextApp.id,
+              ...(nextView ? { viewId: nextView.id } : {}),
+            },
+            { replace: true },
+          )
         }
       }
-      clearTransientOverlays()
       pushToast('success', '智能表格已删除')
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '删除智能表格失败'
@@ -1464,8 +1877,7 @@ export function App() {
       const created = await createWorkspaceView(payload)
       setViews((prev) => [...prev, created])
       lastViewByAppRef.current.set(created.appId, created.id)
-      setActiveTarget({ kind: 'app', appId: created.appId, viewId: created.id })
-      clearTransientOverlays()
+      navigate({ kind: 'apps', appId: created.appId, viewId: created.id })
       pushToast('success', `已新建视图「${created.name}」`)
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '新建视图失败'
@@ -1491,18 +1903,16 @@ export function App() {
       await deleteWorkspaceView(viewId)
       const remaining = views.filter((v) => v.id !== viewId)
       setViews(remaining)
-      if (activeTarget.kind === 'app' && activeTarget.viewId === viewId) {
+      if (route.kind === 'apps' && activeStoredView?.id === viewId) {
         const nextSibling = remaining.find((v) => v.appId === targetView.appId)
         if (nextSibling) {
           lastViewByAppRef.current.set(targetView.appId, nextSibling.id)
-          setActiveTarget({
-            kind: 'app',
-            appId: targetView.appId,
-            viewId: nextSibling.id,
-          })
+          navigate(
+            { kind: 'apps', appId: targetView.appId, viewId: nextSibling.id },
+            { replace: true },
+          )
         }
       }
-      clearTransientOverlays()
       pushToast('success', '视图已删除')
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '删除视图失败'
@@ -1528,8 +1938,7 @@ export function App() {
     try {
       const created = await createTable({ name, description })
       setTables((prev) => [...prev, created])
-      setActiveTarget({ kind: 'datasource', tableId: created.meta.id })
-      clearTransientOverlays()
+      navigate({ kind: 'datasources', tableId: created.meta.id })
       pushToast('success', `已创建数据表「${created.meta.name}」`)
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '创建数据表失败'
@@ -1549,9 +1958,8 @@ export function App() {
 
   function handleImported(bundle: TableBundle) {
     setTables((prev) => [...prev, bundle])
-    setActiveTarget({ kind: 'datasource', tableId: bundle.meta.id })
-    clearTransientOverlays()
     setShowImportModal(false)
+    navigate({ kind: 'datasources', tableId: bundle.meta.id })
     pushToast('success', `已导入「${bundle.meta.name}」（${bundle.records.length} 行）`)
   }
 
@@ -1566,29 +1974,24 @@ export function App() {
       setApps(remainingApps)
       setViews(remainingViews)
 
-      const fallbackToFirstAppOrTable = () => {
+      if (route.kind === 'datasources' && route.tableId === tableId) {
+        if (remainingTables[0]) {
+          navigate({ kind: 'datasources', tableId: remainingTables[0].meta.id }, { replace: true })
+        } else {
+          navigate({ kind: 'apps' }, { replace: true })
+        }
+      } else if (route.kind === 'apps' && activeApp && activeApp.tableId === tableId) {
         const nextApp = remainingApps[0]
         if (nextApp) {
           const nextView = remainingViews.find((v) => v.appId === nextApp.id)
-          setActiveTarget({
-            kind: 'app',
-            appId: nextApp.id,
-            viewId: nextView?.id ?? '',
-          })
-        } else if (remainingTables[0]) {
-          setActiveTarget({ kind: 'datasource', tableId: remainingTables[0].meta.id })
+          navigate(
+            { kind: 'apps', appId: nextApp.id, ...(nextView ? { viewId: nextView.id } : {}) },
+            { replace: true },
+          )
+        } else {
+          navigate({ kind: 'apps' }, { replace: true })
         }
       }
-
-      if (activeTarget.kind === 'datasource' && activeTarget.tableId === tableId) {
-        fallbackToFirstAppOrTable()
-      } else if (
-        activeTarget.kind === 'app' &&
-        !remainingApps.some((a) => a.id === activeTarget.appId)
-      ) {
-        fallbackToFirstAppOrTable()
-      }
-      clearTransientOverlays()
       pushToast('success', '数据表已删除')
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '删除数据表失败'
@@ -1607,19 +2010,19 @@ export function App() {
       setApps(fresh.apps)
       setViews(fresh.views)
       lastViewByAppRef.current.clear()
+      setLocalFilterOverride(null)
       const firstApp = fresh.apps[0]
       if (firstApp) {
         const firstView = fresh.views.find((v) => v.appId === firstApp.id) ?? fresh.views[0]
-        setActiveTarget({
-          kind: 'app',
-          appId: firstApp.id,
-          viewId: firstView?.id ?? '',
-        })
-      } else if (fresh.tables[0]) {
-        setActiveTarget({ kind: 'datasource', tableId: fresh.tables[0].meta.id })
+        navigate(
+          {
+            kind: 'apps',
+            appId: firstApp.id,
+            ...(firstView ? { viewId: firstView.id } : {}),
+          },
+          { replace: true },
+        )
       }
-      setViewerFilterOverride(null)
-      clearTransientOverlays()
       pushToast('success', '已重置为初始演示数据')
     } catch (error) {
       const msg = error instanceof ApiError ? error.message : '重置演示数据失败'
@@ -1631,12 +2034,13 @@ export function App() {
 
   // ---- 记录与列 CRUD ----
   async function handleAddRow(customPayload?: Record<string, unknown>) {
-    if (!activeTable || mode === 'viewer') return
+    if (!activeTable || !actionCapabilities.canEditRecords) return
     setBusy(true)
     try {
       const created = await createRecord(
         activeTable.meta.id,
         customPayload ?? buildNewRowPayload(activeTable.meta),
+        activeWriteContext,
       )
       setTables((prev) =>
         prev.map((b) =>
@@ -1656,40 +2060,12 @@ export function App() {
   }
 
   async function handleDeleteRecords(recordIds: readonly string[]) {
-    if (!activeTable || recordIds.length === 0 || mode === 'viewer') return
-    const tableId = activeTable.meta.id
-    const targetIds = [...recordIds]
-    setBusy(true)
+    if (!activeTable || recordIds.length === 0 || !actionCapabilities.canEditRecords) return
     try {
-      const results = await Promise.allSettled(targetIds.map((id) => deleteRecord(tableId, id)))
-      const succeededIds = new Set<string>()
-      let failedCount = 0
-      results.forEach((res, idx) => {
-        if (res.status === 'fulfilled') succeededIds.add(targetIds[idx]!)
-        else failedCount += 1
-      })
-      if (succeededIds.size > 0) {
-        setTables((prev) =>
-          prev.map((b) =>
-            b.meta.id === tableId
-              ? { ...b, records: b.records.filter((r) => !succeededIds.has(r._id)) }
-              : b,
-          ),
-        )
-        setSelectedRecordIds((prev) => prev.filter((id) => !succeededIds.has(id)))
-      }
-      if (failedCount > 0) {
-        pushToast(
-          'error',
-          succeededIds.size > 0
-            ? `已删除 ${succeededIds.size} 条，另有 ${failedCount} 条删除失败`
-            : `删除失败（${failedCount} 条）`,
-        )
-      } else {
-        pushToast('success', `已删除 ${succeededIds.size} 条记录`)
-      }
-    } finally {
-      setBusy(false)
+      await deleteRecordsInTable(activeTable.meta.id, recordIds, activeWriteContext)
+      pushToast('success', `已删除 ${recordIds.length} 条记录`)
+    } catch {
+      // deleteRecordsInTable 已推送 Toast
     }
   }
 
@@ -1716,8 +2092,8 @@ export function App() {
   }
 
   async function handleAddColumns(newColumns: SmartColumn[]) {
-    if (!activeTable) return
-    if (activeTarget.kind === 'app') {
+    if (!activeTable || !actionCapabilities.canConfigure) return
+    if (targetKind === 'app') {
       if (!activeApp) return
       const validDerived = newColumns.filter(isDerivedColumn)
       if (validDerived.length === 0) return
@@ -1754,7 +2130,7 @@ export function App() {
   }
 
   async function handleUpdateRawColumn(columnKey: string, patch: Partial<SmartColumn>) {
-    if (!activeTable || activeTarget.kind !== 'datasource') return
+    if (!activeTable || targetKind !== 'datasource' || !actionCapabilities.canConfigure) return
     const nextColumns = filterRawColumns(activeTable.meta.columns).map((col) => {
       if (col.key !== columnKey) return col
       const updated: SmartColumn = { ...col, ...patch }
@@ -1777,7 +2153,7 @@ export function App() {
   }
 
   async function handleUpdateDerivedColumn(columnKey: string, patch: Partial<SmartColumn>) {
-    if (!activeApp || activeTarget.kind !== 'app') return
+    if (!activeApp || targetKind !== 'app' || !actionCapabilities.canConfigure) return
     const nextDerived = (activeApp.derivedColumns ?? []).map((col) => {
       if (col.key !== columnKey) return col
       const updated: SmartColumn = { ...col, ...patch }
@@ -1790,8 +2166,8 @@ export function App() {
   }
 
   async function handleRenameColumn(columnKey: string, nextTitle: string) {
-    if (!activeTable) return
-    if (activeTarget.kind === 'app') {
+    if (!activeTable || !actionCapabilities.canConfigure) return
+    if (targetKind === 'app') {
       if (!activeApp || !activeAppDerivedColumns.some((c) => c.key === columnKey)) {
         pushToast('error', '智能表格不可修改数据源原始字段，请前往数据源中心操作')
         return
@@ -1813,8 +2189,8 @@ export function App() {
   }
 
   async function handleDeleteColumn(columnKey: string) {
-    if (!activeTable) return
-    if (activeTarget.kind === 'app') {
+    if (!activeTable || !actionCapabilities.canConfigure) return
+    if (targetKind === 'app') {
       if (!activeApp || !activeAppDerivedColumns.some((c) => c.key === columnKey)) {
         pushToast('error', '智能表格不可删除数据源原始字段，请前往数据源中心操作')
         return
@@ -1854,7 +2230,12 @@ export function App() {
   }
 
   async function handleCreateSelectOption(columnKey: string, option: SelectOption) {
-    if (!activeTable || activeTarget.kind !== 'datasource' || activeTable.meta.kind !== 'normal') {
+    if (
+      !activeTable ||
+      targetKind !== 'datasource' ||
+      activeTable.meta.kind !== 'normal' ||
+      !actionCapabilities.canConfigure
+    ) {
       return
     }
     const targetCol = activeTable.meta.columns.find((c) => c.key === columnKey)
@@ -1874,7 +2255,7 @@ export function App() {
     groupId: string,
     targetRecordId: string,
   ) {
-    if (!activeApp || activeTarget.kind !== 'app') return
+    if (!activeApp || targetKind !== 'app' || !actionCapabilities.canConfigure) return
     const currentOverrides = activeApp.lookupOverrides ?? {}
     const nextOverrides: Record<string, Record<string, string>> = {
       ...currentOverrides,
@@ -1887,7 +2268,7 @@ export function App() {
   }
 
   async function handleAppendMatchRule(groupId: string, rule: LookupMatchRule) {
-    if (!activeApp || activeTarget.kind !== 'app') return
+    if (!activeApp || targetKind !== 'app' || !actionCapabilities.canConfigure) return
     if (getBlockedLookupSourceKeys(activeColumns, groupId).has(rule.sourceField)) {
       const msg = '不能将关联带出字段或公式字段作为匹配条件'
       pushToast('error', msg)
@@ -1899,7 +2280,7 @@ export function App() {
   }
 
   async function handleSaveLookupColumns(nextColumns: SmartColumn[]) {
-    if (!activeApp || activeTarget.kind !== 'app') return
+    if (!activeApp || targetKind !== 'app' || !actionCapabilities.canConfigure) return
     const prevDerived = activeAppDerivedColumns
     const nextDerived = nextColumns.filter(isDerivedColumn)
     const nextKeys = new Set(nextDerived.map((c) => c.key))
@@ -1925,7 +2306,7 @@ export function App() {
   }
 
   function handleJumpToFirstConflict() {
-    if (!activeTable || activeTarget.kind !== 'app' || mode === 'viewer') return
+    if (!activeTable || targetKind !== 'app' || !actionCapabilities.canConfigure) return
     for (const rec of pipeline.displayRecords) {
       const rowMap = pipeline.conflictsByRow.get(rec._id)
       if (!rowMap) continue
@@ -1944,8 +2325,8 @@ export function App() {
   }
 
   function handleChangeSummary(columnKey: string, summaryType: SummaryType) {
-    if (!activeTable || mode === 'viewer') return
-    if (activeTarget.kind === 'datasource') {
+    if (!activeTable || !actionCapabilities.canConfigure) return
+    if (targetKind === 'datasource') {
       const nextSummaries = { ...activeTable.meta.summaries, [columnKey]: summaryType }
       void handleSaveMeta(activeTable.meta.id, { ...activeTable.meta, summaries: nextSummaries })
       return
@@ -1965,13 +2346,13 @@ export function App() {
     const setSingleSort = (direction: 'asc' | 'desc' | null) => {
       if (!column) return
       const nextRules: SortRule[] = direction ? [{ field: column.key, direction }] : []
-      if (activeTarget.kind === 'datasource') {
+      if (targetKind === 'datasource') {
         setDatasourceSortRules(nextRules)
         return
       }
       if (!effectiveView) return
-      if (mode === 'viewer') {
-        setViewerFilterOverride({
+      if (!actionCapabilities.canConfigure) {
+        setLocalFilterOverride({
           viewId: effectiveView.id,
           filterGroup: effectiveView.filterGroup,
           quickFilterValues: effectiveView.quickFilterValues ?? {},
@@ -1992,14 +2373,12 @@ export function App() {
       case 'sort_clear':
         if (column) {
           const filtered = (
-            activeTarget.kind === 'datasource'
-              ? datasourceSortRules
-              : (effectiveView?.sortRules ?? [])
+            targetKind === 'datasource' ? datasourceSortRules : (effectiveView?.sortRules ?? [])
           ).filter((r) => r.field !== column.key)
-          if (activeTarget.kind === 'datasource') setDatasourceSortRules(filtered)
+          if (targetKind === 'datasource') setDatasourceSortRules(filtered)
           else if (effectiveView) {
-            if (mode === 'viewer') {
-              setViewerFilterOverride({
+            if (!actionCapabilities.canConfigure) {
+              setLocalFilterOverride({
                 viewId: effectiveView.id,
                 filterGroup: effectiveView.filterGroup,
                 quickFilterValues: effectiveView.quickFilterValues ?? {},
@@ -2012,17 +2391,17 @@ export function App() {
         }
         break
       case 'freeze_to_col':
-        if (activeStoredView && colIndex !== null) {
+        if (actionCapabilities.canConfigure && activeStoredView && colIndex !== null) {
           void handlePatchView(activeStoredView.id, { frozenColCount: colIndex + 1 })
         }
         break
       case 'unfreeze_all':
-        if (activeStoredView) {
+        if (actionCapabilities.canConfigure && activeStoredView) {
           void handlePatchView(activeStoredView.id, { frozenColCount: 0 })
         }
         break
       case 'hide_col':
-        if (activeStoredView && column) {
+        if (actionCapabilities.canConfigure && activeStoredView && column) {
           const nextHidden = toggleHiddenColumn(
             activeColumns,
             activeStoredView.hiddenColumns,
@@ -2032,14 +2411,14 @@ export function App() {
         }
         break
       case 'open_col_style':
-        if (column) {
+        if (actionCapabilities.canConfigure && column) {
           setFocusedStyleColKey(column.key)
           setConfigDrawerTab('styles')
           setConfigDrawerOpen(true)
         }
         break
       case 'edit_lookup_col':
-        if (column) {
+        if (actionCapabilities.canConfigure && column) {
           setFieldSettings({
             columnKey: column.key,
             rect: { x, y, width: 120, height: 32 },
@@ -2047,10 +2426,12 @@ export function App() {
         }
         break
       case 'rename_col':
-        setShowColumnManager(true)
+        if (actionCapabilities.canConfigure) {
+          setShowColumnManager(true)
+        }
         break
       case 'delete_col':
-        if (column) setConfirmDeleteCol(column)
+        if (actionCapabilities.canConfigure && column) setConfirmDeleteCol(column)
         break
       case 'copy_cell':
         if (record && column) {
@@ -2100,24 +2481,27 @@ export function App() {
             width: column.width,
             height: 38,
           }
-          if (column.type === 'select' || column.type === 'date') {
-            setActiveCellEdit({ record, column, rect, value: record[column.key] })
-          } else if (column.type === 'lookup' && column.lookupConfig?.mode === 'one') {
+          if (column.type === 'lookup' && column.lookupConfig?.mode === 'one') {
+            if (!actionCapabilities.canConfigure) return
             const groupId = column.lookupConfig.groupId
             const conflict = pipeline.conflictsByRow.get(record._id)?.get(groupId)
             if (conflict && conflict.candidates.length > 1) {
               setActiveConflict({ record, column, conflict, rect })
             }
-          } else if (column.type === 'checkbox') {
-            void handleUpdateRecord(record._id, { [column.key]: !record[column.key] })
-          } else {
-            gridAdapterRef.current?.startEditCell(record._id, column.key)
+          } else if (actionCapabilities.canEditRecords) {
+            if (column.type === 'select' || column.type === 'date') {
+              setActiveCellEdit({ record, column, rect, value: record[column.key] })
+            } else if (column.type === 'checkbox') {
+              void handleUpdateRecord(record._id, { [column.key]: !record[column.key] })
+            } else {
+              gridAdapterRef.current?.startEditCell(record._id, column.key)
+            }
           }
         }
         break
       case 'apply_selection_style':
       case 'clear_selection_style':
-        if (activeStoredView) {
+        if (actionCapabilities.canConfigure && activeStoredView) {
           const targetSelection: SmartGridSelectionInfo =
             selection.ranges.length > 0
               ? selection
@@ -2145,14 +2529,16 @@ export function App() {
         }
         break
       case 'open_selection_style':
-        setConfigDrawerTab('styles')
-        setConfigDrawerOpen(true)
+        if (actionCapabilities.canConfigure) {
+          setConfigDrawerTab('styles')
+          setConfigDrawerOpen(true)
+        }
         break
       case 'add_row':
-        void handleAddRow()
+        if (actionCapabilities.canEditRecords) void handleAddRow()
         break
       case 'duplicate_row':
-        if (record) {
+        if (actionCapabilities.canEditRecords && record) {
           const copy: Record<string, unknown> = {}
           for (const col of filterRawColumns(activeTable.meta.columns)) {
             if (activeTable.meta.primaryKeyField && col.key === activeTable.meta.primaryKeyField) {
@@ -2168,7 +2554,7 @@ export function App() {
         }
         break
       case 'delete_row':
-        if (record) {
+        if (actionCapabilities.canEditRecords && record) {
           const ids =
             selectedRecordIds.includes(record._id) && selectedRecordIds.length > 1
               ? selectedRecordIds
@@ -2179,147 +2565,292 @@ export function App() {
     }
   }
 
-  if (entryTableId !== null) {
-    if (entryLoading) {
-      return (
-        <div className="flex h-screen flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
-          <div
-            className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600"
-            aria-hidden="true"
-          />
-          <div className="text-xs">正在加载独立数据录入端...</div>
-          <ToastHost toasts={toasts} onDismiss={dismissToast} />
-        </div>
-      )
-    }
-
-    if (!entryBundle || entryBundle.meta.kind !== 'normal') {
-      const reason = !entryBundle
-        ? entryError || `数据表「${entryTableId}」不存在或无法访问。`
-        : `数据表「${entryBundle.meta.name}」为 SQL 主数据表，不支持独立数据录入页，请前往数据源中心维护。`
-      return (
-        <div className="flex h-screen flex-col items-center justify-center bg-slate-50 p-6">
-          <div className="flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-            <AlertTriangle className="mb-3 h-7 w-7 text-amber-500" />
-            <div className="text-sm font-semibold text-slate-900">独立数据录入端不可用</div>
-            <div className="mt-1.5 text-xs leading-relaxed text-slate-500">{reason}</div>
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleBackToWorkbench}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                <span>返回工作台</span>
-              </button>
-              {!entryBundle && (
-                <button
-                  type="button"
-                  onClick={() => void loadEntryTable(entryTableId)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span>重试</span>
-                </button>
-              )}
-            </div>
-          </div>
-          <ToastHost toasts={toasts} onDismiss={dismissToast} />
-        </div>
-      )
-    }
-
+  // ---------------- 分支一：/s/:token 独立无侧栏免登录访客路由（待 P7 挂载 ShareAccessPage） ----------------
+  if (route.kind === 'share') {
     return (
       <>
         <ToastHost toasts={toasts} onDismiss={dismissToast} />
-        <EntryWorkspace
-          bundle={entryBundle}
-          busy={busy}
-          onCreateRecord={handleEntryCreateRecord}
-          onUpdateRecord={handleEntryUpdateRecord}
-          onDeleteRecords={handleEntryDeleteRecords}
-          onBatchAppendRecords={handleEntryBatchAppendRecords}
-          onBackToWorkbench={handleBackToWorkbench}
-          onNotify={pushToast}
+        <RouteStatusCard
+          testId="share-route-placeholder"
+          icon={<Share2 className="h-8 w-8 text-blue-600" />}
+          title="对外分享访问视图"
+          description={`正在访问免登录分享链接（Token：${route.token}），完整访客查看与填报交互将在后续阶段接入。`}
+          actionLabel="返回工作台"
+          onAction={() => {
+            setAuthStatus(session ? 'authenticated' : 'checking')
+            navigate({ kind: 'apps' })
+          }}
         />
       </>
     )
   }
 
-  if (loading) {
+  // ---------------- 分支二：正在检查会话或独立无侧栏 /login 登录页 ----------------
+  if (authStatus === 'checking') {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
         <div
           className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600"
           aria-hidden="true"
         />
-        <div className="text-xs">正在加载智能表格工作台...</div>
-      </div>
-    )
-  }
-
-  if (!activeTable) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center bg-slate-50 p-6">
-        <div className="flex max-w-sm flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <Table2 className="mb-3 h-7 w-7 text-slate-400" />
-          <div className="text-sm font-semibold text-slate-900">未加载到数据表</div>
-          <div className="mt-1 text-xs text-slate-500">
-            {loadError || '请确认后端服务已启动并可正常访问。'}
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadWorkspace()}
-            className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>重试加载</span>
-          </button>
-        </div>
+        <div className="text-xs">正在验证登录会话...</div>
         <ToastHost toasts={toasts} onDismiss={dismissToast} />
       </div>
     )
   }
 
-  const activePivotConfig = effectiveView?.pivotConfig ?? buildDefaultPivotConfig(activeColumns)
-  const hasActiveFilters = Boolean(
-    effectiveView &&
-    (effectiveView.filterGroup.conditions.length > 0 ||
-      Object.values(effectiveView.quickFilterValues ?? {}).some((v) => v.length > 0)),
-  )
-  const showGridEmptyOverlay = activeRenderKind === 'grid' && pipeline.displayRecords.length === 0
-  const workbenchTableMeta = effectiveTableMeta ?? activeTable.meta
-  const workbenchTableBundle = effectiveTableBundle ?? activeTable
+  if (route.kind === 'login' || authStatus !== 'authenticated' || !session) {
+    return (
+      <>
+        <ToastHost toasts={toasts} onDismiss={dismissToast} />
+        <LoginPage
+          demoAccounts={demoAccounts}
+          loadingAccounts={loadingDemoAccounts}
+          busy={busy}
+          errorMessage={loginError}
+          redirectTo={route.kind === 'login' ? route.redirectTo : undefined}
+          onSubmit={handleLoginSubmit}
+        />
+      </>
+    )
+  }
 
-  return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
-      <ToastHost toasts={toasts} onDismiss={dismissToast} />
+  const currentUser = session.user
+  const navSection = getNavSectionForRoute(route)
+  const sidebarSection: SidebarSection | null =
+    route.kind === 'apps' || route.kind === 'entries' || route.kind === 'datasources'
+      ? route.kind
+      : null
 
-      <Sidebar
-        mode={mode}
-        apps={apps}
-        views={views}
-        tables={tables}
-        activeTarget={activeTarget}
-        busy={busy}
-        createAppDraftRequest={createAppDraftRequest}
-        onSelectApp={handleSelectApp}
-        onCreateApp={handleCreateApp}
-        onRenameApp={handleRenameApp}
-        onDeleteApp={handleDeleteApp}
-        onReorderApps={handleReorderApps}
-        onSelectTable={handleSelectTable}
-        onCreateNormalTable={handleCreateNormalTable}
-        onRenameTable={handleRenameTable}
-        onDeleteTable={handleDeleteTable}
-        onOpenImport={() => setShowImportModal(true)}
-        onResetSeed={handleResetSeed}
-      />
+  const goHome = () => handleNavSection('apps')
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {activeTarget.kind === 'app' && activeApp && (
+  // 渲染受保护工作台右侧主区内容
+  function renderMainContent() {
+    if (loading && !workspaceLoaded) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
+          <div
+            className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600"
+            aria-hidden="true"
+          />
+          <div className="text-xs">正在加载智能表格工作台...</div>
+        </div>
+      )
+    }
+
+    if (loadError && !workspaceLoaded) {
+      return (
+        <RouteStatusCard
+          icon={<Table2 className="h-7 w-7 text-slate-400" />}
+          title="工作台加载失败"
+          description={loadError}
+          secondaryLabel="重试加载"
+          onSecondaryAction={() => void loadWorkspace()}
+        />
+      )
+    }
+
+    if (route.kind === 'shares') {
+      if (!userCapabilities.canManageShares) {
+        return (
+          <RouteStatusCard
+            testId="shares-forbidden"
+            icon={<Lock className="h-7 w-7 text-amber-500" />}
+            title="无权访问分享管理"
+            description="普通成员无权创建或管理对外分享链接，请联系管理员或负责人处理。"
+            actionLabel="返回工作台"
+            onAction={goHome}
+          />
+        )
+      }
+      return (
+        <RouteStatusCard
+          testId="shares-route-placeholder"
+          icon={<Share2 className="h-8 w-8 text-blue-600" />}
+          title="分享链接管理"
+          description="集中查看与管理应用、视图和录入表的对外分享链接状态与有效期。"
+          actionLabel="返回工作台"
+          onAction={goHome}
+        />
+      )
+    }
+
+    if (route.kind === 'permissions') {
+      if (!userCapabilities.canManagePermissions) {
+        return (
+          <RouteStatusCard
+            testId="permissions-forbidden"
+            icon={<Lock className="h-7 w-7 text-amber-500" />}
+            title="无权访问权限管理"
+            description="仅管理员与负责人可配置应用可见范围与数据表行级策略。"
+            actionLabel="返回工作台"
+            onAction={goHome}
+          />
+        )
+      }
+      return (
+        <RouteStatusCard
+          testId="permissions-route-placeholder"
+          icon={<ShieldCheck className="h-8 w-8 text-indigo-600" />}
+          title="两层权限管理"
+          description="可在此配置应用/视图级可见范围、普通成员授权以及表内行级数据范围与人员列绑定。"
+          actionLabel="返回工作台"
+          onAction={goHome}
+        />
+      )
+    }
+
+    if (route.kind === 'entries') {
+      const targetTableId = route.tableId ?? normalEntryTables[0]?.id
+      if (!targetTableId) {
+        return (
+          <RouteStatusCard
+            icon={<Table2 className="h-7 w-7 text-slate-400" />}
+            title="暂无可录入的数据表"
+            description="当前账号下没有可用的普通自建数据表。"
+            actionLabel="返回工作台"
+            onAction={goHome}
+          />
+        )
+      }
+
+      if (probedEntryState?.tableId === targetTableId && probedEntryState.loading) {
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
+            <div
+              className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600"
+              aria-hidden="true"
+            />
+            <div className="text-xs">正在加载数据录入端...</div>
+          </div>
+        )
+      }
+
+      const entryBundle = tablesById.get(targetTableId)
+      if (!entryBundle || entryBundle.meta.kind !== 'normal') {
+        const reason = !entryBundle
+          ? (probedEntryState?.tableId === targetTableId && probedEntryState.error) ||
+            `数据表「${targetTableId}」不存在或无法访问。`
+          : `数据表「${entryBundle.meta.name}」为 SQL 主数据表，不支持数据录入端，请前往数据源中心维护。`
+        return (
+          <RouteStatusCard
+            icon={<AlertTriangle className="h-7 w-7 text-amber-500" />}
+            title="数据录入端不可用"
+            description={reason}
+            actionLabel="返回工作台"
+            onAction={goHome}
+          />
+        )
+      }
+
+      const canEditEntry = canEditEntryTableItem(currentUser, entryBundle.meta, apps, views)
+      return (
+        <EntryWorkspace
+          bundle={entryBundle}
+          busy={busy}
+          readonly={!canEditEntry}
+          switchableTables={normalEntryTables}
+          onSwitchTable={handleEnterTableEntry}
+          onCopyEntryLink={() => handleCopyEntryLink(entryBundle.meta.id)}
+          onCreateRecord={async (record) => {
+            if (!canEditEntry) return
+            setBusy(true)
+            try {
+              const created = await createRecord(entryBundle.meta.id, record)
+              setTables((prev) =>
+                prev.map((b) =>
+                  b.meta.id === entryBundle.meta.id
+                    ? { ...b, records: [...b.records, created] }
+                    : b,
+                ),
+              )
+              return created
+            } finally {
+              setBusy(false)
+            }
+          }}
+          onUpdateRecord={async (recordId, patch) => {
+            if (!canEditEntry) return
+            return updateRecordInTable(entryBundle.meta.id, recordId, patch)
+          }}
+          onDeleteRecords={async (recordIds) => {
+            if (!canEditEntry) return
+            await deleteRecordsInTable(entryBundle.meta.id, recordIds)
+          }}
+          onBatchAppendRecords={async (records) => {
+            if (!canEditEntry) return
+            setBusy(true)
+            try {
+              const res = await batchAppendRecords(entryBundle.meta.id, records)
+              setTables((prev) =>
+                prev.map((b) =>
+                  b.meta.id === entryBundle.meta.id
+                    ? { ...b, records: [...b.records, ...res.records] }
+                    : b,
+                ),
+              )
+            } finally {
+              setBusy(false)
+            }
+          }}
+          onBackToWorkbench={goHome}
+          onNotify={pushToast}
+        />
+      )
+    }
+
+    if (route.kind === 'datasources' && !userCapabilities.canAccessDataSources) {
+      return (
+        <RouteStatusCard
+          testId="datasources-forbidden"
+          icon={<Lock className="h-7 w-7 text-amber-500" />}
+          title="无权访问数据源中心"
+          description="普通成员仅可在智能表格工作台或授权录入表中浏览与协作，无法管理底层数据源。"
+          actionLabel="返回工作台"
+          onAction={goHome}
+        />
+      )
+    }
+
+    if (!activeTable) {
+      return (
+        <RouteStatusCard
+          icon={<Table2 className="h-7 w-7 text-slate-400" />}
+          title={route.kind === 'datasources' ? '未找到指定数据源表' : '暂无可访问的智能表格'}
+          description={
+            route.kind === 'datasources'
+              ? '目标数据源表不存在或当前账号暂无访问权限。'
+              : '当前账号暂无可见的多维智能表格应用，请联系管理员授权或新建应用。'
+          }
+          actionLabel={route.kind === 'datasources' && tables[0] ? '查看首个数据源' : undefined}
+          onAction={
+            route.kind === 'datasources' && tables[0]
+              ? () => handleSelectTable(tables[0]!.meta.id)
+              : undefined
+          }
+          secondaryLabel={normalEntryTables[0] ? '前往数据录入' : undefined}
+          onSecondaryAction={normalEntryTables[0] ? () => handleNavSection('entries') : undefined}
+        />
+      )
+    }
+
+    const activePivotConfig = effectiveView?.pivotConfig ?? buildDefaultPivotConfig(activeColumns)
+    const hasActiveFilters = Boolean(
+      effectiveView &&
+      (effectiveView.filterGroup.conditions.length > 0 ||
+        Object.values(effectiveView.quickFilterValues ?? {}).some((v) => v.length > 0)),
+    )
+    const showGridEmptyOverlay = activeRenderKind === 'grid' && pipeline.displayRecords.length === 0
+    const workbenchTableMeta = effectiveTableMeta ?? activeTable.meta
+    const workbenchTableBundle = effectiveTableBundle ?? activeTable
+
+    return (
+      <>
+        {targetKind === 'app' && activeApp && (
           <AppViewTabs
-            mode={mode}
+            canConfigureApp={canConfigureAppItem(currentUser, activeApp)}
+            canManageDataSource={actionCapabilities.canManageDataSource}
+            canConfigureView={(view) => canConfigureViewItem(currentUser, view, activeApp)}
             app={activeApp}
             bundle={workbenchTableBundle}
             views={activeAppViews}
@@ -2330,13 +2861,16 @@ export function App() {
             onRenameView={handleRenameView}
             onDeleteView={handleDeleteView}
             onReorderViews={handleReorderViews}
-            onJumpToDatasource={mode === 'operator' ? handleSelectTable : undefined}
+            onJumpToDatasource={
+              actionCapabilities.canManageDataSource ? handleSelectTable : undefined
+            }
           />
         )}
 
         <Toolbar
-          mode={mode}
-          targetKind={activeTarget.kind}
+          capabilities={actionCapabilities}
+          canCreateApp={userCapabilities.canCreateApp}
+          targetKind={targetKind}
           tableMeta={workbenchTableMeta}
           activeView={effectiveView}
           visibleColumns={visibleColumns}
@@ -2347,9 +2881,9 @@ export function App() {
           watermarkEnabled={watermarkEnabled}
           configDrawerOpen={configDrawerOpen}
           busy={busy}
-          onToggleMode={handleToggleMode}
           onUpdateFilters={handleUpdateFilters}
           onToggleConfigDrawer={() => {
+            if (!actionCapabilities.canConfigure) return
             if (activeStoredView?.type === 'pivot') {
               setConfigDrawerTab('pivot')
             } else if (activeStoredView?.type === 'kanban') {
@@ -2370,47 +2904,40 @@ export function App() {
           onOpenAddColumn={() => setShowAddColumn(true)}
           onOpenColumnManager={() => setShowColumnManager(true)}
           onOpenLookupWizard={() => setShowLookupWizard(true)}
-          onCreateAppFromTable={() =>
+          onCreateAppFromTable={() => {
             setCreateAppDraftRequest({ tableId: activeTable.meta.id, nonce: Date.now() })
-          }
+            navigate({ kind: 'apps' })
+          }}
           onJumpToFirstConflict={handleJumpToFirstConflict}
           onToggleWatermark={() => setWatermarkEnabled((v) => !v)}
           onOpenEntryPage={() => {
-            if (activeTable.meta.kind !== 'normal' || typeof window === 'undefined') return
-            const url = buildEntryShareUrl(window.location.href, activeTable.meta.id)
-            window.open(url, '_blank', 'noopener')
+            if (activeTable.meta.kind !== 'normal') return
+            handleOpenEntryNewTab(activeTable.meta.id)
           }}
-          onCopyEntryLink={async () => {
-            if (activeTable.meta.kind !== 'normal' || typeof window === 'undefined') return
-            const url = buildEntryShareUrl(window.location.href, activeTable.meta.id)
-            try {
-              if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(url)
-              }
-              pushToast('success', '已复制数据录入链接')
-            } catch {
-              pushToast('error', '复制失败，请手动复制录入链接')
-            }
+          onCopyEntryLink={() => {
+            if (activeTable.meta.kind !== 'normal') return
+            return handleCopyEntryLink(activeTable.meta.id)
           }}
-          onJumpToDatasource={mode === 'operator' ? handleSelectTable : undefined}
+          onJumpToDatasource={
+            actionCapabilities.canManageDataSource ? handleSelectTable : undefined
+          }
           onNotify={pushToast}
         />
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* 工作区主画布 */}
           <div className="relative min-w-0 flex-1 overflow-hidden bg-white">
             {activeRenderKind === 'kanban' && effectiveView ? (
               <KanbanView
                 view={effectiveView}
                 columns={activeColumns}
                 records={pipeline.displayRecords}
-                readonly={mode === 'viewer'}
+                readonly={!actionCapabilities.canEditRecords}
                 primaryKeyField={activeTable.meta.primaryKeyField}
                 onMoveCard={handleMoveKanbanCard}
                 onUpdateRecord={handleUpdateRecord}
-                onAddCard={mode === 'operator' ? () => handleAddRow() : undefined}
+                onAddCard={actionCapabilities.canEditRecords ? () => handleAddRow() : undefined}
                 onOpenConfig={
-                  mode === 'operator'
+                  actionCapabilities.canConfigure
                     ? () => {
                         setConfigDrawerTab('kanban')
                         setConfigDrawerOpen(true)
@@ -2423,10 +2950,10 @@ export function App() {
                 view={effectiveView}
                 columns={activeColumns}
                 records={pipeline.displayRecords}
-                readonly={mode === 'viewer'}
-                selectedItem={mode === 'operator' ? selectedDashboardItem : null}
+                readonly={!actionCapabilities.canConfigure}
+                selectedItem={actionCapabilities.canConfigure ? selectedDashboardItem : null}
                 onSelectItem={
-                  mode === 'operator'
+                  actionCapabilities.canConfigure
                     ? (item) => {
                         setSelectedDashboardItem(item)
                         if (item) {
@@ -2437,13 +2964,13 @@ export function App() {
                     : undefined
                 }
                 onChangeConfig={
-                  mode === 'operator'
+                  actionCapabilities.canConfigure
                     ? (nextDashboard) =>
                         void handlePatchView(effectiveView.id, { dashboardConfig: nextDashboard })
                     : undefined
                 }
                 onOpenConfig={
-                  mode === 'operator'
+                  actionCapabilities.canConfigure
                     ? () => {
                         setConfigDrawerTab('dashboard')
                         setConfigDrawerOpen(true)
@@ -2464,11 +2991,11 @@ export function App() {
                             当前数据表暂无记录
                           </div>
                           <div className="mt-1 text-xs text-slate-500">
-                            {mode === 'operator'
+                            {actionCapabilities.canEditRecords
                               ? '添加第一条数据以开始管理与跨表关联计算。'
                               : '当前视图暂无可展示的数据记录。'}
                           </div>
-                          {mode === 'operator' && (
+                          {actionCapabilities.canEditRecords && (
                             <button
                               type="button"
                               disabled={busy}
@@ -2513,10 +3040,10 @@ export function App() {
             )}
           </div>
 
-          {/* 统一右侧滑出式视图配置抽屉（仅运维配置态 + 智能表格视图模式） */}
-          {mode === 'operator' && activeTarget.kind === 'app' && activeStoredView && (
+          {actionCapabilities.canConfigure && targetKind === 'app' && activeStoredView && (
             <ViewConfigDrawer
               open={configDrawerOpen}
+              canConfigure={actionCapabilities.canConfigure}
               activeTab={configDrawerTab}
               view={activeStoredView}
               tableMeta={workbenchTableMeta}
@@ -2540,10 +3067,60 @@ export function App() {
             />
           )}
         </div>
-      </main>
+      </>
+    )
+  }
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
+
+      <NavRail
+        user={currentUser}
+        userCapabilities={userCapabilities}
+        activeSection={navSection}
+        demoAccounts={demoAccounts}
+        busy={busy}
+        onNavigate={handleNavSection}
+        onLogout={handleLogout}
+        onSwitchAccount={handleSwitchAccount}
+        onOpenLoginSwitch={handleLogout}
+      />
+
+      {sidebarSection && (
+        <Sidebar
+          section={sidebarSection}
+          currentUser={currentUser}
+          userCapabilities={userCapabilities}
+          apps={apps}
+          views={views}
+          tables={tables}
+          activeAppId={activeApp?.id}
+          activeEntryTableId={route.kind === 'entries' ? route.tableId : undefined}
+          activeDatasourceTableId={route.kind === 'datasources' ? route.tableId : undefined}
+          busy={busy}
+          createAppDraftRequest={createAppDraftRequest}
+          onSelectApp={handleSelectApp}
+          onCreateApp={handleCreateApp}
+          onRenameApp={handleRenameApp}
+          onDeleteApp={handleDeleteApp}
+          onReorderApps={handleReorderApps}
+          onSelectTable={handleSelectTable}
+          onEnterTableEntry={handleEnterTableEntry}
+          onOpenTableEntryNewTab={handleOpenEntryNewTab}
+          onCopyTableEntryLink={handleCopyEntryLink}
+          onCreateNormalTable={handleCreateNormalTable}
+          onRenameTable={handleRenameTable}
+          onDeleteTable={handleDeleteTable}
+          onOpenImport={() => setShowImportModal(true)}
+          onResetSeed={handleResetSeed}
+        />
+      )}
+
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{renderMainContent()}</main>
 
       {/* 底部汇总格轻量统计菜单 */}
-      {mode === 'operator' && summaryMenu && (
+      {actionCapabilities.canConfigure && summaryMenu && (
         <SummaryMenuPopover
           info={summaryMenu}
           onSelect={handleChangeSummary}
@@ -2560,60 +3137,63 @@ export function App() {
         />
       )}
 
-      {/* 运维弹窗与浮层 */}
-      {mode === 'operator' &&
+      {/* 配置弹窗与浮层 */}
+      {actionCapabilities.canConfigure &&
+        activeTable &&
         showAddColumn &&
-        (activeTarget.kind === 'app' || activeTable.meta.kind === 'normal') && (
+        (targetKind === 'app' || activeTable.meta.kind === 'normal') && (
           <AddColumnModal
-            mode={activeTarget.kind}
+            mode={targetKind}
             columns={filterRawColumns(activeTable.meta.columns)}
-            derivedColumns={activeTarget.kind === 'app' ? activeAppDerivedColumns : undefined}
+            derivedColumns={targetKind === 'app' ? activeAppDerivedColumns : undefined}
             onClose={() => setShowAddColumn(false)}
             onSubmit={(col) => handleAddColumns([col])}
           />
         )}
 
-      {mode === 'operator' && showColumnManager && (
+      {actionCapabilities.canConfigure && activeTable && showColumnManager && (
         <ColumnManagerModal
-          mode={activeTarget.kind}
+          mode={targetKind}
           tableKind={activeTable.meta.kind}
           primaryKeyField={activeTable.meta.primaryKeyField}
           columns={filterRawColumns(activeTable.meta.columns)}
-          derivedColumns={activeTarget.kind === 'app' ? activeAppDerivedColumns : undefined}
+          derivedColumns={targetKind === 'app' ? activeAppDerivedColumns : undefined}
           busy={busy}
           onClose={() => setShowColumnManager(false)}
           onRenameColumn={handleRenameColumn}
-          onUpdateColumn={activeTarget.kind === 'datasource' ? handleUpdateRawColumn : undefined}
+          onUpdateColumn={targetKind === 'datasource' ? handleUpdateRawColumn : undefined}
           onDeleteColumn={handleDeleteColumn}
           onEditLookupColumn={(columnKey, anchor) =>
             setFieldSettings({ columnKey, rect: anchor.getBoundingClientRect() })
           }
-          onUpdateDerivedColumn={
-            activeTarget.kind === 'app' ? handleUpdateDerivedColumn : undefined
-          }
-          onOpenAddFormula={activeTarget.kind === 'app' ? () => setShowAddColumn(true) : undefined}
-          onOpenLookupWizard={
-            activeTarget.kind === 'app' ? () => setShowLookupWizard(true) : undefined
-          }
+          onUpdateDerivedColumn={targetKind === 'app' ? handleUpdateDerivedColumn : undefined}
+          onOpenAddFormula={targetKind === 'app' ? () => setShowAddColumn(true) : undefined}
+          onOpenLookupWizard={targetKind === 'app' ? () => setShowLookupWizard(true) : undefined}
           onJumpToDatasource={
-            activeTarget.kind === 'app' ? () => handleSelectTable(activeTable.meta.id) : undefined
+            targetKind === 'app' && actionCapabilities.canManageDataSource
+              ? () => handleSelectTable(activeTable.meta.id)
+              : undefined
           }
         />
       )}
 
-      {mode === 'operator' && activeTarget.kind === 'app' && showLookupWizard && (
-        <LookupWizardModal
-          sourceTable={activeTable}
-          derivedColumns={activeAppDerivedColumns}
-          sourceComputedRecords={pipeline.allComputedRecords}
-          allTables={tables}
-          onClose={() => setShowLookupWizard(false)}
-          onSubmitColumns={handleAddColumns}
-        />
-      )}
+      {actionCapabilities.canConfigure &&
+        activeTable &&
+        targetKind === 'app' &&
+        showLookupWizard && (
+          <LookupWizardModal
+            sourceTable={activeTable}
+            derivedColumns={activeAppDerivedColumns}
+            sourceComputedRecords={pipeline.allComputedRecords}
+            allTables={tables}
+            onClose={() => setShowLookupWizard(false)}
+            onSubmitColumns={handleAddColumns}
+          />
+        )}
 
-      {mode === 'operator' &&
-        activeTarget.kind === 'app' &&
+      {actionCapabilities.canConfigure &&
+        activeTable &&
+        targetKind === 'app' &&
         fieldSettings &&
         activeAppDerivedColumns.some(
           (col) => col.key === fieldSettings.columnKey && col.type === 'lookup',
@@ -2631,7 +3211,7 @@ export function App() {
           />
         )}
 
-      {mode === 'operator' && showImportModal && (
+      {userCapabilities.canCreateTable && showImportModal && (
         <ImportExcelModal
           onClose={() => setShowImportModal(false)}
           onImported={handleImported}
@@ -2645,22 +3225,22 @@ export function App() {
           columns={activeColumns}
           allComputedRecords={pipeline.allComputedRecords}
           conflictsByRow={pipeline.conflictsByRow}
-          pivotConfig={activePivotConfig}
-          readonly={mode === 'viewer'}
+          pivotConfig={effectiveView?.pivotConfig ?? buildDefaultPivotConfig(activeColumns)}
+          readonly={!actionCapabilities.canEditRecords}
           hasActiveOverlay={Boolean(activeConflict || activeCellEdit)}
           onClose={() => setDrillEvent(null)}
           onUpdateRecord={handleUpdateRecord}
           onConflictClick={(info) => {
-            if (mode === 'operator') setActiveConflict(info)
+            if (actionCapabilities.canConfigure) setActiveConflict(info)
           }}
           onRichCellEdit={(info) => {
-            if (mode === 'operator') setActiveCellEdit(info)
+            if (actionCapabilities.canEditRecords) setActiveCellEdit(info)
           }}
           onValidationError={(msg) => pushToast('error', msg)}
         />
       )}
 
-      {mode === 'operator' && activeTarget.kind === 'app' && activeConflict && (
+      {actionCapabilities.canConfigure && targetKind === 'app' && activeConflict && (
         <DisambiguatePopover
           conflictInfo={activeConflict}
           sourceColumns={activeColumns}
@@ -2671,11 +3251,13 @@ export function App() {
         />
       )}
 
-      {mode === 'operator' && activeCellEdit && (
+      {actionCapabilities.canEditRecords && activeTable && activeCellEdit && (
         <CellEditorPopover
           editInfo={activeCellEdit}
           allowCreateSelectOption={
-            activeTarget.kind === 'datasource' && activeTable.meta.kind === 'normal'
+            actionCapabilities.canConfigure &&
+            targetKind === 'datasource' &&
+            activeTable.meta.kind === 'normal'
           }
           onClose={() => setActiveCellEdit(null)}
           onCommit={(recordId, fieldKey, value) =>
@@ -2687,9 +3269,9 @@ export function App() {
 
       <ConfirmModal
         open={confirmDeleteCol !== null}
-        title={activeTarget.kind === 'app' ? '确认删除派生列' : '确认删除字段列'}
+        title={targetKind === 'app' ? '确认删除派生列' : '确认删除字段列'}
         description={
-          activeTarget.kind === 'app'
+          targetKind === 'app'
             ? `确定要删除当前智能表格的派生列「${confirmDeleteCol?.title ?? ''}」吗？当前应用各视图中的引用将同步清理，不会影响底层数据源表。`
             : `确定要删除字段「${confirmDeleteCol?.title ?? ''}」吗？相关筛选、排序与汇总配置将同步移除。`
         }

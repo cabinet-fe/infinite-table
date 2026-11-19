@@ -1,67 +1,186 @@
-// 工作台纯领域助手：双态权限判定、URL 参数同步、列显隐/调序、选区样式更新、默认视图生成与 CSV/XLSX 导出。
+// 工作台纯领域助手：基于登录角色与资源能力快照的菜单/操作权限解析、列显隐/调序、
+// 选区样式更新、默认视图生成与 CSV/XLSX 导出。
 
 import { writeXlsx } from 'hucre/xlsx'
 import type { SmartGridSelectionInfo } from '../canvas/smart-grid'
 import type { CreateViewRequest, TableBundle } from '../shared/api-types'
 import type {
+  AuthUser,
   CellStyleConfig,
   DashboardConfig,
   KanbanConfig,
+  ResourceCapabilities,
+  SmartApp,
   SmartColumn,
   SmartPivotConfig,
   SmartRecord,
+  SmartTableMeta,
   SmartViewType,
   SummaryType,
+  UserCapabilities,
+  UserRole,
+  WorkspaceView,
 } from '../shared/schema'
+import {
+  canConfigureApp,
+  canConfigureTable,
+  canConfigureView,
+  canWriteTableRecords,
+  computeAppCapabilities,
+  computeTableCapabilities,
+  computeUserCapabilities,
+  computeViewCapabilities,
+} from './permissions'
+import type { NavSection } from './router'
 import { scalarToText } from './utils'
 
-/** 工作台双态：运维配置态（全能力） vs 用户查看态（只读浏览、临时筛选、导出） */
-export type AppMode = 'operator' | 'viewer'
-
-/** 从 URL query string 解析初始工作模式（?mode=viewer 直达只读查看态） */
-export function resolveAppModeFromSearch(search: string): AppMode {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  return params.get('mode')?.toLowerCase() === 'viewer' ? 'viewer' : 'operator'
+/** 角色中文名称映射 */
+export const USER_ROLE_LABELS: Record<UserRole, string> = {
+  admin: '管理员',
+  manager: '负责人',
+  member: '普通成员',
 }
 
-/** 构造切换双态后的 URL 路径（仅维护 mode query 参数，保留其它参数与 hash） */
-export function buildModeSearchUrl(
-  pathname: string,
-  search: string,
-  hash: string,
-  mode: AppMode,
-): string {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  if (mode === 'viewer') {
-    params.set('mode', 'viewer')
-  } else {
-    params.delete('mode')
-  }
-  const qs = params.toString()
-  return `${pathname}${qs ? `?${qs}` : ''}${hash}`
+export interface NavMenuDefinition {
+  id: NavSection
+  label: string
+  description: string
 }
 
-/** 从 URL query string 解析独立数据录入端入口表 ID（?entry=<tableId>） */
-export function resolveEntryTableIdFromSearch(search: string): string | null {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  const raw = params.get('entry')?.trim()
-  return raw ? raw : null
+export const NAV_MENU_DEFINITIONS: readonly NavMenuDefinition[] = [
+  { id: 'apps', label: '工作台', description: '智能表格多维视图与分析' },
+  { id: 'entries', label: '数据录入', description: '普通表数据采集与快速填报' },
+  { id: 'datasources', label: '数据源', description: '数据源表结构与底层主数据维护' },
+  { id: 'shares', label: '分享管理', description: '管理对外分享链接与访问状态' },
+  { id: 'permissions', label: '权限管理', description: '配置应用可见范围与表行级策略' },
+]
+
+/** 根据当前登录用户及能力快照解析左侧导航轨可见一级入口 */
+export function getVisibleNavSections(
+  user: AuthUser | null | undefined,
+  userCapabilities?: UserCapabilities | null,
+): NavSection[] {
+  if (!user) return []
+  const caps = userCapabilities ?? computeUserCapabilities(user)
+  const sections: NavSection[] = ['apps', 'entries']
+  if (caps.canAccessDataSources) sections.push('datasources')
+  if (caps.canManageShares) sections.push('shares')
+  if (caps.canManagePermissions) sections.push('permissions')
+  return sections
 }
 
-/** 构造普通数据源表的独立数据录入页分享链接（清理工作台查询参数与 hash，仅保留 ?entry=<tableId>） */
-export function buildEntryShareUrl(baseUrl: string, tableId: string): string {
-  const trimmedId = tableId.trim()
-  const isAbsolute = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(baseUrl)
-  const url = new URL(baseUrl || '/', isAbsolute ? undefined : 'http://localhost')
-  url.search = ''
-  url.hash = ''
-  if (trimmedId) {
-    url.searchParams.set('entry', trimmedId)
+/** 判断用户是否有权进入指定一级导航板块 */
+export function canAccessNavSection(
+  section: NavSection,
+  user: AuthUser | null | undefined,
+  userCapabilities?: UserCapabilities | null,
+): boolean {
+  return getVisibleNavSections(user, userCapabilities).includes(section)
+}
+
+/** 当前工作区激活目标的操作能力快照 */
+export interface WorkspaceActionCapabilities extends ResourceCapabilities {
+  canAccessDataSources: boolean
+}
+
+export const EMPTY_WORKSPACE_CAPABILITIES: WorkspaceActionCapabilities = {
+  canView: false,
+  canEditRecords: false,
+  canConfigure: false,
+  canManagePermissions: false,
+  canCreateShare: false,
+  canManageDataSource: false,
+  canAccessDataSources: false,
+}
+
+/** 计算当前激活应用视图或数据源表的操作能力（优先读取服务端能力快照，缺失时回退领域纯函数） */
+export function resolveWorkspaceActionCapabilities(params: {
+  user: AuthUser | null | undefined
+  userCapabilities?: UserCapabilities | null
+  targetKind: 'app' | 'datasource'
+  app?: SmartApp | null
+  view?: WorkspaceView | null
+  table?: SmartTableMeta | null
+  allApps?: readonly SmartApp[]
+  allViews?: readonly WorkspaceView[]
+}): WorkspaceActionCapabilities {
+  const { user, userCapabilities, targetKind, app, view, table, allApps, allViews } = params
+  if (!user) {
+    return EMPTY_WORKSPACE_CAPABILITIES
   }
-  if (isAbsolute) {
-    return url.toString()
+  const userCaps = userCapabilities ?? computeUserCapabilities(user)
+
+  if (targetKind === 'datasource') {
+    if (!table || !userCaps.canAccessDataSources) {
+      return {
+        ...EMPTY_WORKSPACE_CAPABILITIES,
+        canAccessDataSources: userCaps.canAccessDataSources,
+      }
+    }
+    const tableCaps =
+      table.capabilities ?? computeTableCapabilities(user, table, allApps ?? [], allViews ?? [])
+    return {
+      ...tableCaps,
+      canAccessDataSources: userCaps.canAccessDataSources,
+    }
   }
-  return `${url.pathname}${url.search}`
+
+  if (!app) {
+    return {
+      ...EMPTY_WORKSPACE_CAPABILITIES,
+      canAccessDataSources: userCaps.canAccessDataSources,
+    }
+  }
+
+  const resCaps = view
+    ? (view.capabilities ?? computeViewCapabilities(user, view, app))
+    : (app.capabilities ?? computeAppCapabilities(user, app))
+
+  return {
+    ...resCaps,
+    canManageDataSource: resCaps.canManageDataSource && userCaps.canAccessDataSources,
+    canAccessDataSources: userCaps.canAccessDataSources,
+  }
+}
+
+/** 判断用户是否可配置指定智能表格应用 */
+export function canConfigureAppItem(user: AuthUser | null | undefined, app: SmartApp): boolean {
+  if (!user) return false
+  return app.capabilities?.canConfigure ?? canConfigureApp(user, app)
+}
+
+/** 判断用户是否可配置指定应用视图 */
+export function canConfigureViewItem(
+  user: AuthUser | null | undefined,
+  view: WorkspaceView,
+  parentApp?: SmartApp | null,
+): boolean {
+  if (!user) return false
+  return view.capabilities?.canConfigure ?? canConfigureView(user, view, parentApp)
+}
+
+/** 判断用户是否可配置/重命名/删除指定数据源表 */
+export function canConfigureTableItem(
+  user: AuthUser | null | undefined,
+  table: SmartTableMeta,
+  appsForTable?: readonly SmartApp[],
+): boolean {
+  if (!user) return false
+  return table.capabilities?.canConfigure ?? canConfigureTable(user, table, appsForTable ?? [])
+}
+
+/** 判断用户是否可在独立数据录入端编辑指定普通数据表记录 */
+export function canEditEntryTableItem(
+  user: AuthUser | null | undefined,
+  table: SmartTableMeta,
+  allApps?: readonly SmartApp[],
+  allViews?: readonly WorkspaceView[],
+): boolean {
+  if (!user) return false
+  return (
+    table.capabilities?.canEditRecords ??
+    canWriteTableRecords(user, table, allApps ?? [], allViews ?? [])
+  )
 }
 
 /** 汇总方式中文标签 */

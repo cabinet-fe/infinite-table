@@ -1,5 +1,5 @@
 // 表格画布浮出菜单：统一承接列头菜单按钮气泡（⋯）与 body/col-header/row-header 三区域右键菜单，
-// 并按运维配置态（operator）与用户查看态（viewer）严格裁剪菜单项。
+// 并按真实资源能力（canEditRecords / canConfigure）严格裁剪写操作与配置类菜单项。
 
 import { useEffect, useRef } from 'react'
 import {
@@ -21,13 +21,13 @@ import {
   XCircle,
 } from 'lucide-react'
 import type { SmartGridSelectionInfo } from '../canvas/smart-grid'
-import type { AppMode } from '../domain/workspace-helpers'
 import type { CellStyleConfig, SmartColumn, SmartRecord, SortRule } from '../shared/schema'
 
 export type GridMenuRegion = 'body' | 'col-header' | 'row-header'
 
 export interface GridMenuContext {
-  mode: AppMode
+  canEditRecords: boolean
+  canConfigure: boolean
   region: GridMenuRegion
   x: number
   y: number
@@ -87,9 +87,9 @@ export const QUICK_CELL_COLOR_SWATCHES: readonly {
   { label: '浅红预警', bgColor: '#fee2e2', textColor: '#991b1b' },
 ]
 
-/** 根据区域与双态权限生成菜单项（纯函数，便于单测验证权限隔离） */
+/** 根据区域与真实操作权限生成菜单项（纯函数，便于单测验证权限隔离） */
 export function buildGridMenuItems(ctx: GridMenuContext): GridMenuItem[] {
-  const isOperator = ctx.mode === 'operator'
+  const { canEditRecords, canConfigure } = ctx
   const items: GridMenuItem[] = []
 
   if (ctx.region === 'col-header' && ctx.column) {
@@ -102,7 +102,7 @@ export function buildGridMenuItems(ctx: GridMenuContext): GridMenuItem[] {
       items.push({ id: 'sort_clear', label: '清除此列排序' })
     }
 
-    if (isOperator) {
+    if (canConfigure) {
       if (!ctx.isDatasourceMode && ctx.colIndex !== null) {
         const isFrozenTarget = ctx.frozenColCount === ctx.colIndex + 1
         items.push({
@@ -153,7 +153,7 @@ export function buildGridMenuItems(ctx: GridMenuContext): GridMenuItem[] {
       label: '复制整行数据',
       disabled: !ctx.record,
     })
-    if (isOperator) {
+    if (canEditRecords) {
       items.push({ id: 'add_row', label: '新增一行', dividerBefore: true })
       if (ctx.record) {
         items.push({ id: 'duplicate_row', label: '复制本行并新建' })
@@ -171,33 +171,39 @@ export function buildGridMenuItems(ctx: GridMenuContext): GridMenuItem[] {
     items.push({ id: 'clear_filters', label: '清空全部筛选' })
   }
 
-  if (isOperator) {
-    if (ctx.column && ctx.record) {
-      const canEdit =
-        ctx.column.type !== 'formula' &&
-        ctx.column.type !== 'image' &&
-        (ctx.column.type !== 'lookup' || ctx.column.lookupConfig?.mode === 'one')
-      if (canEdit) {
+  if (ctx.column && ctx.record) {
+    const isLookupOne = ctx.column.type === 'lookup' && ctx.column.lookupConfig?.mode === 'one'
+    const canEditCell =
+      canEditRecords &&
+      ctx.column.type !== 'formula' &&
+      ctx.column.type !== 'image' &&
+      ctx.column.type !== 'lookup'
+    const canDisambiguateLookup = canConfigure && isLookupOne
+
+    if (canEditCell || canDisambiguateLookup) {
+      items.push({
+        id: 'edit_cell',
+        label: isLookupOne ? '查看/消歧关联' : '编辑单元格',
+        dividerBefore: true,
+      })
+    }
+
+    if (canConfigure && !ctx.isDatasourceMode) {
+      items.push({
+        id: 'open_selection_style',
+        label: '设置选区样式与配色',
+        dividerBefore: !(canEditCell || canDisambiguateLookup),
+      })
+      if (ctx.hasSelectionCellStyles) {
         items.push({
-          id: 'edit_cell',
-          label: ctx.column.type === 'lookup' ? '查看/消歧关联' : '编辑单元格',
-          dividerBefore: true,
+          id: 'clear_selection_style',
+          label: '清除选区自定义配色',
         })
-      }
-      if (!ctx.isDatasourceMode) {
-        items.push({
-          id: 'open_selection_style',
-          label: '设置选区样式与配色',
-          dividerBefore: !canEdit,
-        })
-        if (ctx.hasSelectionCellStyles) {
-          items.push({
-            id: 'clear_selection_style',
-            label: '清除选区自定义配色',
-          })
-        }
       }
     }
+  }
+
+  if (canEditRecords) {
     items.push({ id: 'add_row', label: '新增一行', dividerBefore: true })
     if (ctx.record) {
       items.push({ id: 'delete_row', label: '删除当前行', danger: true })
@@ -285,7 +291,7 @@ export function GridPopupMenu({ context, onAction, onClose }: GridPopupMenuProps
   const top = Math.min(Math.max(8, context.y), Math.max(8, vh - estH - 8))
 
   const showQuickSwatches =
-    context.mode === 'operator' &&
+    context.canConfigure &&
     context.region === 'body' &&
     !context.isDatasourceMode &&
     context.record !== null &&
@@ -302,7 +308,7 @@ export function GridPopupMenu({ context, onAction, onClose }: GridPopupMenuProps
       {context.column && (
         <div className="mb-1 flex items-center justify-between gap-2 border-b border-slate-100 px-2 py-1 text-[11px] text-slate-500">
           <span className="truncate font-medium text-slate-700">{context.column.title}</span>
-          {context.mode === 'viewer' && (
+          {!context.canEditRecords && (
             <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
               <Lock className="h-2.5 w-2.5" />
               只读

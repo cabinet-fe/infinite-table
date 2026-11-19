@@ -11,6 +11,7 @@ import { DashboardView } from '../../src/components/DashboardView'
 import { KanbanView } from '../../src/components/KanbanView'
 import { ViewConfigDrawer } from '../../src/components/ViewConfigDrawer'
 import { openDatabase } from '../../src/server/db'
+import { createSession } from '../../src/server/auth'
 import { createApp } from '../../src/server/index'
 import { seedSmartTableDemo } from '../../src/server/seed'
 import type {
@@ -399,6 +400,86 @@ describe('DashboardView KPI 视觉重构、Chart.js 渲染与双态画布交互'
     )
   })
 
+  test('修改单个图表配置时，未改动图表的 Chart.js 实例不销毁重建且不重复 update', () => {
+    setupCanvasMock()
+    const handle = mountComponent(
+      createElement(DashboardView, {
+        view: DASHBOARD_VIEW,
+        columns: COLUMNS,
+        records: RECORDS,
+        readonly: false,
+      }),
+    )
+
+    const barCanvas = handle.container.querySelector(
+      '[data-chart-id="c_bar"] canvas',
+    ) as HTMLCanvasElement
+    const lineCanvas = handle.container.querySelector(
+      '[data-chart-id="c_line"] canvas',
+    ) as HTMLCanvasElement
+    const pieCanvas = handle.container.querySelector(
+      '[data-chart-id="c_pie"] canvas',
+    ) as HTMLCanvasElement
+
+    const initialBar = Chart.getChart(barCanvas)!
+    const initialLine = Chart.getChart(lineCanvas)!
+    const initialPie = Chart.getChart(pieCanvas)!
+    expect(initialBar).toBeDefined()
+    expect(initialLine).toBeDefined()
+    expect(initialPie).toBeDefined()
+
+    const destroySpy = vi.spyOn(Chart.prototype, 'destroy')
+    const updateSpy = vi.spyOn(Chart.prototype, 'update')
+
+    // 1) 仅修改 c_bar 的 title / span：所有图表均不销毁也不触发 update()
+    const editedTitleView: WorkspaceView = {
+      ...DASHBOARD_VIEW,
+      dashboardConfig: {
+        ...DASHBOARD_VIEW.dashboardConfig!,
+        charts: DASHBOARD_VIEW.dashboardConfig!.charts.map((c) =>
+          c.id === 'c_bar' ? { ...c, title: '新柱状标题', span: 2 } : c,
+        ),
+      },
+    }
+    handle.rerender(
+      createElement(DashboardView, {
+        view: editedTitleView,
+        columns: COLUMNS,
+        records: RECORDS,
+        readonly: false,
+      }),
+    )
+    expect(destroySpy).not.toHaveBeenCalled()
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(Chart.getChart(barCanvas)).toBe(initialBar)
+    expect(Chart.getChart(lineCanvas)).toBe(initialLine)
+    expect(Chart.getChart(pieCanvas)).toBe(initialPie)
+
+    // 2) 修改 c_bar 的聚合方式：仅 c_bar 原地 update()，c_line / c_pie 实例保持不变且未触发 destroy/update
+    const editedAggView: WorkspaceView = {
+      ...editedTitleView,
+      dashboardConfig: {
+        ...editedTitleView.dashboardConfig!,
+        charts: editedTitleView.dashboardConfig!.charts.map((c) =>
+          c.id === 'c_bar' ? { ...c, agg: 'count' } : c,
+        ),
+      },
+    }
+    handle.rerender(
+      createElement(DashboardView, {
+        view: editedAggView,
+        columns: COLUMNS,
+        records: RECORDS,
+        readonly: false,
+      }),
+    )
+    expect(destroySpy).not.toHaveBeenCalled()
+    expect(updateSpy).toHaveBeenCalledTimes(1)
+    expect(Chart.getChart(barCanvas)).toBe(initialBar)
+    expect(Chart.getChart(lineCanvas)).toBe(initialLine)
+    expect(Chart.getChart(pieCanvas)).toBe(initialPie)
+  })
+
   test('operator 态支持画布新增/删除/调序与点击卡片选中，且图例点击不误触选中', async () => {
     setupCanvasMock()
     const onSelectItem = vi.fn<(item: { kind: 'kpi' | 'chart'; id: string } | null) => void>()
@@ -715,24 +796,70 @@ describe('ViewConfigDrawer 看板与仪表盘配置分栏', () => {
 })
 
 describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () => {
-  test('从种子库加载后可切换表格/看板/透视/仪表盘，并在看板拖拽写回、画布联动抽屉与双态切换中保持一致', async () => {
+  test('从种子库登录加载后可切换表格/看板/透视/仪表盘，并在看板拖拽写回、画布联动抽屉与切换成员权限隔离中保持一致', async () => {
     const db = openDatabase(':memory:')
     seedSmartTableDemo(db)
     const serverApp = createApp(db)
 
     setupCanvasMock()
+    window.history.replaceState(null, '', '/')
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    // 模拟浏览器 Cookie 存储：happy-dom Fetch Headers 会遵循规范屏蔽 Cookie/Set-Cookie，
+    // 在登录成功时同步签发真实数据库会话 token，并在请求侧通过 Proxy 向 Hono 透传 Cookie
+    let activeSessionToken: string | null = null
+    const buildCookieHeader = () => (activeSessionToken ? `st_session=${activeSessionToken}` : '')
+    const withCookieProxy = (req: Request, cookieHeader: string) =>
+      cookieHeader
+        ? new Proxy(req, {
+            get(target, prop, receiver) {
+              if (prop === 'headers') {
+                return new Proxy(target.headers, {
+                  get(hTarget, hProp) {
+                    if (hProp === 'get') {
+                      return (name: string) =>
+                        name.toLowerCase() === 'cookie' ? cookieHeader : hTarget.get(name)
+                    }
+                    const val = Reflect.get(hTarget, hProp, hTarget)
+                    return typeof val === 'function' ? val.bind(hTarget) : val
+                  },
+                })
+              }
+              const val = Reflect.get(target, prop, receiver)
+              return typeof val === 'function' ? val.bind(target) : val
+            },
+          })
+        : req
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      const req = new Request(
-        `http://localhost${url.startsWith('http') ? new URL(url).pathname + new URL(url).search : url}`,
-        init,
-      )
-      return Promise.resolve(serverApp.fetch(req))
+      const pathAndSearch = url.startsWith('http')
+        ? new URL(url).pathname + new URL(url).search
+        : url
+      const req = new Request(`http://localhost${pathAndSearch}`, init)
+      const res = await serverApp.fetch(withCookieProxy(req, buildCookieHeader()))
+      if (pathAndSearch === '/api/auth/login' && res.ok) {
+        const body = (await res.clone().json()) as { user?: { id: string } }
+        if (body.user?.id) {
+          activeSessionToken = createSession(db, body.user.id).token
+        }
+      } else if (pathAndSearch === '/api/auth/logout' && res.ok) {
+        activeSessionToken = null
+      }
+      return res
     })
 
     const { container } = mountComponent(createElement(App))
+
+    // 未登录先进入 /login，通过演示账号一键登录管理员
+    await vi.waitFor(() => {
+      expect(container.querySelector('button[aria-label="一键登录 系统管理员"]')).not.toBeNull()
+    })
+    await act(async () => {
+      ;(
+        container.querySelector('button[aria-label="一键登录 系统管理员"]') as HTMLButtonElement
+      ).click()
+    })
 
     // 等待初始加载完成（左侧智能表格列表 + 顶部当前智能表格多视图 Tab 栏）
     await vi.waitFor(() => {
@@ -762,7 +889,9 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
     })
 
     await vi.waitFor(async () => {
-      const checkRes = await serverApp.request('/api/tables')
+      const checkRes = await serverApp.fetch(
+        withCookieProxy(new Request('http://localhost/api/tables'), buildCookieHeader()),
+      )
       const body = (await checkRes.json()) as {
         tables: Array<{ meta: { id: string }; records: SmartRecord[] }>
       }
@@ -794,7 +923,7 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
     expect(container.querySelector('[aria-label="横向条形图"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="面积图"]')).not.toBeNull()
 
-    // operator 态点击画布图表卡片联动打开右侧单卡配置抽屉
+    // 管理员点击画布图表卡片联动打开右侧单卡配置抽屉
     const regionChartCard = container.querySelector(
       '[data-chart-id="chart_region_contract"]',
     ) as HTMLElement
@@ -808,24 +937,7 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
       ),
     ).not.toBeNull()
 
-    // 切换至查看态：数据源中心、配置按钮与画布增删入口隐藏，抽屉关闭，点击卡片不再触发抽屉
-    const viewerBtn = Array.from(container.querySelectorAll('button')).find(
-      (b) => b.textContent === '查看态',
-    )!
-    act(() => {
-      viewerBtn.click()
-    })
-    expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
-    expect(container.querySelector('[aria-label="视图配置抽屉"]')).toBeNull()
-    expect(container.textContent).not.toContain('配置仪表盘')
-    expect(container.textContent).not.toContain('添加指标卡')
-    expect(container.textContent).not.toContain('数据源：')
-
-    act(() => {
-      ;(container.querySelector('[data-kpi-id="kpi_prj_count"]') as HTMLElement).click()
-    })
-    expect(container.querySelector('[aria-label="视图配置抽屉"]')).toBeNull()
-
+    // 管理员可访问仅自己可见的「管理层营收洞察」应用
     const revAppBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('管理层营收洞察'),
     )!
@@ -835,6 +947,31 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
     expect(container.textContent).toContain('大区营收对比看板')
     expect(container.textContent).toContain('重点客户回款清单')
     expect(container.querySelector('[aria-label="折线图"]')).not.toBeNull()
+
+    // 通过 NavRail 切换为普通成员「钱七」：隐藏数据源入口、管理员私有应用与配置能力，并呈现只读授权
+    const accountMenuBtn = container.querySelector(
+      'button[aria-label^="账号菜单："]',
+    ) as HTMLButtonElement
+    act(() => {
+      accountMenuBtn.click()
+    })
+    const switchMemberBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('钱七'),
+    )!
+    await act(async () => {
+      switchMemberBtn.click()
+    })
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain('项目运营管理台')
+      expect(container.textContent).toContain('只读权限')
+    })
+    expect(container.querySelector('button[aria-label="数据源"]')).toBeNull()
+    expect(container.querySelector('[aria-label="视图配置抽屉"]')).toBeNull()
+    expect(container.textContent).not.toContain('管理层营收洞察')
+    expect(container.textContent).not.toContain('配置仪表盘')
+    expect(container.textContent).not.toContain('添加指标卡')
+    expect(container.textContent).not.toContain('数据源：')
 
     db.close()
   })

@@ -1,5 +1,5 @@
-// 顶部精简工具栏：展示当前视图/数据源上下文、双态模式切换（运维配置态 / 用户查看态）、
-// 快捷筛选胶囊、条件筛选浮层（用户态为临时筛选）、CSV/XLSX 导出与运维态配置/写操作入口。
+// 顶部精简工具栏：展示当前视图/数据源上下文、快捷筛选胶囊、条件筛选浮层（不可配置时为临时筛选）、
+// CSV/XLSX 导出以及按真实权限能力快照裁剪的写操作、字段管理与视图配置入口（无前端伪模式开关）。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -18,17 +18,16 @@ import {
   Stamp,
   Table2,
   Trash2,
-  Wrench,
   X,
 } from 'lucide-react'
 import { formatSmartCellDisplayValue } from '../canvas/smart-grid'
+import { buildAbsoluteRouteUrl } from '../domain/router'
 import { isEmptyCellValue, scalarToText } from '../domain/utils'
 import {
-  buildEntryShareUrl,
   buildRecordsXlsxBytes,
   formatRecordsAsCsv,
   triggerBrowserDownload,
-  type AppMode,
+  type WorkspaceActionCapabilities,
 } from '../domain/workspace-helpers'
 import type {
   FilterCondition,
@@ -70,7 +69,8 @@ export async function exportRecordsAsFile(
 }
 
 export interface ToolbarProps {
-  mode: AppMode
+  capabilities: WorkspaceActionCapabilities
+  canCreateApp?: boolean
   targetKind: 'app' | 'datasource'
   tableMeta: SmartTableMeta
   activeView?: SmartView
@@ -82,7 +82,6 @@ export interface ToolbarProps {
   watermarkEnabled: boolean
   configDrawerOpen: boolean
   busy?: boolean
-  onToggleMode: (nextMode: AppMode) => void
   onUpdateFilters: (patch: {
     filterGroup?: FilterGroup
     quickFilterValues?: Record<string, string[]>
@@ -122,7 +121,8 @@ const OPERATOR_OPTIONS: { value: FilterOperator; label: string }[] = [
 ]
 
 export function Toolbar({
-  mode,
+  capabilities,
+  canCreateApp = false,
   targetKind,
   tableMeta,
   activeView,
@@ -134,7 +134,6 @@ export function Toolbar({
   watermarkEnabled,
   configDrawerOpen,
   busy = false,
-  onToggleMode,
   onUpdateFilters,
   onToggleConfigDrawer,
   onAddRow,
@@ -150,7 +149,7 @@ export function Toolbar({
   onJumpToDatasource,
   onNotify,
 }: ToolbarProps) {
-  const isOperator = mode === 'operator'
+  const { canEditRecords, canConfigure, canManageDataSource } = capabilities
   const isDatasource = targetKind === 'datasource'
   const isGridEditableTarget = isDatasource || activeView?.type === 'table'
 
@@ -343,7 +342,10 @@ export function Toolbar({
       onOpenEntryPage()
       return
     }
-    const url = buildEntryShareUrl(window.location.href, tableMeta.id)
+    const url = buildAbsoluteRouteUrl(window.location.href, {
+      kind: 'entries',
+      tableId: tableMeta.id,
+    })
     window.open(url, '_blank', 'noopener')
   }
 
@@ -352,7 +354,10 @@ export function Toolbar({
       await onCopyEntryLink()
       return
     }
-    const url = buildEntryShareUrl(window.location.href, tableMeta.id)
+    const url = buildAbsoluteRouteUrl(window.location.href, {
+      kind: 'entries',
+      tableId: tableMeta.id,
+    })
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url)
@@ -408,7 +413,7 @@ export function Toolbar({
           )}
         </div>
 
-        {/* 快捷筛选胶囊（运维态与用户查看态均可用） */}
+        {/* 快捷筛选胶囊（所有有查看权限的用户均可交互） */}
         {!isDatasource &&
           quickFilterFields.map((fieldKey) => {
             const col = tableMeta.columns.find((c) => c.key === fieldKey)
@@ -478,7 +483,7 @@ export function Toolbar({
             )
           })}
 
-        {/* 条件筛选（用户态为临时筛选，运维态自动持久化） */}
+        {/* 条件筛选（无配置权时为会话内临时筛选，具备配置权时自动持久化） */}
         {!isDatasource && (
           <div className="relative shrink-0">
             <button
@@ -492,7 +497,7 @@ export function Toolbar({
             >
               <Filter className="h-3.5 w-3.5" />
               <span>
-                {isOperator ? '筛选' : '临时筛选'}
+                {canConfigure ? '筛选' : '临时筛选'}
                 {filterCount > 0 ? ` (${filterCount})` : ''}
               </span>
             </button>
@@ -501,7 +506,7 @@ export function Toolbar({
               <div className="absolute left-0 top-full z-[900] mt-1.5 w-[440px] max-w-[90vw] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
                 <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
                   <span className="text-xs font-semibold text-slate-800">
-                    {isOperator ? '条件筛选（实时保存）' : '临时筛选（仅当前会话生效）'}
+                    {canConfigure ? '条件筛选（实时保存）' : '临时筛选（仅当前会话生效）'}
                   </span>
                   <CustomSelect
                     size="xs"
@@ -583,8 +588,8 @@ export function Toolbar({
           </div>
         )}
 
-        {/* 运维态重名消歧提示胶囊 */}
-        {isOperator && isGridEditableTarget && unresolvedConflictCount > 0 && (
+        {/* 重名消歧提示胶囊（仅具备应用配置权时可交互消歧） */}
+        {canConfigure && isGridEditableTarget && unresolvedConflictCount > 0 && (
           <button
             type="button"
             onClick={onJumpToFirstConflict}
@@ -597,9 +602,16 @@ export function Toolbar({
         )}
       </div>
 
-      {/* 右侧：运维写操作/配置入口 + 导出 + 双态模式切换 */}
+      {/* 右侧：按权限裁剪的写操作 / 配置入口 + 导出 */}
       <div className="flex shrink-0 items-center gap-1.5">
-        {isOperator && isGridEditableTarget && (
+        {!canEditRecords && (
+          <span className="inline-flex h-7 items-center gap-1 rounded-full bg-slate-100 px-2.5 text-[11px] font-medium text-slate-600">
+            <Eye className="h-3 w-3" />
+            <span>只读权限</span>
+          </span>
+        )}
+
+        {canEditRecords && isGridEditableTarget && (
           <>
             <button
               type="button"
@@ -622,34 +634,34 @@ export function Toolbar({
                 <span>删除选中 ({selectedRecordIds.length})</span>
               </button>
             )}
-
-            {isDatasource && tableMeta.kind === 'normal' && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onOpenAddColumn}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>新增列</span>
-              </button>
-            )}
-
-            {isDatasource && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onOpenColumnManager}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              >
-                <Columns3 className="h-3.5 w-3.5" />
-                <span>字段管理</span>
-              </button>
-            )}
           </>
         )}
 
-        {isOperator && isDatasource && tableMeta.kind === 'normal' && (
+        {canConfigure && isDatasource && tableMeta.kind === 'normal' && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onOpenAddColumn}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>新增列</span>
+          </button>
+        )}
+
+        {canConfigure && isDatasource && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onOpenColumnManager}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <Columns3 className="h-3.5 w-3.5" />
+            <span>字段管理</span>
+          </button>
+        )}
+
+        {canManageDataSource && isDatasource && tableMeta.kind === 'normal' && (
           <>
             <button
               type="button"
@@ -672,7 +684,7 @@ export function Toolbar({
           </>
         )}
 
-        {isOperator && isDatasource && (
+        {canCreateApp && isDatasource && (
           <button
             type="button"
             disabled={busy}
@@ -684,7 +696,7 @@ export function Toolbar({
           </button>
         )}
 
-        {isOperator && !isDatasource && (
+        {canConfigure && !isDatasource && (
           <>
             <button
               type="button"
@@ -713,21 +725,22 @@ export function Toolbar({
               <Sparkles className="h-3.5 w-3.5" />
               <span>VLOOKUP</span>
             </button>
-            {onJumpToDatasource && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onJumpToDatasource(tableMeta.id)}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              >
-                <Database className="h-3.5 w-3.5" />
-                <span>数据源</span>
-              </button>
-            )}
           </>
         )}
 
-        {isOperator && !isDatasource && (
+        {canManageDataSource && !isDatasource && onJumpToDatasource && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onJumpToDatasource(tableMeta.id)}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            <Database className="h-3.5 w-3.5" />
+            <span>数据源</span>
+          </button>
+        )}
+
+        {canConfigure && !isDatasource && (
           <button
             type="button"
             onClick={onToggleWatermark}
@@ -742,7 +755,7 @@ export function Toolbar({
           </button>
         )}
 
-        {/* CSV / XLSX 导出（运维态与用户态均保留） */}
+        {/* CSV / XLSX 导出（所有有权查看的用户均保留） */}
         <div className="relative">
           <button
             type="button"
@@ -776,8 +789,8 @@ export function Toolbar({
           )}
         </div>
 
-        {/* 统一视图配置抽屉入口（仅运维配置态 + 应用视图模式可见） */}
-        {isOperator && !isDatasource && (
+        {/* 统一视图配置抽屉入口（仅具备视图配置权 + 应用视图模式可见） */}
+        {canConfigure && !isDatasource && (
           <button
             type="button"
             onClick={onToggleConfigDrawer}
@@ -792,40 +805,6 @@ export function Toolbar({
             <span>视图配置</span>
           </button>
         )}
-
-        {/* 双态切换开关 */}
-        <div
-          className="ml-1 inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5"
-          role="group"
-          aria-label="工作模式切换"
-        >
-          <button
-            type="button"
-            onClick={() => onToggleMode('operator')}
-            aria-pressed={mode === 'operator'}
-            className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors ${
-              mode === 'operator'
-                ? 'bg-white text-blue-700 shadow-2xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Wrench className="h-3 w-3" />
-            <span>运维态</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onToggleMode('viewer')}
-            aria-pressed={mode === 'viewer'}
-            className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors ${
-              mode === 'viewer'
-                ? 'bg-white text-slate-900 shadow-2xs'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Eye className="h-3 w-3" />
-            <span>查看态</span>
-          </button>
-        </div>
       </div>
 
       <ConfirmModal
