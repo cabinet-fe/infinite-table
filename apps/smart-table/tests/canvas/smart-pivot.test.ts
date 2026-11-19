@@ -384,4 +384,74 @@ describe('SmartPivotAdapter', () => {
 
     adapter.destroy()
   })
+
+  it('宿主容器定位检查补齐 relative 且销毁时不破坏外部显式样式，初始化与 ResizeObserver 同步宽高', () => {
+    const staticContainer = document.createElement('div')
+    document.body.appendChild(staticContainer)
+    const absContainer = document.createElement('div')
+    absContainer.style.position = 'fixed'
+    document.body.appendChild(absContainer)
+
+    const roCallbacks: ResizeObserverCallback[] = []
+    class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        roCallbacks.push(cb)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', MockResizeObserver)
+
+    try {
+      vi.spyOn(staticContainer, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 620,
+        height: 380,
+        right: 620,
+        bottom: 380,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect)
+
+      const adapter = new SmartPivotAdapter({
+        container: staticContainer,
+        columns: COLUMNS,
+        records: RECORDS,
+        config: BASE_CONFIG,
+      })
+
+      expect(staticContainer.style.position).toBe('relative')
+      const table = adapter.getPivot().getTable() as ListTable
+      expect(table.width).toBe(620)
+      expect(table.height).toBe(380)
+
+      roCallbacks[0]?.(
+        [{ contentRect: { width: 840, height: 520 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      )
+      expect(table.width).toBe(840)
+      expect(table.height).toBe(520)
+
+      adapter.destroy()
+      expect(staticContainer.style.position).toBe('')
+
+      const fixedAdapter = new SmartPivotAdapter({
+        container: absContainer,
+        columns: COLUMNS,
+        records: RECORDS,
+        config: BASE_CONFIG,
+      })
+      expect(absContainer.style.position).toBe('fixed')
+      fixedAdapter.destroy()
+      expect(absContainer.style.position).toBe('fixed')
+    } finally {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      staticContainer.remove()
+      absContainer.remove()
+    }
+  })
 })

@@ -1218,4 +1218,101 @@ describe('SmartGridAdapter', () => {
 
     adapter.destroy()
   })
+
+  it('宿主容器定位上下文按 static 自动补 relative 并保留外部显式样式，初始化与 ResizeObserver 同步有效宽高', () => {
+    // 1) 无定位上下文（static / 空串）自动注入 relative，销毁时干净还原且不破坏后续显式修改
+    const staticContainer = document.createElement('div')
+    document.body.appendChild(staticContainer)
+    const getComputedStyleSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation(((
+      el: Element,
+    ) => {
+      if (el === staticContainer && !staticContainer.style.position) {
+        return { position: 'static' } as CSSStyleDeclaration
+      }
+      return { position: (el as HTMLElement).style.position || 'static' } as CSSStyleDeclaration
+    }) as typeof window.getComputedStyle)
+
+    const roCallbacks: ResizeObserverCallback[] = []
+    class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        roCallbacks.push(cb)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', MockResizeObserver)
+
+    try {
+      let cw = 0
+      let ch = 0
+      Object.defineProperty(staticContainer, 'clientWidth', {
+        configurable: true,
+        get: () => cw,
+      })
+      Object.defineProperty(staticContainer, 'clientHeight', {
+        configurable: true,
+        get: () => ch,
+      })
+      vi.spyOn(staticContainer, 'getBoundingClientRect').mockImplementation(
+        () =>
+          ({
+            left: 0,
+            top: 0,
+            width: 520,
+            height: 360,
+            right: 520,
+            bottom: 360,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          }) as DOMRect,
+      )
+
+      const staticAdapter = new SmartGridAdapter({
+        container: staticContainer,
+        columns: BASE_COLUMNS,
+        records: BASE_RECORDS,
+      })
+      expect(staticContainer.style.position).toBe('relative')
+      // 初始化阶段 clientWidth 为 0 时回落边界矩形 520x360
+      expect(staticAdapter.getTable().width).toBe(520)
+      expect(staticAdapter.getTable().height).toBe(360)
+
+      // 忽略 0x0 过渡态，有效宽高触发同步
+      roCallbacks[0]?.(
+        [{ contentRect: { width: 0, height: 0 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      )
+      expect(staticAdapter.getTable().width).toBe(520)
+      expect(staticAdapter.getTable().height).toBe(360)
+
+      cw = 720
+      ch = 440
+      roCallbacks[0]?.([], {} as ResizeObserver)
+      expect(staticAdapter.getTable().width).toBe(720)
+      expect(staticAdapter.getTable().height).toBe(440)
+
+      staticAdapter.destroy()
+      expect(staticContainer.style.position).toBe('')
+
+      // 2) 外部显式定位样式（absolute / CSS fixed）构造与销毁均不被覆盖或清空
+      const absContainer = document.createElement('div')
+      absContainer.style.position = 'absolute'
+      document.body.appendChild(absContainer)
+      const absAdapter = new SmartGridAdapter({
+        container: absContainer,
+        columns: BASE_COLUMNS,
+        records: BASE_RECORDS,
+      })
+      expect(absContainer.style.position).toBe('absolute')
+      absAdapter.destroy()
+      expect(absContainer.style.position).toBe('absolute')
+    } finally {
+      getComputedStyleSpy.mockRestore()
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      staticContainer.remove()
+    }
+  })
 })

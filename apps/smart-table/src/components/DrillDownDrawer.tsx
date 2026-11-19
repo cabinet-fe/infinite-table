@@ -57,7 +57,12 @@ export function DrillDownDrawer({
     },
   ])
 
+  const prevDrillEventRef = useRef(drillEvent)
   useEffect(() => {
+    if (prevDrillEventRef.current === drillEvent) {
+      return
+    }
+    prevDrillEventRef.current = drillEvent
     setLevels([
       {
         label: `汇总格 (${drillEvent.records.length} 条)`,
@@ -92,7 +97,10 @@ export function DrillDownDrawer({
     return list
   }, [currentLevel.recordIds, recordById])
 
-  const drilledDimensions = levels.map((l) => l.dimensionKey).filter((k): k is string => Boolean(k))
+  const drilledDimensions = useMemo(
+    () => levels.map((l) => l.dimensionKey).filter((k): k is string => Boolean(k)),
+    [levels],
+  )
   const availableDimensions = useMemo(
     () =>
       getAvailableDrillDimensions(
@@ -117,6 +125,14 @@ export function DrillDownDrawer({
 
   const gridContainerRef = useRef<HTMLDivElement | null>(null)
   const gridAdapterRef = useRef<SmartGridAdapter | null>(null)
+  const latestDataRef = useRef({ columns, currentRecords, conflictsByRow, currentLevel })
+  latestDataRef.current = { columns, currentRecords, conflictsByRow, currentLevel }
+  const syncedDataRef = useRef<{
+    columns: readonly SmartColumn[]
+    records: readonly SmartRecord[]
+    conflictsByRow: Map<string, Map<string, LookupConflictInfo>>
+    level: DrillLevel
+  } | null>(null)
   const handlersRef = useRef({
     onUpdateRecord,
     onConflictClick,
@@ -131,14 +147,16 @@ export function DrillDownDrawer({
   }
 
   useEffect(() => {
-    if (activeTab !== 'detail' || !gridContainerRef.current) {
+    const container = gridContainerRef.current
+    if (activeTab !== 'detail' || !container) {
       return
     }
+    const latest = latestDataRef.current
     const adapter = new SmartGridAdapter({
-      container: gridContainerRef.current,
-      columns,
-      records: currentRecords,
-      conflictsByRow,
+      container,
+      columns: latest.columns,
+      records: latest.currentRecords,
+      conflictsByRow: latest.conflictsByRow,
       readonly,
       showSummaryRow: false,
       onCellValueChange: (recordId, fieldKey, newValue) => {
@@ -149,16 +167,46 @@ export function DrillDownDrawer({
       onValidationError: (msg) => handlersRef.current.onValidationError?.(msg),
     })
     gridAdapterRef.current = adapter
+    syncedDataRef.current = {
+      columns: latest.columns,
+      records: latest.currentRecords,
+      conflictsByRow: latest.conflictsByRow,
+      level: latest.currentLevel,
+    }
     return () => {
       adapter.destroy()
       gridAdapterRef.current = null
+      syncedDataRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, readonly])
 
   useEffect(() => {
-    gridAdapterRef.current?.setData(columns, currentRecords, conflictsByRow)
-  }, [columns, currentRecords, conflictsByRow])
+    const adapter = gridAdapterRef.current
+    if (!adapter) {
+      return
+    }
+    const prev = syncedDataRef.current
+    if (
+      prev &&
+      prev.columns === columns &&
+      prev.records === currentRecords &&
+      prev.conflictsByRow === conflictsByRow &&
+      prev.level === currentLevel
+    ) {
+      return
+    }
+    const levelChanged = prev?.level !== currentLevel
+    syncedDataRef.current = {
+      columns,
+      records: currentRecords,
+      conflictsByRow,
+      level: currentLevel,
+    }
+    adapter.setData(columns, currentRecords, conflictsByRow)
+    if (levelChanged) {
+      adapter.getTable().scrollTo(0, 0)
+    }
+  }, [columns, currentRecords, conflictsByRow, currentLevel])
 
   function handleDrillNext(valueLabel: string, subRecords: readonly SmartRecord[]) {
     if (!selectedDimKey) return
@@ -181,7 +229,7 @@ export function DrillDownDrawer({
         role="dialog"
         aria-label="透视下钻抽屉"
       >
-        <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3.5">
+        <div className="flex shrink-0 items-start justify-between border-b border-slate-200 px-5 py-3.5">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-900">透视下钻分析</h2>
             <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
@@ -190,7 +238,11 @@ export function DrillDownDrawer({
                   {idx > 0 && <span className="text-slate-300">/</span>}
                   <button
                     type="button"
-                    onClick={() => setLevels((prev) => prev.slice(0, idx + 1))}
+                    onClick={() => {
+                      if (idx < levels.length - 1) {
+                        setLevels((prev) => prev.slice(0, idx + 1))
+                      }
+                    }}
                     className={`rounded px-1.5 py-0.5 transition-colors ${
                       idx === levels.length - 1
                         ? 'bg-blue-50 font-medium text-blue-700'
@@ -238,21 +290,21 @@ export function DrillDownDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-hidden p-4">
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
           {activeTab === 'detail' ? (
-            <div className="flex h-full flex-col gap-2.5">
-              <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <div key="detail" className="flex h-full min-h-0 flex-col gap-2.5">
+              <div className="shrink-0 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 {readonly
                   ? '当前为只读查看态，可浏览穿透到底层的明细记录。'
                   : '支持直接在明细网格内编辑单元格或处理消歧，保存后主透视表将自动重新聚合刷新。'}
               </div>
               <div
                 ref={gridContainerRef}
-                className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200"
+                className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200"
               />
             </div>
           ) : (
-            <div className="h-full space-y-4 overflow-y-auto">
+            <div key="dimension" className="h-full space-y-4 overflow-y-auto">
               {availableDimensions.length === 0 ? (
                 <div className="py-12 text-center text-xs text-slate-400">
                   所有可用维度已全部展开。

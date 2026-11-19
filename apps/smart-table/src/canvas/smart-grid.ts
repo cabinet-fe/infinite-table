@@ -43,6 +43,13 @@ import type {
   SortRule,
   SummaryType,
 } from '../shared/schema'
+import {
+  attachHostContainerSizeSync,
+  ensureHostContainerPosition,
+  readHostContainerSize,
+  type HostContainerSize,
+  type HostContainerSizeSync,
+} from './host-container'
 
 /** 视图呈现与样式配置切片（驱动列显隐/顺序/宽、冻结列、行高与三层样式合并） */
 export type SmartGridViewPresentation = Pick<
@@ -940,13 +947,16 @@ export class SmartGridAdapter {
   private table: ListTable
   private tableUnsubscribers: Array<() => void> = []
   private readonly containerDisposers: Array<() => void> = []
-  private resizeObserver: ResizeObserver | null = null
+  private readonly restoreContainerPosition: () => void
+  private readonly hostSizeSync: HostContainerSizeSync
   private lastScrollLeft = 0
   private lastScrollTop = 0
   private destroyed = false
 
   constructor(options: SmartGridOptions) {
     this.container = options.container
+    this.restoreContainerPosition = ensureHostContainerPosition(this.container)
+    const initialSize = readHostContainerSize(this.container)
     this.dpr = options.dpr
     this.readonlyMode = options.readonly ?? false
     this.showSummaryRow = options.showSummaryRow ?? true
@@ -985,9 +995,17 @@ export class SmartGridAdapter {
       text: DEFAULT_WATERMARK_TEXT,
     })
 
-    this.table = this.createListTable()
+    this.table = this.createListTable(initialSize)
     this.bindContainerEvents()
-    this.bindResizeObserver()
+    this.hostSizeSync = attachHostContainerSizeSync(
+      this.container,
+      initialSize,
+      (width, height) => {
+        if (!this.destroyed) {
+          this.table.resize(width, height)
+        }
+      },
+    )
   }
 
   /** 原地更新列结构、行数据、排序、汇总与视图配置（可见列序列未变时原地刷新不重建画布） */
@@ -1051,6 +1069,7 @@ export class SmartGridAdapter {
         this.table.refreshBottomRow(0)
       }
     })
+    this.hostSizeSync.syncNow()
   }
 
   /** 原地更新视图呈现与样式配置（列显隐/顺序/宽、冻结列、行高与多层次样式） */
@@ -1081,6 +1100,7 @@ export class SmartGridAdapter {
         this.table.refreshBottomRow(0)
       }
     })
+    this.hostSizeSync.syncNow()
   }
 
   /** 更新列顺序与隐藏列配置 */
@@ -1296,18 +1316,19 @@ export class SmartGridAdapter {
       return
     }
     this.destroyed = true
-    this.resizeObserver?.disconnect()
-    this.resizeObserver = null
+    this.hostSizeSync.dispose()
     for (const dispose of this.containerDisposers) {
       dispose()
     }
     this.containerDisposers.length = 0
     this.disposeTable()
+    this.restoreContainerPosition()
   }
 
-  private createListTable(): ListTable {
-    const width = this.container.clientWidth || DEFAULT_WIDTH
-    const height = this.container.clientHeight || DEFAULT_HEIGHT
+  private createListTable(fallbackSize?: HostContainerSize): ListTable {
+    const measured = readHostContainerSize(this.container)
+    const width = measured.width || fallbackSize?.width || DEFAULT_WIDTH
+    const height = measured.height || fallbackSize?.height || DEFAULT_HEIGHT
     const hasRichCellEdit = Boolean(this.onRichCellEdit)
     const frozenColCount = Math.max(
       0,
@@ -1436,7 +1457,7 @@ export class SmartGridAdapter {
     const scrollLeft = this.table.getScrollLeft()
     const scrollTop = this.table.getScrollTop()
     this.disposeTable()
-    this.table = this.createListTable()
+    this.table = this.createListTable(this.hostSizeSync.getLastValidSize())
     if (scrollLeft > 0 || scrollTop > 0) {
       this.table.scrollTo(scrollLeft, scrollTop)
     }
@@ -2047,22 +2068,5 @@ export class SmartGridAdapter {
       this.container.removeEventListener('dblclick', onDblClick)
       this.container.removeEventListener('wheel', onWheel)
     })
-  }
-
-  private bindResizeObserver(): void {
-    if (typeof ResizeObserver === 'undefined') {
-      return
-    }
-    this.resizeObserver = new ResizeObserver(() => {
-      if (this.destroyed) {
-        return
-      }
-      const width = this.container.clientWidth
-      const height = this.container.clientHeight
-      if (width > 0 && height > 0) {
-        this.table.resize(width, height)
-      }
-    })
-    this.resizeObserver.observe(this.container)
   }
 }

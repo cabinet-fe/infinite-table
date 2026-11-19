@@ -10,6 +10,12 @@ import {
 import { createWatermarkPlugin, type WatermarkHandle } from '@infinitable/plugins'
 
 import type { SmartColumn, SmartColumnType, SmartPivotConfig, SmartRecord } from '../shared/schema'
+import {
+  attachHostContainerSizeSync,
+  ensureHostContainerPosition,
+  readHostContainerSize,
+  type HostContainerSizeSync,
+} from './host-container'
 
 /** SmartPivotAdapter 构造参数 */
 export interface SmartPivotOptions {
@@ -170,7 +176,8 @@ export class SmartPivotAdapter {
   private readonly pivot: PivotGrid
   private readonly watermarkPlugin: WatermarkHandle
   private readonly disposers: Array<() => void> = []
-  private resizeObserver: ResizeObserver | null = null
+  private readonly restoreContainerPosition: () => void
+  private readonly hostSizeSync: HostContainerSizeSync
   private destroyed = false
 
   // 缓存上次生效的配置签名，避免 update 时无条件重建并清空折叠状态
@@ -186,6 +193,8 @@ export class SmartPivotAdapter {
 
   constructor(options: SmartPivotOptions) {
     this.container = options.container
+    this.restoreContainerPosition = ensureHostContainerPosition(this.container)
+    const initialSize = readHostContainerSize(this.container)
     const { dimensions, measures } = columnsToPivotFields(options.columns)
     const measurePool = mergeMeasurePool(measures, options.config)
     const selection = resolveActiveSelection(dimensions, measurePool, options.config)
@@ -212,6 +221,8 @@ export class SmartPivotAdapter {
       activeMeasures: selection.activeMeasures,
       showGrandTotal,
       collapsible,
+      ...(initialSize.width > 0 ? { width: initialSize.width } : {}),
+      ...(initialSize.height > 0 ? { height: initialSize.height } : {}),
       ...(options.dpr !== undefined ? { dpr: options.dpr } : {}),
     })
     this.applyMeasureFormatter()
@@ -225,7 +236,15 @@ export class SmartPivotAdapter {
     if (options.onCellDrill) {
       this.disposers.push(this.pivot.onCellDrill(options.onCellDrill))
     }
-    this.bindResizeObserver()
+    this.hostSizeSync = attachHostContainerSizeSync(
+      this.container,
+      initialSize,
+      (width, height) => {
+        if (!this.destroyed) {
+          this.pivot.getTable().resize(width, height)
+        }
+      },
+    )
   }
 
   /** 原地更新列池、记录与透视配置（仅当结构签名变化时更新对应配置，保留行维度树折叠态） */
@@ -294,6 +313,7 @@ export class SmartPivotAdapter {
       this.lastShowGrandTotal = nextShowGrandTotal
       this.pivot.setShowGrandTotal(nextShowGrandTotal)
     }
+    this.hostSizeSync.syncNow()
   }
 
   /** 切换总计行显示（原地更新 PivotGrid，不重建实例） */
@@ -366,13 +386,13 @@ export class SmartPivotAdapter {
       return
     }
     this.destroyed = true
-    this.resizeObserver?.disconnect()
-    this.resizeObserver = null
+    this.hostSizeSync.dispose()
     for (const dispose of this.disposers) {
       dispose()
     }
     this.disposers.length = 0
     this.pivot.destroy()
+    this.restoreContainerPosition()
   }
 
   private applyMeasureFormatter(): void {
@@ -383,22 +403,5 @@ export class SmartPivotAdapter {
       const format = this.numberFormatByField.get(measure.field)
       return formatPivotMeasureValue(value, format)
     })
-  }
-
-  private bindResizeObserver(): void {
-    if (typeof ResizeObserver === 'undefined') {
-      return
-    }
-    this.resizeObserver = new ResizeObserver(() => {
-      if (this.destroyed) {
-        return
-      }
-      const width = this.container.clientWidth
-      const height = this.container.clientHeight
-      if (width > 0 && height > 0) {
-        this.pivot.getTable().resize(width, height)
-      }
-    })
-    this.resizeObserver.observe(this.container)
   }
 }
