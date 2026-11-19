@@ -476,6 +476,54 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
         if (url === '/api/views' && method === 'GET') {
           return jsonResponse({ views: decorated.views })
         }
+        if (url === '/api/permissions' && method === 'GET') {
+          if (currentUser.role === 'member') {
+            return jsonResponse({ message: '普通成员无权访问权限管理' }, 403)
+          }
+          return jsonResponse({
+            users: [ADMIN_USER, MEMBER_USER],
+            apps: state.apps.map((a) => ({
+              id: a.id,
+              name: a.name,
+              tableId: a.tableId,
+              createdBy: a.createdBy ?? null,
+              createdByName: ADMIN_USER.displayName,
+              visibilityScope: a.visibilityScope ?? 'all',
+              managerUserIds: a.managerUserIds ?? [],
+              memberAccess: a.memberAccess ?? 'readonly',
+            })),
+            views: state.views.map((v) => ({
+              id: v.id,
+              appId: v.appId,
+              appName: state.apps.find((a) => a.id === v.appId)?.name ?? '',
+              tableId: v.tableId,
+              name: v.name,
+              type: v.type,
+              createdBy: v.createdBy ?? null,
+              createdByName: ADMIN_USER.displayName,
+              visibilityScope: v.visibilityScope ?? 'all',
+              managerUserIds: v.managerUserIds ?? [],
+              memberAccess: v.memberAccess ?? null,
+              effectiveMemberAccess:
+                v.memberAccess ??
+                state.apps.find((a) => a.id === v.appId)?.memberAccess ??
+                'readonly',
+            })),
+            tables: state.tables.map((b) => ({
+              id: b.meta.id,
+              name: b.meta.name,
+              kind: b.meta.kind,
+              createdBy: b.meta.createdBy ?? null,
+              createdByName: ADMIN_USER.displayName,
+              rowScope: b.meta.rowScope ?? 'all',
+              ownerColumnKey: b.meta.ownerColumnKey ?? null,
+              memberAccess: b.meta.memberAccess ?? null,
+              personColumns: b.meta.columns
+                .filter((c) => c.type === 'person')
+                .map((c) => ({ key: c.key, title: c.title })),
+            })),
+          })
+        }
         if (url === '/api/tables/tbl_1/meta' && method === 'PUT') {
           if (currentUser.role === 'member') {
             return jsonResponse({ message: '普通成员无权修改表结构' }, 403)
@@ -774,8 +822,10 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
     act(() => {
       ;(container.querySelector('button[aria-label="权限管理"]') as HTMLButtonElement).click()
     })
+    await flushAsync()
     expect(window.location.pathname).toBe('/permissions')
-    expect(container.querySelector('[data-testid="permissions-route-placeholder"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="permissions-page"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="perm-app-app_1"]')).not.toBeNull()
 
     // 通过 NavRail 底部菜单切换为普通成员（钱七）
     const accountBtn = container.querySelector(

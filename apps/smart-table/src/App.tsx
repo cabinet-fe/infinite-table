@@ -4,16 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
 import type { Region } from '@infinitable/render'
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Filter,
-  Lock,
-  Plus,
-  Share2,
-  ShieldCheck,
-  Table2,
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Filter, Lock, Plus, Share2, Table2 } from 'lucide-react'
 import {
   ApiError,
   batchAppendRecords,
@@ -72,6 +63,7 @@ import { LoginPage } from './components/LoginPage'
 import { LookupFieldPanel } from './components/LookupFieldPanel'
 import { LookupWizardModal } from './components/LookupWizardModal'
 import { NavRail } from './components/NavRail'
+import { PermissionsPage } from './components/PermissionsPage'
 import { Sidebar, type SidebarSection } from './components/Sidebar'
 import { SummaryMenuPopover } from './components/SummaryMenuPopover'
 import { ToastHost, type ToastItem, type ToastType } from './components/Toast'
@@ -666,31 +658,47 @@ export function App() {
     }
   }, [authStatus, navigate, route])
 
-  // 加载工作台数据
-  const loadWorkspace = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const [tableList, appList, viewList] = await Promise.all([
-        fetchAllTables(),
-        fetchAllApps(),
-        fetchAllViews(),
-      ])
-      setTables(tableList)
-      setApps(appList)
-      setViews(viewList)
-      setWorkspaceLoaded(true)
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        return
+  // 加载或同步工作台元数据与记录列表
+  const syncWorkspaceSnapshot = useCallback(
+    async (options?: { initial?: boolean }) => {
+      const isInitial = options?.initial ?? false
+      if (isInitial) {
+        setLoading(true)
+        setLoadError(null)
       }
-      const msg = error instanceof Error ? error.message : '加载工作台失败'
-      setLoadError(msg)
-      pushToast('error', msg)
-    } finally {
-      setLoading(false)
-    }
-  }, [pushToast])
+      try {
+        const [tableList, appList, viewList] = await Promise.all([
+          fetchAllTables(),
+          fetchAllApps(),
+          fetchAllViews(),
+        ])
+        setTables(tableList)
+        setApps(appList)
+        setViews(viewList)
+        setWorkspaceLoaded(true)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          return
+        }
+        const msg = error instanceof Error ? error.message : '加载工作台失败'
+        if (isInitial) {
+          setLoadError(msg)
+        }
+        pushToast('error', msg)
+      } finally {
+        if (isInitial) {
+          setLoading(false)
+        }
+      }
+    },
+    [pushToast],
+  )
+
+  const loadWorkspace = useCallback(
+    () => syncWorkspaceSnapshot({ initial: true }),
+    [syncWorkspaceSnapshot],
+  )
+  const refreshWorkspaceData = useCallback(() => syncWorkspaceSnapshot(), [syncWorkspaceSnapshot])
 
   useEffect(() => {
     if (
@@ -2676,26 +2684,13 @@ export function App() {
     }
 
     if (route.kind === 'permissions') {
-      if (!userCapabilities.canManagePermissions) {
-        return (
-          <RouteStatusCard
-            testId="permissions-forbidden"
-            icon={<Lock className="h-7 w-7 text-amber-500" />}
-            title="无权访问权限管理"
-            description="仅管理员与负责人可配置应用可见范围与数据表行级策略。"
-            actionLabel="返回工作台"
-            onAction={goHome}
-          />
-        )
-      }
       return (
-        <RouteStatusCard
-          testId="permissions-route-placeholder"
-          icon={<ShieldCheck className="h-8 w-8 text-indigo-600" />}
-          title="两层权限管理"
-          description="可在此配置应用/视图级可见范围、普通成员授权以及表内行级数据范围与人员列绑定。"
-          actionLabel="返回工作台"
-          onAction={goHome}
+        <PermissionsPage
+          currentUser={currentUser}
+          userCapabilities={userCapabilities}
+          onPermissionsChanged={refreshWorkspaceData}
+          onBackToWorkbench={goHome}
+          onNotify={pushToast}
         />
       )
     }
