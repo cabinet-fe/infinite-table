@@ -10,6 +10,7 @@ import {
   getTableBundle,
   insertNormalTable,
   runInTransaction,
+  setRecordOwnership,
   validateColumns,
 } from './db'
 
@@ -36,7 +37,11 @@ function rowsToTypedCells(rows: readonly (readonly string[])[], columns: readonl
  * 提交导入：normal 走普通建表路径扩展（带初始行）；advanced 复用 createAdvancedPhysicalTable
  * 建物理表（首列数据列为主键）后事务批量插行。返回建好的表捆绑数据。
  */
-export function commitImport(db: Database, req: ImportCommitRequest): TableBundle {
+export function commitImport(
+  db: Database,
+  req: ImportCommitRequest,
+  options?: { actorUserId?: string },
+): TableBundle {
   if (req.kind !== 'normal' && req.kind !== 'advanced') {
     throw new ValidationError('kind 必须为 normal 或 advanced')
   }
@@ -58,6 +63,7 @@ export function commitImport(db: Database, req: ImportCommitRequest): TableBundl
     })),
   )
   const typedRows = rowsToTypedCells(req.rows, columns)
+  const actorUserId = options?.actorUserId
 
   if (req.kind === 'normal') {
     const records = typedRows.map((cells) => {
@@ -68,7 +74,11 @@ export function commitImport(db: Database, req: ImportCommitRequest): TableBundl
       })
       return record
     })
-    const created = insertNormalTable(db, { name: req.tableName, columns }, { records })
+    const created = insertNormalTable(
+      db,
+      { name: req.tableName, columns },
+      { records, ...(actorUserId !== undefined ? { actorUserId } : {}) },
+    )
     return getTableBundle(db, created.meta.id)!
   }
 
@@ -85,14 +95,25 @@ export function commitImport(db: Database, req: ImportCommitRequest): TableBundl
       name: req.tableName,
       physicalName: req.tableName,
       columns,
+      ...(actorUserId !== undefined ? { actorUserId } : {}),
     })
     const columnSql = columns.map((column) => `"${column.key}"`).join(', ')
     const placeholders = columns.map(() => '?').join(', ')
     const stmt = db.query(
       `INSERT INTO "${created.sourceSqlTable}" (${columnSql}) VALUES (${placeholders})`,
     )
+    const ownershipEntries: { recordId: string; createdBy: string }[] = []
     for (const cells of typedRows) {
       stmt.run(...columns.map((_, index) => cells[index] ?? null))
+      if (actorUserId !== undefined) {
+        const pkVal = cells[primaryKeyIndex]
+        if (pkVal !== null && pkVal !== undefined) {
+          ownershipEntries.push({ recordId: String(pkVal), createdBy: actorUserId })
+        }
+      }
+    }
+    if (ownershipEntries.length > 0) {
+      setRecordOwnership(db, created.id, ownershipEntries)
     }
     return created
   })

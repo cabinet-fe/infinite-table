@@ -1,6 +1,13 @@
 // 前后端 REST 接口请求/响应契约
 
 import type {
+  AuthUser,
+  DemoAccountInfo,
+  MemberAccessLevel,
+  ResourceCapabilities,
+  ResourceVisibilityScope,
+  ShareRecord,
+  ShareTargetType,
   SmartApp,
   SmartColumn,
   SmartRecord,
@@ -8,6 +15,8 @@ import type {
   SmartView,
   SmartViewType,
   TableKind,
+  TableRowScope,
+  UserCapabilities,
   WorkspaceView,
 } from './schema'
 
@@ -32,6 +41,9 @@ export interface CreateAppRequest {
   description?: string
   derivedColumns?: SmartColumn[]
   lookupOverrides?: Record<string, Record<string, string>>
+  visibilityScope?: ResourceVisibilityScope
+  managerUserIds?: string[]
+  memberAccess?: MemberAccessLevel
 }
 
 export interface CreateAppResponse {
@@ -75,6 +87,9 @@ export interface CreateViewRequest {
   pivotConfig?: SmartView['pivotConfig']
   kanbanConfig?: SmartView['kanbanConfig']
   dashboardConfig?: SmartView['dashboardConfig']
+  visibilityScope?: ResourceVisibilityScope
+  managerUserIds?: string[]
+  memberAccess?: MemberAccessLevel
 }
 
 export type UpdateViewRequest = Partial<Omit<WorkspaceView, 'id' | 'updatedAt'>>
@@ -159,4 +174,166 @@ export interface BatchImportRecordsResponse {
   insertedCount: number
   records: SmartRecord[]
   errors?: BatchImportRowError[]
+}
+
+/** 身份认证：登录请求 */
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+/** 身份认证：登录与当前会话响应 */
+export interface AuthSessionResponse {
+  user: AuthUser
+  expiresAt: string
+  capabilities: UserCapabilities
+}
+
+/** 演示账号清单响应 */
+export interface DemoAccountsResponse {
+  accounts: DemoAccountInfo[]
+}
+
+/** 权限管理概览：智能表格应用条目 */
+export interface AppPermissionItem {
+  id: string
+  name: string
+  tableId: string
+  createdBy: string | null
+  createdByName: string
+  visibilityScope: ResourceVisibilityScope
+  managerUserIds: string[]
+  memberAccess: MemberAccessLevel
+}
+
+/** 权限管理概览：应用视图条目 */
+export interface ViewPermissionItem {
+  id: string
+  appId: string
+  appName: string
+  tableId: string
+  name: string
+  type: SmartViewType
+  createdBy: string | null
+  createdByName: string
+  visibilityScope: ResourceVisibilityScope
+  managerUserIds: string[]
+  memberAccess: MemberAccessLevel | null
+  effectiveMemberAccess: MemberAccessLevel
+}
+
+/** 权限管理概览：数据源表条目 */
+export interface TablePermissionItem {
+  id: string
+  name: string
+  kind: TableKind
+  createdBy: string | null
+  createdByName: string
+  rowScope: TableRowScope
+  ownerColumnKey: string | null
+  memberAccess: MemberAccessLevel | null
+  personColumns: Array<{ key: string; title: string }>
+}
+
+/** GET /api/permissions 响应 */
+export interface PermissionsOverviewResponse {
+  users: AuthUser[]
+  apps: AppPermissionItem[]
+  views: ViewPermissionItem[]
+  tables: TablePermissionItem[]
+}
+
+/** PUT /api/permissions/apps/:id 请求 */
+export interface UpdateAppPermissionRequest {
+  visibilityScope?: ResourceVisibilityScope
+  managerUserIds?: string[]
+  memberAccess?: MemberAccessLevel
+}
+
+/** PUT /api/permissions/views/:id 请求 */
+export interface UpdateViewPermissionRequest {
+  visibilityScope?: ResourceVisibilityScope
+  managerUserIds?: string[]
+  memberAccess?: MemberAccessLevel | null
+}
+
+/** PUT /api/permissions/tables/:id 请求 */
+export interface UpdateTablePermissionRequest {
+  rowScope?: TableRowScope
+  ownerColumnKey?: string | null
+  memberAccess?: MemberAccessLevel | null
+}
+
+/** POST /api/shares 请求 */
+export interface CreateShareRequest {
+  targetType: ShareTargetType
+  targetId: string
+  expiresInDays?: number | null
+  expiresAt?: string | null
+  password?: string
+}
+
+/** POST /api/shares 响应 */
+export interface CreateShareResponse {
+  share: ShareRecord
+}
+
+/** GET /api/shares 响应 */
+export interface ListSharesResponse {
+  shares: ShareRecord[]
+}
+
+/** POST /api/shares/:id/revoke 响应 */
+export interface RevokeShareResponse {
+  share: ShareRecord
+}
+
+/** POST /api/s/:token/verify 请求 */
+export interface VerifySharePasswordRequest {
+  password: string
+}
+
+/** 免登录分享公共摘要 */
+export interface ShareAccessSummary {
+  id: string
+  token: string
+  targetType: ShareTargetType
+  targetId: string
+  targetName: string
+  createdByName: string
+  expiresAt: string | null
+}
+
+/** 需密码校验且尚未解锁时的响应 */
+export interface ShareAccessLockedResponse {
+  unlocked: false
+  requiresPassword: true
+  share: ShareAccessSummary
+}
+
+/** 已解锁访客访问响应（数据范围已按创建者权限实时裁剪） */
+export interface ShareAccessUnlockedResponse {
+  unlocked: true
+  requiresPassword: boolean
+  share: ShareAccessSummary
+  capabilities: ResourceCapabilities
+  app?: SmartApp
+  view?: WorkspaceView
+  views?: WorkspaceView[]
+  table?: TableBundle
+  tables?: TableBundle[]
+}
+
+export type ShareAccessResponse = ShareAccessLockedResponse | ShareAccessUnlockedResponse
+
+/** POST /api/s/:token/verify 响应 */
+export interface VerifySharePasswordResponse {
+  ok: true
+  accessToken: string
+  access: ShareAccessUnlockedResponse
+}
+
+/** POST /api/s/:token/records 响应 */
+export interface CreateShareEntryRecordResponse {
+  record: SmartRecord
 }

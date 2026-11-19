@@ -21,6 +21,7 @@ import {
   isValidDecimalPlaces,
   splitColumnsByLayer,
   type CellTextAlign,
+  type MemberAccessLevel,
   type SmartColumn,
   type SmartColumnType,
   type SmartRecord,
@@ -29,7 +30,9 @@ import {
   type SmartViewType,
   type SummaryType,
   type TableKind,
+  type TableRowScope,
 } from '../shared/schema'
+import { ensureBuiltinDemoUsers } from './auth'
 
 const DEFAULT_DB_PATH = resolve(import.meta.dirname, '../../data/smart-table.sqlite')
 
@@ -42,6 +45,41 @@ export class ValidationError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'ValidationError'
+  }
+}
+
+/** 未登录或认证无效错误（HTTP 401） */
+export class UnauthorizedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnauthorizedError'
+  }
+}
+
+/** 权限不足错误（HTTP 403） */
+export class ForbiddenError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ForbiddenError'
+  }
+}
+
+/** 资源不存在错误（HTTP 404） */
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NotFoundError'
+  }
+}
+
+/** 资源已失效或过期错误（HTTP 410） */
+export class ShareGoneError extends Error {
+  readonly statusKind: 'revoked' | 'expired'
+
+  constructor(message: string, statusKind: 'revoked' | 'expired') {
+    super(message)
+    this.name = 'ShareGoneError'
+    this.statusKind = statusKind
   }
 }
 
@@ -127,6 +165,31 @@ export const VALID_VIEW_TYPES: ReadonlySet<SmartViewType> = new Set([
 ])
 
 const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  avatar_color TEXT NOT NULL DEFAULT '#2563eb',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS server_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS smart_tables (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -135,6 +198,10 @@ CREATE TABLE IF NOT EXISTS smart_tables (
   source_sql_table TEXT,
   schema_json TEXT NOT NULL,
   views_json TEXT NOT NULL,
+  created_by TEXT,
+  row_scope TEXT NOT NULL DEFAULT 'all',
+  owner_column_key TEXT,
+  member_access TEXT,
   updated_at TEXT NOT NULL
 );
 
@@ -146,6 +213,10 @@ CREATE TABLE IF NOT EXISTS smart_apps (
   sort_order INTEGER NOT NULL,
   derived_columns_json TEXT NOT NULL DEFAULT '[]',
   lookup_overrides_json TEXT NOT NULL DEFAULT '{}',
+  created_by TEXT,
+  visibility_scope TEXT NOT NULL DEFAULT 'all',
+  manager_user_ids_json TEXT NOT NULL DEFAULT '[]',
+  member_access TEXT NOT NULL DEFAULT 'readonly',
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_smart_apps_order ON smart_apps(sort_order);
@@ -158,6 +229,10 @@ CREATE TABLE IF NOT EXISTS workspace_views (
   type TEXT NOT NULL,
   sort_order INTEGER NOT NULL,
   config_json TEXT NOT NULL,
+  created_by TEXT,
+  visibility_scope TEXT NOT NULL DEFAULT 'all',
+  manager_user_ids_json TEXT NOT NULL DEFAULT '[]',
+  member_access TEXT,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_views_order ON workspace_views(sort_order);
@@ -170,6 +245,30 @@ CREATE TABLE IF NOT EXISTS smart_table_records (
   PRIMARY KEY (table_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_records_table ON smart_table_records(table_id, row_order);
+
+CREATE TABLE IF NOT EXISTS record_ownership (
+  table_id TEXT NOT NULL REFERENCES smart_tables(id) ON DELETE CASCADE,
+  record_id TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (table_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_record_ownership_creator ON record_ownership(created_by);
+
+CREATE TABLE IF NOT EXISTS shares (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  password_hash TEXT,
+  expires_at TEXT,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(token);
+CREATE INDEX IF NOT EXISTS idx_shares_creator ON shares(created_by);
+CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_type, target_id);
 
 CREATE TABLE IF NOT EXISTS biz_employees (
   emp_id TEXT PRIMARY KEY,
@@ -236,28 +335,60 @@ function migrateLegacySchema(db: Database): void {
     }
   }
 
+  const tableCols = db.query('PRAGMA table_info(smart_tables)').all() as { name: string }[]
+  const tableColNames = new Set(tableCols.map((c) => c.name))
+  const ensureColumns = (
+    table: string,
+    existing: Set<string>,
+    defs: readonly [string, string][],
+  ) => {
+    for (const [col, sqlType] of defs) {
+      if (!existing.has(col)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${sqlType};`)
+        existing.add(col)
+      }
+    }
+  }
+  ensureColumns('smart_tables', tableColNames, [
+    ['created_by', 'TEXT'],
+    ['row_scope', "TEXT NOT NULL DEFAULT 'all'"],
+    ['owner_column_key', 'TEXT'],
+    ['member_access', 'TEXT'],
+  ])
+
   const paymentCols = db.query('PRAGMA table_info(biz_payments)').all() as { name: string }[]
   if (!paymentCols.some((c) => c.name === 'region')) {
     db.exec("ALTER TABLE biz_payments ADD COLUMN region TEXT NOT NULL DEFAULT '';")
   }
 
   const viewCols = db.query('PRAGMA table_info(workspace_views)').all() as { name: string }[]
-  if (!viewCols.some((c) => c.name === 'app_id')) {
+  const viewColNames = new Set(viewCols.map((c) => c.name))
+  if (!viewColNames.has('app_id')) {
     db.exec(
       'ALTER TABLE workspace_views ADD COLUMN app_id TEXT REFERENCES smart_apps(id) ON DELETE CASCADE;',
     )
+    viewColNames.add('app_id')
   }
+  ensureColumns('workspace_views', viewColNames, [
+    ['created_by', 'TEXT'],
+    ['visibility_scope', "TEXT NOT NULL DEFAULT 'all'"],
+    ['manager_user_ids_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['member_access', 'TEXT'],
+  ])
   db.exec(
     'CREATE INDEX IF NOT EXISTS idx_workspace_views_app ON workspace_views(app_id, sort_order);',
   )
 
   const appCols = db.query('PRAGMA table_info(smart_apps)').all() as { name: string }[]
-  if (!appCols.some((c) => c.name === 'derived_columns_json')) {
-    db.exec("ALTER TABLE smart_apps ADD COLUMN derived_columns_json TEXT NOT NULL DEFAULT '[]';")
-  }
-  if (!appCols.some((c) => c.name === 'lookup_overrides_json')) {
-    db.exec("ALTER TABLE smart_apps ADD COLUMN lookup_overrides_json TEXT NOT NULL DEFAULT '{}';")
-  }
+  const appColNames = new Set(appCols.map((c) => c.name))
+  ensureColumns('smart_apps', appColNames, [
+    ['derived_columns_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['lookup_overrides_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['created_by', 'TEXT'],
+    ['visibility_scope', "TEXT NOT NULL DEFAULT 'all'"],
+    ['manager_user_ids_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['member_access', "TEXT NOT NULL DEFAULT 'readonly'"],
+  ])
 }
 
 /** 将未归属 app_id 的历史视图自动按数据源表分组挂接到对应的智能表格应用 */
@@ -636,6 +767,7 @@ export function openDatabase(path: string): Database {
   }
   backfillAppsForOrphanViews(db)
   migrateDerivedLayerToSmartApps(db)
+  ensureBuiltinDemoUsers(db)
   return db
 }
 
@@ -647,8 +779,15 @@ interface SmartTableRow {
   source_sql_table: string | null
   schema_json: string
   views_json: string
+  created_by: string | null
+  row_scope: TableRowScope | null
+  owner_column_key: string | null
+  member_access: MemberAccessLevel | null
   updated_at: string
 }
+
+const SMART_TABLE_SELECT_SQL =
+  'SELECT id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, created_by, row_scope, owner_column_key, member_access, updated_at FROM smart_tables'
 
 interface StoredSchemaPayload {
   description?: string
@@ -1027,7 +1166,7 @@ function serializeSchemaPayload(meta: {
   return JSON.stringify(payload)
 }
 
-function parseTableRow(row: SmartTableRow): SmartTableMeta {
+export function parseTableRow(row: SmartTableRow): SmartTableMeta {
   const parsedSchema = JSON.parse(row.schema_json) as StoredSchemaPayload | SmartColumn[]
   const parsedViews = JSON.parse(row.views_json) as SmartView[]
   const isLegacyArray = Array.isArray(parsedSchema)
@@ -1039,6 +1178,7 @@ function parseTableRow(row: SmartTableRow): SmartTableMeta {
     columns: isLegacyArray ? parsedSchema : (parsedSchema.columns ?? []),
     views: parsedViews,
     summaries: isLegacyArray ? {} : (parsedSchema.summaries ?? {}),
+    rowScope: row.row_scope ?? 'all',
   }
 
   if (!isLegacyArray && parsedSchema.description !== undefined) {
@@ -1053,15 +1193,23 @@ function parseTableRow(row: SmartTableRow): SmartTableMeta {
   if (row.source_sql_table !== null) {
     meta.sourceSqlTable = row.source_sql_table
   }
+  if (row.created_by !== null) {
+    meta.createdBy = row.created_by
+  }
+  if (row.owner_column_key !== null) {
+    meta.ownerColumnKey = row.owner_column_key
+  }
+  if (row.member_access !== null) {
+    meta.memberAccess = row.member_access
+  }
   return meta
 }
 
 function readTableRow(db: Database, tableId: string): SmartTableRow | null {
-  const row = db
-    .query(
-      'SELECT id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at FROM smart_tables WHERE id = ?',
-    )
-    .get(tableId) as SmartTableRow | undefined | null
+  const row = db.query(`${SMART_TABLE_SELECT_SQL} WHERE id = ?`).get(tableId) as
+    | SmartTableRow
+    | undefined
+    | null
   return row ?? null
 }
 
@@ -1088,14 +1236,51 @@ function attachAdvancedRecordId(
   row: Record<string, unknown>,
   primaryKey: string,
   fallbackId = '',
+  createdBy?: string,
 ): SmartRecord {
-  return {
+  const out: SmartRecord = {
     ...row,
     _id: toPrimitiveString(row[primaryKey], fallbackId),
+  }
+  if (createdBy !== undefined) {
+    out.createdBy = createdBy
+  }
+  return out
+}
+
+function readOwnershipMap(db: Database, tableId: string): Map<string, string> {
+  const rows = db
+    .query('SELECT record_id, created_by FROM record_ownership WHERE table_id = ?')
+    .all(tableId) as { record_id: string; created_by: string }[]
+  return new Map(rows.map((r) => [r.record_id, r.created_by]))
+}
+
+function readRecordOwner(db: Database, tableId: string, recordId: string): string | undefined {
+  const row = db
+    .query('SELECT created_by FROM record_ownership WHERE table_id = ? AND record_id = ?')
+    .get(tableId, recordId) as { created_by: string } | undefined | null
+  return row?.created_by
+}
+
+export function setRecordOwnership(
+  db: Database,
+  tableId: string,
+  entries: readonly { recordId: string; createdBy: string }[],
+): void {
+  if (entries.length === 0) return
+  const now = new Date().toISOString()
+  const stmt = db.query(`
+    INSERT INTO record_ownership (table_id, record_id, created_by, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(table_id, record_id) DO UPDATE SET created_by = excluded.created_by
+  `)
+  for (const item of entries) {
+    stmt.run(tableId, item.recordId, item.createdBy, now)
   }
 }
 
 function readRecordsForMeta(db: Database, meta: SmartTableMeta): SmartRecord[] {
+  const ownershipMap = readOwnershipMap(db, meta.id)
   if (meta.kind === 'advanced') {
     const spec = getAdvancedSpec(db, meta.sourceSqlTable)
     if (!spec) return []
@@ -1103,7 +1288,10 @@ function readRecordsForMeta(db: Database, meta: SmartTableMeta): SmartRecord[] {
       string,
       unknown
     >[]
-    return rows.map((row) => attachAdvancedRecordId(row, spec.primaryKey))
+    return rows.map((row) => {
+      const recId = toPrimitiveString(row[spec.primaryKey])
+      return attachAdvancedRecordId(row, spec.primaryKey, '', ownershipMap.get(recId))
+    })
   }
 
   const rows = db
@@ -1114,18 +1302,28 @@ function readRecordsForMeta(db: Database, meta: SmartTableMeta): SmartRecord[] {
 
   return rows.map((row) => {
     const parsed = JSON.parse(row.data_json) as SmartRecord
-    return {
+    const createdBy = ownershipMap.get(row.id) ?? parsed.createdBy
+    const rec: SmartRecord = {
       ...parsed,
       _id: row.id,
     }
+    if (createdBy !== undefined) {
+      rec.createdBy = createdBy
+    }
+    return rec
   })
+}
+
+export function listTableMetas(db: Database): SmartTableMeta[] {
+  const tableRows = db
+    .query(`${SMART_TABLE_SELECT_SQL} ORDER BY rowid ASC`)
+    .all() as SmartTableRow[]
+  return tableRows.map(parseTableRow)
 }
 
 export function listTableBundles(db: Database): TableBundle[] {
   const tableRows = db
-    .query(
-      'SELECT id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at FROM smart_tables ORDER BY rowid ASC',
-    )
+    .query(`${SMART_TABLE_SELECT_SQL} ORDER BY rowid ASC`)
     .all() as SmartTableRow[]
 
   return tableRows.map((row) => {
@@ -1152,6 +1350,39 @@ export function getTableBundle(db: Database, tableId: string): TableBundle | nul
   }
 }
 
+export function getTableRecordById(
+  db: Database,
+  tableId: string,
+  recordId: string,
+): SmartRecord | null {
+  const row = readTableRow(db, tableId)
+  if (!row) return null
+  const meta = parseTableRow(row)
+  const owner = readRecordOwner(db, tableId, recordId)
+
+  if (meta.kind === 'advanced') {
+    const spec = getAdvancedSpec(db, meta.sourceSqlTable)
+    if (!spec) return null
+    const found = db
+      .query(`SELECT * FROM ${spec.tableName} WHERE ${spec.primaryKey} = ?`)
+      .get(recordId) as Record<string, unknown> | undefined | null
+    if (!found) return null
+    return attachAdvancedRecordId(found, spec.primaryKey, recordId, owner)
+  }
+
+  const recordRow = db
+    .query('SELECT data_json FROM smart_table_records WHERE table_id = ? AND id = ?')
+    .get(tableId, recordId) as { data_json: string } | undefined | null
+  if (!recordRow) return null
+  const parsed = JSON.parse(recordRow.data_json) as SmartRecord
+  const createdBy = owner ?? parsed.createdBy
+  return {
+    ...parsed,
+    _id: recordId,
+    ...(createdBy !== undefined ? { createdBy } : {}),
+  }
+}
+
 /** 新表默认表格视图（普通表与导入建的进阶表共用） */
 function buildDefaultTableView(): SmartView {
   return {
@@ -1167,7 +1398,7 @@ function buildDefaultTableView(): SmartView {
 export function insertNormalTable(
   db: Database,
   req: CreateTableRequest,
-  options?: { records?: readonly Record<string, unknown>[] },
+  options?: { records?: readonly Record<string, unknown>[]; actorUserId?: string },
 ): TableBundle {
   if (typeof req.name !== 'string' || req.name.trim() === '') {
     throw new ValidationError('表名 name 不能为空')
@@ -1178,6 +1409,7 @@ export function insertNormalTable(
       : [{ key: 'title', title: '名称', type: 'text', width: 200 }]
 
   const id = `tbl_${crypto.randomUUID().slice(0, 8)}`
+  const actorUserId = options?.actorUserId
   const meta: SmartTableMeta = {
     id,
     name: req.name.trim(),
@@ -1185,15 +1417,18 @@ export function insertNormalTable(
     columns,
     views: [buildDefaultTableView()],
     summaries: {},
+    rowScope: 'all',
+    ...(actorUserId !== undefined ? { createdBy: actorUserId } : {}),
   }
   if (req.description !== undefined) {
     meta.description = req.description
   }
 
   const storedRecords: SmartRecord[] = []
+  const ownershipEntries: { recordId: string; createdBy: string }[] = []
   runInTransaction(db, () => {
     db.query(
-      'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, created_by, row_scope, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       meta.id,
       meta.name,
@@ -1202,6 +1437,8 @@ export function insertNormalTable(
       null,
       serializeSchemaPayload(meta),
       JSON.stringify(meta.views),
+      actorUserId ?? null,
+      'all',
       new Date().toISOString(),
     )
     if (options?.records && options.records.length > 0) {
@@ -1210,10 +1447,20 @@ export function insertNormalTable(
       )
       options.records.forEach((record, index) => {
         const recordId = extractNonEmptyId(record._id) ?? `rec_${crypto.randomUUID().slice(0, 8)}`
-        const stored: SmartRecord = { ...record, _id: recordId }
-        storedRecords.push(stored)
-        stmt.run(recordId, meta.id, index, JSON.stringify(stored))
+        const clean = { ...record }
+        delete clean.createdBy
+        const persisted: SmartRecord = { ...clean, _id: recordId }
+        stmt.run(recordId, meta.id, index, JSON.stringify(persisted))
+        if (actorUserId !== undefined) {
+          ownershipEntries.push({ recordId, createdBy: actorUserId })
+          storedRecords.push({ ...persisted, createdBy: actorUserId })
+        } else {
+          storedRecords.push(persisted)
+        }
       })
+      if (ownershipEntries.length > 0) {
+        setRecordOwnership(db, meta.id, ownershipEntries)
+      }
     }
   })
 
@@ -1236,6 +1483,8 @@ export interface CreateAdvancedTableOptions {
   description?: string
   /** 系统内置表禁止删除；用户自建表默认不带 */
   system?: boolean
+  /** 创建人 userId */
+  actorUserId?: string
 }
 
 /** 分配物理表名：优先采用合法且未占用的期望名，否则生成 adv_ 随机名 */
@@ -1291,6 +1540,8 @@ export function createAdvancedPhysicalTable(
       summaries: {},
       primaryKeyField: primaryKey,
       sourceSqlTable: physicalName,
+      rowScope: 'all',
+      ...(options.actorUserId !== undefined ? { createdBy: options.actorUserId } : {}),
     }
     if (options.description !== undefined) {
       meta.description = options.description
@@ -1299,7 +1550,7 @@ export function createAdvancedPhysicalTable(
       meta.system = true
     }
     db.query(
-      'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, created_by, row_scope, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       meta.id,
       meta.name,
@@ -1308,6 +1559,8 @@ export function createAdvancedPhysicalTable(
       physicalName,
       serializeSchemaPayload(meta),
       JSON.stringify(meta.views),
+      options.actorUserId ?? null,
+      'all',
       new Date().toISOString(),
     )
     return meta
@@ -1363,13 +1616,20 @@ export function updateTableMeta(
     } else {
       delete nextMeta.description
     }
+    if (
+      nextMeta.ownerColumnKey &&
+      !validatedColumns.some((c) => c.key === nextMeta.ownerColumnKey && c.type === 'person')
+    ) {
+      delete nextMeta.ownerColumnKey
+    }
 
     db.query(
-      'UPDATE smart_tables SET name = ?, schema_json = ?, views_json = ?, updated_at = ? WHERE id = ?',
+      'UPDATE smart_tables SET name = ?, schema_json = ?, views_json = ?, owner_column_key = ?, updated_at = ? WHERE id = ?',
     ).run(
       nextMeta.name,
       serializeSchemaPayload(nextMeta),
       JSON.stringify(nextMeta.views),
+      nextMeta.ownerColumnKey ?? null,
       new Date().toISOString(),
       tableId,
     )
@@ -1476,7 +1736,7 @@ function stripNonStoredFields(
 ): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {}
   for (const [key, val] of Object.entries(obj)) {
-    if (key === '_lookupOverrides' || derivedKeys.has(key)) {
+    if (key === '_lookupOverrides' || key === 'createdBy' || derivedKeys.has(key)) {
       continue
     }
     cleaned[key] = val
@@ -1548,6 +1808,7 @@ export function createTableRecord(
   db: Database,
   tableId: string,
   record: Omit<SmartRecord, '_id'> & { _id?: string },
+  options?: { actorUserId?: string },
 ): SmartRecord | null {
   return runInTransaction(db, () => {
     const row = readTableRow(db, tableId)
@@ -1558,6 +1819,7 @@ export function createTableRecord(
     if (!validation.valid) {
       throw new ValidationError(validation.errors.map((err) => err.message).join('；'))
     }
+    const actorUserId = options?.actorUserId
 
     if (row.kind === 'advanced') {
       const spec = getAdvancedSpec(db, row.source_sql_table)
@@ -1582,8 +1844,11 @@ export function createTableRecord(
         .query(`SELECT * FROM ${spec.tableName} WHERE ${spec.primaryKey} = ?`)
         .get(pkValue) as Record<string, unknown> | undefined | null
       if (!inserted) return null
+      if (actorUserId !== undefined) {
+        setRecordOwnership(db, tableId, [{ recordId: pkValue, createdBy: actorUserId }])
+      }
       touchTableUpdatedAt(db, tableId)
-      return attachAdvancedRecordId(inserted, spec.primaryKey, pkValue)
+      return attachAdvancedRecordId(inserted, spec.primaryKey, pkValue, actorUserId)
     }
 
     const derivedKeys = getDerivedColumnKeysForTable(db, meta)
@@ -1605,6 +1870,10 @@ export function createTableRecord(
     db.query(
       'INSERT INTO smart_table_records (id, table_id, row_order, data_json) VALUES (?, ?, ?, ?)',
     ).run(recordId, tableId, nextOrder, JSON.stringify(storedRecord))
+    if (actorUserId !== undefined) {
+      setRecordOwnership(db, tableId, [{ recordId, createdBy: actorUserId }])
+      storedRecord.createdBy = actorUserId
+    }
     touchTableUpdatedAt(db, tableId)
     return storedRecord
   })
@@ -1615,6 +1884,7 @@ export function batchCreateTableRecords(
   db: Database,
   tableId: string,
   rawRecords: readonly Record<string, unknown>[],
+  options?: { actorUserId?: string },
 ): BatchImportRecordsResponse | null {
   return runInTransaction(db, () => {
     const row = readTableRow(db, tableId)
@@ -1648,18 +1918,29 @@ export function batchCreateTableRecords(
       'INSERT INTO smart_table_records (id, table_id, row_order, data_json) VALUES (?, ?, ?, ?)',
     )
     const inserted: SmartRecord[] = []
+    const actorUserId = options?.actorUserId
+    const ownershipEntries: { recordId: string; createdBy: string }[] = []
 
     for (const validatedRec of validation.records) {
       const cleanBody = stripNonStoredFields(validatedRec, derivedKeys)
       const recordId = extractNonEmptyId(cleanBody._id) ?? `rec_${crypto.randomUUID().slice(0, 8)}`
       delete cleanBody._id
-      const storedRecord: SmartRecord = {
+      const persistedRecord: SmartRecord = {
         ...cleanBody,
         _id: recordId,
       }
-      insertStmt.run(recordId, tableId, nextOrder, JSON.stringify(storedRecord))
-      inserted.push(storedRecord)
+      insertStmt.run(recordId, tableId, nextOrder, JSON.stringify(persistedRecord))
+      if (actorUserId !== undefined) {
+        ownershipEntries.push({ recordId, createdBy: actorUserId })
+        inserted.push({ ...persistedRecord, createdBy: actorUserId })
+      } else {
+        inserted.push(persistedRecord)
+      }
       nextOrder += 1
+    }
+
+    if (ownershipEntries.length > 0) {
+      setRecordOwnership(db, tableId, ownershipEntries)
     }
 
     touchTableUpdatedAt(db, tableId)
@@ -1685,6 +1966,7 @@ export function updateTableRecord(
     if (!validation.valid) {
       throw new ValidationError(validation.errors.map((err) => err.message).join('；'))
     }
+    const existingOwner = readRecordOwner(db, tableId, recordId)
 
     if (row.kind === 'advanced') {
       const spec = getAdvancedSpec(db, row.source_sql_table)
@@ -1722,6 +2004,9 @@ export function updateTableRecord(
           `UPDATE ${spec.tableName} SET ${setColumns.join(', ')} WHERE ${spec.primaryKey} = ?`,
         ).run(...setValues, recordId)
         if (nextPk !== recordId) {
+          db.query(
+            'UPDATE record_ownership SET record_id = ? WHERE table_id = ? AND record_id = ?',
+          ).run(nextPk, tableId, recordId)
           syncLookupOverridesOnPkChange(db, tableId, recordId, nextPk)
         }
         touchTableUpdatedAt(db, tableId)
@@ -1731,7 +2016,7 @@ export function updateTableRecord(
         .query(`SELECT * FROM ${spec.tableName} WHERE ${spec.primaryKey} = ?`)
         .get(nextPk) as Record<string, unknown> | undefined | null
       if (!updated) return null
-      return attachAdvancedRecordId(updated, spec.primaryKey, nextPk)
+      return attachAdvancedRecordId(updated, spec.primaryKey, nextPk, existingOwner)
     }
 
     const recordRow = db
@@ -1740,26 +2025,25 @@ export function updateTableRecord(
     if (!recordRow) return null
 
     const derivedKeys = getDerivedColumnKeysForTable(db, meta)
-    const existing = stripNonStoredFields(
-      JSON.parse(recordRow.data_json) as SmartRecord,
-      derivedKeys,
-    )
+    const parsedExisting = JSON.parse(recordRow.data_json) as SmartRecord
+    const legacyOwner = existingOwner ?? parsedExisting.createdBy
+    const existing = stripNonStoredFields(parsedExisting, derivedKeys)
     const cleanPatch = stripNonStoredFields(validation.record, derivedKeys)
     delete cleanPatch._id
 
-    const merged: SmartRecord = {
+    const persisted: SmartRecord = {
       ...existing,
       ...cleanPatch,
       _id: recordId,
     }
 
     db.query('UPDATE smart_table_records SET data_json = ? WHERE table_id = ? AND id = ?').run(
-      JSON.stringify(merged),
+      JSON.stringify(persisted),
       tableId,
       recordId,
     )
     touchTableUpdatedAt(db, tableId)
-    return merged
+    return legacyOwner !== undefined ? { ...persisted, createdBy: legacyOwner } : persisted
   })
 }
 
@@ -1775,6 +2059,10 @@ export function deleteTableRecord(db: Database, tableId: string, recordId: strin
         .query(`DELETE FROM ${spec.tableName} WHERE ${spec.primaryKey} = ?`)
         .run(recordId)
       if (result.changes > 0) {
+        db.query('DELETE FROM record_ownership WHERE table_id = ? AND record_id = ?').run(
+          tableId,
+          recordId,
+        )
         touchTableUpdatedAt(db, tableId)
         return true
       }
@@ -1785,6 +2073,10 @@ export function deleteTableRecord(db: Database, tableId: string, recordId: strin
       .query('DELETE FROM smart_table_records WHERE table_id = ? AND id = ?')
       .run(tableId, recordId)
     if (result.changes > 0) {
+      db.query('DELETE FROM record_ownership WHERE table_id = ? AND record_id = ?').run(
+        tableId,
+        recordId,
+      )
       touchTableUpdatedAt(db, tableId)
       return true
     }

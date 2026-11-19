@@ -11,6 +11,8 @@ import type {
 } from '../shared/api-types'
 import {
   filterRawColumns,
+  isValidMemberAccessLevel,
+  isValidVisibilityScope,
   mergeSmartColumns,
   type CellStyleConfig,
   type CellTextAlign,
@@ -23,6 +25,8 @@ import {
   type FilterGroup,
   type KanbanConfig,
   type LookupRollupAgg,
+  type MemberAccessLevel,
+  type ResourceVisibilityScope,
   type RowHeightPreset,
   type SmartApp,
   type SmartColumn,
@@ -54,6 +58,10 @@ interface SmartAppRow {
   sort_order: number
   derived_columns_json: string
   lookup_overrides_json: string
+  created_by: string | null
+  visibility_scope: ResourceVisibilityScope | null
+  manager_user_ids_json: string
+  member_access: MemberAccessLevel | null
   updated_at: string
 }
 
@@ -65,8 +73,18 @@ interface WorkspaceViewRow {
   type: SmartViewType
   sort_order: number
   config_json: string
+  created_by: string | null
+  visibility_scope: ResourceVisibilityScope | null
+  manager_user_ids_json: string
+  member_access: MemberAccessLevel | null
   updated_at: string
 }
+
+const SMART_APP_SELECT_SQL =
+  'SELECT id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at FROM smart_apps'
+
+const WORKSPACE_VIEW_SELECT_SQL =
+  'SELECT id, app_id, table_id, name, type, sort_order, config_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at FROM workspace_views'
 
 interface WorkspaceViewConfig {
   description?: string
@@ -548,6 +566,12 @@ function validateLookupOverrides(value: unknown): Record<string, Record<string, 
   return normalized
 }
 
+function parseStringIdList(raw: string | null | undefined): string[] {
+  const parsed = parseJsonSafe<unknown[]>(raw, [])
+  if (!Array.isArray(parsed)) return []
+  return parsed.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+}
+
 function parseSmartAppRow(row: SmartAppRow): SmartApp {
   const parsedDerived = parseJsonSafe<SmartColumn[]>(row.derived_columns_json, [])
   const parsedOverrides = parseJsonSafe<Record<string, Record<string, string>>>(
@@ -562,25 +586,26 @@ function parseSmartAppRow(row: SmartAppRow): SmartApp {
     sortOrder: row.sort_order,
     derivedColumns: Array.isArray(parsedDerived) ? parsedDerived : [],
     lookupOverrides: isPlainObject(parsedOverrides) ? parsedOverrides : {},
+    ...(row.created_by ? { createdBy: row.created_by } : {}),
+    visibilityScope: row.visibility_scope ?? 'all',
+    managerUserIds: parseStringIdList(row.manager_user_ids_json),
+    memberAccess: row.member_access ?? 'readonly',
     updatedAt: row.updated_at,
   }
 }
 
 function readSmartAppRow(db: Database, appId: string): SmartAppRow | null {
-  const row = db
-    .query(
-      'SELECT id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at FROM smart_apps WHERE id = ?',
-    )
-    .get(appId) as SmartAppRow | undefined | null
+  const row = db.query(`${SMART_APP_SELECT_SQL} WHERE id = ?`).get(appId) as
+    | SmartAppRow
+    | undefined
+    | null
   return row ?? null
 }
 
 /** 列出所有独立智能表格应用（按 sort_order 升序） */
 export function listSmartApps(db: Database): SmartApp[] {
   const rows = db
-    .query(
-      'SELECT id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at FROM smart_apps ORDER BY sort_order ASC, rowid ASC',
-    )
+    .query(`${SMART_APP_SELECT_SQL} ORDER BY sort_order ASC, rowid ASC`)
     .all() as SmartAppRow[]
   return rows.map(parseSmartAppRow)
 }
@@ -592,7 +617,11 @@ export function getSmartApp(db: Database, appId: string): SmartApp | null {
 }
 
 /** 新建智能表格应用（自动附带一个默认表格视图，开箱即用） */
-export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppResponse {
+export function createSmartApp(
+  db: Database,
+  req: CreateAppRequest,
+  options?: { actorUserId?: string },
+): CreateAppResponse {
   if (typeof req.name !== 'string' || req.name.trim() === '') {
     throw new ValidationError('智能表格名称 name 不能为空')
   }
@@ -602,6 +631,26 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
   const name = req.name.trim()
   const tableId = req.tableId.trim()
   const description = req.description?.trim() || undefined
+  const visibilityScope: ResourceVisibilityScope =
+    req.visibilityScope !== undefined
+      ? isValidVisibilityScope(req.visibilityScope)
+        ? req.visibilityScope
+        : (() => {
+            throw new ValidationError('visibilityScope 必须为 self / managers / all')
+          })()
+      : 'all'
+  const memberAccess: MemberAccessLevel =
+    req.memberAccess !== undefined
+      ? isValidMemberAccessLevel(req.memberAccess)
+        ? req.memberAccess
+        : (() => {
+            throw new ValidationError('memberAccess 必须为 readonly / editable')
+          })()
+      : 'readonly'
+  const managerUserIds =
+    req.managerUserIds !== undefined
+      ? validateStringArray(req.managerUserIds, 'managerUserIds')
+      : []
 
   return runInTransaction(db, () => {
     ensureTableExists(db, tableId)
@@ -619,9 +668,10 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
     const sortOrder = orderRow?.next_order ?? 0
     const appId = `app_${crypto.randomUUID().slice(0, 8)}`
     const now = new Date().toISOString()
+    const actorUserId = options?.actorUserId
 
     db.query(
-      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       appId,
       name,
@@ -630,6 +680,10 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
       sortOrder,
       JSON.stringify(derivedColumns),
       JSON.stringify(lookupOverrides),
+      actorUserId ?? null,
+      visibilityScope,
+      JSON.stringify(managerUserIds),
+      memberAccess,
       now,
     )
 
@@ -641,17 +695,25 @@ export function createSmartApp(db: Database, req: CreateAppRequest): CreateAppRe
       sortOrder,
       derivedColumns,
       lookupOverrides,
+      ...(actorUserId !== undefined ? { createdBy: actorUserId } : {}),
+      visibilityScope,
+      managerUserIds,
+      memberAccess,
       updatedAt: now,
     }
 
-    const defaultView = createWorkspaceView(db, {
-      appId,
-      tableId,
-      name: '数据明细视图',
-      type: 'table',
-      frozenColCount: 1,
-      rowHeight: 'standard',
-    })
+    const defaultView = createWorkspaceView(
+      db,
+      {
+        appId,
+        tableId,
+        name: '数据明细视图',
+        type: 'table',
+        frozenColCount: 1,
+        rowHeight: 'standard',
+      },
+      options,
+    )
 
     return { app, defaultView }
   })
@@ -730,6 +792,10 @@ export function updateSmartApp(
       sortOrder: nextSortOrder,
       derivedColumns: nextDerivedColumns,
       lookupOverrides: nextLookupOverrides,
+      ...(existing.created_by ? { createdBy: existing.created_by } : {}),
+      visibilityScope: existing.visibility_scope ?? 'all',
+      managerUserIds: parseStringIdList(existing.manager_user_ids_json),
+      memberAccess: existing.member_access ?? 'readonly',
       updatedAt: now,
     }
   })
@@ -793,25 +859,26 @@ function parseWorkspaceViewRow(row: WorkspaceViewRow): WorkspaceView {
     filterGroup: config.filterGroup ?? { conjunction: 'and', conditions: [] },
     quickFilterFields: config.quickFilterFields ?? [],
     sortRules: config.sortRules ?? [],
+    ...(row.created_by ? { createdBy: row.created_by } : {}),
+    visibilityScope: row.visibility_scope ?? 'all',
+    managerUserIds: parseStringIdList(row.manager_user_ids_json),
+    ...(row.member_access ? { memberAccess: row.member_access } : {}),
     updatedAt: row.updated_at,
   }
 }
 
 function readWorkspaceViewRow(db: Database, viewId: string): WorkspaceViewRow | null {
-  const row = db
-    .query(
-      'SELECT id, app_id, table_id, name, type, sort_order, config_json, updated_at FROM workspace_views WHERE id = ?',
-    )
-    .get(viewId) as WorkspaceViewRow | undefined | null
+  const row = db.query(`${WORKSPACE_VIEW_SELECT_SQL} WHERE id = ?`).get(viewId) as
+    | WorkspaceViewRow
+    | undefined
+    | null
   return row ?? null
 }
 
 /** 列出所有应用视图（按 sort_order 升序） */
 export function listWorkspaceViews(db: Database): WorkspaceView[] {
   const rows = db
-    .query(
-      'SELECT id, app_id, table_id, name, type, sort_order, config_json, updated_at FROM workspace_views ORDER BY sort_order ASC, rowid ASC',
-    )
+    .query(`${WORKSPACE_VIEW_SELECT_SQL} ORDER BY sort_order ASC, rowid ASC`)
     .all() as WorkspaceViewRow[]
   return rows.map(parseWorkspaceViewRow)
 }
@@ -883,15 +950,40 @@ function applyConfigPatch(
 }
 
 /** 新建应用视图 */
-export function createWorkspaceView(db: Database, req: CreateViewRequest): WorkspaceView {
+export function createWorkspaceView(
+  db: Database,
+  req: CreateViewRequest,
+  options?: { actorUserId?: string },
+): WorkspaceView {
   if (typeof req.name !== 'string' || req.name.trim() === '') {
     throw new ValidationError('视图名称 name 不能为空')
   }
   const type = validateViewType(req.type)
+  const visibilityScope: ResourceVisibilityScope =
+    req.visibilityScope !== undefined
+      ? isValidVisibilityScope(req.visibilityScope)
+        ? req.visibilityScope
+        : (() => {
+            throw new ValidationError('visibilityScope 必须为 self / managers / all')
+          })()
+      : 'all'
+  const memberAccess: MemberAccessLevel | undefined =
+    req.memberAccess !== undefined
+      ? isValidMemberAccessLevel(req.memberAccess)
+        ? req.memberAccess
+        : (() => {
+            throw new ValidationError('memberAccess 必须为 readonly / editable')
+          })()
+      : undefined
+  const managerUserIds =
+    req.managerUserIds !== undefined
+      ? validateStringArray(req.managerUserIds, 'managerUserIds')
+      : []
 
   return runInTransaction(db, () => {
     let appId = req.appId?.trim() || ''
     let tableId = req.tableId?.trim() || ''
+    const actorUserId = options?.actorUserId
 
     if (appId) {
       const app = readSmartAppRow(db, appId)
@@ -925,7 +1017,7 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
           .get() as { next_order: number } | undefined | null
         appId = `app_${crypto.randomUUID().slice(0, 8)}`
         db.query(
-          'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ).run(
           appId,
           tableRow.name,
@@ -934,6 +1026,10 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
           orderRow?.next_order ?? 0,
           '[]',
           '{}',
+          actorUserId ?? null,
+          'all',
+          '[]',
+          'readonly',
           new Date().toISOString(),
         )
       }
@@ -957,8 +1053,21 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
     const now = new Date().toISOString()
 
     db.query(
-      'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, appId, tableId, req.name.trim(), type, sortOrder, JSON.stringify(config), now)
+      'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(
+      id,
+      appId,
+      tableId,
+      req.name.trim(),
+      type,
+      sortOrder,
+      JSON.stringify(config),
+      actorUserId ?? null,
+      visibilityScope,
+      JSON.stringify(managerUserIds),
+      memberAccess ?? null,
+      now,
+    )
 
     return {
       ...config,
@@ -968,6 +1077,10 @@ export function createWorkspaceView(db: Database, req: CreateViewRequest): Works
       name: req.name.trim(),
       type,
       sortOrder,
+      ...(actorUserId !== undefined ? { createdBy: actorUserId } : {}),
+      visibilityScope,
+      managerUserIds,
+      ...(memberAccess !== undefined ? { memberAccess } : {}),
       updatedAt: now,
     }
   })
@@ -1000,15 +1113,18 @@ export function updateWorkspaceView(
     }
 
     let nextAppId = existingRow.app_id ?? `app_${existingRow.table_id}`
+    let targetApp = readSmartAppRow(db, nextAppId)
     if (patch.appId !== undefined) {
       if (typeof patch.appId !== 'string' || patch.appId.trim() === '') {
         throw new ValidationError('appId 不能为空')
       }
-      const targetApp = readSmartAppRow(db, patch.appId.trim())
+      targetApp = readSmartAppRow(db, patch.appId.trim())
       if (!targetApp) {
         throw new ValidationError(`所属智能表格不存在: "${patch.appId}"`)
       }
       nextAppId = targetApp.id
+    } else if (!targetApp) {
+      throw new ValidationError(`所属智能表格不存在: "${nextAppId}"`)
     }
 
     let nextTableId = existingRow.table_id
@@ -1018,6 +1134,12 @@ export function updateWorkspaceView(
       }
       nextTableId = patch.tableId.trim()
       ensureTableExists(db, nextTableId)
+    }
+
+    if (nextTableId !== targetApp.table_id) {
+      throw new ValidationError(
+        `视图绑定的数据源 "${nextTableId}" 与所属智能表格 "${targetApp.table_id}" 不一致`,
+      )
     }
 
     let nextSortOrder = existingRow.sort_order
@@ -1050,6 +1172,10 @@ export function updateWorkspaceView(
       name: nextName,
       type: nextType,
       sortOrder: nextSortOrder,
+      ...(existingRow.created_by ? { createdBy: existingRow.created_by } : {}),
+      visibilityScope: existingRow.visibility_scope ?? 'all',
+      managerUserIds: parseStringIdList(existingRow.manager_user_ids_json),
+      ...(existingRow.member_access ? { memberAccess: existingRow.member_access } : {}),
       updatedAt: now,
     }
   })

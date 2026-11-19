@@ -14,12 +14,15 @@ import type {
   TableBundle,
 } from '../../src/shared/api-types'
 import type { SmartApp, SmartRecord, SmartTableMeta } from '../../src/shared/schema'
+import { createAuthedClient, loginAsAdmin } from './testing/auth-helper'
 
-function createSeededTestEnv() {
+async function createSeededTestEnv() {
   const db = openDatabase(':memory:')
   seedSmartTableDemo(db)
-  const app = createApp(db)
-  return { db, app }
+  const rawApp = createApp(db)
+  const { cookie } = await loginAsAdmin(rawApp)
+  const app = createAuthedClient(rawApp, cookie)
+  return { db, app, rawApp }
 }
 
 describe('数据库路径配置与旧库迁移', () => {
@@ -175,7 +178,7 @@ describe('数据库路径配置与旧库迁移', () => {
 
 describe('六表联动种子初始化', () => {
   test('种子初始化后 6 张表（共 121 行）、列配置、视图与记录数完整且幂等', async () => {
-    const { db, app } = createSeededTestEnv()
+    const { db, app } = await createSeededTestEnv()
     // 再次调用非 force 种子应幂等跳过
     seedSmartTableDemo(db)
 
@@ -252,8 +255,8 @@ describe('六表联动种子初始化', () => {
       false,
     )
 
-    // SEED_VERSION = 8：真实业务小数样本与列/透视/KPI decimalPlaces 示范配置
-    expect(SEED_VERSION).toBe(8)
+    // SEED_VERSION = 9：演示账号、记录 createdBy 与两层示范权限策略
+    expect(SEED_VERSION).toBe(9)
     const prjRec001 = projects!.records.find((r) => r._id === 'rec_prj_001')!
     const prjRec002 = projects!.records.find((r) => r._id === 'rec_prj_002')!
     const invRec001 = body.tables
@@ -299,7 +302,7 @@ describe('六表联动种子初始化', () => {
 
 describe('普通表记录增删改、跨表同 _id 与派生/消歧字段剥离', () => {
   test('支持普通表新增、局部 PATCH（自动剔除计算列与 _lookupOverrides）与删除', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     // 新增项目记录（携带 SmartApp 派生列、_lookupOverrides 与显式 _id，验证非原始字段被剔除）
     const createRes = await app.request('/api/tables/tbl_projects/records', {
@@ -383,7 +386,7 @@ describe('普通表记录增删改、跨表同 _id 与派生/消歧字段剥离'
 
 describe('进阶 SQL 表直接写回物理表与约束校验', () => {
   test('biz_employees 支持数字主键转字符串、编辑主键联动更新 _lookupOverrides，并拒绝空主键', async () => {
-    const { db, app } = createSeededTestEnv()
+    const { db, app } = await createSeededTestEnv()
 
     const createRes = await app.request('/api/tables/tbl_employees/records', {
       method: 'POST',
@@ -450,7 +453,7 @@ describe('进阶 SQL 表直接写回物理表与约束校验', () => {
   })
 
   test('biz_payments 新增、编辑与删除直接写回物理 SQLite 表，数值列拒绝非数字字符串', async () => {
-    const { db, app } = createSeededTestEnv()
+    const { db, app } = await createSeededTestEnv()
 
     // 非数字字符串拒绝写入（400）
     const badNumCreate = await app.request('/api/tables/tbl_payments/records', {
@@ -525,7 +528,7 @@ describe('进阶 SQL 表直接写回物理表与约束校验', () => {
 
 describe('表元数据更新、新建/删除/同步普通表与种子重置', () => {
   test('PUT /api/tables/:id/meta 更新列、视图与汇总配置并校验进阶表物理列不可删改', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
     const listRes = await app.request('/api/tables')
     const { tables } = (await listRes.json()) as AllTablesResponse
     const projectsMeta = tables.find((t) => t.meta.id === 'tbl_projects')!.meta
@@ -606,7 +609,7 @@ describe('表元数据更新、新建/删除/同步普通表与种子重置', ()
   })
 
   test('POST /api/tables、DELETE /api/tables/:id、POST /api/tables/:id/sync 与 POST /api/reset-seed', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     const createTableRes = await app.request('/api/tables', {
       method: 'POST',
@@ -667,7 +670,7 @@ describe('表元数据更新、新建/删除/同步普通表与种子重置', ()
   })
 
   test('异常参数与不存在资源返回 400 / 404', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     const badTable = await app.request('/api/tables', {
       method: 'POST',
@@ -720,7 +723,7 @@ describe('表元数据更新、新建/删除/同步普通表与种子重置', ()
 
 describe('Excel/CSV 浏览器端导入：POST /api/tables 携带初始 records 建表', () => {
   test('一次请求建普通表并批量落行，数字值保持 number 类型', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
     const res = await app.request('/api/tables', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -762,7 +765,7 @@ describe('Excel/CSV 浏览器端导入：POST /api/tables 携带初始 records �
 
 describe('Excel/CSV 导入：commit 建表与行写入', () => {
   test('normal 提交：建普通表 + 事务批量插行，数字列落库为 number', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
     const commitRes = await app.request('/api/import/commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -812,7 +815,7 @@ describe('Excel/CSV 导入：commit 建表与行写入', () => {
   })
 
   test('advanced 提交：落 SQL 物理表、拒绝派生列、行级 CRUD 可用、可整表删除', async () => {
-    const { db, app } = createSeededTestEnv()
+    const { db, app } = await createSeededTestEnv()
     // 携带 formula / lookup 列提交导入应被拒绝（HTTP 400）
     const rejectedCommitRes = await app.request('/api/import/commit', {
       method: 'POST',
@@ -908,7 +911,7 @@ describe('Excel/CSV 导入：commit 建表与行写入', () => {
   })
 
   test('advanced 提交的主键列校验：空主键行 400、重复主键 409', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
     const emptyPkRes = await app.request('/api/import/commit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -997,7 +1000,7 @@ describe('种子版本自愈（PRAGMA user_version）', () => {
 
 describe('数据源表拒绝派生列、required/align 持久化、单行与批量校验及 GET /api/tables/:id', () => {
   test('数据源表拒绝保存 lookup / formula 列，并支持保存与返回 required 与 align', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     // 1. POST /api/tables 拒绝 lookup / formula
     const createLookupTable = await app.request('/api/tables', {
@@ -1107,7 +1110,7 @@ describe('数据源表拒绝派生列、required/align 持久化、单行与批�
   })
 
   test('单行 POST/PATCH 强制校验 required 与字段类型', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     const tableRes = await app.request('/api/tables', {
       method: 'POST',
@@ -1184,7 +1187,7 @@ describe('数据源表拒绝派生列、required/align 持久化、单行与批�
   })
 
   test('POST /api/tables/:id/records/batch 仅限 normal 表，校验失败整批零写入并返回错误明细', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     const tableRes = await app.request('/api/tables', {
       method: 'POST',
@@ -1276,7 +1279,7 @@ describe('数据源表拒绝派生列、required/align 持久化、单行与批�
 
 describe('列 decimalPlaces（0~6 整数）服务端校验与持久化', () => {
   test('POST /api/tables 与 PUT /api/tables/:id/meta 持久化合法 decimalPlaces（0~6），拒绝越界/小数/非数字（400）', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     const badValues: unknown[] = [-1, 7, 1.5, '2']
     for (const bad of badValues) {

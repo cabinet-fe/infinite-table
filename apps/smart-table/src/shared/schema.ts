@@ -363,6 +363,120 @@ export interface SmartView {
   dashboardConfig?: DashboardConfig
 }
 
+/** 用户角色：管理员 / 负责人 / 普通成员 */
+export type UserRole = 'admin' | 'manager' | 'member'
+
+/** 应用/视图级可见范围：仅自己 / 指定负责人 / 全员 */
+export type ResourceVisibilityScope = 'self' | 'managers' | 'all'
+
+/** 普通成员资源授权级别：只读 / 可编辑 */
+export type MemberAccessLevel = 'readonly' | 'editable'
+
+/** 数据表行级数据范围：仅本人 / 负责人 / 全部行 */
+export type TableRowScope = 'self' | 'manager' | 'all'
+
+/** 一键分享对象类型：智能表格应用 / 单视图 / 数据录入表 */
+export type ShareTargetType = 'app' | 'view' | 'entry'
+
+/** 分享链接生命周期状态 */
+export type ShareStatus = 'active' | 'expired' | 'revoked'
+
+export const USER_ROLES = ['admin', 'manager', 'member'] as const satisfies readonly UserRole[]
+export const VISIBILITY_SCOPES = [
+  'self',
+  'managers',
+  'all',
+] as const satisfies readonly ResourceVisibilityScope[]
+export const MEMBER_ACCESS_LEVELS = [
+  'readonly',
+  'editable',
+] as const satisfies readonly MemberAccessLevel[]
+export const TABLE_ROW_SCOPES = [
+  'self',
+  'manager',
+  'all',
+] as const satisfies readonly TableRowScope[]
+export const SHARE_TARGET_TYPES = [
+  'app',
+  'view',
+  'entry',
+] as const satisfies readonly ShareTargetType[]
+
+export function isValidUserRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && (USER_ROLES as readonly string[]).includes(value)
+}
+
+export function isValidVisibilityScope(value: unknown): value is ResourceVisibilityScope {
+  return typeof value === 'string' && (VISIBILITY_SCOPES as readonly string[]).includes(value)
+}
+
+export function isValidMemberAccessLevel(value: unknown): value is MemberAccessLevel {
+  return typeof value === 'string' && (MEMBER_ACCESS_LEVELS as readonly string[]).includes(value)
+}
+
+export function isValidTableRowScope(value: unknown): value is TableRowScope {
+  return typeof value === 'string' && (TABLE_ROW_SCOPES as readonly string[]).includes(value)
+}
+
+export function isValidShareTargetType(value: unknown): value is ShareTargetType {
+  return typeof value === 'string' && (SHARE_TARGET_TYPES as readonly string[]).includes(value)
+}
+
+/** 已登录用户的公开安全信息（不含密码哈希） */
+export interface AuthUser {
+  id: string
+  username: string
+  displayName: string
+  role: UserRole
+  avatarColor?: string
+  createdAt?: string
+}
+
+/** 登录页内置演示账号信息（支持快捷填入与一键切换） */
+export interface DemoAccountInfo {
+  username: string
+  password: string
+  displayName: string
+  role: UserRole
+  description: string
+}
+
+/** 当前登录用户的全局功能能力快照 */
+export interface UserCapabilities {
+  canAccessDataSources: boolean
+  canCreateTable: boolean
+  canCreateApp: boolean
+  canManagePermissions: boolean
+  canManageShares: boolean
+  canResetSeed: boolean
+}
+
+/** 单个资源（应用/视图/数据表/访客分享）上的操作能力快照 */
+export interface ResourceCapabilities {
+  canView: boolean
+  canEditRecords: boolean
+  canConfigure: boolean
+  canManagePermissions: boolean
+  canCreateShare: boolean
+  canManageDataSource: boolean
+}
+
+/** 分享链接持久化与展示记录（不含 passwordHash） */
+export interface ShareRecord {
+  id: string
+  token: string
+  targetType: ShareTargetType
+  targetId: string
+  targetName: string
+  createdBy: string
+  createdByName: string
+  hasPassword: boolean
+  expiresAt: string | null
+  revokedAt: string | null
+  createdAt: string
+  status: ShareStatus
+}
+
 /** 独立智能表格应用（基于底层数据源表创建，承载派生列、消歧锁定与多维视图） */
 export interface SmartApp {
   id: string
@@ -376,6 +490,16 @@ export interface SmartApp {
   derivedColumns?: SmartColumn[]
   /** VLOOKUP 重名消歧锁定表：recordId -> (groupId -> targetRecordId) */
   lookupOverrides?: Record<string, Record<string, string>>
+  /** 创建人 userId */
+  createdBy?: string
+  /** 应用级可见范围 */
+  visibilityScope?: ResourceVisibilityScope
+  /** visibilityScope === 'managers' 时指定的负责人 userId 列表 */
+  managerUserIds?: string[]
+  /** 普通成员授权级别 */
+  memberAccess?: MemberAccessLevel
+  /** 当前访问者在应用上的能力快照 */
+  capabilities?: ResourceCapabilities
   updatedAt?: string
 }
 
@@ -384,6 +508,16 @@ export interface WorkspaceView extends SmartView {
   appId: string
   tableId: string
   sortOrder: number
+  /** 创建人 userId */
+  createdBy?: string
+  /** 视图级可见范围 */
+  visibilityScope?: ResourceVisibilityScope
+  /** visibilityScope === 'managers' 时指定的负责人 userId 列表 */
+  managerUserIds?: string[]
+  /** 视图级普通成员授权（未设置时继承所属智能表格应用） */
+  memberAccess?: MemberAccessLevel
+  /** 当前访问者在视图上的能力快照 */
+  capabilities?: ResourceCapabilities
   updatedAt?: string
 }
 
@@ -402,11 +536,23 @@ export interface SmartTableMeta {
   views: SmartView[]
   /** 底部汇总栏配置：columnKey -> SummaryType */
   summaries: Record<string, SummaryType>
+  /** 创建人 userId */
+  createdBy?: string
+  /** 表级行数据范围 */
+  rowScope?: TableRowScope
+  /** 可选绑定的业务负责人人员列 key（必须为 person 列） */
+  ownerColumnKey?: string
+  /** 表级独立录入端普通成员授权 */
+  memberAccess?: MemberAccessLevel
+  /** 当前访问者在数据源表上的能力快照 */
+  capabilities?: ResourceCapabilities
 }
 
 export interface SmartRecord {
   /** 系统内部唯一行 ID（UUID 或主键映射），重名消歧义时靠它锁定目标行 */
   _id: string
+  /** 记录创建人 userId（由服务端在新增/导入时自动写入） */
+  createdBy?: string
   /** 各列的原始值 */
   [fieldKey: string]: unknown
   /**

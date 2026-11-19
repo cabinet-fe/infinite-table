@@ -15,16 +15,19 @@ import type {
   TableBundle,
 } from '../../src/shared/api-types'
 import type { SmartApp, SmartRecord, WorkspaceView } from '../../src/shared/schema'
+import { createAuthedClient, loginAsAdmin } from './testing/auth-helper'
 
-function createSeededTestEnv() {
+async function createSeededTestEnv() {
   const db = openDatabase(':memory:')
   seedSmartTableDemo(db)
-  const app = createApp(db)
-  return { db, app }
+  const rawApp = createApp(db)
+  const { cookie } = await loginAsAdmin(rawApp)
+  const app = createAuthedClient(rawApp, cookie)
+  return { db, app, rawApp }
 }
 
 describe('旧库 smart_tables.views_json 到 workspace_views 的平滑迁移', () => {
-  test('无 workspace_views 表的旧库启动后自动迁移视图，并自动消解跨表重名视图 ID', () => {
+  test('无 workspace_views 表的旧库启动后自动迁移视图，并自动消解跨表重名视图 ID', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'smart-table-views-migrate-'))
     const dbPath = join(dir, 'legacy-views.sqlite')
     try {
@@ -107,18 +110,18 @@ describe('旧库 smart_tables.views_json 到 workspace_views 的平滑迁移', (
 
       const upgraded = openDatabase(dbPath)
       try {
-        const app = createApp(upgraded)
-        return (async () => {
-          const res = await app.request('/api/views')
-          expect(res.status).toBe(200)
-          const body = (await res.json()) as AllViewsResponse
-          expect(body.views).toHaveLength(3)
-          expect(body.views.map((v) => [v.id, v.tableId, v.name, v.type, v.sortOrder])).toEqual([
-            ['v1', 'tbl_a', '表A全部', 'table', 0],
-            ['v_pivot_a', 'tbl_a', '表A透视', 'pivot', 1],
-            ['v1_tbl_b', 'tbl_b', '表B全部', 'table', 2],
-          ])
-        })()
+        const rawApp = createApp(upgraded)
+        const { cookie } = await loginAsAdmin(rawApp)
+        const app = createAuthedClient(rawApp, cookie)
+        const res = await app.request('/api/views')
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as AllViewsResponse
+        expect(body.views).toHaveLength(3)
+        expect(body.views.map((v) => [v.id, v.tableId, v.name, v.type, v.sortOrder])).toEqual([
+          ['v1', 'tbl_a', '表A全部', 'table', 0],
+          ['v_pivot_a', 'tbl_a', '表A透视', 'pivot', 1],
+          ['v1_tbl_b', 'tbl_b', '表B全部', 'table', 2],
+        ])
       } finally {
         upgraded.close()
       }
@@ -198,7 +201,9 @@ describe('旧库 smart_tables.views_json 到 workspace_views 的平滑迁移', (
 
       const upgraded = openDatabase(dbPath)
       try {
-        const app = createApp(upgraded)
+        const rawApp = createApp(upgraded)
+        const { cookie } = await loginAsAdmin(rawApp)
+        const app = createAuthedClient(rawApp, cookie)
         const appsRes = await app.request('/api/apps')
         expect(appsRes.status).toBe(200)
         const appsBody = (await appsRes.json()) as AllAppsResponse
@@ -221,7 +226,7 @@ describe('旧库 smart_tables.views_json 到 workspace_views 的平滑迁移', (
 
 describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 / 看板写回', () => {
   test('种子初始化预置多张智能表格与四类示范应用视图且含样式/条件格式/冻结列/看板/仪表盘配置', async () => {
-    const { db, app } = createSeededTestEnv()
+    const { db, app } = await createSeededTestEnv()
     const versionRow = db.query('PRAGMA user_version').get() as { user_version: number }
     expect(versionRow.user_version).toBe(SEED_VERSION)
     expect(SEED_VERSION).toBeGreaterThanOrEqual(5)
@@ -313,7 +318,7 @@ describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 
   })
 
   test('应用视图 CRUD、样式/条件格式持久化、重排序、删除与重置种子', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     // 1. 新建独立应用视图（绑定 tbl_suppliers）
     const createRes = await app.request('/api/views', {
@@ -409,7 +414,7 @@ describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 
   })
 
   test('看板拖拽改状态写回数据源，并在删除数据源表时级联清理关联视图', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     // 1. 看板卡片拖拽修改项目状态
     const moveRes = await app.request('/api/views/wv_projects_kanban/kanban/cards/rec_prj_001', {
@@ -463,7 +468,7 @@ describe('SEED_VERSION 示范应用视图与独立视图 CRUD / 样式持久化 
   })
 
   test('dashboardConfig 校验并持久化新图型、seriesField、stacked、limit 与 KPI icon', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     const validRes = await app.request('/api/views', {
       method: 'POST',
@@ -686,7 +691,9 @@ describe('旧库表级派生列与 _lookupOverrides 自动提升及 SmartApp 派
 
       const upgraded = openDatabase(dbPath)
       try {
-        const app = createApp(upgraded)
+        const rawApp = createApp(upgraded)
+        const { cookie } = await loginAsAdmin(rawApp)
+        const app = createAuthedClient(rawApp, cookie)
         const appsRes = await app.request('/api/apps')
         expect(appsRes.status).toBe(200)
         const { apps } = (await appsRes.json()) as AllAppsResponse
@@ -794,7 +801,9 @@ describe('旧库表级派生列与 _lookupOverrides 自动提升及 SmartApp 派
 
       const upgraded = openDatabase(dbPath)
       try {
-        const app = createApp(upgraded)
+        const rawApp = createApp(upgraded)
+        const { cookie } = await loginAsAdmin(rawApp)
+        const app = createAuthedClient(rawApp, cookie)
         const appsRes = await app.request('/api/apps')
         const { apps } = (await appsRes.json()) as AllAppsResponse
         const autoApp = apps.find((a) => a.tableId === 'tbl_orphan')
@@ -817,7 +826,7 @@ describe('旧库表级派生列与 _lookupOverrides 自动提升及 SmartApp 派
   })
 
   test('SmartApp 读写校验 derivedColumns/lookupOverrides，并禁止看板写回派生列', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     // 1. 新建基于 tbl_projects 的 SmartApp，允许携带合法派生列与 lookupOverrides
     const createOk = await app.request('/api/apps', {
@@ -944,7 +953,7 @@ describe('旧库表级派生列与 _lookupOverrides 自动提升及 SmartApp 派
   })
 
   test('派生列、透视指标与仪表盘 KPI 的 decimalPlaces（0~6）校验（400）与持久化一致', async () => {
-    const { app } = createSeededTestEnv()
+    const { app } = await createSeededTestEnv()
 
     // 1) SmartApp 派生列拒绝非法 decimalPlaces，持久化合法 0~6
     for (const bad of [-1, 7, 1.5, '2']) {

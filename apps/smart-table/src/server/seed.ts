@@ -10,14 +10,18 @@
 // 存 PRAGMA user_version；ensureSeeded 依据它对旧库自愈重种（见文件尾部）。
 import type { Database } from 'bun:sqlite'
 import type {
+  MemberAccessLevel,
+  ResourceVisibilityScope,
   SmartApp,
   SmartColumn,
   SmartRecord,
   SmartView,
   SummaryType,
+  TableRowScope,
   WorkspaceView,
 } from '../shared/schema'
-import { runInTransaction } from './db'
+import { restoreBuiltinDemoUsers } from './auth'
+import { runInTransaction, setRecordOwnership } from './db'
 
 /**
  * 当前种子版本。历史沿革：
@@ -31,8 +35,9 @@ import { runInTransaction } from './db'
  * - 6：升级示范仪表盘视图配置，覆盖 horizontalBar / area / radar 图型与二级分组多系列（含堆叠/Top N）示例
  * - 7：数据源表与智能表格层职责分离，lookup/formula 派生列及 lookupOverrides 重名消歧锁定上移至 smart_apps
  * - 8：补充真实业务小数样本（含 0.1/0.2 十进制精度边界、货币分位及进度小数），并为列/透视指标/仪表盘 KPI 预置 decimalPlaces 示范配置
+ * - 9：预置管理员/负责人（李四、王五）/普通成员（钱七）演示账号，写入记录 createdBy 与两层示范权限策略
  */
-export const SEED_VERSION = 8
+export const SEED_VERSION = 9
 
 /** 种子内置表 id 集合：smart_tables 中出现集合之外的表即视为用户自建表 */
 const SEED_TABLE_IDS: ReadonlySet<string> = new Set([
@@ -2158,6 +2163,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 0,
       derivedColumns: PROJECT_DERIVED_COLUMNS,
       lookupOverrides: { rec_prj_006: { grp_emp: 'EMP-009' } },
+      createdBy: 'usr_mgr_lisi',
+      visibilityScope: 'all',
+      managerUserIds: ['usr_mgr_lisi', 'usr_mgr_wangwu'],
+      memberAccess: 'readonly',
     },
     {
       id: 'app_payments',
@@ -2167,6 +2176,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 1,
       derivedColumns: [],
       lookupOverrides: {},
+      createdBy: 'usr_admin',
+      visibilityScope: 'managers',
+      managerUserIds: ['usr_mgr_lisi', 'usr_mgr_wangwu'],
+      memberAccess: 'readonly',
     },
     {
       id: 'app_exec_revenue',
@@ -2176,6 +2189,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 2,
       derivedColumns: [],
       lookupOverrides: {},
+      createdBy: 'usr_admin',
+      visibilityScope: 'self',
+      managerUserIds: [],
+      memberAccess: 'readonly',
     },
     {
       id: 'app_tickets',
@@ -2185,6 +2202,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 3,
       derivedColumns: TICKET_DERIVED_COLUMNS,
       lookupOverrides: {},
+      createdBy: 'usr_mgr_wangwu',
+      visibilityScope: 'all',
+      managerUserIds: ['usr_mgr_wangwu'],
+      memberAccess: 'editable',
     },
     {
       id: 'app_inventory',
@@ -2194,6 +2215,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 4,
       derivedColumns: INVENTORY_DERIVED_COLUMNS,
       lookupOverrides: {},
+      createdBy: 'usr_admin',
+      visibilityScope: 'all',
+      managerUserIds: [],
+      memberAccess: 'readonly',
     },
     {
       id: 'app_employees',
@@ -2203,6 +2228,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 5,
       derivedColumns: [],
       lookupOverrides: {},
+      createdBy: 'usr_admin',
+      visibilityScope: 'managers',
+      managerUserIds: ['usr_mgr_lisi', 'usr_mgr_wangwu'],
+      memberAccess: 'readonly',
     },
     {
       id: 'app_suppliers',
@@ -2212,6 +2241,10 @@ function buildDemoSmartApps(): SmartApp[] {
       sortOrder: 6,
       derivedColumns: [],
       lookupOverrides: {},
+      createdBy: 'usr_admin',
+      visibilityScope: 'all',
+      managerUserIds: [],
+      memberAccess: 'readonly',
     },
   ]
 }
@@ -2966,6 +2999,42 @@ function buildDemoWorkspaceViews(): WorkspaceView[] {
   ]
 }
 
+const SEED_USER_BY_NAME: Record<string, string> = {
+  李四: 'usr_mgr_lisi',
+  王五: 'usr_mgr_wangwu',
+  钱七: 'usr_member_qianqi',
+}
+
+function resolveSeedOwnerByName(name: unknown): string {
+  if (typeof name === 'string') {
+    const mapped = SEED_USER_BY_NAME[name.trim()]
+    if (mapped) return mapped
+  }
+  return 'usr_admin'
+}
+
+interface SeedTablePermissionSpec {
+  createdBy: string
+  rowScope: TableRowScope
+  ownerColumnKey?: string | null
+  memberAccess?: MemberAccessLevel | null
+}
+
+const DEMO_VIEW_OVERRIDES: Record<
+  string,
+  {
+    createdBy?: string
+    visibilityScope?: ResourceVisibilityScope
+    managerUserIds?: string[]
+  }
+> = {
+  wv_exec_dashboard: {
+    createdBy: 'usr_admin',
+    visibilityScope: 'managers',
+    managerUserIds: ['usr_mgr_lisi', 'usr_mgr_wangwu'],
+  },
+}
+
 export function seedSmartTableDemo(db: Database, options?: { force?: boolean }): void {
   runInTransaction(db, () => {
     if (!options?.force) {
@@ -2979,6 +3048,8 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       }
     } else {
       db.exec(`
+        DELETE FROM shares;
+        DELETE FROM record_ownership;
         DELETE FROM workspace_views;
         DELETE FROM smart_apps;
         DELETE FROM smart_table_records;
@@ -2987,12 +3058,13 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
         DELETE FROM biz_payments;
       `)
     }
+    restoreBuiltinDemoUsers(db)
     // 实际执行播种时同步记录种子版本（随事务提交/回滚）
     writeSeedVersion(db, SEED_VERSION)
 
     const now = new Date().toISOString()
     const insertTableStmt = db.query(
-      'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO smart_tables (id, name, kind, primary_key_field, source_sql_table, schema_json, views_json, created_by, row_scope, owner_column_key, member_access, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     const insertRecordStmt = db.query(
       'INSERT INTO smart_table_records (id, table_id, row_order, data_json) VALUES (?, ?, ?, ?)',
@@ -3004,6 +3076,8 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       description: string,
       metaParts: TableMetaParts,
       records: readonly SmartRecord[],
+      perm: SeedTablePermissionSpec,
+      resolveOwner: (record: SmartRecord) => string = () => perm.createdBy,
     ): void => {
       insertTableStmt.run(
         id,
@@ -3017,11 +3091,18 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
           summaries: metaParts.summaries,
         }),
         JSON.stringify(metaParts.views),
+        perm.createdBy,
+        perm.rowScope,
+        perm.ownerColumnKey ?? null,
+        perm.memberAccess ?? null,
         now,
       )
+      const ownershipEntries: { recordId: string; createdBy: string }[] = []
       records.forEach((record, index) => {
         insertRecordStmt.run(record._id, id, index, JSON.stringify(record))
+        ownershipEntries.push({ recordId: record._id, createdBy: resolveOwner(record) })
       })
+      setRecordOwnership(db, id, ownershipEntries)
     }
 
     // 1. 表 1：《项目跟进与业绩总表》（normal）
@@ -3031,6 +3112,12 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       '核心业务台账：含富媒体列、跨表 VLOOKUP 关联（重名消歧 + Rollup 汇总）、整列公式与多视图',
       buildProjectsMeta(),
       PROJECT_RECORDS,
+      {
+        createdBy: 'usr_mgr_lisi',
+        rowScope: 'manager',
+        ownerColumnKey: 'owner_name',
+      },
+      (rec) => resolveSeedOwnerByName(rec.owner_name),
     )
 
     // 2. 表 2：《企业员工花名册》（advanced -> biz_employees）
@@ -3048,14 +3135,21 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
         system: true,
       }),
       JSON.stringify(employeesMeta.views),
+      'usr_admin',
+      'all',
+      null,
+      null,
       now,
     )
     const insertEmpStmt = db.query(
       'INSERT INTO biz_employees (emp_id, name, dept, level, region, email) VALUES (?, ?, ?, ?, ?, ?)',
     )
+    const empOwnership: { recordId: string; createdBy: string }[] = []
     for (const emp of EMPLOYEE_ROWS) {
       insertEmpStmt.run(emp.emp_id, emp.name, emp.dept, emp.level, emp.region, emp.email)
+      empOwnership.push({ recordId: emp.emp_id, createdBy: resolveSeedOwnerByName(emp.name) })
     }
+    setRecordOwnership(db, 'tbl_employees', empOwnership)
 
     // 3. 表 3：《客户回款流水表》（advanced -> biz_payments）
     const paymentsMeta = buildPaymentsMeta()
@@ -3073,11 +3167,16 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
         system: true,
       }),
       JSON.stringify(paymentsMeta.views),
+      'usr_admin',
+      'all',
+      null,
+      null,
       now,
     )
     const insertPayStmt = db.query(
       'INSERT INTO biz_payments (pay_id, project_code, customer_name, pay_date, year, month, region, amount, pay_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
+    const payOwnership: { recordId: string; createdBy: string }[] = []
     for (const pay of PAYMENT_ROWS) {
       insertPayStmt.run(
         pay.pay_id,
@@ -3090,7 +3189,9 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
         pay.amount,
         pay.pay_method,
       )
+      payOwnership.push({ recordId: pay.pay_id, createdBy: 'usr_admin' })
     }
+    setRecordOwnership(db, 'tbl_payments', payOwnership)
 
     // 4. 表 4：《产品库存与采购台账》（normal）
     seedNormalTable(
@@ -3099,6 +3200,7 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       '供应链库存台账：VLOOKUP 关联供应商交期 + 库存缺口/补货预警双公式列 + 仓库大区透视',
       buildInventoryMeta(),
       INVENTORY_RECORDS,
+      { createdBy: 'usr_admin', rowScope: 'all' },
     )
 
     // 5. 表 5：《供应商名录》（normal）
@@ -3108,6 +3210,7 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       '供应链核心供应商主数据：含评分、交期与 { url, text } 对象格式官网链接',
       buildSuppliersMeta(),
       SUPPLIER_RECORDS,
+      { createdBy: 'usr_admin', rowScope: 'all' },
     )
 
     // 6. 表 6：《客户工单与 SLA 追踪》（normal）
@@ -3117,13 +3220,22 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
       '售后运维与 SLA 追踪：跨普通表 VLOOKUP 关联项目名称、响应进度与 SLA 违约预警',
       buildTicketsMeta(),
       TICKET_RECORDS,
+      {
+        createdBy: 'usr_mgr_wangwu',
+        rowScope: 'self',
+        ownerColumnKey: 'assignee',
+        memberAccess: 'editable',
+      },
+      (rec) => resolveSeedOwnerByName(rec.assignee),
     )
 
     // 7. 预置独立智能表格（smart_apps）与每张表内的多种示范视图（workspace_views）
+    const demoApps = buildDemoSmartApps()
+    const appCreatorMap = new Map(demoApps.map((a) => [a.id, a.createdBy ?? 'usr_admin']))
     const insertAppStmt = db.query(
-      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO smart_apps (id, name, description, table_id, sort_order, derived_columns_json, lookup_overrides_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    for (const app of buildDemoSmartApps()) {
+    for (const app of demoApps) {
       insertAppStmt.run(
         app.id,
         app.name,
@@ -3132,16 +3244,51 @@ export function seedSmartTableDemo(db: Database, options?: { force?: boolean }):
         app.sortOrder,
         JSON.stringify(app.derivedColumns ?? []),
         JSON.stringify(app.lookupOverrides ?? {}),
+        app.createdBy ?? 'usr_admin',
+        app.visibilityScope ?? 'all',
+        JSON.stringify(app.managerUserIds ?? []),
+        app.memberAccess ?? 'readonly',
         now,
       )
     }
 
     const insertViewStmt = db.query(
-      'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO workspace_views (id, app_id, table_id, name, type, sort_order, config_json, created_by, visibility_scope, manager_user_ids_json, member_access, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     for (const view of buildDemoWorkspaceViews()) {
-      const { id, appId, tableId, name, type, sortOrder, updatedAt: _ua, ...config } = view
-      insertViewStmt.run(id, appId, tableId, name, type, sortOrder, JSON.stringify(config), now)
+      const {
+        id,
+        appId,
+        tableId,
+        name,
+        type,
+        sortOrder,
+        createdBy: _cb,
+        visibilityScope: _vs,
+        managerUserIds: _mu,
+        memberAccess: _ma,
+        capabilities: _cap,
+        updatedAt: _ua,
+        ...config
+      } = view
+      const override = DEMO_VIEW_OVERRIDES[id]
+      const createdBy = override?.createdBy ?? appCreatorMap.get(appId) ?? 'usr_admin'
+      const visibilityScope = override?.visibilityScope ?? 'all'
+      const managerUserIds = override?.managerUserIds ?? []
+      insertViewStmt.run(
+        id,
+        appId,
+        tableId,
+        name,
+        type,
+        sortOrder,
+        JSON.stringify(config),
+        createdBy,
+        visibilityScope,
+        JSON.stringify(managerUserIds),
+        null,
+        now,
+      )
     }
   })
 }
