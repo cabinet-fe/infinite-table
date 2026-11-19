@@ -10,12 +10,15 @@ import type {
   DashboardConfig,
   KanbanConfig,
   ResourceCapabilities,
+  ShareStatus,
+  ShareTargetType,
   SmartApp,
   SmartColumn,
   SmartPivotConfig,
   SmartRecord,
   SmartTableMeta,
   SmartViewType,
+  SortRule,
   SummaryType,
   UserCapabilities,
   UserRole,
@@ -31,7 +34,7 @@ import {
   computeUserCapabilities,
   computeViewCapabilities,
 } from './permissions'
-import type { NavSection } from './router'
+import { buildAbsoluteRouteUrl, type NavSection } from './router'
 import { scalarToText } from './utils'
 
 /** 角色中文名称映射 */
@@ -181,6 +184,85 @@ export function canEditEntryTableItem(
     table.capabilities?.canEditRecords ??
     canWriteTableRecords(user, table, allApps ?? [], allViews ?? [])
   )
+}
+
+/** 判断用户是否可为指定智能表格应用创建对外分享链接 */
+export function canCreateAppShareItem(
+  user: AuthUser | null | undefined,
+  app: SmartApp | null | undefined,
+): boolean {
+  if (!user || !app || user.role === 'member') return false
+  return app.capabilities?.canCreateShare ?? canConfigureApp(user, app)
+}
+
+/** 判断用户是否可为指定应用视图创建对外分享链接 */
+export function canCreateViewShareItem(
+  user: AuthUser | null | undefined,
+  view: WorkspaceView | null | undefined,
+  parentApp?: SmartApp | null,
+): boolean {
+  if (!user || !view || user.role === 'member') return false
+  return view.capabilities?.canCreateShare ?? canConfigureView(user, view, parentApp)
+}
+
+/** 判断用户是否可为指定普通数据录入表创建对外分享链接 */
+export function canCreateEntryShareItem(
+  user: AuthUser | null | undefined,
+  table: SmartTableMeta | null | undefined,
+  allApps?: readonly SmartApp[],
+): boolean {
+  if (!user || !table || user.role === 'member' || table.kind !== 'normal') return false
+  const appsForTable = (allApps ?? []).filter((app) => app.tableId === table.id)
+  return table.capabilities?.canCreateShare ?? canConfigureTable(user, table, appsForTable)
+}
+
+/** 分享目标类型中文标签 */
+export const SHARE_TARGET_LABELS: Record<ShareTargetType, string> = {
+  app: '智能表格应用',
+  view: '应用视图',
+  entry: '数据录入表',
+}
+
+/** 分享链接生命周期状态中文标签 */
+export const SHARE_STATUS_LABELS: Record<ShareStatus, string> = {
+  active: '生效中',
+  expired: '已过期',
+  revoked: '已失效',
+}
+
+/** 格式化分享时间字段为本地 YYYY-MM-DD HH:mm */
+export function formatShareTimestamp(
+  iso: string | null | undefined,
+  emptyLabel = '永久有效',
+): string {
+  if (!iso) return emptyLabel
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return emptyLabel
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}`
+}
+
+/** 列头点击排序循环：该列规则 无→asc→desc→移除；additive 在既有规则上原地循环、不塌缩其它规则 */
+export function cycleSortRules(
+  rules: readonly SortRule[],
+  field: string,
+  additive: boolean,
+): SortRule[] {
+  const index = rules.findIndex((rule) => rule.field === field)
+  if (index < 0) {
+    return additive ? [...rules, { field, direction: 'asc' }] : [{ field, direction: 'asc' }]
+  }
+  const current = rules[index]!
+  if (additive) {
+    return current.direction === 'asc'
+      ? rules.map((rule, i) => (i === index ? { field, direction: 'desc' } : rule))
+      : rules.filter((_, i) => i !== index)
+  }
+  return current.direction === 'asc' ? [{ field, direction: 'desc' }] : []
 }
 
 /** 汇总方式中文标签 */
@@ -531,4 +613,23 @@ export function triggerBrowserDownload(filename: string, data: BlobPart, mimeTyp
   anchor.click()
   anchor.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/** 生成当前站点下 /s/:token 完整分享 URL */
+export function buildShareFullUrl(token: string): string {
+  const baseHref = typeof window !== 'undefined' ? window.location.href : ''
+  return buildAbsoluteRouteUrl(baseHref, { kind: 'share', token })
+}
+
+/** 安全复制文本至剪贴板 */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+    return false
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
 }

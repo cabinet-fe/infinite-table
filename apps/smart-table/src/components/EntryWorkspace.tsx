@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   Link2,
   Plus,
+  Share2,
   Table2,
   Trash2,
 } from 'lucide-react'
@@ -36,10 +37,12 @@ export interface EntryWorkspaceProps {
   bundle: TableBundle
   busy?: boolean
   readonly?: boolean
+  canShare?: boolean
   switchableTables?: readonly { id: string; name: string }[]
   onSwitchTable?: (tableId: string) => void
   onLoadSwitchableTables?: () => Promise<void> | void
   onCopyEntryLink?: () => void | Promise<void>
+  onOpenShare?: () => void
   onCreateRecord: (record: Record<string, unknown>) => Promise<SmartRecord | void>
   onUpdateRecord: (recordId: string, patch: Record<string, unknown>) => Promise<SmartRecord | void>
   onDeleteRecords: (recordIds: string[]) => Promise<void>
@@ -66,10 +69,12 @@ export function EntryWorkspace({
   bundle,
   busy = false,
   readonly = false,
+  canShare = false,
   switchableTables,
   onSwitchTable,
   onLoadSwitchableTables,
   onCopyEntryLink,
+  onOpenShare,
   onCreateRecord,
   onUpdateRecord,
   onDeleteRecords,
@@ -430,6 +435,18 @@ export function EntryWorkspace({
             >
               <Link2 className="h-3.5 w-3.5" />
               <span>复制链接</span>
+            </button>
+          )}
+          {canShare && onOpenShare && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenShare}
+              title="创建免登录对外填报分享链接"
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              <span>对外分享</span>
             </button>
           )}
         </div>

@@ -447,6 +447,33 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
           currentUser = null
           return jsonResponse({ ok: true })
         }
+        if (url === '/api/s/share_demo_tok' && method === 'GET') {
+          return jsonResponse({
+            unlocked: true,
+            requiresPassword: false,
+            share: {
+              id: 'shr_demo',
+              token: 'share_demo_tok',
+              targetType: 'app',
+              targetId: 'app_1',
+              targetName: '项目驾驶舱',
+              createdByName: ADMIN_USER.displayName,
+              expiresAt: null,
+            },
+            capabilities: {
+              canView: true,
+              canEditRecords: false,
+              canConfigure: false,
+              canManagePermissions: false,
+              canCreateShare: false,
+              canManageDataSource: false,
+            },
+            app: state.apps[0],
+            views: state.views,
+            table: state.tables[0],
+            tables: state.tables,
+          })
+        }
 
         if (!currentUser) {
           return jsonResponse({ message: '未登录或会话已过期，请先登录' }, 401)
@@ -546,6 +573,12 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
           state.views[0] = { ...state.views[0]!, ...(body as Partial<WorkspaceView>) }
           return jsonResponse({ view: decorateAll(currentUser).views[0] })
         }
+        if (url === '/api/shares' && method === 'GET') {
+          if (currentUser.role === 'member') {
+            return jsonResponse({ message: '普通成员无权管理分享链接' }, 403)
+          }
+          return jsonResponse({ shares: [] })
+        }
         return jsonResponse({ message: '表不存在' }, 404)
       },
     )
@@ -605,11 +638,13 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
     await flushAsync()
 
     expect(window.location.pathname).toBe('/s/share_demo_tok')
+    expect(shareMount.container.querySelector('[data-testid="share-access-page"]')).not.toBeNull()
     expect(
-      shareMount.container.querySelector('[data-testid="share-route-placeholder"]'),
+      shareMount.container.querySelector('[data-testid="share-guest-workspace"]'),
     ).not.toBeNull()
-    expect(shareMount.container.textContent).toContain('share_demo_tok')
+    expect(shareMount.container.textContent).toContain('项目驾驶舱')
     expect(shareMount.container.querySelector('[aria-label="主导航栏"]')).toBeNull()
+    expect(unauthed.calls.some((c) => c.url === '/api/s/share_demo_tok')).toBe(true)
     expect(unauthed.calls.some((c) => c.url === '/api/auth/me')).toBe(false)
     shareMount.unmount()
 
@@ -816,8 +851,9 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
     act(() => {
       ;(container.querySelector('button[aria-label="分享管理"]') as HTMLButtonElement).click()
     })
+    await flushAsync()
     expect(window.location.pathname).toBe('/shares')
-    expect(container.querySelector('[data-testid="shares-route-placeholder"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="shares-page"]')).not.toBeNull()
 
     act(() => {
       ;(container.querySelector('button[aria-label="权限管理"]') as HTMLButtonElement).click()

@@ -13,6 +13,7 @@ import {
   KeyRound,
   Link2,
   Plus,
+  Share2,
   SlidersHorizontal,
   Sparkles,
   Stamp,
@@ -97,6 +98,7 @@ export interface ToolbarProps {
   onToggleWatermark: () => void
   onOpenEntryPage?: () => void
   onCopyEntryLink?: () => Promise<void> | void
+  onOpenShare?: () => void
   onJumpToDatasource?: (tableId: string) => void
   onNotify: (type: ToastType, message: string) => void
 }
@@ -146,10 +148,11 @@ export function Toolbar({
   onToggleWatermark,
   onOpenEntryPage,
   onCopyEntryLink,
+  onOpenShare,
   onJumpToDatasource,
   onNotify,
 }: ToolbarProps) {
-  const { canEditRecords, canConfigure, canManageDataSource } = capabilities
+  const { canEditRecords, canConfigure, canManageDataSource, canCreateShare } = capabilities
   const isDatasource = targetKind === 'datasource'
   const isGridEditableTarget = isDatasource || activeView?.type === 'table'
 
@@ -788,6 +791,21 @@ export function Toolbar({
             </div>
           )}
         </div>
+
+        {canCreateShare && onOpenShare && (!isDatasource || tableMeta.kind === 'normal') && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onOpenShare}
+            title={
+              isDatasource ? '创建免登录对外填报分享链接' : '创建或管理当前视图或应用的对外分享链接'
+            }
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50/70 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100/70 disabled:opacity-40"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+            <span>{isDatasource ? '对外分享' : '分享视图'}</span>
+          </button>
+        )}
 
         {/* 统一视图配置抽屉入口（仅具备视图配置权 + 应用视图模式可见） */}
         {canConfigure && !isDatasource && (

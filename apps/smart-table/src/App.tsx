@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PivotCellDrillEvent } from '@infinitable/pivot'
 import type { Region } from '@infinitable/render'
-import { AlertTriangle, ArrowLeft, Filter, Lock, Plus, Share2, Table2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Filter, Lock, Plus, Table2 } from 'lucide-react'
 import {
   ApiError,
   batchAppendRecords,
@@ -64,6 +64,9 @@ import { LookupFieldPanel } from './components/LookupFieldPanel'
 import { LookupWizardModal } from './components/LookupWizardModal'
 import { NavRail } from './components/NavRail'
 import { PermissionsPage } from './components/PermissionsPage'
+import { ShareAccessPage } from './components/ShareAccessPage'
+import { ShareModal, type ShareTargetOption } from './components/ShareModal'
+import { SharesPage } from './components/SharesPage'
 import { Sidebar, type SidebarSection } from './components/Sidebar'
 import { SummaryMenuPopover } from './components/SummaryMenuPopover'
 import { ToastHost, type ToastItem, type ToastType } from './components/Toast'
@@ -91,7 +94,11 @@ import {
   buildDefaultPivotConfig,
   canConfigureAppItem,
   canConfigureViewItem,
+  canCreateAppShareItem,
+  canCreateEntryShareItem,
+  canCreateViewShareItem,
   canEditEntryTableItem,
+  cycleSortRules,
   resolveWorkspaceActionCapabilities,
   toggleHiddenColumn,
 } from './domain/workspace-helpers'
@@ -112,6 +119,7 @@ import {
   type FilterGroup,
   type LookupMatchRule,
   type SelectOption,
+  type ShareTargetType,
   type SmartApp,
   type SmartColumn,
   type SmartRecord,
@@ -214,24 +222,7 @@ function pruneOrphanedLookupOverrides(
   return { nextOverrides, changed }
 }
 
-/** 列头点击排序循环：该列规则 无→asc→desc→移除；additive 在既有规则上原地循环、不塌缩其它规则 */
-export function cycleSortRules(
-  rules: readonly SortRule[],
-  field: string,
-  additive: boolean,
-): SortRule[] {
-  const index = rules.findIndex((rule) => rule.field === field)
-  if (index < 0) {
-    return additive ? [...rules, { field, direction: 'asc' }] : [{ field, direction: 'asc' }]
-  }
-  const current = rules[index]!
-  if (additive) {
-    return current.direction === 'asc'
-      ? rules.map((rule, i) => (i === index ? { field, direction: 'desc' } : rule))
-      : rules.filter((_, i) => i !== index)
-  }
-  return current.direction === 'asc' ? [{ field, direction: 'desc' }] : []
-}
+export { cycleSortRules }
 
 function stripDeletedColumnFromMeta(meta: SmartTableMeta, columnKey: string): SmartTableMeta {
   const nextSummaries = { ...meta.summaries }
@@ -481,6 +472,10 @@ export function App() {
   const [summaryMenu, setSummaryMenu] = useState<SmartGridSummaryClickInfo | null>(null)
   const [popupMenu, setPopupMenu] = useState<GridMenuContext | null>(null)
   const [confirmDeleteCol, setConfirmDeleteCol] = useState<SmartColumn | null>(null)
+  const [shareModalState, setShareModalState] = useState<{
+    targets: ShareTargetOption[]
+    initialTarget: { targetType: ShareTargetType; targetId: string }
+  } | null>(null)
   const [createAppDraftRequest, setCreateAppDraftRequest] = useState<{
     tableId: string
     nonce: number
@@ -537,6 +532,7 @@ export function App() {
     setFieldSettings(null)
     setSummaryMenu(null)
     setPopupMenu(null)
+    setShareModalState(null)
   }, [])
 
   const resetAllWorkspaceState = useCallback(() => {
@@ -2573,18 +2569,15 @@ export function App() {
     }
   }
 
-  // ---------------- 分支一：/s/:token 独立无侧栏免登录访客路由（待 P7 挂载 ShareAccessPage） ----------------
+  // ---------------- 分支一：/s/:token 独立无侧栏免登录访客路由 ----------------
   if (route.kind === 'share') {
     return (
       <>
         <ToastHost toasts={toasts} onDismiss={dismissToast} />
-        <RouteStatusCard
-          testId="share-route-placeholder"
-          icon={<Share2 className="h-8 w-8 text-blue-600" />}
-          title="对外分享访问视图"
-          description={`正在访问免登录分享链接（Token：${route.token}），完整访客查看与填报交互将在后续阶段接入。`}
-          actionLabel="返回工作台"
-          onAction={() => {
+        <ShareAccessPage
+          token={route.token}
+          onNotify={pushToast}
+          onGoHome={() => {
             setAuthStatus(session ? 'authenticated' : 'checking')
             navigate({ kind: 'apps' })
           }}
@@ -2632,6 +2625,43 @@ export function App() {
 
   const goHome = () => handleNavSection('apps')
 
+  function openShareModalForAppContext(preferred: 'app' | 'view') {
+    const shareTargets: ShareTargetOption[] = []
+    if (activeApp && canCreateAppShareItem(currentUser, activeApp)) {
+      shareTargets.push({
+        targetType: 'app',
+        targetId: activeApp.id,
+        targetName: activeApp.name,
+      })
+    }
+    if (activeStoredView && canCreateViewShareItem(currentUser, activeStoredView, activeApp)) {
+      shareTargets.push({
+        targetType: 'view',
+        targetId: activeStoredView.id,
+        targetName: activeApp
+          ? `${activeApp.name} · ${activeStoredView.name}`
+          : activeStoredView.name,
+      })
+    }
+    if (shareTargets.length === 0) return
+    const preferredMatch = shareTargets.find((t) => t.targetType === preferred) ?? shareTargets[0]!
+    setShareModalState({
+      targets: shareTargets,
+      initialTarget: {
+        targetType: preferredMatch.targetType,
+        targetId: preferredMatch.targetId,
+      },
+    })
+  }
+
+  function openShareModalForEntry(tableMeta: SmartTableMeta) {
+    if (!canCreateEntryShareItem(currentUser, tableMeta, apps)) return
+    setShareModalState({
+      targets: [{ targetType: 'entry', targetId: tableMeta.id, targetName: tableMeta.name }],
+      initialTarget: { targetType: 'entry', targetId: tableMeta.id },
+    })
+  }
+
   // 渲染受保护工作台右侧主区内容
   function renderMainContent() {
     if (loading && !workspaceLoaded) {
@@ -2659,26 +2689,12 @@ export function App() {
     }
 
     if (route.kind === 'shares') {
-      if (!userCapabilities.canManageShares) {
-        return (
-          <RouteStatusCard
-            testId="shares-forbidden"
-            icon={<Lock className="h-7 w-7 text-amber-500" />}
-            title="无权访问分享管理"
-            description="普通成员无权创建或管理对外分享链接，请联系管理员或负责人处理。"
-            actionLabel="返回工作台"
-            onAction={goHome}
-          />
-        )
-      }
       return (
-        <RouteStatusCard
-          testId="shares-route-placeholder"
-          icon={<Share2 className="h-8 w-8 text-blue-600" />}
-          title="分享链接管理"
-          description="集中查看与管理应用、视图和录入表的对外分享链接状态与有效期。"
-          actionLabel="返回工作台"
-          onAction={goHome}
+        <SharesPage
+          currentUser={currentUser}
+          userCapabilities={userCapabilities}
+          onBackToWorkbench={goHome}
+          onNotify={pushToast}
         />
       )
     }
@@ -2739,14 +2755,17 @@ export function App() {
       }
 
       const canEditEntry = canEditEntryTableItem(currentUser, entryBundle.meta, apps, views)
+      const canShareEntry = canCreateEntryShareItem(currentUser, entryBundle.meta, apps)
       return (
         <EntryWorkspace
           bundle={entryBundle}
           busy={busy}
           readonly={!canEditEntry}
+          canShare={canShareEntry}
           switchableTables={normalEntryTables}
           onSwitchTable={handleEnterTableEntry}
           onCopyEntryLink={() => handleCopyEntryLink(entryBundle.meta.id)}
+          onOpenShare={() => openShareModalForEntry(entryBundle.meta)}
           onCreateRecord={async (record) => {
             if (!canEditEntry) return
             setBusy(true)
@@ -2845,6 +2864,7 @@ export function App() {
           <AppViewTabs
             canConfigureApp={canConfigureAppItem(currentUser, activeApp)}
             canManageDataSource={actionCapabilities.canManageDataSource}
+            canShareApp={canCreateAppShareItem(currentUser, activeApp)}
             canConfigureView={(view) => canConfigureViewItem(currentUser, view, activeApp)}
             app={activeApp}
             bundle={workbenchTableBundle}
@@ -2859,6 +2879,7 @@ export function App() {
             onJumpToDatasource={
               actionCapabilities.canManageDataSource ? handleSelectTable : undefined
             }
+            onShareApp={() => openShareModalForAppContext('app')}
           />
         )}
 
@@ -2912,6 +2933,13 @@ export function App() {
           onCopyEntryLink={() => {
             if (activeTable.meta.kind !== 'normal') return
             return handleCopyEntryLink(activeTable.meta.id)
+          }}
+          onOpenShare={() => {
+            if (targetKind === 'datasource') {
+              openShareModalForEntry(activeTable.meta)
+            } else {
+              openShareModalForAppContext('view')
+            }
           }}
           onJumpToDatasource={
             actionCapabilities.canManageDataSource ? handleSelectTable : undefined
@@ -3279,6 +3307,16 @@ export function App() {
           setConfirmDeleteCol(null)
         }}
       />
+
+      {shareModalState && (
+        <ShareModal
+          open={true}
+          targets={shareModalState.targets}
+          initialTarget={shareModalState.initialTarget}
+          onClose={() => setShareModalState(null)}
+          onNotify={pushToast}
+        />
+      )}
     </div>
   )
 }

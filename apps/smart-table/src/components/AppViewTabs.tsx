@@ -2,7 +2,7 @@
 // 支持快速切换；按真实配置权限控制新建视图、双击/按钮重命名、左右调序、删除及数据源快捷跳转。
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Database, Pencil, Plus, Table2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Database, Pencil, Plus, Share2, Table2, X } from 'lucide-react'
 import { buildDefaultViewPayload } from '../domain/workspace-helpers'
 import type { CreateViewRequest, TableBundle } from '../shared/api-types'
 import type { SmartApp, SmartViewType, WorkspaceView } from '../shared/schema'
@@ -19,6 +19,7 @@ const VIEW_TYPE_CHOICES: { value: SmartViewType; label: string; hint: string }[]
 export interface AppViewTabsProps {
   canConfigureApp: boolean
   canManageDataSource?: boolean
+  canShareApp?: boolean
   canConfigureView?: (view: WorkspaceView) => boolean
   app: SmartApp
   bundle: TableBundle
@@ -31,11 +32,13 @@ export interface AppViewTabsProps {
   onDeleteView: (viewId: string) => Promise<void>
   onReorderViews: (viewIds: string[]) => Promise<void>
   onJumpToDatasource?: (tableId: string) => void
+  onShareApp?: () => void
 }
 
 export function AppViewTabs({
   canConfigureApp,
   canManageDataSource = false,
+  canShareApp = false,
   canConfigureView,
   app,
   bundle,
@@ -48,6 +51,7 @@ export function AppViewTabs({
   onDeleteView,
   onReorderViews,
   onJumpToDatasource,
+  onShareApp,
 }: AppViewTabsProps) {
   const [creatingOpen, setCreatingOpen] = useState(false)
   const [newViewName, setNewViewName] = useState('')
@@ -276,6 +280,19 @@ export function AppViewTabs({
           )}
         </nav>
       </div>
+
+      {canShareApp && onShareApp && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onShareApp}
+          title="创建或管理当前智能表格应用的对外分享链接"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/70 hover:text-blue-700 disabled:opacity-40"
+        >
+          <Share2 className="h-3.5 w-3.5" />
+          <span>分享应用</span>
+        </button>
+      )}
 
       {/* 新建视图浮层 */}
       {canConfigureApp && creatingOpen && (
