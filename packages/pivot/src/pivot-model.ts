@@ -15,6 +15,7 @@
 // 行序列与行侧合并区，列结构不变。
 // 维度值与列头序均用码点比较（不走 localeCompare）：跨环境确定，冒烟断言可依赖。
 
+import { $n } from '@cat-kit/core'
 import type { CellChangeEvent, CellRange, TableModel } from '@infinitable/table'
 
 import type { PivotDimension, PivotMeasure, PivotRecord } from './types'
@@ -95,6 +96,16 @@ function createAccumulatorSlot(measureCount: number): Float64Array {
   return slot
 }
 
+/** 十进制精确累加：安全整型范围内直接相加，含小数或大数走 @cat-kit/core $n.plus */
+function addDecimal(a: number, b: number): number {
+  if (a === 0) return b === 0 ? 0 : b
+  if (b === 0) return a
+  if (Number.isInteger(a) && Number.isInteger(b) && Math.abs(a) <= 1e15 && Math.abs(b) <= 1e15) {
+    return a + b
+  }
+  return $n.plus(a, b)
+}
+
 /** 单条记录累加进槽位（阶段 1 单遍扫描内调用） */
 function accumulateRecord(
   slot: Float64Array,
@@ -105,11 +116,12 @@ function accumulateRecord(
   for (let m = 0; m < measures.length; m++) {
     const measure = measures[m]!
     if (measure.agg === 'count') continue
-    const value = record[measure.field]
-    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    const raw = record[measure.field]
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) continue
+    const value = raw === 0 ? 0 : raw
     const offset = 1 + m * ACC_STRIDE
     slot[offset] = slot[offset]! + 1
-    slot[offset + 1] = slot[offset + 1]! + value
+    slot[offset + 1] = addDecimal(slot[offset + 1]!, value)
     if (value < slot[offset + 2]!) slot[offset + 2] = value
     if (value > slot[offset + 3]!) slot[offset + 3] = value
   }
@@ -127,7 +139,7 @@ function mergeAccumulatorSlot(
     const srcNumCount = source[offset]!
     if (srcNumCount === 0) continue
     target[offset] = target[offset]! + srcNumCount
-    target[offset + 1] = target[offset + 1]! + source[offset + 1]!
+    target[offset + 1] = addDecimal(target[offset + 1]!, source[offset + 1]!)
     const srcMin = source[offset + 2]!
     if (srcMin < target[offset + 2]!) target[offset + 2] = srcMin
     const srcMax = source[offset + 3]!
@@ -148,7 +160,7 @@ function resolveAccumulatorValue(
   const sum = slot[offset + 1]!
   if (agg === 'sum') return sum
   if (numCount === 0) return undefined
-  if (agg === 'avg') return sum / numCount
+  if (agg === 'avg') return numCount === 1 ? sum : $n.div(sum, numCount)
   return agg === 'min' ? slot[offset + 2]! : slot[offset + 3]!
 }
 

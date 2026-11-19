@@ -18,5 +18,8 @@
     "@infinitable/grid": "workspace:*",
     "@infinitable/protocol": "workspace:*",
     "@infinitable/table": "workspace:*"
+  },
+  "peerDependencies": {
+    "@cat-kit/core": "^1.2.1"
   }
 }

@@ -237,7 +237,7 @@ export const PIVOT_GRAND_BACKGROUND = '#e2e8f0'
 
 结构落地：勾选/折叠变更经 `batchUpdate` 一次提交（行数/列数/冻结带/逐列宽/合并区），不重建实例；结构变化后旧选区坐标失效，高亮清空后由点击链路按新几何重放。
 
-样式投影：表头行底色 `PIVOT_HEADER_BACKGROUND` 居中；折叠载体行底色 `PIVOT_SUBTOTAL_BACKGROUND` 加粗；总计行底色 `PIVOT_GRAND_BACKGROUND` 加粗；交叉格聚合数值右对齐，整数千分位（`en-US`）、非整数保留 1 位小数。
+样式投影：表头行底色 `PIVOT_HEADER_BACKGROUND` 居中；折叠载体行底色 `PIVOT_SUBTOTAL_BACKGROUND` 加粗；总计行底色 `PIVOT_GRAND_BACKGROUND` 加粗；交叉格聚合数值右对齐，默认按 `en-US` 千分位格式化并保留真实有效小数（`Intl.NumberFormat('en-US', { maximumFractionDigits: 10 })`，`-0` 归一化为 `0`，非有限数出空）。
 
 ## 典型示例
 

@@ -74,7 +74,7 @@ pivot.destroy() // 卸载；幂等
 | `collapsible`      | `boolean`                   | `true`                       | 行维度树可折叠；`false` 时始终平铺展开、不绘展开钮                                                            |
 | `theme`            | `ThemeOverride`             | —                            | 主题覆盖（`ThemeOverride` 从主入口导入）；选区边框宽被压 `0`（高亮为纯填充），宿主可经 `interaction` 显式覆盖 |
 
-聚合器 `PivotAggregator` 五种：`sum` / `avg` / `min` / `max` 按 `field` 数值聚合，`count` 统计记录数（忽略 `field`）。同一记录字段可挂多个不同聚合的度量。聚合值显示：整数千分位、非整数保留 1 位小数。
+聚合器 `PivotAggregator` 五种：`sum` / `avg` / `min` / `max` 按 `field` 数值聚合，`count` 统计记录数（忽略 `field`）。同一记录字段可挂多个不同聚合的度量。聚合值默认按 `en-US` 千分位格式化并保留真实有效小数（`Intl.NumberFormat('en-US', { maximumFractionDigits: 10 })`，`-0` 归一化为 `0`，非有限数出空）。
 
 ## 形态与交互
 

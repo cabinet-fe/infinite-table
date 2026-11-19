@@ -208,6 +208,31 @@ if (pivot.getRecordCount() !== 4) {
   if (grandTotal !== 10) fail(`infinitable/pivot 总计聚合异常：sum = ${String(grandTotal)}`)
   else ok('infinitable/pivot 子路径可导入且无头交叉聚合正常（总计 sum=10）')
 }
+const decimalPivotContainer = document.createElement('div')
+document.body.appendChild(decimalPivotContainer)
+const decimalPivot = new pivotModule.PivotGrid({
+  container: decimalPivotContainer,
+  dimensions: [{ key: 'group', title: '分组', width: 120 }],
+  measures: [
+    { key: 'amount-sum', title: '金额和', field: 'amount', agg: 'sum', width: 120 },
+    { key: 'amount-avg', title: '金额均', field: 'amount', agg: 'avg', width: 120 },
+  ],
+  records: [
+    { group: 'A', amount: 0.1 },
+    { group: 'A', amount: 0.2 },
+  ],
+})
+const decimalSum = decimalPivot.getCellValue(1, 2)
+const decimalAvg = decimalPivot.getCellValue(2, 2)
+const decimalAvgText = decimalPivot.read.getCellText(2, 2)
+if (decimalSum !== 0.3 || decimalAvg !== 0.15 || decimalAvgText !== '0.15') {
+  fail(
+    `infinitable/pivot 小数精确聚合异常：sum=${String(decimalSum)} avg=${String(decimalAvg)} text=${String(decimalAvgText)}`,
+  )
+} else {
+  ok('infinitable/pivot 小数精确聚合正常（0.1+0.2=0.3，avg=0.15）')
+}
+decimalPivot.destroy()
 
 // 8) 跨入口 instanceof 契约：主入口与 ./sheet、./pivot 产物必须共享同一份引擎实现
 //    （构建层由 packages/infinitable/vite.config.ts 的 'engine' 共享 chunk 钉死）。
@@ -229,10 +254,12 @@ else {
   }
   const engineChunkSource = readFileSync(new URL(engineChunks[0], distDir), 'utf8')
   const pivotEntrySource = readFileSync(new URL('pivot.js', distDir), 'utf8')
-  if (/@cat-kit\/core/.test(engineChunkSource) || /@cat-kit\/core/.test(pivotEntrySource)) {
-    fail('engine chunk 或 pivot.js 残留 @cat-kit/core 依赖（formulas 未从 engine chunk 剥离）')
+  if (/@cat-kit\/core/.test(engineChunkSource)) {
+    fail('engine chunk 残留 @cat-kit/core 依赖（formulas 与 pivot 精确运算未从 engine chunk 剥离）')
+  } else if (!/@cat-kit\/core/.test(pivotEntrySource)) {
+    fail('pivot.js 未外部化消费 @cat-kit/core（十进制精确聚合依赖缺失或被内联）')
   } else {
-    ok('engine chunk 与 pivot.js 彻底脱离 formulas 与 @cat-kit/core')
+    ok('engine chunk 彻底脱离 formulas 与 @cat-kit/core；pivot.js 外部化消费 @cat-kit/core')
   }
   if (!failed) ok(`主入口与 ./sheet、./pivot 消费同一 engine chunk（${engineChunks[0]}）`)
 }

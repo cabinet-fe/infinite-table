@@ -160,4 +160,46 @@ describe('PivotGrid EngineAssembly 装配协议', () => {
       pivot.destroy()
     }
   })
+
+  it('默认 formatNumber 保留千分位与多位真实有效小数，不被 .toFixed(1) 截断', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const pivot = new PivotGrid({
+      container,
+      width: 720,
+      height: 360,
+      dpr: 1,
+      dimensions: [{ key: 'group', title: '分组', width: 100 }],
+      measures: [
+        { key: 'sum', title: '求和', field: 'val', agg: 'sum', width: 120 },
+        { key: 'avg', title: '均值', field: 'val', agg: 'avg', width: 120 },
+      ],
+      records: [
+        { group: 'g1-two-dec', val: 0.1 },
+        { group: 'g1-two-dec', val: 0.2 },
+        { group: 'g2-three-dec', val: 1.125 },
+        { group: 'g3-six-dec', val: 0.123456 },
+        { group: 'g4-thousands-dec', val: 1234.5678 },
+        { group: 'g5-thousands-int', val: 1000 },
+        { group: 'g6-zero', val: -0 },
+      ],
+      rowDimensions: ['group'],
+      columnDimensions: [],
+    })
+    try {
+      const read = pivot.capabilities.gridRead!
+      // 码点序行：g1(row1) ~ g6(row6)，总计(row7)
+      expect(read.getCellText(1, 1)).toBe('0.3')
+      expect(read.getCellText(2, 1)).toBe('0.15')
+      expect(read.getCellText(1, 2)).toBe('1.125')
+      expect(read.getCellText(1, 3)).toBe('0.123456')
+      expect(read.getCellText(1, 4)).toBe('1,234.5678')
+      expect(read.getCellText(1, 5)).toBe('1,000')
+      expect(read.getCellText(1, 6)).toBe('0')
+      // 总计：0.3 + 1.125 + 0.123456 + 1234.5678 + 1000 = 2236.116256
+      expect(read.getCellText(1, 7)).toBe('2,236.116256')
+    } finally {
+      pivot.destroy()
+    }
+  })
 })

@@ -64,10 +64,14 @@ const TREE_CLICK_SLOP = 10
 /** 动态列模板：列头关闭（多级表头走冻结行），宽度逐列 setColWidth 覆盖 */
 const COLUMN_TEMPLATE: ColumnDefine = { field: '__pivot__', width: 120 }
 
-/** 聚合值显示：整数千分位（显式 en-US 跨环境确定），非整数保留 1 位小数 */
+const DEFAULT_NUMBER_FORMATTER = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 10,
+})
+
+/** 聚合值默认显示：千分位与真实有效小数（显式 en-US 跨环境确定），非有限数出空 */
 function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return ''
-  return Number.isInteger(value) ? value.toLocaleString('en-US') : value.toFixed(1)
+  return DEFAULT_NUMBER_FORMATTER.format(value === 0 ? 0 : value)
 }
 
 /** 单行省略号截断绘制，防止长维度文本溢出到相邻列 */

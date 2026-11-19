@@ -626,3 +626,98 @@ describe('两阶段架构：零记录重扫与 100k 行性能回归', () => {
     expect(pivot.getCellRecords(2, 5)).toEqual([])
   })
 })
+
+describe('十进制精确聚合（@cat-kit/core $n）', () => {
+  it('消除 0.1 + 0.2 等累加浮点漂移，多级行维度自底向上归并与均值精确计算无误差', () => {
+    const measures: PivotMeasure[] = [
+      { key: 'val-sum', title: '求和', field: 'val', agg: 'sum', width: 110 },
+      { key: 'val-avg', title: '均值', field: 'val', agg: 'avg', width: 110 },
+      { key: 'val-min', title: '最小', field: 'val', agg: 'min', width: 110 },
+      { key: 'val-max', title: '最大', field: 'val', agg: 'max', width: 110 },
+    ]
+    const decimalRecords: PivotRecord[] = [
+      { region: 'A', product: 'P1', channel: 'C1', val: 0.1 },
+      { region: 'A', product: 'P1', channel: 'C1', val: 0.2 },
+      { region: 'A', product: 'P2', channel: 'C1', val: 0.3 },
+      { region: 'A', product: 'P2', channel: 'C1', val: 0.4 },
+      { region: 'B', product: 'P1', channel: 'C1', val: 0.14 },
+      { region: 'B', product: 'P1', channel: 'C1', val: 0.28 },
+      { region: 'B', product: 'P2', channel: 'C1', val: -0.9 },
+      { region: 'B', product: 'P2', channel: 'C1', val: 1.0 },
+      // 非有限数值与空值忽略，不污染精确累加
+      { region: 'B', product: 'P2', channel: 'C1', val: Number.NaN },
+      { region: 'B', product: 'P2', channel: 'C1', val: null },
+    ]
+
+    const pivot = new PivotModel({
+      dimensions: DIMENSIONS,
+      measures,
+      records: decimalRecords,
+      rowDimensions: ['region', 'product'],
+      columnDimensions: [],
+    })
+
+    // row0 表头；row1=[A,P1], row2=[A,P2], row3=[B,P1], row4=[B,P2], row5=总计
+    // col0=region, col1=product, col2=sum, col3=avg, col4=min, col5=max
+    expect(pivot.getCellValue(2, 1)).toBe(0.3) // 0.1 + 0.2 === 0.3
+    expect(pivot.getCellValue(3, 1)).toBe(0.15) // (0.1 + 0.2) / 2 === 0.15
+    expect(pivot.getCellValue(4, 1)).toBe(0.1)
+    expect(pivot.getCellValue(5, 1)).toBe(0.2)
+
+    expect(pivot.getCellValue(2, 2)).toBe(0.7) // 0.3 + 0.4 === 0.7
+    expect(pivot.getCellValue(3, 2)).toBe(0.35)
+
+    expect(pivot.getCellValue(2, 3)).toBe(0.42) // 0.14 + 0.28 === 0.42
+    expect(pivot.getCellValue(3, 3)).toBe(0.21)
+
+    expect(pivot.getCellValue(2, 4)).toBe(0.1) // -0.9 + 1.0 === 0.1
+    expect(pivot.getCellValue(3, 4)).toBe(0.05)
+    expect(pivot.getCellValue(4, 4)).toBe(-0.9)
+    expect(pivot.getCellValue(5, 4)).toBe(1.0)
+
+    // 总计行：0.3 + 0.7 + 0.42 + 0.1 = 1.52；均值 = 1.52 / 8 = 0.19
+    expect(pivot.getCellValue(2, 5)).toBe(1.52)
+    expect(pivot.getCellValue(3, 5)).toBe(0.19)
+    expect(pivot.getCellValue(4, 5)).toBe(-0.9)
+    expect(pivot.getCellValue(5, 5)).toBe(1.0)
+
+    // 折叠 A / B 验证自底向上 mergeAccumulatorSlot 精确归并
+    expect(pivot.toggleNode(['A'])).toBe(true)
+    // row1 = branch:A → sum = 0.3 + 0.7 = 1，avg = 1 / 4 = 0.25
+    expect(pivot.getCellValue(2, 1)).toBe(1)
+    expect(pivot.getCellValue(3, 1)).toBe(0.25)
+
+    expect(pivot.toggleNode(['B'])).toBe(true)
+    // row2 = branch:B → sum = 0.42 + 0.1 = 0.52，avg = 0.52 / 4 = 0.13
+    expect(pivot.getCellValue(2, 2)).toBe(0.52)
+    expect(pivot.getCellValue(3, 2)).toBe(0.13)
+  })
+
+  it('三次 0.1 累加均值与大基数小数累加不丢失精度', () => {
+    const measures: PivotMeasure[] = [
+      { key: 'val-sum', title: '求和', field: 'val', agg: 'sum', width: 110 },
+      { key: 'val-avg', title: '均值', field: 'val', agg: 'avg', width: 110 },
+    ]
+    const pivot = new PivotModel({
+      dimensions: DIMENSIONS,
+      measures,
+      records: [
+        { region: 'A', val: 0.1 },
+        { region: 'A', val: 0.2 },
+        { region: 'A', val: 0.3 },
+        ...Array.from({ length: 100 }, () => ({ region: 'B', val: 0.1 })),
+      ],
+      rowDimensions: ['region'],
+      columnDimensions: [],
+    })
+
+    // A: 0.1 + 0.2 + 0.3 = 0.6，avg = 0.6 / 3 = 0.2（原生 JS 为 0.20000000000000004）
+    expect(pivot.getCellValue(1, 1)).toBe(0.6)
+    expect(pivot.getCellValue(2, 1)).toBe(0.2)
+    // B: 100 个 0.1 累加 = 10（原生 JS 为 10.000000000000002）
+    expect(pivot.getCellValue(1, 2)).toBe(10)
+    expect(pivot.getCellValue(2, 2)).toBe(0.1)
+    // 总计：10.6
+    expect(pivot.getCellValue(1, 3)).toBe(10.6)
+  })
+})
