@@ -391,7 +391,7 @@ function migrateLegacySchema(db: Database): void {
   ])
 }
 
-/** 将未归属 app_id 的历史视图自动按数据源表分组挂接到对应的智能表格应用 */
+/** 将未归属 app_id 的历史视图自动按数据源表分组挂接到对应的多维数据台应用 */
 function backfillAppsForOrphanViews(db: Database): void {
   const orphanRows = db
     .query(
@@ -1035,7 +1035,7 @@ function getAdvancedSpec(
 ): AdvancedTableSpec | null {
   if (!sourceSqlTable || !isSafePhysicalIdentifier(sourceSqlTable)) return null
   if (!physicalTableExists(db, sourceSqlTable)) {
-    console.warn(`[smart-table] 进阶物理表 ${sourceSqlTable} 在库中缺失，已降级忽略`)
+    console.warn(`[DataDesk] 进阶物理表 ${sourceSqlTable} 在库中缺失，已降级忽略`)
     return null
   }
   const builtin = BUILTIN_ADVANCED_TABLES[sourceSqlTable]
@@ -1088,7 +1088,7 @@ export function validateColumns(columns: readonly unknown[]): SmartColumn[] {
     }
     if (isDerivedColumnType(col.type as SmartColumnType)) {
       throw new ValidationError(
-        `数据源表列 "${col.key}" 不允许保存派生列类型 "${col.type}"，请在智能表格层配置`,
+        `数据源表列 "${col.key}" 不允许保存派生列类型 "${col.type}"，请在多维数据台层配置`,
       )
     }
     if (col.required !== undefined && typeof col.required !== 'boolean') {

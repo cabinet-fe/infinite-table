@@ -7,7 +7,7 @@ import { ensureSeeded } from './seed'
 
 export function createApp(db: Database): Hono {
   const app = new Hono()
-  app.onError((error, c) => c.json({ message: error.message || '服务器内部错误' }, 500))
+  app.onError((error, c) => c.json({ message: error.message || 'DataDesk 服务内部错误' }, 500))
   mountSmartTableRoutes(app, db)
   return app
 }
@@ -20,6 +20,6 @@ if (import.meta.main) {
   ensureSeeded(db)
   Bun.serve({ port, fetch: createApp(db).fetch })
   console.log(
-    `smart-table 后端已启动 http://localhost:${port}（数据库：${dbPath}，已内置六表联动演示数据）`,
+    `多维数据台（DataDesk）后端已启动 http://localhost:${port}（数据库：${dbPath}，已内置六表联动演示数据）`,
   )
 }

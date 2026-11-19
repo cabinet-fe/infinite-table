@@ -1,5 +1,5 @@
 // REST API 路由：身份认证、全局鉴权守卫、两层权限配置、一键分享与免登录访客接口，
-// 以及受权限约束的数据源表/记录/智能表格/视图/导入/重置接口。
+// 以及受权限约束的数据源表/记录/多维数据台/视图/导入/重置接口。
 import type { Database } from 'bun:sqlite'
 import type { Context, Hono } from 'hono'
 import {
@@ -355,7 +355,7 @@ function assertViewRebindAccessible(
     if (nextAppId !== existing.appId) {
       const targetApp = getSmartApp(db, nextAppId)
       if (targetApp && !canConfigureApp(user, targetApp)) {
-        throw new ForbiddenError('无权将视图迁移至该智能表格')
+        throw new ForbiddenError('无权将视图迁移至该多维数据台')
       }
     }
   }
@@ -881,7 +881,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     }
   })
 
-  // ---------------- 智能表格与应用视图接口 ----------------
+  // ---------------- 多维数据台与应用视图接口 ----------------
 
   app.get('/api/apps', (c) => {
     const { user } = requireRequestAuth(c)
@@ -893,7 +893,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
   app.post('/api/apps', async (c) => {
     const { user } = requireRequestAuth(c)
     if (!canManageDataSource(user)) {
-      return c.json({ message: '普通成员无权创建智能表格' }, 403)
+      return c.json({ message: '普通成员无权创建多维数据台' }, 403)
     }
     const body = await c.req.json().catch(() => null)
     if (!isCreateAppBody(body)) {
@@ -902,7 +902,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     const allApps = listSmartApps(db)
     const targetTable = getTableMeta(db, body.tableId.trim())
     if (targetTable && !canViewTable(user, targetTable, allApps)) {
-      return c.json({ message: '无权基于该数据源表创建智能表格' }, 403)
+      return c.json({ message: '无权基于该数据源表创建多维数据台' }, 403)
     }
     try {
       assertLookupTargetsAccessible(db, user, body.derivedColumns, allApps)
@@ -915,14 +915,14 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
         201,
       )
     } catch (error) {
-      return handleRouteError(c, error, '智能表格冲突')
+      return handleRouteError(c, error, '多维数据台冲突')
     }
   })
 
   app.put('/api/apps/reorder', async (c) => {
     const { user } = requireRequestAuth(c)
     if (user.role === 'member') {
-      return c.json({ message: '普通成员无权调整智能表格顺序' }, 403)
+      return c.json({ message: '普通成员无权调整多维数据台顺序' }, 403)
     }
     const body = await c.req.json().catch(() => null)
     if (!isReorderAppsBody(body)) {
@@ -933,7 +933,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
         if (typeof id !== 'string') continue
         const found = getSmartApp(db, id)
         if (found && !canConfigureApp(user, found)) {
-          return c.json({ message: '无权调整他人负责的智能表格顺序' }, 403)
+          return c.json({ message: '无权调整他人负责的多维数据台顺序' }, 403)
         }
       }
     }
@@ -943,7 +943,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
         .map((item) => decorateAppForUser(user, item))
       return c.json({ apps })
     } catch (error) {
-      return handleRouteError(c, error, '智能表格重排失败')
+      return handleRouteError(c, error, '多维数据台重排失败')
     }
   })
 
@@ -951,10 +951,10 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     const { user } = requireRequestAuth(c)
     const found = getSmartApp(db, c.req.param('id'))
     if (!found) {
-      return c.json({ message: '智能表格不存在' }, 404)
+      return c.json({ message: '多维数据台不存在' }, 404)
     }
     if (!canViewApp(user, found)) {
-      return c.json({ message: '无权访问该智能表格' }, 403)
+      return c.json({ message: '无权访问该多维数据台' }, 403)
     }
     const tableBundle = getTableBundle(db, found.tableId)
     const visibleIds = tableBundle
@@ -969,18 +969,18 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
   const handleUpdateSmartApp = async (c: Context, appId: string) => {
     const { user } = requireRequestAuth(c)
     if (user.role === 'member') {
-      return c.json({ message: '普通成员无权修改智能表格配置' }, 403)
+      return c.json({ message: '普通成员无权修改多维数据台配置' }, 403)
     }
     const existing = getSmartApp(db, appId)
     if (!existing) {
-      return c.json({ message: '智能表格不存在' }, 404)
+      return c.json({ message: '多维数据台不存在' }, 404)
     }
     if (!canConfigureApp(user, existing)) {
-      return c.json({ message: '无权修改该智能表格配置' }, 403)
+      return c.json({ message: '无权修改该多维数据台配置' }, 403)
     }
     const body = await c.req.json().catch(() => null)
     if (!isPlainObject(body)) {
-      return c.json({ message: '请求体不合法：需提供智能表格更新对象' }, 400)
+      return c.json({ message: '请求体不合法：需提供多维数据台更新对象' }, 400)
     }
     try {
       if ('derivedColumns' in body && body.derivedColumns !== undefined) {
@@ -988,11 +988,11 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
       }
       const updated = updateSmartApp(db, appId, body as UpdateAppRequest)
       if (!updated) {
-        return c.json({ message: '智能表格不存在' }, 404)
+        return c.json({ message: '多维数据台不存在' }, 404)
       }
       return c.json({ app: decorateAppForUser(user, updated) })
     } catch (error) {
-      return handleRouteError(c, error, '智能表格更新失败')
+      return handleRouteError(c, error, '多维数据台更新失败')
     }
   }
 
@@ -1002,19 +1002,19 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
   app.delete('/api/apps/:id', (c) => {
     const { user } = requireRequestAuth(c)
     if (user.role === 'member') {
-      return c.json({ message: '普通成员无权删除智能表格' }, 403)
+      return c.json({ message: '普通成员无权删除多维数据台' }, 403)
     }
     const appId = c.req.param('id')
     const existing = getSmartApp(db, appId)
     if (!existing) {
-      return c.json({ message: '智能表格不存在' }, 404)
+      return c.json({ message: '多维数据台不存在' }, 404)
     }
     if (!canConfigureApp(user, existing)) {
-      return c.json({ message: '无权删除该智能表格' }, 403)
+      return c.json({ message: '无权删除该多维数据台' }, 403)
     }
     const deleted = deleteSmartApp(db, appId)
     if (!deleted) {
-      return c.json({ message: '智能表格不存在' }, 404)
+      return c.json({ message: '多维数据台不存在' }, 404)
     }
     return c.json({ ok: true })
   })
@@ -1039,7 +1039,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
     if (reqAppId) {
       const parentApp = getSmartApp(db, reqAppId)
       if (parentApp && !canConfigureApp(user, parentApp)) {
-        return c.json({ message: '无权在该智能表格下新建视图' }, 403)
+        return c.json({ message: '无权在该多维数据台下新建视图' }, 403)
       }
     } else if (typeof body.tableId === 'string' && body.tableId.trim() !== '') {
       const table = getTableMeta(db, body.tableId.trim())
@@ -1048,7 +1048,7 @@ export function mountSmartTableRoutes(app: Hono, db: Database): void {
       }
       const firstApp = listSmartApps(db).find((a) => a.tableId === body.tableId!.trim())
       if (firstApp && !canConfigureApp(user, firstApp)) {
-        return c.json({ message: '无权在他人负责的智能表格下新建视图' }, 403)
+        return c.json({ message: '无权在他人负责的多维数据台下新建视图' }, 403)
       }
     }
     try {

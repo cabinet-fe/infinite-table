@@ -1,4 +1,4 @@
-// 智能表格顶部视图 Tab 栏：展示当前智能表格下的多种视图（表格 / 看板 / 透视 / 仪表盘），
+// 多维数据台顶部视图 Tab 栏：展示当前多维数据台下的多种视图（表格 / 看板 / 透视 / 仪表盘），
 // 支持快速切换；按真实配置权限控制新建视图、双击/按钮重命名、左右调序、删除及数据源快捷跳转。
 
 import { useEffect, useMemo, useState } from 'react'
@@ -124,9 +124,9 @@ export function AppViewTabs({
   return (
     <div
       className="relative z-20 flex h-11 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4"
-      aria-label="智能表格视图栏"
+      aria-label="多维数据台视图栏"
     >
-      {/* 当前智能表格标题 + 视图 Tab 列表 */}
+      {/* 当前多维数据台标题 + 视图 Tab 列表 */}
       <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
         <div className="flex shrink-0 items-center gap-2 border-r border-slate-200 pr-3">
           <Table2 className="h-4 w-4 text-blue-600" />
@@ -147,7 +147,7 @@ export function AppViewTabs({
         </div>
 
         <nav
-          aria-label="当前智能表格视图"
+          aria-label="当前多维数据台视图"
           className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1"
         >
           {views.map((view, idx) => {
@@ -286,7 +286,7 @@ export function AppViewTabs({
           type="button"
           disabled={busy}
           onClick={onShareApp}
-          title="创建或管理当前智能表格应用的对外分享链接"
+          title="创建或管理当前多维数据台应用的对外分享链接"
           className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50/70 hover:text-blue-700 disabled:opacity-40"
         >
           <Share2 className="h-3.5 w-3.5" />

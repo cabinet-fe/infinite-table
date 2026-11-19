@@ -1,4 +1,4 @@
-// 智能表格画布适配层：封装 @infinitable/table 的 ListTable，提供原生底部冻结汇总行、
+// 多维数据台画布适配层：封装 @infinitable/table 的 ListTable，提供原生底部冻结汇总行、
 // 列头排序/菜单按钮热区隔离、全区域右键菜单定位、多层次样式合并渲染与视图配置原地更新。
 
 import {
@@ -205,7 +205,7 @@ const DEFAULT_HEADER_HEIGHT = 38
 const DEFAULT_BOTTOM_ROW_HEIGHT = 36
 const DEFAULT_ROW_HEADER_WIDTH = 64
 const MIN_ROW_HEIGHT_PX = 24
-const DEFAULT_WATERMARK_TEXT = '智能表格 · 内部数据'
+const DEFAULT_WATERMARK_TEXT = '多维数据台 · DataDesk'
 const AVATAR_PALETTE = ['#3370ff', '#00b42a', '#ff7d00', '#722ed1', '#eb2f96', '#0fc6c2'] as const
 
 const HEADER_BTN_WIDTH = 18
@@ -883,7 +883,7 @@ function toCellStyleOverride(resolved: {
   return style
 }
 
-/** 智能表格画布适配器：持有 ListTable 与自定义 TableModel，支持原生底部汇总行、热区隔离、右键菜单与样式合并 */
+/** 多维数据台画布适配器：持有 ListTable 与自定义 TableModel，支持原生底部汇总行、热区隔离、右键菜单与样式合并 */
 export class SmartGridAdapter {
   private readonly container: HTMLElement
   private readonly dpr: number | undefined

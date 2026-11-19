@@ -30,7 +30,7 @@ export interface SmartPivotOptions {
 
 /** 不适合作为分组维度的媒体/展示列类型 */
 const NON_DIMENSION_TYPES = new Set<SmartColumnType>(['image', 'link'])
-const DEFAULT_WATERMARK_TEXT = '智能表格 · 透视分析'
+const DEFAULT_WATERMARK_TEXT = '多维数据台 · DataDesk · 透视分析'
 
 interface PivotColumnFormatMeta {
   numberFormat?: SmartColumn['numberFormat']
@@ -86,7 +86,7 @@ function isNumericMeasureColumn(col: SmartColumn): boolean {
   return false
 }
 
-/** 将智能表列定义映射为透视表维度池与度量池 */
+/** 将多维数据台列定义映射为透视表维度池与度量池 */
 export function columnsToPivotFields(columns: readonly SmartColumn[]): {
   dimensions: PivotDimension[]
   measures: PivotMeasure[]

@@ -1,5 +1,5 @@
 // 二级业务目录侧栏（与最左 NavRail 配合）：
-// 1. 「apps」智能表格目录：展示用户可见的智能表格，按能力控制新建/重命名/调序/删除，普通成员不暴露数据源信息。
+// 1. 「apps」多维数据台目录：展示用户可见的多维数据台，按能力控制新建/重命名/调序/删除，普通成员不暴露数据源信息。
 // 2. 「entries」数据录入表目录：展示普通表填报直达入口，支持切换、新标签打开与复制直达链接。
 // 3. 「datasources」数据源中心目录：自建普通表 + SQL 物理表分组（仅管理员/负责人可见），按权限控制建表/导入/重命名/删表与重置种子。
 
@@ -91,7 +91,7 @@ export function ViewTypeIcon({
 }
 
 const SECTION_META: Record<SidebarSection, { title: string; badge: string }> = {
-  apps: { title: '智能表格', badge: '应用工作台' },
+  apps: { title: '多维数据台', badge: '应用工作台' },
   entries: { title: '数据录入表', badge: '填报入口' },
   datasources: { title: '数据源中心', badge: '底层数据' },
 }
@@ -123,7 +123,7 @@ export function Sidebar({
   onOpenImport,
   onResetSeed,
 }: SidebarProps) {
-  // 智能表格创建/重命名/删除状态
+  // 多维数据台创建/重命名/删除状态
   const [creatingApp, setCreatingApp] = useState(false)
   const [newAppName, setNewAppName] = useState('')
   const [newAppDesc, setNewAppDesc] = useState('')
@@ -174,7 +174,7 @@ export function Sidebar({
     }
   }, [tables, newAppTableId])
 
-  // 从数据源工具栏「基于此数据源新建智能表格」唤起创建表单
+  // 从数据源工具栏「基于此数据源新建多维数据台」唤起创建表单
   useEffect(() => {
     if (!createAppDraftRequest || !userCapabilities.canCreateApp) return
     setCreatingApp(true)
@@ -287,7 +287,7 @@ export function Sidebar({
       {/* 目录列表滚动区 */}
       <div className="flex-1 overflow-y-auto px-2.5 py-3">
         {section === 'apps' && (
-          <section aria-label="智能表格">
+          <section aria-label="多维数据台">
             <div className="mb-2 flex items-center justify-between px-1.5">
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -303,7 +303,7 @@ export function Sidebar({
                   disabled={busy || tables.length === 0}
                   onClick={() => setCreatingApp((v) => !v)}
                   className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                  title="基于数据源新建智能表格"
+                  title="基于数据源新建多维数据台"
                 >
                   <Plus className="h-3 w-3" />
                   <span>新建</span>
@@ -319,7 +319,7 @@ export function Sidebar({
                 <input
                   type="text"
                   className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                  placeholder="智能表格名称，如：华东大区业绩台账"
+                  placeholder="多维数据台名称，如：华东大区业绩台账"
                   value={newAppName}
                   onChange={(e) => setNewAppName(e.target.value)}
                   autoFocus
@@ -352,7 +352,7 @@ export function Sidebar({
                     disabled={busy || !newAppName.trim()}
                     className="h-6 rounded bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
                   >
-                    创建智能表格
+                    创建多维数据台
                   </button>
                 </div>
               </form>
@@ -360,7 +360,7 @@ export function Sidebar({
 
             {apps.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-                当前账号暂无可见的智能表格
+                当前账号暂无可见的多维数据台
               </div>
             ) : (
               <ul className="space-y-0.5">
@@ -446,7 +446,7 @@ export function Sidebar({
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    title="上移智能表格"
+                                    title="上移多维数据台"
                                     aria-label={`上移 ${app.name}`}
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -461,7 +461,7 @@ export function Sidebar({
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    title="下移智能表格"
+                                    title="下移多维数据台"
                                     aria-label={`下移 ${app.name}`}
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -475,7 +475,7 @@ export function Sidebar({
                                 <button
                                   type="button"
                                   disabled={busy}
-                                  title="重命名智能表格"
+                                  title="重命名多维数据台"
                                   aria-label={`重命名 ${app.name}`}
                                   onClick={(e) => {
                                     e.stopPropagation()
@@ -490,7 +490,7 @@ export function Sidebar({
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    title="删除智能表格"
+                                    title="删除多维数据台"
                                     aria-label={`删除 ${app.name}`}
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -930,9 +930,9 @@ export function Sidebar({
 
       <ConfirmModal
         open={confirmDeleteApp !== null}
-        title="确认删除智能表格"
-        description={`确定要删除智能表格「${confirmDeleteApp?.name ?? ''}」吗？其下全部视图与配置将一并移除，底层数据源表不会受影响。`}
-        confirmText="删除智能表格"
+        title="确认删除多维数据台"
+        description={`确定要删除多维数据台「${confirmDeleteApp?.name ?? ''}」吗？其下全部视图与配置将一并移除，底层数据源表不会受影响。`}
+        confirmText="删除多维数据台"
         busy={busy}
         onCancel={() => setConfirmDeleteApp(null)}
         onConfirm={async () => {
@@ -947,8 +947,8 @@ export function Sidebar({
         title="确认删除数据表"
         description={
           confirmDeleteTable?.meta.kind === 'advanced'
-            ? `确定要删除进阶表「${confirmDeleteTable?.meta.name ?? ''}」及其物理表与全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？基于此表构建的智能表格及视图也将同步清理，此操作不可撤销。`
-            : `确定要删除普通表「${confirmDeleteTable?.meta.name ?? ''}」及其全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？基于此表构建的智能表格及视图也将同步清理，此操作不可撤销。`
+            ? `确定要删除进阶表「${confirmDeleteTable?.meta.name ?? ''}」及其物理表与全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？基于此表构建的多维数据台及视图也将同步清理，此操作不可撤销。`
+            : `确定要删除普通表「${confirmDeleteTable?.meta.name ?? ''}」及其全部 ${confirmDeleteTable?.records.length ?? 0} 条记录吗？基于此表构建的多维数据台及视图也将同步清理，此操作不可撤销。`
         }
         confirmText="删除数据表"
         busy={busy}
@@ -964,7 +964,7 @@ export function Sidebar({
       <ConfirmModal
         open={confirmResetOpen}
         title="重置演示数据"
-        description="将清空当前所有自定义数据源、智能表格、视图与修改记录，并恢复到初始预置演示数据。确认继续吗？"
+        description="将清空当前所有自定义数据源、多维数据台、视图与修改记录，并恢复到初始预置演示数据。确认继续吗？"
         confirmText="确认重置"
         busy={busy}
         onCancel={() => setConfirmResetOpen(false)}

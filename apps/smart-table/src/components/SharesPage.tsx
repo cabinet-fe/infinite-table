@@ -331,7 +331,7 @@ export function SharesPage({
         </div>
 
         <span className="text-[11px] text-slate-500">
-          可在智能表格、视图或数据录入端点击「分享」创建新链接，此处统一管理生命周期
+          可在多维数据台、视图或数据录入端点击「分享」创建新链接，此处统一管理生命周期
         </span>
       </div>
 
@@ -369,7 +369,7 @@ export function SharesPage({
             </div>
             <p className="mt-1 text-xs text-slate-500">
               {shares.length === 0
-                ? '前往智能表格应用、单视图或数据录入表点击分享按钮，即可生成免登录访问链接。'
+                ? '前往多维数据台应用、单视图或数据录入表点击分享按钮，即可生成免登录访问链接。'
                 : '尝试切换上方状态标签或清空搜索关键词。'}
             </p>
           </div>

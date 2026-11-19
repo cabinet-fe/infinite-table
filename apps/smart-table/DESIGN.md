@@ -1,4 +1,6 @@
-# `apps/smart-table`（类企业微信智能表格）架构与表结构设计文档
+# 多维数据台（DataDesk / `apps/smart-table`）架构与表结构设计文档
+
+> 物理目录 `apps/smart-table`、npm 包名 `@infinitable/smart-table`、SQLite 文件名 `smart-table.sqlite` 与库表名及内部核心 TS 符号（`SmartTableMeta` / `SmartApp` / `WorkspaceView` 等）保持稳定不变；产品展示名称与文档统一为 **「多维数据台（DataDesk）」**。
 
 ---
 
@@ -6,43 +8,51 @@
 
 ### 1.1 与 `print-form-designer` 的核心差异
 
-| 维度             | 打印单设计器 (`apps/print-form-designer`)            | 智能表格 (`apps/smart-table`)                                                                         |
-| ---------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **底层网格引擎** | `@infinitable/sheet`（`SheetGrid` 自由二维电子表格） | `@infinitable/table`（`ListTable`）+ `@infinitable/pivot`（`PivotGrid`）                              |
-| **数据形态**     | 单元格 `(row, col)` 自由绑定 / 浮动数据块            | **统一为结构化数组 `Record[]` + 强类型列定义 `SmartColumn[]`**                                        |
-| **跨表关联**     | 手写公式或单格取数                                   | **向导式傻瓜 VLOOKUP**（多条件联合匹配、重名冲突消歧义、一对多聚合）                                  |
-| **分析能力**     | 固定区域聚合行                                       | **多视图体系（表格视图 + 多维透视视图）+ 筛选/排序/快捷胶囊 + 双击下钻（明细穿透 & 逐层按维度下钻）** |
+| 维度             | 打印单设计器 (`apps/print-form-designer`)            | 多维数据台 DataDesk (`apps/smart-table`)                                                                                |
+| ---------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **底层网格引擎** | `@infinitable/sheet`（`SheetGrid` 自由二维电子表格） | `@infinitable/table`（`ListTable`）+ `@infinitable/pivot`（`PivotGrid`）                                                |
+| **数据形态**     | 单元格 `(row, col)` 自由绑定 / 浮动数据块            | **数据源表原始结构（`SmartTableMeta` + `SmartRecord[]`）与多维数据台应用派生层（`SmartApp`）分离**                      |
+| **跨表关联**     | 手写公式或单格取数                                   | **向导式傻瓜 VLOOKUP**（多条件联合匹配、重名冲突消歧义、一对多汇总）+ **整列公式列**                                    |
+| **视图与分析**   | 固定区域聚合行                                       | **四类视图（表格 / 看板 / 多维透视 / 仪表盘）+ 十进制精确聚合 + 双击下钻（明细穿透 & 逐层按维度下钻）+ 独立数据录入端** |
+| **权限与分享**   | 单机工作台                                           | **SQLite 用户与会话认证 + 应用/视图可见范围与表内行级两层权限隔离 + 免登录对外分享 `/s/:token` 与生命周期管理**         |
 
 ### 1.2 应用内分层（`apps/smart-table/src/`）
 
-保持与 `apps/print-form-designer` 同构的轻量全栈分层（React 19 + Hono + `bun:sqlite`）：
+采用轻量全栈分层（React 19 + Tailwind CSS v4 + lucide-react + Hono + `bun:sqlite`），严格遵守 `server` 不 import `canvas` / `components`：
 
 ```mermaid
 graph TD
-    subgraph Frontend ["前端 (React 19 + Canvas 引擎)"]
-        UI["工作台 UI (表侧栏 / 视图 Tab / 筛选排序栏 / VLOOKUP 向导 / 下钻抽屉)"]
-        Pipeline["数据计算管线 (VLOOKUP 求值 + 冲突检测 → 公式列求值 → 过滤 → 排序 → 底部汇总)"]
-        GridAdapter["数据表画布适配 (ListTable + 富媒体渲染器: 标签/人员/进度条/冲突角标/图片/链接)"]
-        PivotAdapter["多维透视画布适配 (PivotGrid + 动态维度/度量 + 双击下钻明细 & 逐层下钻)"]
+    subgraph Frontend ["前端 (React 19 + History 路由 + Canvas 引擎)"]
+        Shell["主壳与路由 (App.tsx / NavRail / Sidebar / LoginPage / ShareAccessPage)"]
+        Views["业务工作区 (AppViewTabs / Toolbar / KanbanView / DashboardView / EntryWorkspace / SharesPage / PermissionsPage)"]
+        Pipeline["领域管线 (lookup-engine -> formula-column -> query-engine -> kanban/dashboard/drill-engine + @cat-kit/core 十进制精度)"]
+        GridAdapter["数据表画布适配 (SmartGridAdapter: ListTable + 富媒体自绘 + 底部冻结汇总行 + 宿主容器边界)"]
+        PivotAdapter["多维透视画布适配 (SmartPivotAdapter: PivotGrid + 原地刷新 + 双击下钻桥接)"]
         PluginMount["协议插件挂载 (@infinitable/plugins: 水印 + 打印导出)"]
     end
 
     subgraph Shared ["前后端共享契约 (src/shared/)"]
-        Schema["表/列/视图/VLOOKUP/过滤/排序 Schema 与类型定义"]
+        Schema["Schema / REST 契约 / 记录单源校验 / number-format 统一格式化与 0~6 位小数约束"]
     end
 
     subgraph Backend ["后端 (Bun + Hono + bun:sqlite, src/server/)"]
-        API["REST API (/api/tables, /api/records, /api/datasources)"]
-        DB["SQLite 存储 (表元数据 + 普通表行记录 + 进阶业务物理表)"]
+        Auth["会话认证与鉴权守卫 (auth.ts / scryptSync + HttpOnly Cookie)"]
+        Perm["两层权限与行级过滤 (permissions.ts)"]
+        API["REST API (routes.ts: /api/auth /api/tables /api/apps /api/views /api/permissions /api/shares /api/s/:token)"]
+        Store["持久化层 (db.ts + views-store.ts + shares.ts + seed.ts)"]
     end
 
-    UI --> Pipeline
+    Shell --> Views
+    Views --> Pipeline
     Pipeline --> GridAdapter
     Pipeline --> PivotAdapter
     GridAdapter --> PluginMount
     PivotAdapter --> PluginMount
-    UI --> API
-    API --> DB
+    Shell --> API
+    Views --> API
+    API --> Auth
+    API --> Perm
+    API --> Store
     Frontend -.-> Shared
     Backend -.-> Shared
 ```
@@ -50,313 +60,143 @@ graph TD
 ```text
 apps/smart-table/
 ├── package.json
-├── index.html
+├── index.html                        # <title>多维数据台 - DataDesk</title>
 ├── vite.config.ts
 ├── scripts/
-│   └── dev.ts                  # 前后端并行启动脚本
+│   └── dev.ts                        # 前后端并行启动脚本
 └── src/
+    ├── main.tsx
+    ├── app.css
+    ├── api.ts                        # REST API 客户端（含 401 会话失效统一拦截）
+    ├── App.tsx                       # 主壳：History 路由、会话门禁、NavRail + 二级目录双栏、工作台编排
     ├── shared/
-    │   ├── schema.ts           # 表、列、视图、VLOOKUP、筛选、排序的核心类型单源
-    │   └── api-types.ts        # 前后端 REST 接口请求/响应契约
+    │   ├── schema.ts                 # 表、列、SmartApp、WorkspaceView、用户/会话/权限/分享核心类型单源
+    │   ├── api-types.ts              # 前后端 REST 请求/响应契约
+    │   ├── number-format.ts          # 统一数值格式化（Grid/Pivot/汇总/看板/图表/下钻共用）与小数位映射
+    │   ├── record-validation.ts      # 前后端单源单元格类型校验与强类型转换
+    │   └── import-parse.ts           # CSV / XLSX 导入解析与列推断
     ├── domain/
-    │   ├── lookup-engine.ts    # 傻瓜式 VLOOKUP 引擎（单/多条件索引匹配、重名冲突检测、消歧义锁定、一对多聚合）
-    │   ├── formula-column.ts   # 整列公式求值（把 [字段名] 编译/映射到行记录求值）
-    │   ├── query-engine.ts     # 数组过滤（AND/OR + 类型自适应操作符）、多级排序、底部统计汇总计算
-    │   └── drill-engine.ts     # 透视表下钻（明细行反查 + 按下一维度二次分组聚合）
+    │   ├── router.ts                 # History API 路由单源（含 ?entry= 兼容跳转与 redirect 清洗）
+    │   ├── permissions.ts            # 两层权限模型与访客边界纯函数判定
+    │   ├── workspace-helpers.ts      # 导航可见性、资源能力快照解析、默认视图构建与 CSV/XLSX 导出
+    │   ├── lookup-engine.ts          # 向导式 VLOOKUP 引擎（联合匹配、重名冲突检测、消歧锁定、一对多汇总）
+    │   ├── lookup-manage.ts          # 派生列管理与孤立消歧记录清理
+    │   ├── formula-column.ts         # 整列公式求值（映射 [字段名] 到 @infinitable/formulas 求值）
+    │   ├── query-engine.ts           # 数据计算管线（VLOOKUP → 公式列 → 过滤 → 多级排序 → 底部精确汇总）
+    │   ├── style-engine.ts           # 多层次列/单元格/条件格式样式解析
+    │   ├── kanban-engine.ts          # 看板泳道分组与卡片投影
+    │   ├── dashboard-engine.ts       # 仪表盘 KPI 与图表聚合（@cat-kit/core 十进制精确计算）
+    │   ├── drill-engine.ts           # 透视表下钻（明细行反查 + 下一维度精确分组拆解）
+    │   └── utils.ts                  # 十进制安全算术、空值与文本转换工具
     ├── canvas/
-    │   ├── smart-grid.ts       # ListTable 封装：富媒体 CellRenderer（标签/进度条/人员头像/VLOOKUP 冲突角标）、图片/链接/勾选框绑定、列头排序指示
-    │   └── smart-pivot.ts      # PivotGrid 封装：动态维度/度量同步、水印/打印挂载、双击下钻桥接
+    │   ├── host-container.ts         # 宿主容器定位与 ResizeObserver 尺寸同步守卫
+    │   ├── smart-grid.ts             # ListTable 封装：富媒体渲染器、原生底部冻结汇总行、热区与右键菜单、水印/打印
+    │   └── smart-pivot.ts            # PivotGrid 封装：维度/度量映射、原地刷新、小数位格式化、水印、下钻桥接
     ├── components/
-    │   ├── Sidebar.tsx         # 左侧表目录（区分「普通自建表」与「进阶数据源表」）+ 新建/导入表
-    │   ├── ViewTabs.tsx        # 顶部视图 Tab（数据表视图 / 多维透视视图 / 新增视图）
-    │   ├── Toolbar.tsx         # 工具栏：筛选构建器弹窗、多级排序弹窗、快捷筛选胶囊、添加列、水印/打印
-    │   ├── LookupWizardModal.tsx # 傻瓜式 VLOOKUP 向导弹窗（选表 → 1~N 匹配条件 → 勾选多字段带出 → 冲突/汇总策略）
-    │   ├── DisambiguatePopover.tsx # 重名冲突消歧义卡片（展示同名候选记录完整信息，点选锁定唯一 _id）
-    │   ├── PivotConfigBar.tsx  # 透视视图配置栏（行维度、列维度、度量指标与聚合方式切换、展开/折叠）
-    │   ├── DrillDownDrawer.tsx # 下钻抽屉/弹窗（Tab 1：底层明细 ListTable 支持直接反查编辑；Tab 2：选下一维度继续拆解）
-    │   └── SummaryFooter.tsx   # 表格底部统计汇总栏（每列可切换：求和/平均/最大/最小/计数/已填占比）
+    │   ├── NavRail.tsx               # 最左窄图标导航轨（按角色能力过滤一级入口 + 账号切换/登出）
+    │   ├── Sidebar.tsx               # 二级业务目录（多维数据台 / 数据录入表 / 数据源中心）
+    │   ├── LoginPage.tsx             # 独立无侧栏登录页（/login，含内置演示账号快捷填入与一键登录）
+    │   ├── AppViewTabs.tsx           # 当前多维数据台顶部视图 Tab 栏（四类视图切换/新建/调序/分享）
+    │   ├── Toolbar.tsx               # 权限裁剪工具栏（筛选/排序/快捷胶囊/派生列/VLOOKUP/水印/导出）
+    │   ├── EntryWorkspace.tsx        # 独立数据录入端（/entries/:tableId：行内编辑/表单抽屉/批量追加导入）
+    │   ├── EntryRecordDrawer.tsx     # 录入端单行新建/编辑表单抽屉
+    │   ├── AppendImportModal.tsx     # 录入端批量追加导入弹窗
+    │   ├── PermissionsPage.tsx       # 权限管理页（/permissions：两层权限配置矩阵）
+    │   ├── SharesPage.tsx            # 分享管理页（/shares：分享链接状态筛选/复制/失效）
+    │   ├── ShareModal.tsx            # 一键分享弹窗（应用 / 单视图 / 录入表分享生成）
+    │   ├── ShareAccessPage.tsx       # 独立无侧栏访客分享页（/s/:token：密码门禁 / 只读交互 / 匿名填报）
+    │   ├── KanbanView.tsx / KanbanCardDetailDrawer.tsx
+    │   ├── DashboardView.tsx / DashboardCharts.tsx
+    │   ├── ViewConfigDrawer.tsx / DrawerStylePanel.tsx / DrawerKanbanPanel.tsx / DrawerPivotPanel.tsx / DrawerDashboardPanel.tsx
+    │   ├── DrillDownDrawer.tsx       # 透视下钻抽屉（明细 ListTable 反查 & 逐层按下一维度拆解）
+    │   ├── LookupWizardModal.tsx / LookupFieldPanel.tsx / DisambiguatePopover.tsx
+    │   ├── AddColumnModal.tsx / ColumnManagerModal.tsx / ImportExcelModal.tsx
+    │   └── CellEditorPopover.tsx / GridPopupMenu.tsx / SummaryMenuPopover.tsx / CustomSelect.tsx / ConfirmModal.tsx / Toast.tsx
     └── server/
-        ├── index.ts            # Hono 服务入口
-        ├── db.ts               # SQLite 建表与连接管理
-        ├── seed.ts             # 「项目与销售协同」三表联动种子数据
-        └── routes.ts           # 表定义、行数据增删改、进阶 SQL 数据源同步接口
+        ├── index.ts                  # Hono 服务入口与 Bun.serve 监听（默认 8788）
+        ├── auth.ts                   # scryptSync + timingSafeEqual 密码校验、HttpOnly 会话与演示账号
+        ├── permissions.ts            # 权限总览与配置持久化、行级权限校验
+        ├── shares.ts                 # 分享链接生命周期管理与 /api/s/:token 访客数据边界控制
+        ├── db.ts                     # SQLite 建表、旧库平滑迁移、双模式数据源表 CRUD
+        ├── views-store.ts            # SmartApp 派生列/消歧锁定与 WorkspaceView 持久化及校验
+        ├── import.ts                 # 导入建表事务提交
+        ├── routes.ts                 # 全接口鉴权守卫与 REST API 路由挂载
+        └── seed.ts                   # 六表联动（121 行）+ 七应用 + 演示账号 + 真实小数样本种子
 ```
 
 ---
 
-## 2. 核心数据模型与 Schema 设计（`src/shared/schema.ts`）
+## 2. 导航架构、路由与账号权限体系
 
-### 2.1 双模式数据表定义（普通自建表 + 进阶数据源表）
+### 2.1 左侧双栏导航轨与独立路由（`src/domain/router.ts`）
 
-每张表的数据在前端统一体现为 `SmartRecord[]` 数组，每条记录必带内部唯一行标识 `_id: string`，进阶表额外声明业务主键列（如 `emp_id`）与索引列：
+- **布局形态**：最左窄图标导航轨（`NavRail`：工作台 / 数据录入 / 数据源 / 分享管理 / 权限管理 + 底部用户角色菜单与登出）+ 二级业务目录（`Sidebar`）+ 主工作区；`/login` 与 `/s/:token` 为独立无侧栏全屏路由。
+- **支持路由**：
+  - `/`、`/apps/:appId`、`/apps/:appId/views/:viewId`：多维数据台应用与四类视图工作台（表格 / 看板 / 透视 / 仪表盘）。
+  - `/entries`、`/entries/:tableId`：普通数据表独立数据录入端（支持旧 `/?entry=<tableId>` 自动 `replaceState` 规范化跳转）。
+  - `/datasources`、`/datasources/:tableId`：数据源中心（仅管理员与负责人可访问，维护底层原始字段与主数据）。
+  - `/shares`：分享链接生命周期管理页（管理员看全空间，负责人看本人创建，普通成员不可访问）。
+  - `/permissions`：两层权限管理矩阵页（管理员看全空间，负责人看本人创建或负责资源，普通成员不可访问）。
+  - `/login`：独立登录页（支持 `?redirect=` 站内回跳校验）。
+  - `/s/:token`：免登录对外分享访问页（支持应用只读、单视图只读、录入表匿名填报）。
 
-```ts
-export type TableKind =
-  | 'normal' // 普通自建表（类 Excel，用户自由增删改行列）
-  | 'advanced' // 进阶数据源表（对接 SQL 物理表/主数据，带业务主键与唯一索引）
+### 2.2 账号认证与两层权限模型
 
-export interface SmartTableMeta {
-  id: string
-  name: string
-  kind: TableKind
-  description?: string
-  /** 进阶表的业务主键字段 key（如 'emp_id'），用于索引加速与重名消歧展示 */
-  primaryKeyField?: string
-  /** 进阶表绑定的后端 SQL 查询或物理表名 */
-  sourceSqlTable?: string
-  columns: SmartColumn[]
-  views: SmartView[]
-  /** 底部汇总栏配置：columnKey -> SummaryType */
-  summaries: Record<string, SummaryType>
-}
+- **内置演示账号（`src/server/auth.ts`）**：系统管理员 `admin`（`admin123`）、华北负责人 `manager`（李四 / `manager123`）、华南负责人 `wangwu`（王五 / `manager123`）、普通成员 `member`（钱七 / `member123`）。
+- **认证与全局守卫**：`sessions` 表持久化 SHA-256 哈希 Token，浏览器通过 HttpOnly `st_session` Cookie 鉴权；除 `/api/auth/*` 与 `/api/s/*` 外，所有业务接口未登录一律返回 `401`。
+- **第一层（应用与视图级）**：`visibilityScope`（`self` / `managers` / `all`）+ `managerUserIds` + `memberAccess`（`readonly` / `editable`，视图支持继承或覆盖所属应用）。
+- **第二层（数据源表行级）**：`rowScope`（`self` / `manager` / `all`）+ 可选绑定 `person` 类型列 `ownerColumnKey` + 新建/导入记录自动写入 `record_ownership.created_by`，普通成员与负责人按归属过滤并拦截越权读写（HTTP `403`）。
 
-export interface SmartRecord {
-  /** 系统内部唯一行 ID（UUID 或主键映射），重名消歧义时靠它锁定目标行 */
-  _id: string
-  /** 各列的原始值或消歧义锁定映射 */
-  [fieldKey: string]: unknown
-  /**
-   * 傻瓜式 VLOOKUP 手动消歧义锁定表：
-   * Record<lookupGroupKey, targetRecordId>
-   * 例如存在两个“张三”时，用户在单元格点选了「研发部-张三(EMP001)」，记录在此
-   */
-  _lookupOverrides?: Record<string, string>
-}
-```
+### 2.3 一键分享与访客安全边界（`src/server/shares.ts`）
 
-### 2.2 列类型体系（含富媒体列、傻瓜式 VLOOKUP 列、整列公式列）
-
-全面复用 `@infinitable/table`（`packages/table/src/types.ts`）的 `resolveCellRenderer`、`resolveCellImage`、`resolveCellLink`、`cellType: 'checkbox'`：
-
-```ts
-export type SmartColumnType =
-  | 'text' // 文本
-  | 'number' // 数值 / 金额（支持千分位、货币符号、小数位配置）
-  | 'select' // 彩色单选标签（Canvas 圆角胶囊自绘）
-  | 'date' // 日期（YYYY-MM-DD）
-  | 'checkbox' // 勾选框（复用 ListTable 内置 checkbox）
-  | 'person' // 人员列（Canvas 绘彩色圆形头像缩写 + 姓名 + 可选工号副标）
-  | 'progress' // 进度条列（0~100%，Canvas 绘轨道 + 进度色条 + 百分比文字）
-  | 'image' // 图片列（复用 ListTable resolveCellImage L2 media 层无闪渲染）
-  | 'link' // 超链接列（复用 ListTable resolveCellLink 蓝字下划线 + 点击打开）
-  | 'lookup' // 傻瓜式 VLOOKUP 跨表查找引用列
-  | 'formula' // 整列计算公式列（如 [累计回款] / [合同金额]）
-
-export interface SelectOption {
-  label: string
-  color: string // 胶囊背景色
-  textColor: string // 胶囊文字色
-}
-
-export interface SmartColumn {
-  key: string
-  title: string
-  type: SmartColumnType
-  width: number
-  /** 是否为唯一键/索引列（进阶表会在列头展示 🔑 标识） */
-  isUniqueKey?: boolean
-  /** select 类型的枚举项 */
-  options?: SelectOption[]
-  /** number 类型的格式：'integer' | 'decimal' | 'currency' | 'percent' */
-  numberFormat?: 'integer' | 'decimal' | 'currency' | 'percent'
-  /** lookup 类型的向导配置 */
-  lookupConfig?: LookupConfig
-  /** formula 类型的列级公式表达式，如 "[paid_amount] / [contract_amount]" */
-  formulaExpr?: string
-}
-```
+- 管理员与资源创建者/负责人可对 **多维数据台应用（`app`）**、**单视图（`view`）** 或 **普通数据录入表（`entry`）** 生成 `/s/:token` 链接，支持有效期（1 天 / 7 天 / 30 天 / 永久）、可选访问密码（服务端 Cookie/Header 解锁令牌）与随时手动失效（已失效/过期返回 HTTP `410`）。
+- **访客数据边界**：`app` / `view` 分享下访客仅可只读交互（支持本地临时筛选、排序与下钻浏览，不写库且不暴露数据源），可见数据行受 **分享创建者** 的权限边界裁剪；`entry` 分享仅允许提交新记录，历史内部数据对匿名访客严格不可见。
 
 ---
 
-## 3. 核心特性详细设计
+## 3. 数据分层、十进制精度与核心特性
 
-### 3.1 傻瓜式 VLOOKUP 引擎（`src/domain/lookup-engine.ts`）
+### 3.1 数据源表层 vs 多维数据台应用层（`src/shared/schema.ts`）
 
-#### （1）配置结构（向导式、零公式门槛）
+- **数据源表层（`SmartTableMeta`）**：区分 `normal`（普通自建表，JSON 行存储，支持自由增删列与数据录入）与 `advanced`（进阶 SQL 物理表，带业务主键与唯一索引），仅保存原始字段（`text` / `number` / `select` / `date` / `checkbox` / `person` / `progress` / `image` / `link`）。
+- **多维数据台应用层（`SmartApp`）**：基于指定数据源表创建，同一数据源可衍生多张独立业务应用；承载 `derivedColumns`（`lookup` / `formula` 派生列）与 `lookupOverrides`（VLOOKUP 重名消歧锁定），并下挂多张 `WorkspaceView`（`table` / `kanban` / `pivot` / `dashboard`）。
 
-```ts
-export interface LookupMatchRule {
-  sourceField: string // 本表匹配列（如 'owner_name' 负责人姓名）
-  targetField: string // 目标表匹配列（如 'name' 员工姓名）
-}
+### 3.2 傻瓜式 VLOOKUP 与双模式下钻
 
-export type LookupMode =
-  | 'one' // 一对一查找带出字段（如：根据姓名查工号/部门/职级）
-  | 'rollup' // 一对多汇总（如：根据客户名去回款流水表汇总累计回款）
+- **向导式 VLOOKUP（`src/domain/lookup-engine.ts`）**：支持 1~N 条件联合匹配、一对一批量带出与一对多汇总（`sum` / `count` / `avg` / `min` / `max` / `join`）；一对一命中多条同名记录时默认取首条并绘制重名提示角标，点击可在 `DisambiguatePopover` 锁定唯一 `_id` 或追加联合匹配条件。
+- **透视与双模式下钻（`src/domain/drill-engine.ts`、`src/components/DrillDownDrawer.tsx`）**：消费 `@infinitable/pivot`（`PivotGrid`）支持多级行/列维度与度量聚合及原地刷新；双击汇总格打开抽屉，支持 **明细反查/直接编辑（嵌入式 `ListTable`，宿主容器严格对齐边界）** 与 **按下一维度逐层拆解（带面包屑导航）**。
 
-export type LookupRollupAgg = 'sum' | 'count' | 'avg' | 'min' | 'max' | 'join'
+### 3.3 全链路十进制精确计算与统一数值格式化
 
-export interface LookupConfig {
-  /** 同一次向导批量生成的列共享同一个 groupId，消歧义一次即可联动同组所有带出列 */
-  groupId: string
-  targetTableId: string
-  /** 支持 1~N 个匹配条件（AND 关系，例如：姓名=姓名 且 部门=部门） */
-  matchRules: LookupMatchRule[]
-  /** 要从目标表带出的字段 key */
-  targetReturnField: string
-  mode: LookupMode
-  /** mode === 'rollup' 时的聚合方式 */
-  rollupAgg?: LookupRollupAgg
-}
-```
-
-#### （2）解决「同名同姓 / 重复键」的完整机制
-
-```mermaid
-flowchart LR
-    A["本表行记录 R"] --> B["按 matchRules 在目标表索引中查找"]
-    B --> C{"匹配到的目标记录数 N"}
-    C -- "N = 0" --> D["返回空 (显示 '-')"]
-    C -- "N = 1" --> E["唯一命中：直接带出 targetReturnField"]
-    C -- "N > 1 且 mode = rollup" --> F["按 sum/count/avg/join 聚合返回"]
-    C -- "N > 1 且 mode = one" --> G{"检查 R._lookupOverrides[groupId]"}
-    G -- "已指定目标 _id" --> H["返回被锁定记录的字段值 (标 ✅ 已消歧)"]
-    G -- "未指定" --> I["默认取首条 + 单元格右侧绘制『⚠️ N条重名』角标"]
-    I -- "用户点击该格" --> J["弹出候选消歧卡片 (展示两个张三的工号/部门/职位)"]
-    J -- "用户可选择" --> K1["① 仅本行锁定某一条记录 (_lookupOverrides)"]
-    J -- "用户可选择" --> K2["② 一键在向导中追加联合匹配条件 (如 + 本表部门=目标表部门)"]
-```
-
-- **批量带出**：在 VLOOKUP 向导第 3 步，用户可以同时勾选目标表的多个字段（如勾选「工号」「所属部门」「职级」），点击确定后自动生成 3 列且共享同一个 `groupId`——当某行“张三”消歧义选定 `EMP001` 后，这 3 列同步更新为 `EMP001` 对应的工号、部门和职级。
+- **精度治理**：`packages/pivot`（`PivotModel`）及 `apps/smart-table` 内所有底部汇总、VLOOKUP Rollup、看板聚合、仪表盘 KPI/图表统计、透视下钻均通过 `@cat-kit/core`（`$n` / `n`）执行十进制精确计算，避免 `0.1 + 0.2` 等 IEEE-754 浮点误差。
+- **统一格式化与小数位配置（`src/shared/number-format.ts`）**：Grid 单元格、Pivot 指标、底部汇总、看板卡片、仪表盘 KPI/图表与下钻抽屉 6 处共用同一套格式口径；列字段、透视度量与仪表盘 KPI 均支持配置 `decimalPlaces`（`0~6` 位整数或默认自动），经前后端校验后持久化。
 
 ---
 
-### 3.2 排序、过滤与快捷筛选胶囊（`src/domain/query-engine.ts`）
+## 4. SQLite 持久化与演示种子（`src/server/`）
 
-```ts
-export type FilterOperator =
-  | 'eq'
-  | 'neq'
-  | 'contains'
-  | 'not_contains'
-  | 'gt'
-  | 'gte'
-  | 'lt'
-  | 'lte'
-  | 'in'
-  | 'is_empty'
-  | 'is_not_empty'
+### 4.1 SQLite 核心物理表（`src/server/db.ts`）
 
-export interface FilterCondition {
-  id: string
-  field: string
-  operator: FilterOperator
-  value: unknown
-}
+- 账号与会话：`users`、`sessions`
+- 权限与分享：`shares`、`record_ownership`
+- 应用与视图：`smart_tables`、`smart_apps`、`workspace_views`、`smart_table_records`
+- 进阶 SQL 业务物理表：`biz_employees`（主索引 `emp_id`、姓名索引 `idx_emp_name`）、`biz_payments`（主键 `pay_id`、项目索引 `idx_pay_project`）
+- 迁移与设置：`server_settings`、`PRAGMA user_version`（当前 `SEED_VERSION = 9`）
 
-export interface FilterGroup {
-  conjunction: 'and' | 'or'
-  conditions: FilterCondition[]
-}
+### 4.2 六表联动演示种子（`src/server/seed.ts`）
 
-export interface SortRule {
-  field: string
-  direction: 'asc' | 'desc'
-}
-```
+启动空库自动初始化 **6 张互关联表、121 条记录**（含真实小数业务样本与精度边界）、**7 张示范多维数据台应用** 与 **4 个角色演示账号**：
 
-- **视图级互通**：每个视图（`SmartView`）持有自己的 `filterGroup`、`quickFilters`（快捷胶囊筛选，如顶部一键切「部门」「状态」）和 `sortRules`。在「数据表视图」配好的筛选条件，切换到「多维透视视图」或直接新建透视视图时，基于过滤后的 `SmartRecord[]`（含 VLOOKUP 与公式计算结果）做实时交叉聚合。
+1. `tbl_projects`《项目跟进与业绩总表》（`normal`，16 行，含重名「张三」与小数金额/比例）
+2. `tbl_employees`《企业员工花名册》（`advanced -> biz_employees`，`system`，15 行，含同名「张三」）
+3. `tbl_payments`《客户回款流水表》（`advanced -> biz_payments`，`system`，48 行）
+4. `tbl_inventory`《产品库存与采购台账》（`normal`，16 行）
+5. `tbl_suppliers`《供应商名录》（`normal`，8 行）
+6. `tbl_tickets`《客户工单与 SLA 追踪》（`normal`，18 行）
 
 ---
 
-### 3.3 多维透视视图与双模式「下钻」（`src/domain/drill-engine.ts`）
+## 5. 底层引擎包联动与构建契约
 
-直接消费 `@infinitable/pivot` 的 `PivotGrid`：
-
-1. **全字段可做维度/指标**：本表原生列、**VLOOKUP 跨表带出列**（例如从员工表带过来的「职级」「所属大区」）、**整列公式列**均可自由勾选为行维度、列维度或度量指标（`sum` / `count` / `avg` / `min` / `max`）。
-2. **双击汇总格下钻（`PivotGrid.onCellDrill`）**：
-   双击透视表任意聚合单元格 `(col, row)` 时，打开 **下钻分析抽屉 (`DrillDownDrawer`)**，提供两种下钻方式：
-   - **方式 A：穿透查看/编辑底层明细（Detail Records）**
-     内部挂载一个 `ListTable` 实例，展示构成该聚合数字的 N 条原始记录；支持在明细表里直接双击修改源数据，修改后主表与透视表实时重算。
-   - **方式 B：按下一维度继续下钻（Next-Dimension Breakdown）**
-     自动列出当前尚未放入行/列维度的其余字段（例如当前是「状态 × 年份」，可选「按负责人继续下钻」「按客户行业继续下钻」「按月份继续下钻」），点击即可在当前单元格过滤子集上立即生成下一层聚合拆解表与占比条！
-
----
-
-## 4. 数据库存储与内置三表种子场景（`src/server/`）
-
-### 4.1 SQLite 物理表结构（`src/server/db.ts`）
-
-```sql
--- 1. 智能表元数据表（存列定义、视图配置、VLOOKUP 配置、汇总配置）
-CREATE TABLE IF NOT EXISTS smart_tables (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  kind TEXT NOT NULL,            -- 'normal' | 'advanced'
-  primary_key_field TEXT,
-  source_sql_table TEXT,
-  schema_json TEXT NOT NULL,     -- SmartColumn[] + summaries
-  views_json TEXT NOT NULL,      -- SmartView[]
-  updated_at TEXT NOT NULL
-);
-
--- 2. 普通表记录存储（行级 JSON，支持灵活增删列与 _lookupOverrides）
-CREATE TABLE IF NOT EXISTS smart_table_records (
-  id TEXT PRIMARY KEY,
-  table_id TEXT NOT NULL,
-  row_order INTEGER NOT NULL,
-  data_json TEXT NOT NULL        -- SmartRecord JSON
-);
-CREATE INDEX IF NOT EXISTS idx_records_table ON smart_table_records(table_id, row_order);
-
--- 3. 进阶数据源物理表 1：企业员工花名册（带主键与索引）
-CREATE TABLE IF NOT EXISTS biz_employees (
-  emp_id TEXT PRIMARY KEY,       -- 唯一工号（主键索引）
-  name TEXT NOT NULL,            -- 姓名（含同名同姓“张三”）
-  dept TEXT NOT NULL,            -- 所属部门
-  level TEXT NOT NULL,           -- 职级（P6/P7/P8）
-  region TEXT NOT NULL,          -- 负责大区
-  email TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_emp_name ON biz_employees(name);
-
--- 4. 进阶数据源物理表 2：客户回款流水表（一对多业务流水）
-CREATE TABLE IF NOT EXISTS biz_payments (
-  pay_id TEXT PRIMARY KEY,       -- 流水号
-  project_code TEXT NOT NULL,    -- 关联项目编号
-  customer_name TEXT NOT NULL,   -- 客户名称
-  pay_date TEXT NOT NULL,        -- 回款日期
-  year TEXT NOT NULL,            -- 年份（2024年/2025年）
-  month TEXT NOT NULL,           -- 月份
-  amount REAL NOT NULL,          -- 回款金额
-  pay_method TEXT NOT NULL       -- 结算方式
-);
-CREATE INDEX IF NOT EXISTS idx_pay_project ON biz_payments(project_code);
-```
-
-### 4.2 开箱即用的「项目与销售协同」三表联动种子（`src/server/seed.ts`）
-
-1. **表 1：《项目跟进与业绩总表》（`normal` 普通自建表，主工作表）**
-   - **原生富媒体列**：
-     - `project_code`（文本，项目编号）
-     - `project_name`（文本，项目名称）
-     - `owner_name`（**人员列**，负责人姓名——其中故意包含两条由 **「张三」** 负责的项目）
-     - `status`（**彩色单选标签列**：进行中 / 已交付 / 风险预警 / 待启动）
-     - `progress`（**进度条列**：0%~100% 可视化条形）
-     - `contract_amount`（**数值金额列**：合同总额）
-     - `verified`（**勾选框列**：财务已核验）
-     - `blueprint_img`（**图片列**：架构缩略图，走 L2 media 层）
-     - `doc_url`（**超链接列**：项目立项书链接）
-   - **傻瓜式 VLOOKUP 列（跨表 1 → 表 2《企业员工花名册》）**：
-     - 匹配条件：`本表[负责人(owner_name)] = 员工表[姓名(name)]`（一对一模式）
-     - 批量带出 3 列：`负责人所属部门`、`负责人职级`、`唯一工号`
-     - **亮点演示**：因为员工表里有两个「张三」（`EMP-001 研发部 P7` 与 `EMP-009 华东销售部 P6`），“张三”所在行自动显示 **`⚠️ 2条重名`** 角标，点击即可弹出消歧卡片一键指定，或在向导中追加 `部门` 条件消歧！
-   - **傻瓜式 VLOOKUP 汇总列（跨表 1 → 表 3《客户回款流水表》）**：
-     - 匹配条件：`本表[项目编号(project_code)] = 回款流水表[关联项目编号(project_code)]`（一对多 Rollup 模式）
-     - 带出 2 列：`累计回款金额（Sum 求和）`、`回款笔数（Count 计数）`
-   - **整列公式列**：
-     - `回款达成率` = `[累计回款金额] / [合同总额]`（自动按百分比渲染）
-   - **预置视图**：
-     - 视图 1：`全部项目明细`（数据表视图 + 快捷胶囊筛选 + 底部汇总行）
-     - 视图 2：`部门 × 状态业绩多维分析`（透视表视图，把 VLOOKUP 带出的「负责人所属部门」作为行维度、「状态」作为列维度、汇总合同金额与累计回款，支持双击任意格下钻明细或按「职级」继续下钻）
-2. **表 2：《企业员工花名册》（`advanced` 进阶数据源表，主键 `emp_id`）**
-   - 预置 12 名员工（含两条同名「张三」分属不同部门与工号），支持直接查看、新增员工或修改属性，修改后立即驱动表 1 的 VLOOKUP 列刷新。
-3. **表 3：《客户回款流水表》（`advanced` 进阶数据源表，主键 `pay_id`）**
-   - 预置 36 条跨 2024/2025 年各月的回款记录，自带「回款流水表视图」与「年度×月度×大区多维透视视图」。
-
----
-
-## 5. 底层引擎包联动检查
-
-- `@infinitable/table`：已完备支持 `records` / `columns`、`resolveCellRenderer`、`resolveCellImage`、`resolveCellLink`、`resolveCellStyle`、编辑回写与协议插件。
-- `@infinitable/pivot`：已完备支持多列树形行维度、多级列维度表头、动态维度/度量勾选、展开/折叠、`onCellDrill` 明细下钻与协议插件挂载；后续需在 `PivotGrid` / `PivotModel` 上补一个轻量的 `setRecords(records)`（及维度/度量池动态追加方法），使智能表格在过滤条件变化或新增 VLOOKUP 列时，透视表也能**原地刷新而不必销毁重建画布**。
+- `@infinitable/table`：支撑 `ListTable` 富媒体单元格自绘、图片/超链接媒体层、原生底部冻结汇总行、表头热区隔离、列宽写回与协议水印/打印插件。
+- `@infinitable/pivot`：支撑 `PivotGrid` 多列树形行维度、多级列维度、动态度量与维度切换、`setRecords` 原地刷新、`onCellDrill` 下钻及 `PivotModel` 十进制精确聚合；共享 `engine` 构建 chunk 保持不引入 `@cat-kit/core`，由 `scripts/check-package-exports.mjs` 守卫。

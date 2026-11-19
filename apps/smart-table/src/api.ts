@@ -1,4 +1,4 @@
-// 智能表格前端 REST API 客户端：统一封装业务 CRUD、身份认证、权限配置、分享与访客接口及 401 会话失效处理
+// 多维数据台（DataDesk）前端 REST API 客户端：统一封装业务 CRUD、身份认证、权限配置、分享与访客接口及 401 会话失效处理
 
 import type {
   AllAppsResponse,
@@ -416,7 +416,7 @@ export async function deleteRecord(
   )
 }
 
-// ---------------- 智能表格与应用视图 ----------------
+// ---------------- 多维数据台与应用视图 ----------------
 
 export async function fetchAllApps(): Promise<SmartApp[]> {
   const data = await requestJson<AllAppsResponse>('/api/apps')

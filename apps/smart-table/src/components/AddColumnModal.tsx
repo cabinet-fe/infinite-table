@@ -280,7 +280,7 @@ export function AddColumnModal({
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
               {isAppMode
-                ? '基于底层数据源原始列与当前智能表格关联列动态计算，仅作用于本智能表格'
+                ? '基于底层数据源原始列与当前多维数据台关联列动态计算，仅作用于本多维数据台'
                 : '定义数据源表的原始字段结构与录入校验规则'}
             </p>
           </div>

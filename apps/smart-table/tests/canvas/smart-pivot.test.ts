@@ -161,6 +161,7 @@ describe('SmartPivotAdapter', () => {
     adapter.expandAll()
     expect(pivot.getSubtotalRowCount()).toBe(0)
 
+    expect(adapter.getWatermarkPlugin().getConfig().text).toBe('多维数据台 · DataDesk · 透视分析')
     adapter.setWatermark(true, '透视机密')
     expect(adapter.getWatermarkPlugin().isEnabled()).toBe(true)
     expect(adapter.getWatermarkPlugin().getConfig().text).toBe('透视机密')

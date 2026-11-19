@@ -211,6 +211,7 @@ describe('LoginPage 独立登录页', () => {
     )
 
     expect(container.textContent).toContain('多维数据台 · DataDesk')
+    expect(container.textContent).toContain('多维数据分析与企业协作工作台')
     expect(container.textContent).toContain('/entries/tbl_tickets')
 
     // 空表单提交拦截

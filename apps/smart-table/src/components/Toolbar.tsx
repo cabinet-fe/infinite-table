@@ -695,7 +695,7 @@ export function Toolbar({
             className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>新建智能表格</span>
+            <span>新建多维数据台</span>
           </button>
         )}
 

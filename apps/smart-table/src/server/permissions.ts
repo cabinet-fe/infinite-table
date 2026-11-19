@@ -160,7 +160,7 @@ export function getPermissionsOverview(
   return { users, apps, views, tables }
 }
 
-/** 更新智能表格应用权限配置 */
+/** 更新多维数据台应用权限配置 */
 export function updateAppPermissions(
   db: Database,
   currentUser: AuthUser,
@@ -175,10 +175,10 @@ export function updateAppPermissions(
   }
   const existing = getSmartApp(db, appId)
   if (!existing) {
-    throw new NotFoundError('智能表格不存在')
+    throw new NotFoundError('多维数据台不存在')
   }
   if (!canConfigureApp(currentUser, existing)) {
-    throw new ForbiddenError('无权修改该智能表格的权限配置')
+    throw new ForbiddenError('无权修改该多维数据台的权限配置')
   }
 
   const req = payload as UpdateAppPermissionRequest

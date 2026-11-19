@@ -98,7 +98,7 @@ export function LoginPage({
                 <h1 className="text-base font-bold tracking-tight text-slate-900">
                   多维数据台 · DataDesk
                 </h1>
-                <p className="text-[11px] text-slate-500">多维智能表格与企业协作数据工作台</p>
+                <p className="text-[11px] text-slate-500">多维数据分析与企业协作工作台</p>
               </div>
             </div>
 

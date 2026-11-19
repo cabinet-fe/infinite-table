@@ -66,9 +66,9 @@ export interface AllViewsResponse {
 export interface CreateViewRequest {
   name: string
   type: SmartViewType
-  /** 所属智能表格 ID（推荐必传；未传时按 tableId 自动匹配或创建所属智能表格） */
+  /** 所属多维数据台 ID（推荐必传；未传时按 tableId 自动匹配或创建所属多维数据台） */
   appId?: string
-  /** 绑定的数据源表 ID（传 appId 时可省略，由服务端自动对齐所属智能表格的数据源） */
+  /** 绑定的数据源表 ID（传 appId 时可省略，由服务端自动对齐所属多维数据台的数据源） */
   tableId?: string
   description?: string
   filterGroup?: SmartView['filterGroup']
@@ -194,7 +194,7 @@ export interface DemoAccountsResponse {
   accounts: DemoAccountInfo[]
 }
 
-/** 权限管理概览：智能表格应用条目 */
+/** 权限管理概览：多维数据台应用条目 */
 export interface AppPermissionItem {
   id: string
   name: string

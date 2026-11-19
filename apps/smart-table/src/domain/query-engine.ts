@@ -26,7 +26,7 @@ export interface SummaryCellResult {
   text: string
 }
 
-/** 智能表格完整计算管线输出 */
+/** 多维数据台完整计算管线输出 */
 export interface SmartPipelineResult {
   /** 经 VLOOKUP 与公式列求值后的全量记录（过滤排序前） */
   allComputedRecords: SmartRecord[]

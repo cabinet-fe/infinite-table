@@ -51,7 +51,7 @@ export interface NavMenuDefinition {
 }
 
 export const NAV_MENU_DEFINITIONS: readonly NavMenuDefinition[] = [
-  { id: 'apps', label: '工作台', description: '智能表格多维视图与分析' },
+  { id: 'apps', label: '工作台', description: '多维数据台多维视图与分析' },
   { id: 'entries', label: '数据录入', description: '普通表数据采集与快速填报' },
   { id: 'datasources', label: '数据源', description: '数据源表结构与底层主数据维护' },
   { id: 'shares', label: '分享管理', description: '管理对外分享链接与访问状态' },
@@ -146,7 +146,7 @@ export function resolveWorkspaceActionCapabilities(params: {
   }
 }
 
-/** 判断用户是否可配置指定智能表格应用 */
+/** 判断用户是否可配置指定多维数据台应用 */
 export function canConfigureAppItem(user: AuthUser | null | undefined, app: SmartApp): boolean {
   if (!user) return false
   return app.capabilities?.canConfigure ?? canConfigureApp(user, app)
@@ -186,7 +186,7 @@ export function canEditEntryTableItem(
   )
 }
 
-/** 判断用户是否可为指定智能表格应用创建对外分享链接 */
+/** 判断用户是否可为指定多维数据台应用创建对外分享链接 */
 export function canCreateAppShareItem(
   user: AuthUser | null | undefined,
   app: SmartApp | null | undefined,
@@ -218,7 +218,7 @@ export function canCreateEntryShareItem(
 
 /** 分享目标类型中文标签 */
 export const SHARE_TARGET_LABELS: Record<ShareTargetType, string> = {
-  app: '智能表格应用',
+  app: '多维数据台应用',
   view: '应用视图',
   entry: '数据录入表',
 }
@@ -505,7 +505,7 @@ export function buildDefaultDashboardConfig(columns: readonly SmartColumn[]): Da
   return { kpis, charts }
 }
 
-/** 根据所属智能表格（或数据源表）与视图类型构造新建应用视图请求体 */
+/** 根据所属多维数据台（或数据源表）与视图类型构造新建应用视图请求体 */
 export function buildDefaultViewPayload(
   name: string,
   type: SmartViewType,

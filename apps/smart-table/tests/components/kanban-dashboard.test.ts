@@ -861,11 +861,11 @@ describe('四类视图端到端全栈联动回归（App + Hono + SQLite）', () 
       ).click()
     })
 
-    // 等待初始加载完成（左侧智能表格列表 + 顶部当前智能表格多视图 Tab 栏）
+    // 等待初始加载完成（左侧多维数据台列表 + 顶部当前多维数据台多视图 Tab 栏）
     await vi.waitFor(() => {
       expect(container.textContent).toContain('项目运营管理台')
       expect(container.textContent).toContain('项目跟进总台账')
-      expect(container.querySelector('[aria-label="当前智能表格视图"]')).not.toBeNull()
+      expect(container.querySelector('[aria-label="当前多维数据台视图"]')).not.toBeNull()
     })
 
     // 切换至看板视图并拖拽 rec_prj_001 至「已交付」

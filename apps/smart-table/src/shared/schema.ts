@@ -24,7 +24,7 @@ export type CellTextAlign = 'left' | 'center' | 'right'
 /** 原始字段类型（可落库存储于数据源表） */
 export type RawSmartColumnType = Exclude<SmartColumnType, 'lookup' | 'formula'>
 
-/** 派生字段类型（仅归属于智能表格 SmartApp 层） */
+/** 派生字段类型（仅归属于多维数据台 SmartApp 层） */
 export type DerivedSmartColumnType = Extract<SmartColumnType, 'lookup' | 'formula'>
 
 export const RAW_COLUMN_TYPES = [
@@ -375,7 +375,7 @@ export type MemberAccessLevel = 'readonly' | 'editable'
 /** 数据表行级数据范围：仅本人 / 负责人 / 全部行 */
 export type TableRowScope = 'self' | 'manager' | 'all'
 
-/** 一键分享对象类型：智能表格应用 / 单视图 / 数据录入表 */
+/** 一键分享对象类型：多维数据台应用 / 单视图 / 数据录入表 */
 export type ShareTargetType = 'app' | 'view' | 'entry'
 
 /** 分享链接生命周期状态 */
@@ -477,14 +477,14 @@ export interface ShareRecord {
   status: ShareStatus
 }
 
-/** 独立智能表格应用（基于底层数据源表创建，承载派生列、消歧锁定与多维视图） */
+/** 独立多维数据台应用（基于底层数据源表创建，承载派生列、消歧锁定与多维视图） */
 export interface SmartApp {
   id: string
   name: string
   description?: string
   /** 绑定的数据源表 ID */
   tableId: string
-  /** 智能表格列表中的排序序号 */
+  /** 多维数据台列表中的排序序号 */
   sortOrder: number
   /** 应用层派生列（仅允许 lookup / formula，由同 App 多视图共享） */
   derivedColumns?: SmartColumn[]
@@ -503,7 +503,7 @@ export interface SmartApp {
   updatedAt?: string
 }
 
-/** 独立应用视图模型（归属于某张智能表格 appId，绑定数据源表 tableId） */
+/** 独立应用视图模型（归属于某张多维数据台 appId，绑定数据源表 tableId） */
 export interface WorkspaceView extends SmartView {
   appId: string
   tableId: string
@@ -514,7 +514,7 @@ export interface WorkspaceView extends SmartView {
   visibilityScope?: ResourceVisibilityScope
   /** visibilityScope === 'managers' 时指定的负责人 userId 列表 */
   managerUserIds?: string[]
-  /** 视图级普通成员授权（未设置时继承所属智能表格应用） */
+  /** 视图级普通成员授权（未设置时继承所属多维数据台应用） */
   memberAccess?: MemberAccessLevel
   /** 当前访问者在视图上的能力快照 */
   capabilities?: ResourceCapabilities

@@ -448,6 +448,7 @@ describe('SmartGridAdapter', () => {
     expect(onRowSelectionChange).toHaveBeenLastCalledWith(['rec-2'])
 
     expect(adapter.getWatermarkPlugin().isEnabled()).toBe(false)
+    expect(adapter.getWatermarkPlugin().getConfig().text).toBe('多维数据台 · DataDesk')
     adapter.setWatermark(true, '机密数据')
     expect(adapter.getWatermarkPlugin().isEnabled()).toBe(true)
     expect(adapter.getWatermarkPlugin().getConfig().text).toBe('机密数据')

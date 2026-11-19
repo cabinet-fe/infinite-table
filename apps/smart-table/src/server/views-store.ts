@@ -602,7 +602,7 @@ function readSmartAppRow(db: Database, appId: string): SmartAppRow | null {
   return row ?? null
 }
 
-/** 列出所有独立智能表格应用（按 sort_order 升序） */
+/** 列出所有独立多维数据台应用（按 sort_order 升序） */
 export function listSmartApps(db: Database): SmartApp[] {
   const rows = db
     .query(`${SMART_APP_SELECT_SQL} ORDER BY sort_order ASC, rowid ASC`)
@@ -610,20 +610,20 @@ export function listSmartApps(db: Database): SmartApp[] {
   return rows.map(parseSmartAppRow)
 }
 
-/** 按 ID 获取单个智能表格应用 */
+/** 按 ID 获取单个多维数据台应用 */
 export function getSmartApp(db: Database, appId: string): SmartApp | null {
   const row = readSmartAppRow(db, appId)
   return row ? parseSmartAppRow(row) : null
 }
 
-/** 新建智能表格应用（自动附带一个默认表格视图，开箱即用） */
+/** 新建多维数据台应用（自动附带一个默认表格视图，开箱即用） */
 export function createSmartApp(
   db: Database,
   req: CreateAppRequest,
   options?: { actorUserId?: string },
 ): CreateAppResponse {
   if (typeof req.name !== 'string' || req.name.trim() === '') {
-    throw new ValidationError('智能表格名称 name 不能为空')
+    throw new ValidationError('多维数据台名称 name 不能为空')
   }
   if (typeof req.tableId !== 'string' || req.tableId.trim() === '') {
     throw new ValidationError('必须指定绑定的数据源 tableId')
@@ -719,7 +719,7 @@ export function createSmartApp(
   })
 }
 
-/** 更新智能表格名称、描述、派生列或重名消歧覆盖 */
+/** 更新多维数据台名称、描述、派生列或重名消歧覆盖 */
 export function updateSmartApp(
   db: Database,
   appId: string,
@@ -732,7 +732,7 @@ export function updateSmartApp(
     let nextName = existing.name
     if (patch.name !== undefined) {
       if (typeof patch.name !== 'string' || patch.name.trim() === '') {
-        throw new ValidationError('智能表格名称 name 不能为空')
+        throw new ValidationError('多维数据台名称 name 不能为空')
       }
       nextName = patch.name.trim()
     }
@@ -801,7 +801,7 @@ export function updateSmartApp(
   })
 }
 
-/** 批量重排智能表格顺序 */
+/** 批量重排多维数据台顺序 */
 export function reorderSmartApps(db: Database, appIds: readonly string[]): SmartApp[] {
   if (!Array.isArray(appIds) || appIds.length === 0) {
     throw new ValidationError('appIds 必须为非空数组')
@@ -822,7 +822,7 @@ export function reorderSmartApps(db: Database, appIds: readonly string[]): Smart
     const byId = new Map(allApps.map((a) => [a.id, a]))
     for (const id of appIds) {
       if (!byId.has(id)) {
-        throw new ValidationError(`智能表格不存在: "${id}"`)
+        throw new ValidationError(`多维数据台不存在: "${id}"`)
       }
     }
     const orderedIds = [...appIds]
@@ -840,7 +840,7 @@ export function reorderSmartApps(db: Database, appIds: readonly string[]): Smart
   })
 }
 
-/** 删除智能表格（级联删除其下全部视图） */
+/** 删除多维数据台（级联删除其下全部视图） */
 export function deleteSmartApp(db: Database, appId: string): boolean {
   const result = db.query('DELETE FROM smart_apps WHERE id = ?').run(appId)
   return result.changes > 0
@@ -988,17 +988,17 @@ export function createWorkspaceView(
     if (appId) {
       const app = readSmartAppRow(db, appId)
       if (!app) {
-        throw new ValidationError(`所属智能表格不存在: "${appId}"`)
+        throw new ValidationError(`所属多维数据台不存在: "${appId}"`)
       }
       if (tableId && tableId !== app.table_id) {
         throw new ValidationError(
-          `视图绑定的数据源 "${tableId}" 与所属智能表格 "${app.table_id}" 不一致`,
+          `视图绑定的数据源 "${tableId}" 与所属多维数据台 "${app.table_id}" 不一致`,
         )
       }
       tableId = app.table_id
     } else {
       if (!tableId) {
-        throw new ValidationError('必须指定所属智能表格 appId 或数据源 tableId')
+        throw new ValidationError('必须指定所属多维数据台 appId 或数据源 tableId')
       }
       ensureTableExists(db, tableId)
       const existingApp = db
@@ -1120,11 +1120,11 @@ export function updateWorkspaceView(
       }
       targetApp = readSmartAppRow(db, patch.appId.trim())
       if (!targetApp) {
-        throw new ValidationError(`所属智能表格不存在: "${patch.appId}"`)
+        throw new ValidationError(`所属多维数据台不存在: "${patch.appId}"`)
       }
       nextAppId = targetApp.id
     } else if (!targetApp) {
-      throw new ValidationError(`所属智能表格不存在: "${nextAppId}"`)
+      throw new ValidationError(`所属多维数据台不存在: "${nextAppId}"`)
     }
 
     let nextTableId = existingRow.table_id
@@ -1138,7 +1138,7 @@ export function updateWorkspaceView(
 
     if (nextTableId !== targetApp.table_id) {
       throw new ValidationError(
-        `视图绑定的数据源 "${nextTableId}" 与所属智能表格 "${targetApp.table_id}" 不一致`,
+        `视图绑定的数据源 "${nextTableId}" 与所属多维数据台 "${targetApp.table_id}" 不一致`,
       )
     }
 

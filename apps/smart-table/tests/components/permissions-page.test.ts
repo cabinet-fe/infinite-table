@@ -475,9 +475,9 @@ function setupStatefulBackend(initialUser: AuthUser) {
       if (url.startsWith('/api/permissions/apps/') && method === 'PUT') {
         const appId = decodeURIComponent(url.slice('/api/permissions/apps/'.length))
         const target = state.apps.find((a) => a.id === appId)
-        if (!target) return jsonResponse({ message: '智能表格不存在' }, 404)
+        if (!target) return jsonResponse({ message: '多维数据台不存在' }, 404)
         if (!canConfigureApp(currentUser, target)) {
-          return jsonResponse({ message: '无权修改该智能表格的权限配置' }, 403)
+          return jsonResponse({ message: '无权修改该多维数据台的权限配置' }, 403)
         }
         const patch = body as UpdateAppPermissionRequest
         const updated: SmartApp = {
@@ -976,7 +976,7 @@ describe('App.tsx 集成：/permissions 保存后工作台实时同步生效', (
     await flushAsync()
 
     expect(window.location.pathname).toBe('/apps/app_projects/views/wv_projects_table')
-    const viewTabsNav = container.querySelector('nav[aria-label="当前智能表格视图"]')!
+    const viewTabsNav = container.querySelector('nav[aria-label="当前多维数据台视图"]')!
     expect(viewTabsNav.textContent).toContain('明细台账')
     expect(viewTabsNav.textContent).not.toContain('看板视图')
     expect(gridBridge.lastOptions?.readonly).toBe(false)

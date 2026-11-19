@@ -147,16 +147,16 @@ export function ColumnManagerModal({
         className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label={isAppMode ? '智能表格派生列管理' : '数据源字段管理'}
+        aria-label={isAppMode ? '多维数据台派生列管理' : '数据源字段管理'}
       >
         <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">
-              {isAppMode ? '智能表格派生列管理' : '数据源字段管理'}
+              {isAppMode ? '多维数据台派生列管理' : '数据源字段管理'}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
               {isAppMode
-                ? '增删改当前智能表格共享的 VLOOKUP 关联列与公式列，源表原始列在此只读展示'
+                ? '增删改当前多维数据台共享的 VLOOKUP 关联列与公式列，源表原始列在此只读展示'
                 : tableKind === 'advanced'
                   ? 'SQL 主数据物理列名称与删列受锁定，可配置必填、对齐、数值格式与单选配色'
                   : '管理原始字段名称、删列及必填、对齐、数值格式与单选标签配色'}
@@ -643,7 +643,7 @@ export function ColumnManagerModal({
         title={isAppMode ? '确认删除派生列' : '确认删除字段列'}
         description={
           isAppMode
-            ? `确定要删除当前智能表格的派生列「${confirmDeleteCol?.title ?? ''}」吗？不会影响底层数据源表。`
+            ? `确定要删除当前多维数据台的派生列「${confirmDeleteCol?.title ?? ''}」吗？不会影响底层数据源表。`
             : `确定要删除字段「${confirmDeleteCol?.title ?? ''}」吗？相关筛选、排序与汇总配置将同步移除。`
         }
         confirmText="删除字段"

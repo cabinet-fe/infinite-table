@@ -613,7 +613,7 @@ describe('App.tsx 认证路由门禁、NavRail 双栏架构与真实权限集成
     expect(container.textContent).toContain('项目台账')
     expect(container.textContent).toContain('数据录入端')
     expect(container.querySelector('[aria-label="主导航栏"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="智能表格"]')).toBeNull()
+    expect(container.querySelector('[aria-label="多维数据台"]')).toBeNull()
 
     // 点击「工作台」按钮跳转至 /apps/app_1/views/v_table
     const backBtn = Array.from(container.querySelectorAll('button')).find((b) =>

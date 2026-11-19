@@ -196,7 +196,7 @@ afterEach(() => {
 })
 
 describe('Sidebar 二级目录与 AppViewTabs 权限隔离', () => {
-  test('Sidebar 按 section 分栏展示智能表格、数据录入表与数据源中心，并按用户角色过滤操作与重置入口', () => {
+  test('Sidebar 按 section 分栏展示多维数据台、数据录入表与数据源中心，并按用户角色过滤操作与重置入口', () => {
     const onEnterTableEntry = vi.fn<(tableId: string) => void>()
     const onOpenTableEntryNewTab = vi.fn<(tableId: string) => void>()
     const onCopyTableEntryLink = vi.fn<(tableId: string) => void>()
@@ -228,11 +228,11 @@ describe('Sidebar 二级目录与 AppViewTabs 权限隔离', () => {
       }),
     )
 
-    expect(handle.container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
+    expect(handle.container.querySelector('[aria-label="多维数据台"]')).not.toBeNull()
     expect(handle.container.textContent).toContain('项目运营台账表')
     expect(handle.container.textContent).toContain('2 视图')
     expect(handle.container.textContent).toContain('数据源：项目管理表')
-    expect(handle.container.querySelector('[title="基于数据源新建智能表格"]')).not.toBeNull()
+    expect(handle.container.querySelector('[title="基于数据源新建多维数据台"]')).not.toBeNull()
 
     // 2) entries 板块：普通表支持直达录入/新标签/复制链接，不包含 SQL 物理表
     handle.rerender(
@@ -367,9 +367,9 @@ describe('Sidebar 二级目录与 AppViewTabs 权限隔离', () => {
       }),
     )
 
-    expect(handle.container.querySelector('[aria-label="智能表格"]')).not.toBeNull()
+    expect(handle.container.querySelector('[aria-label="多维数据台"]')).not.toBeNull()
     expect(handle.container.textContent).not.toContain('数据源：')
-    expect(handle.container.querySelector('[title="基于数据源新建智能表格"]')).toBeNull()
+    expect(handle.container.querySelector('[title="基于数据源新建多维数据台"]')).toBeNull()
     expect(handle.container.querySelector('button[aria-label^="重命名"]')).toBeNull()
 
     const secondAppBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
@@ -697,7 +697,7 @@ describe('ViewConfigDrawer 统一视图配置交互', () => {
   })
 })
 
-describe('数据源中心 vs 智能表格分层 UI 重构', () => {
+describe('数据源中心 vs 多维数据台分层 UI 重构', () => {
   test('Toolbar 在 datasource 模式移除 VLOOKUP，normal 表露出打开录入页/复制录入链接，app 运维态露出公式/派生列/数据源入口', () => {
     const onOpenEntryPage = vi.fn<() => void>()
     const onCopyEntryLink = vi.fn<() => void>()
@@ -737,7 +737,7 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
     expect(handle.container.textContent).toContain('字段管理')
     expect(handle.container.textContent).toContain('打开录入页')
     expect(handle.container.textContent).toContain('复制录入链接')
-    expect(handle.container.textContent).toContain('新建智能表格')
+    expect(handle.container.textContent).toContain('新建多维数据台')
 
     const openEntryBtn = Array.from(handle.container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('打开录入页'),
@@ -995,7 +995,7 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
       }),
     )
 
-    expect(handle.container.textContent).toContain('智能表格派生列管理')
+    expect(handle.container.textContent).toContain('多维数据台派生列管理')
     const derivedTitleInput = handle.container.querySelector(
       'input[aria-label="派生列 双倍金额 名称"]',
     ) as HTMLInputElement

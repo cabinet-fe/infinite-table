@@ -1,5 +1,5 @@
 // 权限管理页（/permissions）：集中配置两层权限模型——
-// 1. 第一层：智能表格应用与视图的可见范围（仅自己 / 指定负责人 / 全员）、指定负责人名单与普通成员授权（只读 / 可编辑）；
+// 1. 第一层：多维数据台应用与视图的可见范围（仅自己 / 指定负责人 / 全员）、指定负责人名单与普通成员授权（只读 / 可编辑）；
 // 2. 第二层：数据源表的行级数据范围（仅本人 / 负责人 / 全部行）、业务负责人人员列（person）绑定与录入端成员授权。
 // 管理员看全空间资源，负责人仅看本人创建或负责的资源，普通成员展示明确的权限不足提示与只读引导。
 
@@ -103,7 +103,7 @@ const ROW_SCOPE_OPTIONS: readonly SegmentedOption<TableRowScope>[] = [
 ]
 
 const TABLE_MEMBER_ACCESS_OPTIONS: readonly SegmentedOption<MemberAccessChoice>[] = [
-  { value: 'inherit', label: '默认（跟随应用）', title: '由关联智能表格应用的成员授权决定' },
+  { value: 'inherit', label: '默认（跟随应用）', title: '由关联多维数据台应用的成员授权决定' },
   { value: 'readonly', label: '只读', title: '独立数据录入端对普通成员只读' },
   { value: 'editable', label: '可编辑', title: '允许普通成员在独立数据录入端直接填报与编辑' },
 ]
@@ -722,7 +722,7 @@ export function PermissionsPage({
           <h2 className="text-sm font-semibold text-slate-900">无权访问权限管理</h2>
           <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
             {forbiddenMessage ??
-              '仅管理员与负责人可配置智能表格应用/视图可见范围、成员操作权限与数据表行级策略。'}
+              '仅管理员与负责人可配置多维数据台应用/视图可见范围、成员操作权限与数据表行级策略。'}
           </p>
           <p className="mt-2.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
             普通成员仅可按授权范围在「工作台」只读查看或协作编辑应用，以及在「数据录入」端填报授权数据表。
@@ -829,7 +829,7 @@ export function PermissionsPage({
           {(
             [
               { id: 'all', label: '全部资源', count: totalCount },
-              { id: 'apps', label: '智能表格应用', count: overview?.apps.length ?? 0 },
+              { id: 'apps', label: '多维数据台应用', count: overview?.apps.length ?? 0 },
               { id: 'views', label: '应用视图', count: overview?.views.length ?? 0 },
               { id: 'tables', label: '数据源表行级策略', count: overview?.tables.length ?? 0 },
             ] as const
@@ -895,14 +895,14 @@ export function PermissionsPage({
           </div>
         ) : (
           <div className="mx-auto flex max-w-5xl flex-col gap-6">
-            {/* 第一层：智能表格应用 */}
+            {/* 第一层：多维数据台应用 */}
             {showAppsSection && (
-              <section aria-label="智能表格应用权限" className="space-y-3">
+              <section aria-label="多维数据台应用权限" className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Layers className="h-4 w-4 text-blue-600" />
                     <h2 className="text-sm font-semibold text-slate-900">
-                      智能表格应用权限（第一层）
+                      多维数据台应用权限（第一层）
                     </h2>
                     <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                       {filteredApps.length}
@@ -916,8 +916,8 @@ export function PermissionsPage({
                 {filteredApps.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400">
                     {normalizedQuery
-                      ? `没有匹配「${searchQuery}」的智能表格应用`
-                      : '当前账号暂无可配置权限的智能表格应用'}
+                      ? `没有匹配「${searchQuery}」的多维数据台应用`
+                      : '当前账号暂无可配置权限的多维数据台应用'}
                   </div>
                 ) : (
                   <div className="grid gap-3">
@@ -941,7 +941,7 @@ export function PermissionsPage({
                                   {app.name}
                                 </span>
                                 <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                                  智能表格 · {viewCount} 视图
+                                  多维数据台 · {viewCount} 视图
                                 </span>
                               </div>
                               <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
@@ -1020,7 +1020,7 @@ export function PermissionsPage({
                         {
                           value: 'inherit',
                           label: `继承应用（当前：${view.effectiveMemberAccess === 'editable' ? '可编辑' : '只读'}）`,
-                          title: '跟随所属智能表格应用的普通成员授权级别',
+                          title: '跟随所属多维数据台应用的普通成员授权级别',
                         },
                         { value: 'readonly', label: '只读' },
                         { value: 'editable', label: '可编辑' },

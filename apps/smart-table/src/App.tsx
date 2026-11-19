@@ -1285,7 +1285,7 @@ export function App() {
         }
         return saved
       } catch (error) {
-        const msg = error instanceof ApiError ? error.message : '保存智能表格配置失败'
+        const msg = error instanceof ApiError ? error.message : '保存多维数据台配置失败'
         pushToast('error', msg)
         throw error
       } finally {
@@ -1800,7 +1800,7 @@ export function App() {
     pivotAdapterRef.current?.setWatermark(watermarkEnabled, `${activeTable.meta.name} · 透视分析`)
   }, [watermarkEnabled, activeTable])
 
-  // ---- 智能表格（SmartApp）CRUD ----
+  // ---- 多维数据台（SmartApp）CRUD ----
   async function handleCreateApp(payload: CreateAppRequest) {
     setBusy(true)
     try {
@@ -1809,9 +1809,9 @@ export function App() {
       setViews((prev) => [...prev, created.defaultView])
       lastViewByAppRef.current.set(created.app.id, created.defaultView.id)
       navigate({ kind: 'apps', appId: created.app.id, viewId: created.defaultView.id })
-      pushToast('success', `已新建智能表格「${created.app.name}」`)
+      pushToast('success', `已新建多维数据台「${created.app.name}」`)
     } catch (error) {
-      const msg = error instanceof ApiError ? error.message : '新建智能表格失败'
+      const msg = error instanceof ApiError ? error.message : '新建多维数据台失败'
       pushToast('error', msg)
       throw error
     } finally {
@@ -1823,9 +1823,9 @@ export function App() {
     try {
       const updated = await updateSmartApp(appId, { name: nextName })
       setApps((prev) => prev.map((a) => (a.id === appId ? updated : a)))
-      pushToast('success', `智能表格已重命名为「${updated.name}」`)
+      pushToast('success', `多维数据台已重命名为「${updated.name}」`)
     } catch (error) {
-      const msg = error instanceof ApiError ? error.message : '重命名智能表格失败'
+      const msg = error instanceof ApiError ? error.message : '重命名多维数据台失败'
       pushToast('error', msg)
       throw error
     }
@@ -1855,9 +1855,9 @@ export function App() {
           )
         }
       }
-      pushToast('success', '智能表格已删除')
+      pushToast('success', '多维数据台已删除')
     } catch (error) {
-      const msg = error instanceof ApiError ? error.message : '删除智能表格失败'
+      const msg = error instanceof ApiError ? error.message : '删除多维数据台失败'
       pushToast('error', msg)
     } finally {
       setBusy(false)
@@ -1869,7 +1869,7 @@ export function App() {
       const reordered = await reorderSmartApps(appIds)
       setApps(reordered)
     } catch (error) {
-      const msg = error instanceof ApiError ? error.message : '智能表格排序失败'
+      const msg = error instanceof ApiError ? error.message : '多维数据台排序失败'
       pushToast('error', msg)
     }
   }
@@ -2173,7 +2173,7 @@ export function App() {
     if (!activeTable || !actionCapabilities.canConfigure) return
     if (targetKind === 'app') {
       if (!activeApp || !activeAppDerivedColumns.some((c) => c.key === columnKey)) {
-        pushToast('error', '智能表格不可修改数据源原始字段，请前往数据源中心操作')
+        pushToast('error', '多维数据台不可修改数据源原始字段，请前往数据源中心操作')
         return
       }
       await handleUpdateDerivedColumn(columnKey, { title: nextTitle })
@@ -2196,7 +2196,7 @@ export function App() {
     if (!activeTable || !actionCapabilities.canConfigure) return
     if (targetKind === 'app') {
       if (!activeApp || !activeAppDerivedColumns.some((c) => c.key === columnKey)) {
-        pushToast('error', '智能表格不可删除数据源原始字段，请前往数据源中心操作')
+        pushToast('error', '多维数据台不可删除数据源原始字段，请前往数据源中心操作')
         return
       }
       const nextDerived = activeAppDerivedColumns.filter((c) => c.key !== columnKey)
@@ -2671,7 +2671,7 @@ export function App() {
             className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600"
             aria-hidden="true"
           />
-          <div className="text-xs">正在加载智能表格工作台...</div>
+          <div className="text-xs">正在加载多维数据台工作台...</div>
         </div>
       )
     }
@@ -2819,7 +2819,7 @@ export function App() {
           testId="datasources-forbidden"
           icon={<Lock className="h-7 w-7 text-amber-500" />}
           title="无权访问数据源中心"
-          description="普通成员仅可在智能表格工作台或授权录入表中浏览与协作，无法管理底层数据源。"
+          description="普通成员仅可在多维数据台工作台或授权录入表中浏览与协作，无法管理底层数据源。"
           actionLabel="返回工作台"
           onAction={goHome}
         />
@@ -2830,11 +2830,11 @@ export function App() {
       return (
         <RouteStatusCard
           icon={<Table2 className="h-7 w-7 text-slate-400" />}
-          title={route.kind === 'datasources' ? '未找到指定数据源表' : '暂无可访问的智能表格'}
+          title={route.kind === 'datasources' ? '未找到指定数据源表' : '暂无可访问的多维数据台'}
           description={
             route.kind === 'datasources'
               ? '目标数据源表不存在或当前账号暂无访问权限。'
-              : '当前账号暂无可见的多维智能表格应用，请联系管理员授权或新建应用。'
+              : '当前账号暂无可见的多维数据台应用，请联系管理员授权或新建应用。'
           }
           actionLabel={route.kind === 'datasources' && tables[0] ? '查看首个数据源' : undefined}
           onAction={
@@ -3295,7 +3295,7 @@ export function App() {
         title={targetKind === 'app' ? '确认删除派生列' : '确认删除字段列'}
         description={
           targetKind === 'app'
-            ? `确定要删除当前智能表格的派生列「${confirmDeleteCol?.title ?? ''}」吗？当前应用各视图中的引用将同步清理，不会影响底层数据源表。`
+            ? `确定要删除当前多维数据台的派生列「${confirmDeleteCol?.title ?? ''}」吗？当前应用各视图中的引用将同步清理，不会影响底层数据源表。`
             : `确定要删除字段「${confirmDeleteCol?.title ?? ''}」吗？相关筛选、排序与汇总配置将同步移除。`
         }
         confirmText="删除字段"

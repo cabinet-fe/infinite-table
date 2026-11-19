@@ -241,7 +241,7 @@ describe('EntryWorkspace 独立数据录入端主视图', () => {
     expect(container.textContent).toContain('批量追加导入')
     expect(container.textContent).toContain('导出')
 
-    expect(container.querySelector('[aria-label="智能表格"]')).toBeNull()
+    expect(container.querySelector('[aria-label="多维数据台"]')).toBeNull()
     expect(container.querySelector('[aria-label="数据源中心"]')).toBeNull()
     expect(container.textContent).not.toContain('VLOOKUP')
     expect(container.textContent).not.toContain('视图配置')

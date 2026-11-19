@@ -220,7 +220,7 @@ export function createShare(db: Database, currentUser: AuthUser, payload: unknow
 
   if (req.targetType === 'app') {
     app = getSmartApp(db, targetId)
-    if (!app) throw new NotFoundError('智能表格不存在')
+    if (!app) throw new NotFoundError('多维数据台不存在')
   } else if (req.targetType === 'view') {
     view = getWorkspaceView(db, targetId)
     if (!view) throw new NotFoundError('视图不存在')
@@ -405,12 +405,12 @@ function buildUnlockedSharePayload(
 
   if (share.target_type === 'app') {
     const app = getSmartApp(db, share.target_id)
-    if (!app) throw new NotFoundError('分享关联的智能表格不存在')
+    if (!app) throw new NotFoundError('分享关联的多维数据台不存在')
     if (!canViewApp(creator, app)) {
-      throw new ForbiddenError('分享创建者当前无权访问该智能表格')
+      throw new ForbiddenError('分享创建者当前无权访问该多维数据台')
     }
     const primaryBundle = getTableBundle(db, app.tableId)
-    if (!primaryBundle) throw new NotFoundError('智能表格关联数据源不存在')
+    if (!primaryBundle) throw new NotFoundError('多维数据台关联数据源不存在')
 
     const filteredRecords = filterTableRecordsForUser(
       creator,
@@ -449,7 +449,7 @@ function buildUnlockedSharePayload(
   const view = getWorkspaceView(db, share.target_id)
   if (!view) throw new NotFoundError('分享关联的视图不存在')
   const app = getSmartApp(db, view.appId)
-  if (!app) throw new NotFoundError('视图所属智能表格不存在')
+  if (!app) throw new NotFoundError('视图所属多维数据台不存在')
   if (!canViewView(creator, view, app)) {
     throw new ForbiddenError('分享创建者当前无权访问该视图')
   }

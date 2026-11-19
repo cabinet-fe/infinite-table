@@ -567,7 +567,7 @@ describe('ShareModal 与 SharesPage 全生命周期及角色边界（SQLite + Ho
       // 切换分享目标为整个应用，并选择「30 天」有效期与填写密码
       const appOption = Array.from(
         container.querySelectorAll('[role="radiogroup"][aria-label="选择分享对象"] [role="radio"]'),
-      ).find((el) => el.textContent?.includes('智能表格应用')) as HTMLButtonElement
+      ).find((el) => el.textContent?.includes('多维数据台应用')) as HTMLButtonElement
       act(() => appOption.click())
       await flushAsync()
 
@@ -869,7 +869,7 @@ describe('/s/:token 免登录访客访问页全场景（密码门禁 / 失效过
 
       // 切到明细台账视图，验证网格严格只读且行级数据不超过创建者王五的权限范围（仅 1 条 rec_tkt_003）
       const tableTab = Array.from(
-        container.querySelectorAll('[aria-label="当前智能表格视图"] button'),
+        container.querySelectorAll('[aria-label="当前多维数据台视图"] button'),
       ).find((b) => b.textContent?.includes('工单 SLA 明细台账')) as HTMLButtonElement
       act(() => tableTab.click())
       await flushAsync()
@@ -909,7 +909,7 @@ describe('/s/:token 免登录访客访问页全场景（密码门禁 / 失效过
 
       // 切换到透视分析视图并验证展开/折叠与下钻抽屉只读浏览
       const pivotTab = Array.from(
-        container.querySelectorAll('[aria-label="当前智能表格视图"] button'),
+        container.querySelectorAll('[aria-label="当前多维数据台视图"] button'),
       ).find((b) => b.textContent?.includes('工单处理透视分析')) as HTMLButtonElement
       expect(pivotTab).toBeDefined()
       act(() => pivotTab.click())
@@ -973,7 +973,7 @@ describe('/s/:token 免登录访客访问页全场景（密码门禁 / 失效过
       expect(
         viewMount.container.querySelector('[data-testid="share-guest-workspace"]'),
       ).not.toBeNull()
-      expect(viewMount.container.querySelector('[aria-label="智能表格视图栏"]')).toBeNull()
+      expect(viewMount.container.querySelector('[aria-label="多维数据台视图栏"]')).toBeNull()
       expect(viewMount.container.textContent).toContain('项目跟进总台账')
       expect(
         canvasBridge.gridInstances[canvasBridge.gridInstances.length - 1]!.options.readonly,

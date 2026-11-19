@@ -60,12 +60,12 @@ function canManageScopedResource(user: AuthUser, resource: ScopedResourceLike): 
   )
 }
 
-/** 判断用户是否可见指定智能表格应用 */
+/** 判断用户是否可见指定多维数据台应用 */
 export function canViewApp(user: AuthUser, app: SmartApp): boolean {
   return canViewScopedResource(user, app)
 }
 
-/** 判断用户是否可配置/删除/分享指定智能表格应用 */
+/** 判断用户是否可配置/删除/分享指定多维数据台应用 */
 export function canConfigureApp(user: AuthUser, app: SmartApp): boolean {
   return canManageScopedResource(user, app)
 }
@@ -91,7 +91,7 @@ export function canConfigureView(
   return canManageScopedResource(user, view) || canConfigureApp(user, parentApp)
 }
 
-/** 解析视图生效的普通成员授权级别（未在视图显式覆盖时继承所属智能表格） */
+/** 解析视图生效的普通成员授权级别（未在视图显式覆盖时继承所属多维数据台） */
 export function getEffectiveMemberAccess(
   parentApp: SmartApp | undefined | null,
   view?: WorkspaceView | null,
@@ -292,7 +292,7 @@ export function resolveShareStatus(
   return 'active'
 }
 
-/** 计算登录用户在智能表格应用上的操作能力快照 */
+/** 计算登录用户在多维数据台应用上的操作能力快照 */
 export function computeAppCapabilities(user: AuthUser, app: SmartApp): ResourceCapabilities {
   const canView = canViewApp(user, app)
   const canConfigure = canConfigureApp(user, app)
