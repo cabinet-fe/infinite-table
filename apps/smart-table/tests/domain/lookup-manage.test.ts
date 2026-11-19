@@ -278,4 +278,76 @@ describe('buildLookupManageChanges + applyLookupManageChanges', () => {
       '带出字段只能选择目标数据源表的原始字段',
     )
   })
+
+  it('rollup 聚合切至 count / join 时自动清除 decimalPlaces，新增关联列沿用目标列 decimalPlaces', () => {
+    const rollupCol: SmartColumn = {
+      key: 'lookup_sum',
+      title: '回款汇总',
+      type: 'lookup',
+      width: 120,
+      numberFormat: 'currency',
+      decimalPlaces: 4,
+      lookupConfig: {
+        groupId: 'grp_pay',
+        targetTableId: 'tbl_emp',
+        matchRules: [{ sourceField: 'code', targetField: 'name' }],
+        targetReturnField: 'salary',
+        mode: 'rollup',
+        rollupAgg: 'sum',
+      },
+    }
+    const cols: SmartColumn[] = [
+      { key: 'code', title: '编号', type: 'text', width: 100 },
+      rollupCol,
+    ]
+    const extTables = new Map<string, TableBundle>([
+      [
+        'tbl_emp',
+        {
+          meta: {
+            id: 'tbl_emp',
+            name: '员工花名册',
+            kind: 'advanced',
+            columns: [
+              ...EMP_COLUMNS,
+              {
+                key: 'salary',
+                title: '薪资',
+                type: 'number',
+                width: 110,
+                numberFormat: 'currency',
+                decimalPlaces: 3,
+              },
+            ],
+            views: [],
+            summaries: {},
+          },
+          records: [],
+        },
+      ],
+    ])
+
+    let draft = createLookupManageDraft(cols, extTables)
+    draft = setLookupItemAgg(draft, 'grp_pay', 'lookup_sum', 'count')
+    // 同步追加一个带 decimalPlaces 的新带出列
+    const changes = buildLookupManageChanges(
+      {
+        ...draft,
+        groups: draft.groups.map((g) => ({
+          ...g,
+          staged: [{ field: 'salary', title: '薪资' }],
+        })),
+      },
+      cols,
+      extTables,
+    )
+    const nextCols = applyLookupManageChanges(cols, changes)
+    const updatedCount = nextCols.find((c) => c.key === 'lookup_sum')!
+    expect(updatedCount.numberFormat).toBe('integer')
+    expect(updatedCount.decimalPlaces).toBeUndefined()
+
+    const addedSalary = nextCols.find((c) => c.title === '薪资')!
+    expect(addedSalary.numberFormat).toBe('currency')
+    expect(addedSalary.decimalPlaces).toBe(3)
+  })
 })

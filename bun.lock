@@ -38,6 +38,7 @@
       "name": "@infinitable/smart-table",
       "version": "0.0.0",
       "dependencies": {
+        "@cat-kit/core": "^1.2.1",
         "@infinitable/formulas": "workspace:*",
         "@infinitable/grid": "workspace:*",
         "@infinitable/pivot": "workspace:*",

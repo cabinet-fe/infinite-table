@@ -454,4 +454,96 @@ describe('SmartPivotAdapter', () => {
       absContainer.remove()
     }
   })
+
+  it('透视指标优先应用 measure.decimalPlaces，未设时回退列 decimalPlaces，count 忽略小数位且动态 update 刷新格式化', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const decimalCols: SmartColumn[] = [
+      { key: 'dept', title: '部门', type: 'text', width: 120 },
+      { key: 'status', title: '状态', type: 'select', width: 100 },
+      {
+        key: 'amount',
+        title: '合同金额',
+        type: 'number',
+        width: 120,
+        numberFormat: 'currency',
+        decimalPlaces: 2,
+      },
+      {
+        key: 'rate',
+        title: '达成率',
+        type: 'number',
+        width: 100,
+        numberFormat: 'percent',
+        decimalPlaces: 1,
+      },
+    ]
+    const decimalRecs: SmartRecord[] = [
+      { _id: '1', dept: '研发部', status: '进行中', amount: 100.1, rate: 0.5 },
+      { _id: '2', dept: '研发部', status: '已交付', amount: 200.2, rate: 1 },
+    ]
+    const adapter = new SmartPivotAdapter({
+      container,
+      columns: decimalCols,
+      records: decimalRecs,
+      config: {
+        rowDimensions: ['dept'],
+        columnDimensions: [],
+        measures: [
+          // 1) measure 未设 decimalPlaces -> 回退列 decimalPlaces (2)
+          { key: 'm_sum', title: '总额', field: 'amount', agg: 'sum', width: 120 },
+          // 2) measure 显式覆盖 decimalPlaces (4)
+          {
+            key: 'm_avg',
+            title: '均值',
+            field: 'amount',
+            agg: 'avg',
+            width: 120,
+            decimalPlaces: 4,
+          },
+          // 3) percent 回退列 decimalPlaces (1)
+          { key: 'm_rate', title: '平均达成率', field: 'rate', agg: 'avg', width: 100 },
+          // 4) count 保持整数
+          { key: 'm_cnt', title: '数量', field: '', agg: 'count', width: 80 },
+        ],
+        showGrandTotal: true,
+      },
+    })
+
+    const table = adapter.getPivot().getTable() as ListTable
+    expect(table.getCellText(1, 1)).toBe('¥300.30')
+    expect(table.getCellText(2, 1)).toBe('¥150.1500')
+    expect(table.getCellText(3, 1)).toBe('75.0%')
+    expect(table.getCellText(4, 1)).toBe('2')
+
+    // 动态切换 measure.decimalPlaces 与列 decimalPlaces 立即刷新
+    adapter.update({
+      columns: decimalCols.map((col) => (col.key === 'rate' ? { ...col, decimalPlaces: 3 } : col)),
+      records: decimalRecs,
+      config: {
+        rowDimensions: ['dept'],
+        columnDimensions: [],
+        measures: [
+          { key: 'm_sum', title: '总额', field: 'amount', agg: 'sum', width: 120 },
+          {
+            key: 'm_avg',
+            title: '均值',
+            field: 'amount',
+            agg: 'avg',
+            width: 120,
+            decimalPlaces: 1,
+          },
+          { key: 'm_rate', title: '平均达成率', field: 'rate', agg: 'avg', width: 100 },
+          { key: 'm_cnt', title: '数量', field: '', agg: 'count', width: 80 },
+        ],
+        showGrandTotal: true,
+      },
+    })
+
+    expect(table.getCellText(2, 1)).toBe('¥150.2')
+    expect(table.getCellText(3, 1)).toBe('75.000%')
+
+    adapter.destroy()
+    container.remove()
+  })
 })

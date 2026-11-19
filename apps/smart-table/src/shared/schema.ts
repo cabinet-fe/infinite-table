@@ -147,6 +147,8 @@ export interface SmartColumn {
   options?: SelectOption[]
   /** number 类型的格式：'integer' | 'decimal' | 'currency' | 'percent' */
   numberFormat?: 'integer' | 'decimal' | 'currency' | 'percent'
+  /** 小数位数配置（0~6 整数；未设时按格式默认规则渲染） */
+  decimalPlaces?: number
   /** lookup 类型的向导配置 */
   lookupConfig?: LookupConfig
   /** formula 类型的列级公式表达式，如 "[lookup_paid_sum] / [contract_amount]" */
@@ -183,6 +185,19 @@ export interface SortRule {
   direction: 'asc' | 'desc'
 }
 
+export const MIN_DECIMAL_PLACES = 0
+export const MAX_DECIMAL_PLACES = 6
+
+/** 校验小数位数配置是否为 0..6 整数 */
+export function isValidDecimalPlaces(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= MIN_DECIMAL_PLACES &&
+    value <= MAX_DECIMAL_PLACES
+  )
+}
+
 export type SmartPivotAgg = 'sum' | 'count' | 'avg' | 'min' | 'max'
 
 export interface SmartPivotMeasureConfig {
@@ -191,6 +206,8 @@ export interface SmartPivotMeasureConfig {
   field: string
   agg: SmartPivotAgg
   width?: number
+  /** 透视度量独立小数位数（0~6 整数；未设时回退对应列 decimalPlaces） */
+  decimalPlaces?: number
 }
 
 export interface SmartPivotConfig {
@@ -274,6 +291,8 @@ export interface DashboardKpiConfig {
   field: string
   agg: DashboardKpiAgg
   numberFormat?: SmartColumn['numberFormat']
+  /** KPI 指标卡独立小数位数（0~6 整数；未设时回退列 decimalPlaces） */
+  decimalPlaces?: number
   prefix?: string
   suffix?: string
   accentColor?: string

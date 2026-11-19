@@ -422,6 +422,7 @@ export function createLookupColumnsFromWizard(params: {
     field: string
     title: string
     numberFormat?: SmartColumn['numberFormat']
+    decimalPlaces?: number
     rollupAgg?: LookupRollupAgg
     width?: number
   }[]
@@ -465,11 +466,21 @@ export function createLookupColumnsFromWizard(params: {
     if (params.mode === 'rollup') {
       if (agg === 'count') {
         col.numberFormat = 'integer'
-      } else if (agg !== 'join' && item.numberFormat !== undefined) {
+      } else if (agg !== 'join') {
+        if (item.numberFormat !== undefined) {
+          col.numberFormat = item.numberFormat
+        }
+        if (item.decimalPlaces !== undefined) {
+          col.decimalPlaces = item.decimalPlaces
+        }
+      }
+    } else {
+      if (item.numberFormat !== undefined) {
         col.numberFormat = item.numberFormat
       }
-    } else if (item.numberFormat !== undefined) {
-      col.numberFormat = item.numberFormat
+      if (item.decimalPlaces !== undefined) {
+        col.decimalPlaces = item.decimalPlaces
+      }
     }
 
     return col

@@ -199,6 +199,7 @@ export function LookupWizardModal({
             field: s.field,
             title: s.title.trim(),
             numberFormat: metaCol?.numberFormat,
+            decimalPlaces: metaCol?.decimalPlaces,
             width: metaCol?.width,
           }
         }),
@@ -208,12 +209,15 @@ export function LookupWizardModal({
       if (!rollupField || !trimmedTitle) {
         return
       }
+      const targetCol = cols.find((c) => c.key === rollupField)
       const numberFormat =
         rollupAgg === 'count'
           ? 'integer'
           : rollupAgg === 'join'
             ? undefined
-            : (cols.find((c) => c.key === rollupField)?.numberFormat ?? 'decimal')
+            : (targetCol?.numberFormat ?? 'decimal')
+      const decimalPlaces =
+        rollupAgg === 'count' || rollupAgg === 'join' ? undefined : targetCol?.decimalPlaces
 
       newColumns = createLookupColumnsFromWizard({
         targetTableId: targetBundle.meta.id,
@@ -226,6 +230,7 @@ export function LookupWizardModal({
             title: trimmedTitle,
             rollupAgg,
             numberFormat,
+            decimalPlaces,
           },
         ],
       })

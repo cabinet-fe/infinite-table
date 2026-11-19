@@ -3,6 +3,11 @@
 
 import { Lightbulb, Lock, X } from 'lucide-react'
 import { columnsToPivotFields } from '../canvas/smart-pivot'
+import {
+  DECIMAL_PLACES_OPTIONS,
+  fromDecimalPlacesChoice,
+  toDecimalPlacesChoice,
+} from '../shared/number-format'
 import type {
   SmartColumn,
   SmartPivotAgg,
@@ -111,11 +116,34 @@ export function DrawerPivotPanel({
         if (m.key !== measureKey || isCountRecordMeasure(m.field)) {
           return m
         }
-        return {
+        const next: SmartPivotMeasureConfig = {
           ...m,
           agg,
           title: `${colTitleOf(columns, m.field)}(${AGG_LABELS[agg]})`,
         }
+        if (agg === 'count') {
+          delete next.decimalPlaces
+        }
+        return next
+      }),
+    })
+  }
+
+  function updateMeasureDecimalPlaces(measureKey: string, choice: string) {
+    const decimalPlaces = fromDecimalPlacesChoice(choice)
+    onChangeConfig({
+      ...config,
+      measures: config.measures.map((m) => {
+        if (m.key !== measureKey || isCountRecordMeasure(m.field)) {
+          return m
+        }
+        const next: SmartPivotMeasureConfig = { ...m }
+        if (decimalPlaces === undefined) {
+          delete next.decimalPlaces
+        } else {
+          next.decimalPlaces = decimalPlaces
+        }
+        return next
       }),
     })
   }
@@ -234,41 +262,56 @@ export function DrawerPivotPanel({
             return (
               <div
                 key={m.key}
-                className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5"
+                className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5"
               >
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
-                  {displayName}
-                </span>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {isCount ? (
-                    <span
-                      className="inline-flex items-center gap-1 rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] text-slate-600"
-                      title="记录数仅支持计数"
-                    >
-                      <Lock className="h-2.5 w-2.5" />
-                      <span>计数</span>
-                    </span>
-                  ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
+                    {displayName}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {isCount ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] text-slate-600"
+                        title="记录数仅支持计数"
+                      >
+                        <Lock className="h-2.5 w-2.5" />
+                        <span>计数</span>
+                      </span>
+                    ) : (
+                      <CustomSelect
+                        size="xs"
+                        variant="pill"
+                        value={m.agg}
+                        options={AGG_OPTIONS}
+                        ariaLabel={`${displayName} 聚合方式`}
+                        onChange={(agg) => updateMeasureAgg(m.key, agg)}
+                      />
+                    )}
+                    {config.measures.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeMeasure(m.key)}
+                        aria-label={`移除指标 ${displayName}`}
+                        className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {!isCount && m.agg !== 'count' && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-400">小数位数</span>
                     <CustomSelect
                       size="xs"
                       variant="pill"
-                      value={m.agg}
-                      options={AGG_OPTIONS}
-                      ariaLabel={`${displayName} 聚合方式`}
-                      onChange={(agg) => updateMeasureAgg(m.key, agg)}
+                      value={toDecimalPlacesChoice(m.decimalPlaces)}
+                      options={DECIMAL_PLACES_OPTIONS}
+                      ariaLabel={`${displayName} 小数位数`}
+                      onChange={(val) => updateMeasureDecimalPlaces(m.key, val)}
                     />
-                  )}
-                  {config.measures.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeMeasure(m.key)}
-                      aria-label={`移除指标 ${displayName}`}
-                      className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )
           })}

@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlignCenter, AlignLeft, AlignRight, X } from 'lucide-react'
 import { validateFormulaExpr } from '../domain/formula-column'
 import {
+  DECIMAL_PLACES_OPTIONS,
+  fromDecimalPlacesChoice,
+  toDecimalPlacesChoice,
+} from '../shared/number-format'
+import {
   mergeSmartColumns,
   type CellTextAlign,
   type RawSmartColumnType,
@@ -182,6 +187,7 @@ export function AddColumnModal({
   const [colFormat, setColFormat] = useState<'integer' | 'decimal' | 'currency' | 'percent'>(
     'decimal',
   )
+  const [decimalPlaces, setDecimalPlaces] = useState<number | undefined>(undefined)
   const [required, setRequired] = useState(false)
   const [align, setAlign] = useState<CellTextAlign | undefined>(undefined)
   const [formulaExpr, setFormulaExpr] = useState('')
@@ -228,6 +234,7 @@ export function AddColumnModal({
           type: 'formula',
           width: 140,
           numberFormat: colFormat,
+          ...(decimalPlaces !== undefined ? { decimalPlaces } : {}),
           formulaExpr: formulaExpr.trim(),
         }
       : {
@@ -238,6 +245,9 @@ export function AddColumnModal({
           ...(required ? { required: true } : {}),
           ...(align ? { align } : {}),
           ...(colType === 'number' ? { numberFormat: colFormat } : {}),
+          ...((colType === 'number' || colType === 'progress') && decimalPlaces !== undefined
+            ? { decimalPlaces }
+            : {}),
           ...(colType === 'select' ? { options: selectOptionsDraft } : {}),
         }
 
@@ -362,16 +372,30 @@ export function AddColumnModal({
               </>
             )}
 
-            {(isAppMode || colType === 'number') && (
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-700">数值显示格式</label>
-                <CustomSelect
-                  className="w-full"
-                  value={colFormat}
-                  ariaLabel="数值显示格式"
-                  options={NUMBER_FORMAT_OPTIONS}
-                  onChange={(val) => setColFormat(val)}
-                />
+            {(isAppMode || colType === 'number' || colType === 'progress') && (
+              <div className="grid grid-cols-2 gap-3">
+                {(isAppMode || colType === 'number') && (
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-slate-700">数值显示格式</label>
+                    <CustomSelect
+                      className="w-full"
+                      value={colFormat}
+                      ariaLabel="数值显示格式"
+                      options={NUMBER_FORMAT_OPTIONS}
+                      onChange={(val) => setColFormat(val)}
+                    />
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-slate-700">小数位数</label>
+                  <CustomSelect
+                    className="w-full"
+                    value={toDecimalPlacesChoice(decimalPlaces)}
+                    ariaLabel="小数位数"
+                    options={DECIMAL_PLACES_OPTIONS}
+                    onChange={(val) => setDecimalPlaces(fromDecimalPlacesChoice(val))}
+                  />
+                </div>
               </div>
             )}
 

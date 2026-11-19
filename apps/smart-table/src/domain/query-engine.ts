@@ -1,6 +1,7 @@
 // 数据查询与计算管线引擎：串联 VLOOKUP → 公式列 → 过滤（快捷胶囊 + 高级条件组）→ 多级排序 → 底部汇总
 
 import type { TableBundle } from '../shared/api-types'
+import { formatSummaryDisplayValue, safeDecimalDiv } from '../shared/number-format'
 import {
   filterRawColumns,
   mergeSmartColumns,
@@ -357,51 +358,16 @@ export function sortRecords(
   return sorted
 }
 
-function formatPercent(ratio: number): string {
-  const pct = Math.round(ratio * 1000) / 10
-  return `${pct}%`
-}
-
 /**
- * 格式化底部汇总指标显示文本（与画布千分位/小数位规格对齐）。
+ * 格式化底部汇总指标显示文本（统一委托 shared/number-format 接入 @cat-kit/core）。
  */
 export function formatSummaryValue(
   value: number | null,
   type: SummaryType,
   numberFormat?: SmartColumn['numberFormat'],
+  decimalPlaces?: number,
 ): string {
-  if (type === 'none') {
-    return ''
-  }
-  if (value === null || !Number.isFinite(value)) {
-    return '-'
-  }
-  if (type === 'filled_rate') {
-    return formatPercent(value)
-  }
-  if (type === 'count') {
-    return Math.round(value).toLocaleString('en-US')
-  }
-
-  switch (numberFormat) {
-    case 'integer':
-      return Math.round(value).toLocaleString('en-US')
-    case 'currency': {
-      const abs = Math.abs(value)
-      const formatted = Number.isInteger(abs)
-        ? abs.toLocaleString('en-US')
-        : abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      return value < 0 ? `-¥${formatted}` : `¥${formatted}`
-    }
-    case 'percent':
-      return formatPercent(value)
-    case 'decimal':
-      return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    default:
-      return Number.isInteger(value)
-        ? value.toLocaleString('en-US')
-        : value.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  }
+  return formatSummaryDisplayValue(value, type, numberFormat, decimalPlaces)
 }
 
 /**
@@ -450,7 +416,7 @@ export function computeSummaries(
             filled += 1
           }
         }
-        value = filled / records.length
+        value = safeDecimalDiv(filled, records.length)
       }
     } else {
       const numbers: number[] = []
@@ -466,7 +432,7 @@ export function computeSummaries(
     result[field] = {
       type: summaryType,
       value,
-      text: formatSummaryValue(value, summaryType, col?.numberFormat),
+      text: formatSummaryValue(value, summaryType, col?.numberFormat, col?.decimalPlaces),
     }
   }
 

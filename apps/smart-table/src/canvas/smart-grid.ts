@@ -25,6 +25,7 @@ import {
   formatSummaryValue,
   type SummaryCellResult,
 } from '../domain/query-engine'
+import { formatNumberValue, formatProgressPercent } from '../shared/number-format'
 import {
   createViewStyleResolver,
   resolveRowHeightPx,
@@ -330,33 +331,6 @@ function valueToText(value: unknown): string {
   return ''
 }
 
-/** 数值按列 format 格式化 */
-function formatNumberBySpec(num: number, format: SmartColumn['numberFormat']): string {
-  if (!Number.isFinite(num)) {
-    return ''
-  }
-  if (format === 'currency') {
-    const abs = Math.abs(num)
-    const formatted = Number.isInteger(abs)
-      ? abs.toLocaleString('en-US')
-      : abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    return num < 0 ? `-¥${formatted}` : `¥${formatted}`
-  }
-  if (format === 'percent') {
-    const pct = Number((num * 100).toFixed(1))
-    return `${pct}%`
-  }
-  if (format === 'integer') {
-    return Math.round(num).toLocaleString('en-US')
-  }
-  if (format === 'decimal') {
-    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-  return Number.isInteger(num)
-    ? num.toLocaleString('en-US')
-    : num.toLocaleString('en-US', { maximumFractionDigits: 2 })
-}
-
 /** 按列定义与基础值计算展示文本 */
 export function formatSmartCellDisplayValue(col: SmartColumn | undefined, value: unknown): string {
   if (!col) {
@@ -370,11 +344,7 @@ export function formatSmartCellDisplayValue(col: SmartColumn | undefined, value:
   }
   if (col.type === 'progress') {
     const num = typeof value === 'number' ? value : Number(value)
-    if (!Number.isFinite(num)) {
-      return ''
-    }
-    const clamped = Math.max(0, Math.min(100, num))
-    return `${Number(clamped.toFixed(1))}%`
+    return formatProgressPercent(num, col.decimalPlaces)
   }
   if (col.type === 'number' || col.numberFormat !== undefined) {
     const num =
@@ -384,7 +354,7 @@ export function formatSmartCellDisplayValue(col: SmartColumn | undefined, value:
           ? Number(value)
           : Number.NaN
     if (Number.isFinite(num)) {
-      return formatNumberBySpec(num, col.numberFormat)
+      return formatNumberValue(num, col.numberFormat, col.decimalPlaces)
     }
   }
   return valueToText(value)
@@ -518,6 +488,7 @@ function columnsSchemaEqual(a: readonly SmartColumn[], b: readonly SmartColumn[]
       ca.align !== cb.align ||
       ca.isUniqueKey !== cb.isUniqueKey ||
       ca.numberFormat !== cb.numberFormat ||
+      ca.decimalPlaces !== cb.decimalPlaces ||
       ca.formulaExpr !== cb.formulaExpr ||
       !selectOptionsEqual(ca.options, cb.options) ||
       !lookupConfigEqual(ca.lookupConfig, cb.lookupConfig)
@@ -774,36 +745,38 @@ const renderPersonCell: CellRenderer = ({ ctx, width, height, text, style, font 
 }
 
 /** 绘制 progress 圆角轨道 + 进度条 + 右侧百分比文字（协调文字色） */
-const renderProgressCell: CellRenderer = ({ ctx, width, height, value, style }) => {
-  const raw = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(raw)) {
-    return
-  }
-  const pct = Math.max(0, Math.min(100, raw))
-  const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#2563eb' : '#d97706'
-  const label = `${Number(pct.toFixed(1))}%`
+function createProgressRenderer(col: SmartColumn): CellRenderer {
+  return ({ ctx, width, height, value, style }) => {
+    const raw = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(raw)) {
+      return
+    }
+    const pct = Math.max(0, Math.min(100, raw))
+    const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#2563eb' : '#d97706'
+    const label = formatProgressPercent(pct, col.decimalPlaces)
 
-  ctx.font = '11px sans-serif'
-  const labelW = ctx.measureText(label).width
-  const labelGap = 8
-  const trackX = 8
-  const trackH = 8
-  const trackY = (height - trackH) / 2
-  const trackW = Math.max(12, width - trackX - 8 - labelW - labelGap)
+    ctx.font = '11px sans-serif'
+    const labelW = ctx.measureText(label).width
+    const labelGap = 8
+    const trackX = 8
+    const trackH = 8
+    const trackY = (height - trackH) / 2
+    const trackW = Math.max(12, width - trackX - 8 - labelW - labelGap)
 
-  roundRectPath(ctx, trackX, trackY, trackW, trackH, trackH / 2)
-  ctx.fillStyle = '#e5e7eb'
-  ctx.fill()
-
-  if (pct > 0) {
-    const fillW = Math.min(trackW, Math.max(trackH, (trackW * pct) / 100))
-    roundRectPath(ctx, trackX, trackY, fillW, trackH, trackH / 2)
-    ctx.fillStyle = barColor
+    roundRectPath(ctx, trackX, trackY, trackW, trackH, trackH / 2)
+    ctx.fillStyle = '#e5e7eb'
     ctx.fill()
-  }
 
-  ctx.fillStyle = style.color ?? '#4b5563'
-  ctx.fillText(label, width - 8 - labelW, height / 2 + 4)
+    if (pct > 0) {
+      const fillW = Math.min(trackW, Math.max(trackH, (trackW * pct) / 100))
+      roundRectPath(ctx, trackX, trackY, fillW, trackH, trackH / 2)
+      ctx.fillStyle = barColor
+      ctx.fill()
+    }
+
+    ctx.fillStyle = style.color ?? '#4b5563'
+    ctx.fillText(label, width - 8 - labelW, height / 2 + 4)
+  }
 }
 
 /** 绘制带重名冲突/已锁定角标的 lookup 单元格（窄列自动切换紧凑文案与对齐） */
@@ -1626,7 +1599,9 @@ export class SmartGridAdapter {
     }
     const label = SUMMARY_SHORT_LABELS[summaryType]
     const result = this.computedSummaries[colDef.key]
-    const valueText = result?.text ?? formatSummaryValue(null, summaryType, colDef.numberFormat)
+    const valueText =
+      result?.text ??
+      formatSummaryValue(null, summaryType, colDef.numberFormat, colDef.decimalPlaces)
 
     return ({ ctx, width, height, style }: CellRenderTarget) => {
       const innerW = Math.max(0, width - 16)
@@ -1669,7 +1644,7 @@ export class SmartGridAdapter {
       return renderPersonCell
     }
     if (colDef.type === 'progress') {
-      return renderProgressCell
+      return createProgressRenderer(colDef)
     }
     if (colDef.type === 'lookup' && colDef.lookupConfig?.mode === 'one') {
       const conflict = this.getLookupConflict(colDef, row)

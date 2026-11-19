@@ -56,6 +56,8 @@ export interface LookupColumnUpdate {
   lookupConfig?: LookupConfig
   /** 数值格式调整；null 表示清除（聚合切文本拼接时） */
   numberFormat?: SmartColumn['numberFormat'] | null
+  /** 小数位调整；null 表示清除（切 count / join 时） */
+  decimalPlaces?: number | null
 }
 
 /** 关联管理的一次性保存载荷：删列、改列与追加新带出列 */
@@ -336,7 +338,12 @@ export function buildLookupManageChanges(
         key: item.key,
         ...(title !== item.origTitle ? { title } : {}),
         ...(aggChanged
-          ? { numberFormat: rollupNumberFormat(item.rollupAgg, col.numberFormat) }
+          ? {
+              numberFormat: rollupNumberFormat(item.rollupAgg, col.numberFormat),
+              ...(item.rollupAgg === 'count' || item.rollupAgg === 'join'
+                ? { decimalPlaces: null }
+                : {}),
+            }
           : {}),
         ...(rulesChanged || aggChanged || fieldChanged
           ? {
@@ -396,6 +403,9 @@ export function applyLookupManageChanges(
         ...(update.numberFormat !== undefined
           ? { numberFormat: update.numberFormat ?? undefined }
           : {}),
+        ...(update.decimalPlaces !== undefined
+          ? { decimalPlaces: update.decimalPlaces ?? undefined }
+          : {}),
         ...(update.lookupConfig !== undefined ? { lookupConfig: update.lookupConfig } : {}),
       }
     })
@@ -416,14 +426,15 @@ function rollupNumberFormat(
   return current ?? 'decimal'
 }
 
-/** 新增带出列沿用目标字段的数值格式与列宽 */
+/** 新增带出列沿用目标字段的数值格式、小数位与列宽 */
 function pickTargetFormat(
   targetColumns: readonly SmartColumn[],
   field: string,
-): { numberFormat?: SmartColumn['numberFormat']; width?: number } {
+): { numberFormat?: SmartColumn['numberFormat']; decimalPlaces?: number; width?: number } {
   const target = targetColumns.find((col) => col.key === field)
   return {
     ...(target?.numberFormat !== undefined ? { numberFormat: target.numberFormat } : {}),
+    ...(target?.decimalPlaces !== undefined ? { decimalPlaces: target.decimalPlaces } : {}),
     ...(target?.width !== undefined ? { width: target.width } : {}),
   }
 }

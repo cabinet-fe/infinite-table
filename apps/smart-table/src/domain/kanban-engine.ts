@@ -1,7 +1,7 @@
 // 看板泳道分组计算引擎：按指定单选/文本字段将记录分组为有序泳道与卡片摘要
 
+import { formatNumberValue, formatProgressPercent } from '../shared/number-format'
 import type { KanbanConfig, SelectOption, SmartColumn, SmartRecord } from '../shared/schema'
-import { formatSummaryValue } from './query-engine'
 import { extractLinkText, isEmptyCellValue, scalarToText, toFiniteNumber } from './utils'
 
 /** 看板卡片展示字段 */
@@ -68,12 +68,12 @@ function formatCardFieldText(value: unknown, col: SmartColumn | undefined): stri
   }
   if (col?.type === 'progress') {
     const num = toFiniteNumber(value)
-    return num !== null ? `${Math.round(num)}%` : scalarToText(value)
+    return num !== null ? formatProgressPercent(num, col.decimalPlaces) : scalarToText(value)
   }
   if (col?.type === 'number' || col?.numberFormat !== undefined) {
     const num = toFiniteNumber(value)
     if (num !== null) {
-      return formatSummaryValue(num, 'sum', col?.numberFormat)
+      return formatNumberValue(num, col?.numberFormat, col?.decimalPlaces)
     }
   }
   const linkText = extractLinkText(value)

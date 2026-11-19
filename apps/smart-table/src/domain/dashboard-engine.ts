@@ -1,5 +1,6 @@
 // 仪表盘聚合计算引擎：计算 KPI 指标卡与多图型（单/双维度多系列）图表数据集
 
+import { safeDecimalDiv } from '../shared/number-format'
 import type {
   DashboardChartConfig,
   DashboardChartType,
@@ -172,7 +173,8 @@ export function computeDashboardKpi(
   }
 
   const numberFormat = kpi.numberFormat ?? col?.numberFormat
-  const baseText = formatSummaryValue(value, kpi.agg, numberFormat)
+  const decimalPlaces = kpi.decimalPlaces ?? col?.decimalPlaces
+  const baseText = formatSummaryValue(value, kpi.agg, numberFormat, decimalPlaces)
   const formattedValue =
     value !== null ? `${kpi.prefix ?? ''}${baseText}${kpi.suffix ?? ''}` : baseText
 
@@ -322,7 +324,7 @@ export function computeDashboardChart(
 
   const data: DashboardChartDatum[] = sliced.map((item) => ({
     ...item,
-    ratio: positiveSum > 0 && item.value > 0 ? item.value / positiveSum : 0,
+    ratio: positiveSum > 0 && item.value > 0 ? safeDecimalDiv(item.value, positiveSum) : 0,
   }))
   const categories = data.map((item) => item.label)
 

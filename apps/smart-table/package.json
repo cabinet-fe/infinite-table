@@ -11,6 +11,7 @@
     "preview": "vp preview"
   },
   "dependencies": {
+    "@cat-kit/core": "^1.2.1",
     "@infinitable/formulas": "workspace:*",
     "@infinitable/grid": "workspace:*",
     "@infinitable/pivot": "workspace:*",

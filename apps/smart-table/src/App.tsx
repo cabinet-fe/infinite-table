@@ -1764,6 +1764,9 @@ export function App() {
       if ('required' in patch && !patch.required) {
         delete updated.required
       }
+      if ('decimalPlaces' in patch && patch.decimalPlaces === undefined) {
+        delete updated.decimalPlaces
+      }
       return updated
     })
     await handleSaveMeta(activeTable.meta.id, {
@@ -1777,7 +1780,11 @@ export function App() {
     if (!activeApp || activeTarget.kind !== 'app') return
     const nextDerived = (activeApp.derivedColumns ?? []).map((col) => {
       if (col.key !== columnKey) return col
-      return { ...col, ...patch }
+      const updated: SmartColumn = { ...col, ...patch }
+      if ('decimalPlaces' in patch && patch.decimalPlaces === undefined) {
+        delete updated.decimalPlaces
+      }
+      return updated
     })
     await handleSaveSmartApp(activeApp.id, { derivedColumns: nextDerived }, '派生列配置已更新')
   }

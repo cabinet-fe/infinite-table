@@ -7,6 +7,7 @@ import {
   runSmartTablePipeline,
   sortRecords,
 } from '../../src/domain/query-engine'
+import { aggregateFiniteNumbers, sumNumbersSafe } from '../../src/domain/utils'
 import type { TableBundle } from '../../src/shared/api-types'
 import type {
   FilterGroup,
@@ -305,5 +306,39 @@ describe('query-engine', () => {
     expect(formatSummaryValue(12.3, 'avg', 'decimal')).toBe('12.30')
     expect(formatSummaryValue(1234.5, 'sum', 'currency')).toBe('¥1,234.50')
     expect(formatSummaryValue(-1234, 'sum', 'currency')).toBe('-¥1,234')
+    expect(formatSummaryValue(1234, 'sum', 'currency', 2)).toBe('¥1,234.00')
+    expect(formatSummaryValue(0.5, 'filled_rate', undefined, 2)).toBe('50.00%')
+  })
+
+  it('0.1 + 0.2 等十进制聚合无浮点漂移且 computeSummaries 遵循列 decimalPlaces', () => {
+    expect(sumNumbersSafe([0.1, 0.2])).toBe(0.3)
+    expect(aggregateFiniteNumbers([0.1, 0.2], 'avg')).toBe(0.15)
+    expect(aggregateFiniteNumbers([0.1, 0.2, 0.3], 'avg')).toBe(0.2)
+
+    const cols: SmartColumn[] = [
+      {
+        key: 'amount',
+        title: '金额',
+        type: 'number',
+        width: 120,
+        numberFormat: 'currency',
+        decimalPlaces: 4,
+      },
+      {
+        key: 'rate',
+        title: '比例',
+        type: 'number',
+        width: 100,
+        numberFormat: 'percent',
+        decimalPlaces: 2,
+      },
+    ]
+    const recs: SmartRecord[] = [
+      { _id: '1', amount: 0.1, rate: 0.25 },
+      { _id: '2', amount: 0.2, rate: 0.75 },
+    ]
+    const sums = computeSummaries(recs, cols, { amount: 'sum', rate: 'avg' })
+    expect(sums['amount']).toEqual({ type: 'sum', value: 0.3, text: '¥0.3000' })
+    expect(sums['rate']).toEqual({ type: 'avg', value: 0.5, text: '50.00%' })
   })
 })

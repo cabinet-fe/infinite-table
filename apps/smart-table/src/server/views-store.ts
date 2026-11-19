@@ -37,11 +37,13 @@ import {
 import {
   VALID_VIEW_TYPES,
   ValidationError,
+  assertValidDecimalPlaces,
   getTableBundle,
   getTableMeta,
   isPlainObject,
   runInTransaction,
   updateTableRecord,
+  validatePivotMeasuresDecimalPlaces,
 } from './db'
 
 interface SmartAppRow {
@@ -260,6 +262,7 @@ function validateDashboardKpi(item: unknown, index: number): void {
   ) {
     throw new ValidationError(`KPI "${item.id}" 的 numberFormat 不合法`)
   }
+  assertValidDecimalPlaces(item.decimalPlaces, `KPI "${item.id}"`)
   if (item.prefix !== undefined && typeof item.prefix !== 'string') {
     throw new ValidationError(`KPI "${item.id}" 的 prefix 必须为字符串`)
   }
@@ -351,6 +354,12 @@ function validatePlainMap<T>(value: unknown, label: string): T {
   return value as T
 }
 
+function validatePivotConfig(value: unknown): SmartPivotConfig {
+  const config = validatePlainMap<SmartPivotConfig>(value, 'pivotConfig')
+  validatePivotMeasuresDecimalPlaces(config)
+  return config
+}
+
 function parseJsonSafe<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback
   try {
@@ -417,6 +426,7 @@ function validateDerivedColumns(
     ) {
       throw new ValidationError(`派生列 "${col.key}" 的 numberFormat 不合法`)
     }
+    assertValidDecimalPlaces(col.decimalPlaces, `派生列 "${col.key}"`)
     if (col.type === 'formula') {
       if (typeof col.formulaExpr !== 'string' || col.formulaExpr.trim() === '') {
         throw new ValidationError(`公式列 "${col.key}" 缺少非空表达式 formulaExpr`)
@@ -865,7 +875,7 @@ function applyConfigPatch(
   )
   assignOptional('conditionalFormats', validateConditionalFormats)
   assignOptional('summaries', (v) => validatePlainMap<Record<string, SummaryType>>(v, 'summaries'))
-  assignOptional('pivotConfig', (v) => validatePlainMap<SmartPivotConfig>(v, 'pivotConfig'))
+  assignOptional('pivotConfig', validatePivotConfig)
   assignOptional('kanbanConfig', validateKanbanConfig)
   assignOptional('dashboardConfig', validateDashboardConfig)
 

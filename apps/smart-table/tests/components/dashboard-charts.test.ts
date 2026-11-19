@@ -437,4 +437,81 @@ describe('DashboardChartBody (Chart.js)', () => {
     expect(destroySpy).toHaveBeenCalledTimes(1)
     expect(Chart.getChart(canvas)).toBeUndefined()
   })
+
+  it('图表 Tooltip 与饼图占比遵循 measureCol.decimalPlaces 与 @cat-kit/core 百分比精度', () => {
+    const decimalMeasureCol: SmartColumn = {
+      key: 'amount',
+      title: '合同金额',
+      type: 'number',
+      width: 120,
+      numberFormat: 'currency',
+      decimalPlaces: 3,
+    }
+    const barChart = computeDashboardChart(RECORDS, COLUMNS, {
+      id: 'c_decimal_bar',
+      title: '金额柱图',
+      chartType: 'bar',
+      dimensionField: 'region',
+      measureField: 'amount',
+      agg: 'sum',
+    })
+    const barHandle = mountChart(
+      createElement(DashboardChartBody, {
+        chart: barChart,
+        dimensionCol: COLUMNS[0],
+        measureCol: decimalMeasureCol,
+      }),
+    )
+    const barCanvas = barHandle.container.querySelector('canvas')!
+    const barInstance = Chart.getChart(barCanvas)!
+    const barLabelCb = barInstance.options.plugins?.tooltip?.callbacks?.label as (
+      item: unknown,
+    ) => string
+    expect(
+      barLabelCb({
+        raw: 300000,
+        label: '华东',
+        dataIndex: 0,
+        datasetIndex: 0,
+        dataset: { label: '合同金额' },
+      }),
+    ).toContain('¥300,000.000')
+
+    const pieChart = computeDashboardChart(
+      [
+        { _id: '1', region: '华东', amount: 1 },
+        { _id: '2', region: '华南', amount: 1 },
+      ],
+      COLUMNS,
+      {
+        id: 'c_ratio_pie',
+        title: '占比饼图',
+        chartType: 'pie',
+        dimensionField: 'region',
+        measureField: 'amount',
+        agg: 'sum',
+      },
+    )
+    const pieHandle = mountChart(
+      createElement(DashboardChartBody, {
+        chart: pieChart,
+        dimensionCol: COLUMNS[0],
+        measureCol: decimalMeasureCol,
+      }),
+    )
+    const pieCanvas = pieHandle.container.querySelector('canvas')!
+    const pieInstance = Chart.getChart(pieCanvas)!
+    const pieLabelCb = pieInstance.options.plugins?.tooltip?.callbacks?.label as (
+      item: unknown,
+    ) => string
+    expect(
+      pieLabelCb({
+        raw: 1,
+        label: '华东',
+        dataIndex: 0,
+        datasetIndex: 0,
+        dataset: { label: '' },
+      }),
+    ).toBe('华东: ¥1.000 (1 条 · 50%)')
+  })
 })

@@ -1,5 +1,6 @@
 // 透视表双模式「下钻」分析引擎：筛选可用下钻维度并按下一维度逐层拆解聚合
 
+import { safeDecimalDiv } from '../shared/number-format'
 import type {
   SmartColumn,
   SmartColumnType,
@@ -153,7 +154,7 @@ export function computeDimensionBreakdown(
     if (totalPrimary > 0) {
       for (const item of items) {
         const val = item.metrics[primaryMeasure.key] ?? null
-        item.ratio = val !== null && val > 0 ? val / totalPrimary : 0
+        item.ratio = val !== null && val > 0 ? safeDecimalDiv(val, totalPrimary) : 0
       }
       return items
     }
@@ -162,7 +163,7 @@ export function computeDimensionBreakdown(
   }
 
   for (const item of items) {
-    item.ratio = item.count / records.length
+    item.ratio = safeDecimalDiv(item.count, records.length)
   }
   return items
 }

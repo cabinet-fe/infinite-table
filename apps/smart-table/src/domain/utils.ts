@@ -1,5 +1,10 @@
 // 领域计算管线共享的基础值规范化与安全数值聚合工具
 
+import { $n } from '@cat-kit/core'
+import { safeDecimalDiv } from '../shared/number-format'
+
+const SUM_BATCH_SIZE = 2000
+
 /** 提取 `{ url, text }` 链接对象的展示文本；非链接对象返回 null */
 export function extractLinkText(value: unknown): string | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -70,80 +75,27 @@ export function scalarToText(value: unknown): string {
   return ''
 }
 
-function toScaledInteger(val: number, maxScale: number): number {
-  const negative = val < 0
-  const absStr = String(Math.abs(val))
-  const dotIdx = absStr.indexOf('.')
-  const intPart = dotIdx === -1 ? absStr : absStr.slice(0, dotIdx)
-  const fracPart = dotIdx === -1 ? '' : absStr.slice(dotIdx + 1)
-  const padded = intPart + fracPart.padEnd(maxScale, '0')
-  const scaled = Number(padded)
-  return negative ? -scaled : scaled
-}
-
-/** 安全十进制累加：对齐小数位做整数求和，避免 0.1 + 0.2 等浮点漂移 */
+/** 安全十进制累加：委托给 @cat-kit/core 十进制加法，避免 0.1 + 0.2 等浮点漂移 */
 export function sumNumbersSafe(values: readonly number[]): number {
-  if (values.length === 0) {
-    return 0
-  }
+  let acc = 0
+  let chunk: number[] = []
 
-  let maxScale = 0
-  let canScale = true
   for (const val of values) {
     if (!Number.isFinite(val)) {
       continue
     }
-    const str = String(val)
-    if (str.includes('e') || str.includes('E')) {
-      canScale = false
-      break
-    }
-    const dotIdx = str.indexOf('.')
-    if (dotIdx !== -1) {
-      const fracLen = str.length - dotIdx - 1
-      if (fracLen > maxScale) {
-        maxScale = fracLen
-      }
+    chunk.push(val)
+    if (chunk.length >= SUM_BATCH_SIZE) {
+      acc = $n.plus(acc, ...chunk)
+      chunk = []
     }
   }
 
-  if (canScale && maxScale <= 10) {
-    const factor = 10 ** maxScale
-    let intSum = 0
-    let overflow = false
-    for (const val of values) {
-      if (!Number.isFinite(val)) {
-        continue
-      }
-      const scaled = toScaledInteger(val, maxScale)
-      if (!Number.isSafeInteger(scaled)) {
-        overflow = true
-        break
-      }
-      intSum += scaled
-      if (!Number.isSafeInteger(intSum)) {
-        overflow = true
-        break
-      }
-    }
-    if (!overflow) {
-      return intSum === 0 ? 0 : intSum / factor
-    }
+  if (chunk.length > 0) {
+    acc = $n.plus(acc, ...chunk)
   }
 
-  // 超出安全整数范围或科学计数法时回退 Kahan 补偿累加
-  let sum = 0
-  let compensation = 0
-  for (const val of values) {
-    if (!Number.isFinite(val)) {
-      continue
-    }
-    const y = val - compensation
-    const t = sum + y
-    compensation = t - sum - y
-    sum = t
-  }
-  return sum
+  return Object.is(acc, -0) ? 0 : acc
 }
 
 /** 对有限数值数组按 sum / avg / min / max 聚合 */
@@ -158,7 +110,7 @@ export function aggregateFiniteNumbers(
     return null
   }
   if (agg === 'avg') {
-    return sumNumbersSafe(values) / values.length
+    return safeDecimalDiv(sumNumbersSafe(values), values.length)
   }
   let best = values[0]!
   if (agg === 'min') {

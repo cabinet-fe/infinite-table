@@ -26,7 +26,11 @@ import {
 } from 'chart.js'
 import { getRelativePosition } from 'chart.js/helpers'
 import type { DashboardChartResult } from '../domain/dashboard-engine'
-import { formatSummaryValue } from '../domain/query-engine'
+import {
+  formatCompactAxisTick,
+  formatNumberValue,
+  formatPercentRatio,
+} from '../shared/number-format'
 import type { DashboardChartType, SmartColumn } from '../shared/schema'
 
 Chart.register(
@@ -129,16 +133,13 @@ function formatChartMetric(
   measureCol?: SmartColumn,
 ): string {
   if (agg === 'count') {
-    return `${Math.round(value).toLocaleString('zh-CN')} 条`
+    return `${formatNumberValue(value, 'integer')} 条`
   }
-  return formatSummaryValue(value, 'sum', measureCol?.numberFormat)
+  return formatNumberValue(value, measureCol?.numberFormat, measureCol?.decimalPlaces)
 }
 
 function formatAxisTick(value: number): string {
-  if (Math.abs(value) >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}亿`
-  if (Math.abs(value) >= 10_000) return `${(value / 10_000).toFixed(1)}万`
-  if (Number.isInteger(value)) return value.toLocaleString('zh-CN')
-  return value.toFixed(1)
+  return formatCompactAxisTick(value)
 }
 
 /** 判断点击事件是否命中 Chart.js 图例交互区域（hitBox） */
@@ -209,7 +210,7 @@ function buildTooltipLabel(
 
   if (chart.chartType === 'pie') {
     const datum = chart.data[ctx.dataIndex]
-    const pct = datum ? `${(datum.ratio * 100).toFixed(1)}%` : ''
+    const pct = datum ? formatPercentRatio(datum.ratio) : ''
     const cnt = datum ? `${datum.count} 条` : ''
     const meta = [cnt, pct].filter(Boolean).join(' · ')
     return meta ? `${ctx.label}: ${formatted} (${meta})` : `${ctx.label}: ${formatted}`

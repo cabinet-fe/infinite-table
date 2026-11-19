@@ -338,7 +338,7 @@ function KanbanCardFieldRow({ field }: { field: KanbanCardField }) {
   }
 
   if (field.type === 'progress') {
-    const pct = Math.max(0, Math.min(100, Math.round(toFiniteNumber(field.value) ?? 0)))
+    const pct = Math.max(0, Math.min(100, toFiniteNumber(field.value) ?? 0))
     return (
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <span className="shrink-0 text-slate-400">{field.title}</span>
@@ -346,7 +346,9 @@ function KanbanCardFieldRow({ field }: { field: KanbanCardField }) {
           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct}%` }} />
           </div>
-          <span className="w-7 text-right font-medium text-slate-600">{pct}%</span>
+          <span className="shrink-0 text-right font-medium text-slate-600">
+            {field.displayText}
+          </span>
         </div>
       </div>
     )

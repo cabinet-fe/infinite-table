@@ -23,6 +23,11 @@ import {
 } from 'lucide-react'
 import type { ResolvedDashboardKpiIcon } from '../domain/dashboard-engine'
 import { SUMMARY_LABELS } from '../domain/workspace-helpers'
+import {
+  DECIMAL_PLACES_OPTIONS,
+  fromDecimalPlacesChoice,
+  toDecimalPlacesChoice,
+} from '../shared/number-format'
 import type {
   DashboardChartConfig,
   DashboardChartType,
@@ -447,6 +452,7 @@ function KpiEditorForm({
                 field,
                 ...(field === '__count__' ? { agg: 'count' } : {}),
                 numberFormat: col?.numberFormat,
+                decimalPlaces: col?.decimalPlaces,
               })
             }}
           />
@@ -466,20 +472,37 @@ function KpiEditorForm({
         </div>
       </div>
 
-      <div className="space-y-1">
-        <span className="block text-[11px] font-medium text-slate-600">数字格式</span>
-        <CustomSelect
-          size="sm"
-          className="w-full"
-          value={currentFormat}
-          ariaLabel="数字格式"
-          options={KPI_NUMBER_FORMAT_OPTIONS}
-          onChange={(val) =>
-            onUpdate({
-              numberFormat: val === '__auto__' ? undefined : val,
-            })
-          }
-        />
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <span className="block text-[11px] font-medium text-slate-600">数字格式</span>
+          <CustomSelect
+            size="sm"
+            className="w-full"
+            value={currentFormat}
+            ariaLabel="数字格式"
+            options={KPI_NUMBER_FORMAT_OPTIONS}
+            onChange={(val) =>
+              onUpdate({
+                numberFormat: val === '__auto__' ? undefined : val,
+              })
+            }
+          />
+        </div>
+        <div className="space-y-1">
+          <span className="block text-[11px] font-medium text-slate-600">小数位数</span>
+          <CustomSelect
+            size="sm"
+            className="w-full"
+            value={toDecimalPlacesChoice(kpi.decimalPlaces)}
+            ariaLabel="小数位数"
+            options={DECIMAL_PLACES_OPTIONS}
+            onChange={(val) =>
+              onUpdate({
+                decimalPlaces: fromDecimalPlacesChoice(val),
+              })
+            }
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -1042,7 +1065,17 @@ export function DrawerDashboardPanel({
   function updateKpi(id: string, patch: Partial<DashboardKpiConfig>) {
     onChangeConfig({
       ...config,
-      kpis: config.kpis.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+      kpis: config.kpis.map((item) => {
+        if (item.id !== id) return item
+        const next: DashboardKpiConfig = { ...item, ...patch }
+        if ('numberFormat' in patch && patch.numberFormat === undefined) {
+          delete next.numberFormat
+        }
+        if ('decimalPlaces' in patch && patch.decimalPlaces === undefined) {
+          delete next.decimalPlaces
+        }
+        return next
+      }),
     })
   }
 

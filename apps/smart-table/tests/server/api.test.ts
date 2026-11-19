@@ -252,8 +252,23 @@ describe('六表联动种子初始化', () => {
       false,
     )
 
-    // SEED_VERSION = 7：派生列与重名消歧覆盖已迁入 smart_apps
-    expect(SEED_VERSION).toBe(7)
+    // SEED_VERSION = 8：真实业务小数样本与列/透视/KPI decimalPlaces 示范配置
+    expect(SEED_VERSION).toBe(8)
+    const prjRec001 = projects!.records.find((r) => r._id === 'rec_prj_001')!
+    const prjRec002 = projects!.records.find((r) => r._id === 'rec_prj_002')!
+    const invRec001 = body.tables
+      .find((t) => t.meta.id === 'tbl_inventory')!
+      .records.find((r) => r._id === 'rec_inv_001')!
+    const supRec001 = body.tables
+      .find((t) => t.meta.id === 'tbl_suppliers')!
+      .records.find((r) => r._id === 'rec_sup_001')!
+    const tktRec001 = tickets!.records.find((r) => r._id === 'rec_tkt_001')!
+    expect(prjRec001.contract_amount).toBe(1200000.1)
+    expect(prjRec002.contract_amount).toBe(850000.2)
+    expect(invRec001.capacity_rate).toBe(68.5)
+    expect(supRec001.rating).toBe(4.915)
+    expect(tktRec001.sla_progress).toBe(65.1)
+    expect(projects!.meta.columns.find((c) => c.key === 'contract_amount')?.decimalPlaces).toBe(2)
     const appsRes = await app.request('/api/apps')
     expect(appsRes.status).toBe(200)
     const appsBody = (await appsRes.json()) as AllAppsResponse
@@ -1256,5 +1271,85 @@ describe('数据源表拒绝派生列、required/align 持久化、单行与批�
       await app.request(`/api/tables/${meta.id}`)
     ).json()) as TableBundle
     expect(afterOkBundle.records).toHaveLength(2)
+  })
+})
+
+describe('列 decimalPlaces（0~6 整数）服务端校验与持久化', () => {
+  test('POST /api/tables 与 PUT /api/tables/:id/meta 持久化合法 decimalPlaces（0~6），拒绝越界/小数/非数字（400）', async () => {
+    const { app } = createSeededTestEnv()
+
+    const badValues: unknown[] = [-1, 7, 1.5, '2']
+    for (const bad of badValues) {
+      const badRes = await app.request('/api/tables', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: '非法小数位表',
+          columns: [
+            { key: 'code', title: '编号', type: 'text', width: 100 },
+            {
+              key: 'amount',
+              title: '金额',
+              type: 'number',
+              width: 120,
+              numberFormat: 'currency',
+              decimalPlaces: bad,
+            },
+          ],
+        }),
+      })
+      expect(badRes.status).toBe(400)
+    }
+
+    const okRes = await app.request('/api/tables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: '高精度台账',
+        columns: [
+          { key: 'code', title: '编号', type: 'text', width: 100 },
+          {
+            key: 'amount',
+            title: '金额',
+            type: 'number',
+            width: 120,
+            numberFormat: 'currency',
+            decimalPlaces: 0,
+          },
+          { key: 'progress', title: '进度', type: 'progress', width: 120, decimalPlaces: 6 },
+        ],
+      }),
+    })
+    expect(okRes.status).toBe(201)
+    const { meta } = (await okRes.json()) as TableBundle
+    expect(meta.columns.find((c) => c.key === 'amount')?.decimalPlaces).toBe(0)
+    expect(meta.columns.find((c) => c.key === 'progress')?.decimalPlaces).toBe(6)
+
+    // PUT /api/tables/:id/meta 修改为非法值返回 400，合法值持久化成功
+    const badPutRes = await app.request(`/api/tables/${meta.id}/meta`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meta: {
+          ...meta,
+          columns: meta.columns.map((c) => (c.key === 'amount' ? { ...c, decimalPlaces: 7 } : c)),
+        },
+      }),
+    })
+    expect(badPutRes.status).toBe(400)
+
+    const okPutRes = await app.request(`/api/tables/${meta.id}/meta`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meta: {
+          ...meta,
+          columns: meta.columns.map((c) => (c.key === 'amount' ? { ...c, decimalPlaces: 3 } : c)),
+        },
+      }),
+    })
+    expect(okPutRes.status).toBe(200)
+    const reloaded = (await (await app.request(`/api/tables/${meta.id}`)).json()) as TableBundle
+    expect(reloaded.meta.columns.find((c) => c.key === 'amount')?.decimalPlaces).toBe(3)
   })
 })

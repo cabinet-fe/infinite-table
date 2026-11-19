@@ -942,4 +942,138 @@ describe('旧库表级派生列与 _lookupOverrides 自动提升及 SmartApp 派
     )
     expect(moveDerivedKanban.status).toBe(400)
   })
+
+  test('派生列、透视指标与仪表盘 KPI 的 decimalPlaces（0~6）校验（400）与持久化一致', async () => {
+    const { app } = createSeededTestEnv()
+
+    // 1) SmartApp 派生列拒绝非法 decimalPlaces，持久化合法 0~6
+    for (const bad of [-1, 7, 1.5, '2']) {
+      const badAppRes = await app.request('/api/apps/app_projects', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          derivedColumns: [
+            {
+              key: 'f_test',
+              title: '测算公式',
+              type: 'formula',
+              width: 120,
+              formulaExpr: '[contract_amount] / 2',
+              decimalPlaces: bad,
+            },
+          ],
+        }),
+      })
+      expect(badAppRes.status).toBe(400)
+    }
+
+    const okAppRes = await app.request('/api/apps/app_projects', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        derivedColumns: [
+          {
+            key: 'f_test',
+            title: '测算公式',
+            type: 'formula',
+            width: 120,
+            formulaExpr: '[contract_amount] / 2',
+            numberFormat: 'currency',
+            decimalPlaces: 4,
+          },
+        ],
+      }),
+    })
+    expect(okAppRes.status).toBe(200)
+    const { app: savedApp } = (await okAppRes.json()) as { app: SmartApp }
+    expect(savedApp.derivedColumns?.[0]?.decimalPlaces).toBe(4)
+
+    // 2) 透视视图 pivotConfig.measures[*].decimalPlaces 校验与持久化
+    const badPivotRes = await app.request('/api/views/wv_projects_pivot', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pivotConfig: {
+          rowDimensions: ['region'],
+          columnDimensions: [],
+          measures: [
+            {
+              key: 'm_contract',
+              title: '合同总额',
+              field: 'contract_amount',
+              agg: 'sum',
+              decimalPlaces: 8,
+            },
+          ],
+        },
+      }),
+    })
+    expect(badPivotRes.status).toBe(400)
+
+    const okPivotRes = await app.request('/api/views/wv_projects_pivot', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pivotConfig: {
+          rowDimensions: ['region'],
+          columnDimensions: [],
+          measures: [
+            {
+              key: 'm_contract',
+              title: '合同总额',
+              field: 'contract_amount',
+              agg: 'sum',
+              decimalPlaces: 5,
+            },
+          ],
+        },
+      }),
+    })
+    expect(okPivotRes.status).toBe(200)
+    const { view: savedPivot } = (await okPivotRes.json()) as { view: WorkspaceView }
+    expect(savedPivot.pivotConfig?.measures[0]?.decimalPlaces).toBe(5)
+
+    // 3) 仪表盘 dashboardConfig.kpis[*].decimalPlaces 校验与持久化
+    const badKpiRes = await app.request('/api/views/wv_exec_dashboard', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dashboardConfig: {
+          kpis: [
+            {
+              id: 'kpi_test',
+              title: '合同均值',
+              field: 'contract_amount',
+              agg: 'avg',
+              decimalPlaces: 2.5,
+            },
+          ],
+          charts: [],
+        },
+      }),
+    })
+    expect(badKpiRes.status).toBe(400)
+
+    const okKpiRes = await app.request('/api/views/wv_exec_dashboard', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dashboardConfig: {
+          kpis: [
+            {
+              id: 'kpi_test',
+              title: '合同均值',
+              field: 'contract_amount',
+              agg: 'avg',
+              decimalPlaces: 3,
+            },
+          ],
+          charts: [],
+        },
+      }),
+    })
+    expect(okKpiRes.status).toBe(200)
+    const { view: savedDash } = (await okKpiRes.json()) as { view: WorkspaceView }
+    expect(savedDash.dashboardConfig?.kpis[0]?.decimalPlaces).toBe(3)
+  })
 })

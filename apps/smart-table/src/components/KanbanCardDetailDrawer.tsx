@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, Lock, Save, X } from 'lucide-react'
 import { formatSmartCellDisplayValue } from '../canvas/smart-grid'
 import { isEmptyCellValue, scalarToText, toFiniteNumber } from '../domain/utils'
+import { formatProgressPercent } from '../shared/number-format'
 import type { SmartColumn, SmartRecord } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
 
@@ -354,13 +355,15 @@ function ReadOnlyFieldValue({
   }
 
   if (col.type === 'progress') {
-    const num = Math.max(0, Math.min(100, Math.round(toFiniteNumber(rawVal) ?? 0)))
+    const rawNum = toFiniteNumber(rawVal) ?? 0
+    const pct = Math.max(0, Math.min(100, rawNum))
+    const label = formatProgressPercent(pct, col.decimalPlaces) || '0%'
     return (
       <div className="flex items-center gap-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
-          <div className="h-full rounded-full bg-blue-600" style={{ width: `${num}%` }} />
+          <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct}%` }} />
         </div>
-        <span className="text-xs font-medium text-slate-700">{num}%</span>
+        <span className="shrink-0 text-xs font-medium text-slate-700">{label}</span>
       </div>
     )
   }

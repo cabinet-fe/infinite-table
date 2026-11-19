@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   DERIVED_COLUMN_TYPES,
+  MAX_DECIMAL_PLACES,
+  MIN_DECIMAL_PLACES,
   RAW_COLUMN_TYPES,
   ROW_HEIGHT_VALUES,
   filterRawColumns,
   isDerivedColumn,
   isDerivedColumnType,
   isRawColumnType,
+  isValidDecimalPlaces,
   mergeSmartColumns,
   splitColumnsByLayer,
   type ConditionalFormatRule,
@@ -240,5 +243,20 @@ describe('shared schema extensions', () => {
       formulaCol,
     ])
     expect(merged.map((c) => c.key)).toEqual(['amount', 'lookup_dept', 'rate'])
+  })
+
+  it('isValidDecimalPlaces 与 MIN/MAX_DECIMAL_PLACES 严格约束 0~6 整数', () => {
+    expect(MIN_DECIMAL_PLACES).toBe(0)
+    expect(MAX_DECIMAL_PLACES).toBe(6)
+    for (let i = 0; i <= 6; i++) {
+      expect(isValidDecimalPlaces(i)).toBe(true)
+    }
+    expect(isValidDecimalPlaces(-1)).toBe(false)
+    expect(isValidDecimalPlaces(7)).toBe(false)
+    expect(isValidDecimalPlaces(1.5)).toBe(false)
+    expect(isValidDecimalPlaces(Number.NaN)).toBe(false)
+    expect(isValidDecimalPlaces('2')).toBe(false)
+    expect(isValidDecimalPlaces(null)).toBe(false)
+    expect(isValidDecimalPlaces(undefined)).toBe(false)
   })
 })

@@ -298,4 +298,58 @@ describe('DrillDownDrawer 定位包含块与下钻交互回归', () => {
     })
     expect(onClose).toHaveBeenCalledTimes(2)
   })
+
+  test('下钻分组拆解遵循 measure.decimalPlaces 优先、未设回退列配置及统一百分比格式', () => {
+    const decimalCols: SmartColumn[] = [
+      ...COLUMNS.slice(0, 3),
+      {
+        key: 'amount',
+        title: '合同金额',
+        type: 'number',
+        width: 120,
+        numberFormat: 'currency',
+        decimalPlaces: 2,
+      },
+    ]
+    const decimalRecords: SmartRecord[] = [
+      { _id: 'r1', code: 'P-1', dept: '研发部', status: '进行中', amount: 100.1 },
+      { _id: 'r2', code: 'P-2', dept: '销售部', status: '进行中', amount: 200.2 },
+    ]
+    const { container } = mountDrawer({
+      columns: decimalCols,
+      allComputedRecords: decimalRecords,
+      drillEvent: {
+        col: 0,
+        row: 0,
+        records: decimalRecords,
+      },
+      pivotConfig: {
+        rowDimensions: ['dept'],
+        columnDimensions: ['status'],
+        measures: [
+          {
+            key: 'amount',
+            title: '合同金额',
+            field: 'amount',
+            agg: 'sum',
+            width: 120,
+            decimalPlaces: 3,
+          },
+        ],
+        showGrandTotal: true,
+      },
+    })
+
+    const dialog = container.querySelector('[role="dialog"]')!
+    const breakdownTab = Array.from(dialog.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('按下一维度下钻'),
+    )!
+    act(() => {
+      breakdownTab.click()
+    })
+    expect(dialog.textContent).toContain('合同金额: ¥200.200')
+    expect(dialog.textContent).toContain('(66.7%)')
+    expect(dialog.textContent).toContain('合同金额: ¥100.100')
+    expect(dialog.textContent).toContain('(33.3%)')
+  })
 })

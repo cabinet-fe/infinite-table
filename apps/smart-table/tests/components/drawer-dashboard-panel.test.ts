@@ -281,6 +281,13 @@ describe('DrawerDashboardPanel KPI 与图表单卡进阶配置', () => {
     selectCustomOption(container, '数字格式', '跟随列设置')
     expect(latestConfig.kpis[1]?.numberFormat).toBeUndefined()
 
+    // 修改小数位数为 3 位，再改回默认（自动）清除该字段
+    selectCustomOption(container, '小数位数', '3 位')
+    expect(latestConfig.kpis[1]?.decimalPlaces).toBe(3)
+
+    selectCustomOption(container, '小数位数', '默认（自动）')
+    expect(latestConfig.kpis[1]?.decimalPlaces).toBeUndefined()
+
     // 修改前缀与后缀
     const prefixInput = container.querySelector('input[aria-label="数值前缀"]') as HTMLInputElement
     setInputValueAndBlur(prefixInput, '约 ')

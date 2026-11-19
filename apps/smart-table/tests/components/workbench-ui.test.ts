@@ -10,6 +10,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { AddColumnModal } from '../../src/components/AddColumnModal'
 import { AppViewTabs } from '../../src/components/AppViewTabs'
 import { ColumnManagerModal } from '../../src/components/ColumnManagerModal'
+import { DrawerPivotPanel } from '../../src/components/DrawerPivotPanel'
 import { GridPopupMenu, type GridMenuActionId } from '../../src/components/GridPopupMenu'
 import { Sidebar } from '../../src/components/Sidebar'
 import { SummaryMenuPopover } from '../../src/components/SummaryMenuPopover'
@@ -21,6 +22,7 @@ import type {
   CellStyleConfig,
   SmartApp,
   SmartColumn,
+  SmartPivotConfig,
   SmartRecord,
   SummaryType,
   WorkspaceView,
@@ -804,5 +806,131 @@ describe('数据源中心 vs 智能表格分层 UI 重构', () => {
       jumpBtn.click()
     })
     expect(onJumpToDatasource).toHaveBeenCalledTimes(1)
+  })
+
+  test('AddColumnModal / ColumnManagerModal / DrawerPivotPanel 支持 0~6 位小数配置及默认自动回退', async () => {
+    function pickSelectOption(container: HTMLElement, ariaLabel: string, optionText: string) {
+      const trigger = container.querySelector(
+        `button[role="combobox"][aria-label="${ariaLabel}"]`,
+      ) as HTMLButtonElement | null
+      expect(trigger).not.toBeNull()
+      act(() => {
+        trigger!.click()
+      })
+      const opt = Array.from(document.body.querySelectorAll('[role="option"]')).find(
+        (el) => el.textContent?.trim() === optionText,
+      ) as HTMLElement | undefined
+      expect(opt).toBeDefined()
+      act(() => {
+        opt!.click()
+      })
+    }
+
+    // 1) AddColumnModal datasource 模式选择数值列并配置 3 位小数
+    const onAddSubmit = vi.fn<(col: SmartColumn) => Promise<void>>(noopAsync)
+    const addHandle = mountComponent(
+      createElement(AddColumnModal, {
+        mode: 'datasource',
+        columns: COLUMNS,
+        onClose: noop,
+        onSubmit: onAddSubmit,
+      }),
+    )
+    pickSelectOption(addHandle.container, '字段类型', '数值 / 金额')
+    pickSelectOption(addHandle.container, '小数位数', '3 位')
+    const titleInput = addHandle.container.querySelector('#st-add-col-title') as HTMLInputElement
+    act(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+      descriptor?.set?.call(titleInput, '毛利率')
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }))
+      titleInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await act(async () => {
+      addHandle.container
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    expect(onAddSubmit.mock.calls[0]?.[0]).toMatchObject({
+      title: '毛利率',
+      type: 'number',
+      decimalPlaces: 3,
+    })
+
+    // 2) ColumnManagerModal 数据源数值列与 SmartApp 公式列切换小数位数
+    const onUpdateRaw =
+      vi.fn<(key: string, patch: Partial<SmartColumn>) => Promise<void>>(noopAsync)
+    const mgrHandle = mountComponent(
+      createElement(ColumnManagerModal, {
+        mode: 'datasource',
+        tableKind: 'normal',
+        columns: COLUMNS,
+        onClose: noop,
+        onRenameColumn: noopAsync,
+        onDeleteColumn: noopAsync,
+        onUpdateColumn: onUpdateRaw,
+      }),
+    )
+    pickSelectOption(mgrHandle.container, '合同金额 小数位数', '4 位')
+    expect(onUpdateRaw).toHaveBeenCalledWith('amount', { decimalPlaces: 4 })
+
+    const onUpdateDerived =
+      vi.fn<(key: string, patch: Partial<SmartColumn>) => Promise<void>>(noopAsync)
+    mgrHandle.rerender(
+      createElement(ColumnManagerModal, {
+        mode: 'app',
+        tableKind: 'normal',
+        columns: COLUMNS,
+        derivedColumns: [
+          {
+            key: 'f_double',
+            title: '双倍金额',
+            type: 'formula',
+            width: 120,
+            formulaExpr: '[合同金额] * 2',
+            decimalPlaces: 2,
+          },
+        ],
+        onClose: noop,
+        onRenameColumn: noopAsync,
+        onDeleteColumn: noopAsync,
+        onUpdateDerivedColumn: onUpdateDerived,
+      }),
+    )
+    pickSelectOption(mgrHandle.container, '公式列 双倍金额 小数位数', '默认（自动）')
+    expect(onUpdateDerived).toHaveBeenCalledWith('f_double', { decimalPlaces: undefined })
+
+    // 3) DrawerPivotPanel 透视指标切换小数位数与默认回退
+    let nextPivotConfig: SmartPivotConfig = {
+      rowDimensions: ['status'],
+      columnDimensions: [],
+      measures: [{ key: 'm_amt', title: '合同金额(求和)', field: 'amount', agg: 'sum' }],
+    }
+    const pivotHandle = mountComponent(
+      createElement(DrawerPivotPanel, {
+        columns: COLUMNS,
+        config: nextPivotConfig,
+        onChangeConfig: (cfg) => {
+          nextPivotConfig = cfg
+        },
+        onExpandAll: noop,
+        onCollapseAll: noop,
+      }),
+    )
+    pickSelectOption(pivotHandle.container, '合同金额 小数位数', '5 位')
+    expect(nextPivotConfig.measures[0]?.decimalPlaces).toBe(5)
+
+    pivotHandle.rerender(
+      createElement(DrawerPivotPanel, {
+        columns: COLUMNS,
+        config: nextPivotConfig,
+        onChangeConfig: (cfg) => {
+          nextPivotConfig = cfg
+        },
+        onExpandAll: noop,
+        onCollapseAll: noop,
+      }),
+    )
+    pickSelectOption(pivotHandle.container, '合同金额 小数位数', '默认（自动）')
+    expect('decimalPlaces' in nextPivotConfig.measures[0]!).toBe(false)
   })
 })

@@ -6,6 +6,7 @@ import type { PivotCellDrillEvent } from '@infinitable/pivot'
 import { SmartGridAdapter, type SmartGridConflictClickInfo } from '../canvas/smart-grid'
 import { computeDimensionBreakdown, getAvailableDrillDimensions } from '../domain/drill-engine'
 import { scalarToText } from '../domain/utils'
+import { formatNumberValue, formatPercentRatio, safeDecimalMul } from '../shared/number-format'
 import type {
   LookupConflictInfo,
   SmartColumn,
@@ -337,6 +338,20 @@ export function DrillDownDrawer({
                       const primaryVal = primaryMeasure
                         ? item.metrics[primaryMeasure.key]
                         : undefined
+                      const primaryCol = primaryMeasure
+                        ? columns.find((col) => col.key === primaryMeasure.field)
+                        : undefined
+                      const primaryText =
+                        primaryMeasure && primaryVal !== null && primaryVal !== undefined
+                          ? primaryMeasure.agg === 'count'
+                            ? formatNumberValue(primaryVal, 'integer', primaryMeasure.decimalPlaces)
+                            : formatNumberValue(
+                                primaryVal,
+                                primaryCol?.numberFormat,
+                                primaryMeasure.decimalPlaces ?? primaryCol?.decimalPlaces,
+                              )
+                          : null
+                      const ratioBarWidth = Math.max(4, Math.round(safeDecimalMul(item.ratio, 100)))
                       return (
                         <button
                           key={item.value}
@@ -349,25 +364,18 @@ export function DrillDownDrawer({
                             <span className="font-semibold text-slate-900">{item.value}</span>
                             <span className="flex items-center gap-2.5 text-slate-500">
                               <span>{item.count} 条</span>
-                              {primaryMeasure &&
-                                primaryVal !== null &&
-                                primaryVal !== undefined && (
-                                  <strong className="font-semibold text-slate-800">
-                                    {primaryMeasure.title}:{' '}
-                                    {Number.isInteger(primaryVal)
-                                      ? primaryVal.toLocaleString('zh-CN')
-                                      : primaryVal.toLocaleString('zh-CN', {
-                                          maximumFractionDigits: 2,
-                                        })}
-                                  </strong>
-                                )}
-                              <span>({(item.ratio * 100).toFixed(1)}%)</span>
+                              {primaryMeasure && primaryText !== null && (
+                                <strong className="font-semibold text-slate-800">
+                                  {primaryMeasure.title}: {primaryText}
+                                </strong>
+                              )}
+                              <span>({formatPercentRatio(item.ratio)})</span>
                             </span>
                           </div>
                           <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
                             <div
                               className="h-full rounded-full bg-blue-500"
-                              style={{ width: `${Math.max(4, Math.round(item.ratio * 100))}%` }}
+                              style={{ width: `${ratioBarWidth}%` }}
                             />
                           </div>
                         </button>

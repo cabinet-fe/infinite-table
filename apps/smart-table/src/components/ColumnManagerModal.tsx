@@ -16,6 +16,11 @@ import {
 } from 'lucide-react'
 import { validateFormulaExpr } from '../domain/formula-column'
 import {
+  DECIMAL_PLACES_OPTIONS,
+  fromDecimalPlacesChoice,
+  toDecimalPlacesChoice,
+} from '../shared/number-format'
+import {
   filterRawColumns,
   isDerivedColumn,
   type CellTextAlign,
@@ -336,6 +341,19 @@ export function ColumnManagerModal({
                                     void patchDerivedColumn(col.key, { numberFormat: val })
                                   }
                                 />
+                                <CustomSelect
+                                  size="xs"
+                                  className="w-28"
+                                  value={toDecimalPlacesChoice(col.decimalPlaces)}
+                                  ariaLabel={`公式列 ${col.title} 小数位数`}
+                                  options={DECIMAL_PLACES_OPTIONS}
+                                  disabled={busy}
+                                  onChange={(val) =>
+                                    void patchDerivedColumn(col.key, {
+                                      decimalPlaces: fromDecimalPlacesChoice(val),
+                                    })
+                                  }
+                                />
                                 {exprDirty && (
                                   <button
                                     type="button"
@@ -551,6 +569,21 @@ export function ColumnManagerModal({
                             disabled={busy}
                             onChange={(val) =>
                               void patchDatasourceColumn(col.key, { numberFormat: val })
+                            }
+                          />
+                        )}
+                        {(col.type === 'number' || col.type === 'progress') && (
+                          <CustomSelect
+                            size="xs"
+                            className="w-28"
+                            value={toDecimalPlacesChoice(col.decimalPlaces)}
+                            ariaLabel={`${col.title} 小数位数`}
+                            options={DECIMAL_PLACES_OPTIONS}
+                            disabled={busy}
+                            onChange={(val) =>
+                              void patchDatasourceColumn(col.key, {
+                                decimalPlaces: fromDecimalPlacesChoice(val),
+                              })
                             }
                           />
                         )}

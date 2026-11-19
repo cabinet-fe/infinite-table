@@ -1315,4 +1315,108 @@ describe('SmartGridAdapter', () => {
       staticContainer.remove()
     }
   })
+
+  it('formatSmartCellDisplayValue 与画布进度/数值列遵循 decimalPlaces（0~6），并在 decimalPlaces 变化时刷新网格', () => {
+    expect(
+      formatSmartCellDisplayValue(
+        {
+          key: 'a',
+          title: '金额',
+          type: 'number',
+          width: 120,
+          numberFormat: 'currency',
+          decimalPlaces: 3,
+        },
+        1200.5,
+      ),
+    ).toBe('¥1,200.500')
+    expect(
+      formatSmartCellDisplayValue(
+        {
+          key: 'p',
+          title: '占比',
+          type: 'number',
+          width: 100,
+          numberFormat: 'percent',
+          decimalPlaces: 2,
+        },
+        0.5,
+      ),
+    ).toBe('50.00%')
+    expect(
+      formatSmartCellDisplayValue(
+        { key: 'prog', title: '进度', type: 'progress', width: 120, decimalPlaces: 2 },
+        75,
+      ),
+    ).toBe('75.00%')
+
+    const { adapter, container } = mountGrid({
+      columns: [
+        { key: 'code', title: '编号', type: 'text', width: 100 },
+        {
+          key: 'amount',
+          title: '金额',
+          type: 'number',
+          width: 120,
+          numberFormat: 'currency',
+          decimalPlaces: 2,
+        },
+        { key: 'prog', title: '进度', type: 'progress', width: 120, decimalPlaces: 1 },
+      ],
+      records: [{ _id: '1', code: 'A', amount: 1000, prog: 75 }],
+    })
+    const firstTable = adapter.getTable()
+    const progRenderer1 = firstTable.options.resolveCellRenderer?.(2, 0)
+    const progSpy1 = createMockRenderContext()
+    progRenderer1?.({
+      ctx: progSpy1.ctx,
+      col: 2,
+      row: 0,
+      width: 120,
+      height: 36,
+      text: '',
+      value: 75,
+      style: {},
+    })
+    expect(progSpy1.texts).toContain('75.0%')
+
+    // 修改列 decimalPlaces 应触发列结构重建并按新小数位渲染
+    adapter.setData(
+      [
+        { key: 'code', title: '编号', type: 'text', width: 100 },
+        {
+          key: 'amount',
+          title: '金额',
+          type: 'number',
+          width: 120,
+          numberFormat: 'currency',
+          decimalPlaces: 4,
+        },
+        { key: 'prog', title: '进度', type: 'progress', width: 120, decimalPlaces: 2 },
+      ],
+      [{ _id: '1', code: 'A', amount: 1000, prog: 75 }],
+    )
+    const nextTable = adapter.getTable()
+    expect(nextTable).not.toBe(firstTable)
+    expect(nextTable.getCellText(1, 0)).toBe('¥1,000.0000')
+
+    const progSpy2 = createMockRenderContext()
+    nextTable.options.resolveCellRenderer?.(
+      2,
+      0,
+    )?.({
+      ctx: progSpy2.ctx,
+      col: 2,
+      row: 0,
+      width: 120,
+      height: 36,
+      text: '',
+      value: 75,
+      style: {},
+    })
+    expect(progSpy2.texts).toContain('75.00%')
+
+    adapter.destroy()
+    container.remove()
+  })
 })

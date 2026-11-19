@@ -15,7 +15,10 @@ import {
   validateRecordPatch,
 } from '../shared/record-validation'
 import {
+  MAX_DECIMAL_PLACES,
+  MIN_DECIMAL_PLACES,
   isDerivedColumnType,
+  isValidDecimalPlaces,
   splitColumnsByLayer,
   type CellTextAlign,
   type SmartColumn,
@@ -50,6 +53,33 @@ export class BatchValidationError extends ValidationError {
     super(message)
     this.name = 'BatchValidationError'
     this.errors = errors
+  }
+}
+
+/** 校验可选小数位数（必须为 0~6 的整数，否则抛出 ValidationError -> HTTP 400） */
+export function assertValidDecimalPlaces(value: unknown, subject: string): void {
+  if (value !== undefined && !isValidDecimalPlaces(value)) {
+    throw new ValidationError(
+      `${subject} 的 decimalPlaces 必须为 ${MIN_DECIMAL_PLACES}~${MAX_DECIMAL_PLACES} 的整数`,
+    )
+  }
+}
+
+/** 校验透视配置内所有度量项的 decimalPlaces */
+export function validatePivotMeasuresDecimalPlaces(pivotConfig: unknown, scopePrefix = ''): void {
+  if (!isPlainObject(pivotConfig) || !Array.isArray(pivotConfig.measures)) {
+    return
+  }
+  for (const measure of pivotConfig.measures) {
+    if (isPlainObject(measure)) {
+      const measureKey =
+        typeof measure.key === 'string' && measure.key.trim() !== '' ? measure.key : '未命名'
+      const label = `透视指标 "${measureKey}"`
+      assertValidDecimalPlaces(
+        measure.decimalPlaces,
+        scopePrefix ? `${scopePrefix} ${label}` : label,
+      )
+    }
   }
 }
 
@@ -931,6 +961,7 @@ export function validateColumns(columns: readonly unknown[]): SmartColumn[] {
     ) {
       throw new ValidationError(`列 "${col.key}" 的 align 必须为 left / center / right`)
     }
+    assertValidDecimalPlaces(col.decimalPlaces, `列 "${col.key}"`)
     if (seenKeys.has(col.key)) {
       throw new ValidationError(`存在重复列 key: "${col.key}"`)
     }
@@ -962,6 +993,15 @@ function validateViews(views: readonly unknown[]): SmartView[] {
     }
     if (seenViewIds.has(view.id)) {
       throw new ValidationError(`存在重复视图 id: "${view.id}"`)
+    }
+    validatePivotMeasuresDecimalPlaces(view.pivotConfig, `视图 "${view.id}"`)
+    if (isPlainObject(view.dashboardConfig) && Array.isArray(view.dashboardConfig.kpis)) {
+      for (const kpi of view.dashboardConfig.kpis) {
+        if (isPlainObject(kpi)) {
+          const kpiId = typeof kpi.id === 'string' && kpi.id.trim() !== '' ? kpi.id : '未命名'
+          assertValidDecimalPlaces(kpi.decimalPlaces, `视图 "${view.id}" KPI "${kpiId}"`)
+        }
+      }
     }
     seenViewIds.add(view.id)
   }

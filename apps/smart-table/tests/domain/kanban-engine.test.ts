@@ -91,4 +91,31 @@ describe('kanban-engine', () => {
     })
     expect(board.lanes.map((l) => l.key)).toEqual(['进行中', '未知状态', ''])
   })
+
+  it('看板卡片数值与进度字段遵循列 decimalPlaces 配置', () => {
+    const cols: SmartColumn[] = [
+      { key: 'status', title: '状态', type: 'select', width: 100 },
+      { key: 'title', title: '标题', type: 'text', width: 120 },
+      {
+        key: 'amount',
+        title: '金额',
+        type: 'number',
+        width: 120,
+        numberFormat: 'currency',
+        decimalPlaces: 2,
+      },
+      { key: 'progress', title: '进度', type: 'progress', width: 100, decimalPlaces: 1 },
+    ]
+    const recs: SmartRecord[] = [
+      { _id: '1', status: '进行中', title: 'P1', amount: 1200, progress: 75 },
+    ]
+    const board = buildKanbanBoard(recs, cols, {
+      groupByField: 'status',
+      displayFields: ['amount', 'progress'],
+    })
+    expect(board.lanes[0]!.cards[0]!.fields.map((f) => [f.key, f.displayText])).toEqual([
+      ['amount', '¥1,200.00'],
+      ['progress', '75.0%'],
+    ])
+  })
 })

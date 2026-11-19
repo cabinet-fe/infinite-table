@@ -151,5 +151,18 @@ describe('drill-engine', () => {
     expect(mixedItems[0]!.ratio).toBe(0.75)
     expect(mixedItems[1]!.ratio).toBe(0.25)
     expect(mixedItems[2]!.ratio).toBe(0)
+
+    // 0.1 / 0.2 十进制占比精算
+    const decimalItems = computeDimensionBreakdown(
+      [
+        { _id: '1', dept: 'A', amount: 0.2 },
+        { _id: '2', dept: 'B', amount: 0.1 },
+      ],
+      'dept',
+      [{ key: 'm_sum', title: '金额', field: 'amount', agg: 'sum' }],
+    )
+    expect(decimalItems[0]!.metrics.m_sum).toBe(0.2)
+    expect(decimalItems[0]!.ratio).toBeCloseTo(2 / 3)
+    expect(decimalItems[1]!.ratio).toBeCloseTo(1 / 3)
   })
 })

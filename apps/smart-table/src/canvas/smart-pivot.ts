@@ -9,6 +9,7 @@ import {
 } from '@infinitable/pivot'
 import { createWatermarkPlugin, type WatermarkHandle } from '@infinitable/plugins'
 
+import { formatNumberValue } from '../shared/number-format'
 import type { SmartColumn, SmartColumnType, SmartPivotConfig, SmartRecord } from '../shared/schema'
 import {
   attachHostContainerSizeSync,
@@ -31,49 +32,44 @@ export interface SmartPivotOptions {
 const NON_DIMENSION_TYPES = new Set<SmartColumnType>(['image', 'link'])
 const DEFAULT_WATERMARK_TEXT = '智能表格 · 透视分析'
 
-/** 按列 numberFormat 格式化透视数值（与网格格式化口径对齐） */
-function formatPivotMeasureValue(
-  num: number,
-  format: SmartColumn['numberFormat'] | undefined,
-): string {
-  if (!Number.isFinite(num)) {
-    return ''
-  }
-  if (format === 'currency') {
-    const abs = Math.abs(num)
-    const formatted = Number.isInteger(abs)
-      ? abs.toLocaleString('en-US')
-      : abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    return num < 0 ? `-¥${formatted}` : `¥${formatted}`
-  }
-  if (format === 'percent') {
-    const pct = Number((num * 100).toFixed(1))
-    return `${pct}%`
-  }
-  if (format === 'integer') {
-    return Math.round(num).toLocaleString('en-US')
-  }
-  if (format === 'decimal') {
-    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  }
-  return Number.isInteger(num) ? num.toLocaleString('en-US') : num.toFixed(1)
+interface PivotColumnFormatMeta {
+  numberFormat?: SmartColumn['numberFormat']
+  decimalPlaces?: number
 }
 
-/** 提取列字段 → numberFormat 映射 */
-function buildNumberFormatMap(
-  columns: readonly SmartColumn[],
-): Map<string, SmartColumn['numberFormat']> {
-  const map = new Map<string, SmartColumn['numberFormat']>()
+/** 提取列字段 → numberFormat / decimalPlaces 映射 */
+function buildColumnFormatMap(columns: readonly SmartColumn[]): Map<string, PivotColumnFormatMeta> {
+  const map = new Map<string, PivotColumnFormatMeta>()
   for (const col of columns) {
-    if (col.numberFormat !== undefined) {
-      map.set(col.key, col.numberFormat)
+    if (col.numberFormat !== undefined || col.decimalPlaces !== undefined) {
+      map.set(col.key, {
+        ...(col.numberFormat !== undefined ? { numberFormat: col.numberFormat } : {}),
+        ...(col.decimalPlaces !== undefined ? { decimalPlaces: col.decimalPlaces } : {}),
+      })
     }
   }
   return map
 }
 
-function serializeNumberFormatMap(map: ReadonlyMap<string, SmartColumn['numberFormat']>): string {
-  return JSON.stringify(Array.from(map.entries()))
+/** 提取度量 key → decimalPlaces 覆盖映射 */
+function buildMeasureDecimalsMap(config: SmartPivotConfig): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const m of config.measures) {
+    if (m.decimalPlaces !== undefined) {
+      map.set(m.key, m.decimalPlaces)
+    }
+  }
+  return map
+}
+
+function serializeFormatSignature(
+  colMap: ReadonlyMap<string, PivotColumnFormatMeta>,
+  measureDecimalsMap: ReadonlyMap<string, number>,
+): string {
+  return JSON.stringify({
+    cols: Array.from(colMap.entries()),
+    measures: Array.from(measureDecimalsMap.entries()),
+  })
 }
 
 /** 判断列是否为可数值聚合的默认度量候选 */
@@ -188,7 +184,8 @@ export class SmartPivotAdapter {
   private lastActiveMeasuresSig: string
   private lastCollapsible: boolean
   private lastShowGrandTotal: boolean
-  private numberFormatByField: Map<string, SmartColumn['numberFormat']>
+  private columnMetaByField: Map<string, PivotColumnFormatMeta>
+  private measureDecimalsByKey: Map<string, number>
   private lastNumberFormatSig: string
 
   constructor(options: SmartPivotOptions) {
@@ -208,8 +205,12 @@ export class SmartPivotAdapter {
     this.lastActiveMeasuresSig = JSON.stringify(selection.activeMeasures)
     this.lastCollapsible = collapsible
     this.lastShowGrandTotal = showGrandTotal
-    this.numberFormatByField = buildNumberFormatMap(options.columns)
-    this.lastNumberFormatSig = serializeNumberFormatMap(this.numberFormatByField)
+    this.columnMetaByField = buildColumnFormatMap(options.columns)
+    this.measureDecimalsByKey = buildMeasureDecimalsMap(options.config)
+    this.lastNumberFormatSig = serializeFormatSignature(
+      this.columnMetaByField,
+      this.measureDecimalsByKey,
+    )
 
     this.pivot = new PivotGrid({
       container: options.container,
@@ -272,11 +273,13 @@ export class SmartPivotAdapter {
       this.pivot.setMeasurePool(measurePool)
     }
 
-    const nextFormatMap = buildNumberFormatMap(params.columns)
-    const nextFormatSig = serializeNumberFormatMap(nextFormatMap)
+    const nextColMetaMap = buildColumnFormatMap(params.columns)
+    const nextMeasureDecimalsMap = buildMeasureDecimalsMap(params.config)
+    const nextFormatSig = serializeFormatSignature(nextColMetaMap, nextMeasureDecimalsMap)
     if (nextFormatSig !== this.lastNumberFormatSig) {
       this.lastNumberFormatSig = nextFormatSig
-      this.numberFormatByField = nextFormatMap
+      this.columnMetaByField = nextColMetaMap
+      this.measureDecimalsByKey = nextMeasureDecimalsMap
       this.applyMeasureFormatter()
     }
 
@@ -397,11 +400,16 @@ export class SmartPivotAdapter {
 
   private applyMeasureFormatter(): void {
     this.pivot.setMeasureFormatter((measure, value) => {
-      if (measure.agg === 'count') {
-        return formatPivotMeasureValue(value, 'integer')
+      if (!Number.isFinite(value)) {
+        return ''
       }
-      const format = this.numberFormatByField.get(measure.field)
-      return formatPivotMeasureValue(value, format)
+      const measureDecimals = this.measureDecimalsByKey.get(measure.key)
+      if (measure.agg === 'count') {
+        return formatNumberValue(value, 'integer', measureDecimals)
+      }
+      const colMeta = this.columnMetaByField.get(measure.field)
+      const decimalPlaces = measureDecimals ?? colMeta?.decimalPlaces
+      return formatNumberValue(value, colMeta?.numberFormat, decimalPlaces)
     })
   }
 }

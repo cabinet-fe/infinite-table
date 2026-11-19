@@ -537,4 +537,43 @@ describe('lookup-engine', () => {
       validNext.find((c) => c.key === grpEmpCols[0]!.key)?.lookupConfig?.matchRules,
     ).toHaveLength(2)
   })
+
+  it('createLookupColumnsFromWizard 为关联与数值 rollup 继承 decimalPlaces，count/join 不继承', () => {
+    const oneCols = createLookupColumnsFromWizard({
+      targetTableId: 'tbl_emp',
+      matchRules: [{ sourceField: 'owner', targetField: 'name' }],
+      mode: 'one',
+      returnFields: [{ field: 'bonus', title: '奖金', numberFormat: 'currency', decimalPlaces: 3 }],
+    })
+    expect(oneCols[0]?.decimalPlaces).toBe(3)
+
+    const rollupSumCols = createLookupColumnsFromWizard({
+      targetTableId: 'tbl_pay',
+      matchRules: [{ sourceField: 'code', targetField: 'code' }],
+      mode: 'rollup',
+      returnFields: [
+        {
+          field: 'amount',
+          title: '回款汇总',
+          rollupAgg: 'sum',
+          numberFormat: 'currency',
+          decimalPlaces: 4,
+        },
+      ],
+    })
+    expect(rollupSumCols[0]?.decimalPlaces).toBe(4)
+
+    const rollupCountJoinCols = createLookupColumnsFromWizard({
+      targetTableId: 'tbl_pay',
+      matchRules: [{ sourceField: 'code', targetField: 'code' }],
+      mode: 'rollup',
+      returnFields: [
+        { field: 'amount', title: '回款笔数', rollupAgg: 'count', decimalPlaces: 2 },
+        { field: 'note', title: '备注拼接', rollupAgg: 'join', decimalPlaces: 2 },
+      ],
+    })
+    expect(rollupCountJoinCols[0]?.numberFormat).toBe('integer')
+    expect(rollupCountJoinCols[0]?.decimalPlaces).toBeUndefined()
+    expect(rollupCountJoinCols[1]?.decimalPlaces).toBeUndefined()
+  })
 })

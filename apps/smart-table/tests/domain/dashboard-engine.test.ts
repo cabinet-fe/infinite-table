@@ -261,4 +261,51 @@ describe('dashboard-engine', () => {
     })
     expect(kpiManual.icon).toBe('award')
   })
+
+  it('KPI decimalPlaces 优先于列配置，未设时回退列 decimalPlaces 且 0.1+0.2 无漂移', () => {
+    const decimalCols: SmartColumn[] = [
+      {
+        key: 'amount',
+        title: '金额',
+        type: 'number',
+        width: 120,
+        numberFormat: 'currency',
+        decimalPlaces: 3,
+      },
+    ]
+    const decimalRecs: SmartRecord[] = [
+      { _id: '1', region: '华东', amount: 0.1 },
+      { _id: '2', region: '华南', amount: 0.2 },
+    ]
+
+    const fallbackKpi = computeDashboardKpi(decimalRecs, decimalCols, {
+      id: 'k_fallback',
+      title: '回退列小数位',
+      field: 'amount',
+      agg: 'sum',
+    })
+    expect(fallbackKpi.value).toBe(0.3)
+    expect(fallbackKpi.formattedValue).toBe('¥0.300')
+
+    const overrideKpi = computeDashboardKpi(decimalRecs, decimalCols, {
+      id: 'k_override',
+      title: 'KPI 覆盖小数位',
+      field: 'amount',
+      agg: 'avg',
+      decimalPlaces: 4,
+    })
+    expect(overrideKpi.value).toBe(0.15)
+    expect(overrideKpi.formattedValue).toBe('¥0.1500')
+
+    const chart = computeDashboardChart(decimalRecs, decimalCols, {
+      id: 'c_ratio',
+      title: '占比',
+      chartType: 'pie',
+      dimensionField: 'region',
+      measureField: 'amount',
+      agg: 'sum',
+    })
+    expect(chart.totalValue).toBe(0.3)
+    expect(chart.data.find((d) => d.label === '华南')?.ratio).toBeCloseTo(2 / 3)
+  })
 })
