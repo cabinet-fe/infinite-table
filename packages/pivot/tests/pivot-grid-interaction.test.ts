@@ -410,10 +410,10 @@ function paintTreeCellAndCapture(
     measureText: (text) => ({ width: text.length * 7 }),
   }
   targetNode.paint(ctx)
-  // 展开态三角形由 drawToggleTriangle(cx, cy, true) 绘出：[cy - 1.75, cy - 1.75, cy + 3.5]
-  const topY = pathYs[0]!
-  const tipY = pathYs[2]!
-  const triangleCenterY = (topY * 2 + tipY) / 3
+  // 展开钮由 drawTreeToggleButton(cx, cy, true) 绘出：12×12 圆角方框（y 范围为 [cy - 6, cy + 6]）与中心横线（y = cy）
+  const minY = Math.min(...pathYs)
+  const maxY = Math.max(...pathYs)
+  const triangleCenterY = (minY + maxY) / 2
   return { triangleCenterY, textBaselineY }
 }
 

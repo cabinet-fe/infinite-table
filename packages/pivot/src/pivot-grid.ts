@@ -49,10 +49,15 @@ export const PIVOT_HEADER_BACKGROUND = '#f5f6f7'
 export const PIVOT_SUBTOTAL_BACKGROUND = '#f1f5f9'
 /** 总计行底色（冒烟像素断言锚点） */
 export const PIVOT_GRAND_BACKGROUND = '#e2e8f0'
-/** 展开钮颜色（中性灰，随格文本色对齐） */
-const TREE_TOGGLE_COLOR = '#57606a'
-/** 展开钮命中带宽：钮画在组格左缘 x=9、合并区域竖直中线处；点击须落在钮附近才折叠 */
-const TREE_TOGGLE_HIT_X = 20
+/** 展开钮尺寸与配色（圆角方框 +/- 风格，中性灰搭配浅底） */
+const TREE_TOGGLE_SIZE = 12
+const TREE_TOGGLE_RADIUS = 3
+const TREE_TOGGLE_CX = 11
+const TREE_TOGGLE_BG = '#ffffff'
+const TREE_TOGGLE_BORDER = '#cbd5e1'
+const TREE_TOGGLE_COLOR = '#475569'
+/** 展开钮命中带宽：钮画在组格左缘 x=11、合并区域竖直中线处；点击须落在钮附近才折叠 */
+const TREE_TOGGLE_HIT_X = 22
 const TREE_TOGGLE_HIT_Y = 12
 /**
  * 组格单击判定位移阈值：down/up 落点距离超过该值视为拖拽，不派发组高亮（透视表
@@ -108,27 +113,50 @@ function treeCellFont(style: CellStyle): string {
   return `${weight}${style.fontSize ?? 12}px sans-serif`
 }
 
-/** 展开钮小三角：cy 为合并区域竖直中线 */
-function drawToggleTriangle(
+/** 展开钮圆角方框 +/- 图标：cy 为合并区域竖直中线 */
+function drawTreeToggleButton(
   ctx: CellRenderTarget['ctx'],
   cx: number,
   cy: number,
   expanded: boolean,
 ): void {
-  const half = 3.5
-  ctx.fillStyle = TREE_TOGGLE_COLOR
+  const half = TREE_TOGGLE_SIZE / 2
+  const r = TREE_TOGGLE_RADIUS
+  const left = cx - half
+  const top = cy - half
+  const right = cx + half
+  const bottom = cy + half
+
+  ctx.save()
   ctx.beginPath()
-  if (expanded) {
-    ctx.moveTo(cx - half, cy - half / 2)
-    ctx.lineTo(cx + half, cy - half / 2)
-    ctx.lineTo(cx, cy + half)
-  } else {
-    ctx.moveTo(cx - half / 2, cy - half)
-    ctx.lineTo(cx + half, cy)
-    ctx.lineTo(cx - half / 2, cy + half)
-  }
+  ctx.moveTo(left + r, top)
+  ctx.lineTo(right - r, top)
+  ctx.quadraticCurveTo(right, top, right, top + r)
+  ctx.lineTo(right, bottom - r)
+  ctx.quadraticCurveTo(right, bottom, right - r, bottom)
+  ctx.lineTo(left + r, bottom)
+  ctx.quadraticCurveTo(left, bottom, left, bottom - r)
+  ctx.lineTo(left, top + r)
+  ctx.quadraticCurveTo(left, top, left + r, top)
   ctx.closePath()
+  ctx.fillStyle = TREE_TOGGLE_BG
   ctx.fill()
+  ctx.strokeStyle = TREE_TOGGLE_BORDER
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // 横线（展开态显示减号，折叠态与竖线共同组成加号）
+  ctx.beginPath()
+  ctx.moveTo(cx - 3, cy)
+  ctx.lineTo(cx + 3, cy)
+  if (!expanded) {
+    ctx.moveTo(cx, cy - 3)
+    ctx.lineTo(cx, cy + 3)
+  }
+  ctx.strokeStyle = TREE_TOGGLE_COLOR
+  ctx.lineWidth = 1.4
+  ctx.stroke()
+  ctx.restore()
 }
 
 /** 双击下钻事件：命中数据格时携带该格聚合覆盖的原始记录 */
@@ -464,11 +492,11 @@ export class PivotGrid implements EngineAssembly {
       label !== ''
     const { centerY } = this.resolveTreeCellLayout(col, row, height)
     if (showToggle) {
-      drawToggleTriangle(ctx, 9, centerY, !isCarrierMaster)
+      drawTreeToggleButton(ctx, TREE_TOGGLE_CX, centerY, !isCarrierMaster)
     }
     ctx.fillStyle = style.color ?? '#1f2329'
     ctx.font = font ?? treeCellFont(style)
-    const textX = showToggle ? 18 : 8
+    const textX = showToggle ? 23 : 8
     const maxWidth = Math.max(0, width - textX - 8)
     const baselineY = centerY + Math.round((style.fontSize ?? 12) / 3)
     drawEllipsisText(ctx, label, textX, baselineY, maxWidth)
