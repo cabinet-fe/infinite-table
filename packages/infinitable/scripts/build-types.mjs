@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 统一发布包类型装配：把七个内部包的 dist/types 树复制为 dist/types/<pkg>/，
+// 统一发布包类型装配：把八个内部包的 dist/types 树复制为 dist/types/<pkg>/，
 // 跨包 '@infinitable/*' 裸说明符改写为相对路径（公共入口 → <pkg>/index.js、深路径 →
 // <pkg>/<module>.js，TS 按 .js→.d.ts 解析），
 // 最后由 src/index.ts / src/sheet.ts / src/pivot.ts 源文本同口径生成根 index.d.ts、

@@ -16,6 +16,7 @@
     { "path": "../table" },
     { "path": "../formulas" },
     { "path": "../plugins" },
+    { "path": "../pivot" },
     { "path": "../sheet" }
   ]
 }
