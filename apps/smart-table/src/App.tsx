@@ -383,32 +383,23 @@ function RouteStatusCard({
   testId,
 }: RouteStatusCardProps) {
   return (
-    <div
-      data-testid={testId}
-      className="flex h-full w-full flex-col items-center justify-center bg-slate-50 p-6"
-    >
-      <div className="flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-        <div className="mb-3">{icon}</div>
-        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-        <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{description}</p>
+    <div data-testid={testId} className="flex h-full w-full items-center justify-center p-6">
+      <div className="st-card max-w-md p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
+          {icon}
+        </div>
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{description}</p>
         {(actionLabel || secondaryLabel) && (
-          <div className="mt-4 flex items-center gap-2">
+          <div className="mt-5 flex items-center justify-center gap-2">
             {actionLabel && onAction && (
-              <button
-                type="button"
-                onClick={onAction}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
+              <button type="button" onClick={onAction} className="st-btn st-btn-primary">
+                <ArrowLeft className="h-4 w-4" />
                 <span>{actionLabel}</span>
               </button>
             )}
             {secondaryLabel && onSecondaryAction && (
-              <button
-                type="button"
-                onClick={onSecondaryAction}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              >
+              <button type="button" onClick={onSecondaryAction} className="st-btn st-btn-secondary">
                 <span>{secondaryLabel}</span>
               </button>
             )}
@@ -2589,12 +2580,9 @@ export function App() {
   // ---------------- 分支二：正在检查会话或独立无侧栏 /login 登录页 ----------------
   if (authStatus === 'checking') {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
-        <div
-          className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600"
-          aria-hidden="true"
-        />
-        <div className="text-xs">正在验证登录会话...</div>
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-st-bg text-slate-500">
+        <div className="st-spinner h-6 w-6" aria-hidden="true" />
+        <div className="text-sm text-slate-500">正在验证登录会话...</div>
         <ToastHost toasts={toasts} onDismiss={dismissToast} />
       </div>
     )
@@ -2666,12 +2654,9 @@ export function App() {
   function renderMainContent() {
     if (loading && !workspaceLoaded) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
-          <div
-            className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600"
-            aria-hidden="true"
-          />
-          <div className="text-xs">正在加载多维数据台工作台...</div>
+        <div className="flex h-full flex-col items-center justify-center gap-3 bg-st-bg text-slate-500">
+          <div className="st-spinner h-6 w-6" aria-hidden="true" />
+          <div className="text-sm text-slate-500">正在加载多维数据台工作台...</div>
         </div>
       )
     }
@@ -2727,12 +2712,9 @@ export function App() {
 
       if (probedEntryState?.tableId === targetTableId && probedEntryState.loading) {
         return (
-          <div className="flex h-full flex-col items-center justify-center gap-3 bg-slate-50 text-slate-500">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600"
-              aria-hidden="true"
-            />
-            <div className="text-xs">正在加载数据录入端...</div>
+          <div className="flex h-full flex-col items-center justify-center gap-3 bg-st-bg text-slate-500">
+            <div className="st-spinner h-6 w-6" aria-hidden="true" />
+            <div className="text-sm text-slate-500">正在加载数据录入端...</div>
           </div>
         )
       }
@@ -2807,7 +2789,6 @@ export function App() {
               setBusy(false)
             }
           }}
-          onBackToWorkbench={goHome}
           onNotify={pushToast}
         />
       )
@@ -2864,7 +2845,14 @@ export function App() {
           <AppViewTabs
             canConfigureApp={canConfigureAppItem(currentUser, activeApp)}
             canManageDataSource={actionCapabilities.canManageDataSource}
-            canShareApp={canCreateAppShareItem(currentUser, activeApp)}
+            canShareApp={
+              // 页头分享入口同时承担应用与单视图分享，任一可分享即显示
+              canCreateAppShareItem(currentUser, activeApp) ||
+              Boolean(
+                activeStoredView &&
+                canCreateViewShareItem(currentUser, activeStoredView, activeApp),
+              )
+            }
             canConfigureView={(view) => canConfigureViewItem(currentUser, view, activeApp)}
             app={activeApp}
             bundle={workbenchTableBundle}
@@ -2958,15 +2946,6 @@ export function App() {
                 primaryKeyField={activeTable.meta.primaryKeyField}
                 onMoveCard={handleMoveKanbanCard}
                 onUpdateRecord={handleUpdateRecord}
-                onAddCard={actionCapabilities.canEditRecords ? () => handleAddRow() : undefined}
-                onOpenConfig={
-                  actionCapabilities.canConfigure
-                    ? () => {
-                        setConfigDrawerTab('kanban')
-                        setConfigDrawerOpen(true)
-                      }
-                    : undefined
-                }
               />
             ) : activeRenderKind === 'dashboard' && effectiveView ? (
               <DashboardView
@@ -3006,7 +2985,7 @@ export function App() {
                 <div ref={canvasContainerRef} className="h-full w-full" />
                 {showGridEmptyOverlay && (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/75 p-6">
-                    <div className="pointer-events-auto flex max-w-sm flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+                    <div className="st-card pointer-events-auto flex max-w-sm flex-col items-center rounded-2xl p-6 text-center">
                       {pipeline.allComputedRecords.length === 0 ? (
                         <>
                           <Table2 className="mb-2.5 h-7 w-7 text-slate-400" />
@@ -3049,7 +3028,7 @@ export function App() {
                                   quickFilterValues: {},
                                 })
                               }
-                              className="mt-4 h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+                              className="st-btn st-btn-primary mt-4"
                             >
                               清空全部筛选
                             </button>
@@ -3095,7 +3074,7 @@ export function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
+    <div className="flex h-screen w-screen overflow-hidden bg-st-bg text-slate-900">
       <ToastHost toasts={toasts} onDismiss={dismissToast} />
 
       <NavRail
@@ -3108,37 +3087,38 @@ export function App() {
         onLogout={handleLogout}
         onSwitchAccount={handleSwitchAccount}
         onOpenLoginSwitch={handleLogout}
-      />
-
-      {sidebarSection && (
-        <Sidebar
-          section={sidebarSection}
-          currentUser={currentUser}
-          userCapabilities={userCapabilities}
-          apps={apps}
-          views={views}
-          tables={tables}
-          activeAppId={activeApp?.id}
-          activeEntryTableId={route.kind === 'entries' ? route.tableId : undefined}
-          activeDatasourceTableId={route.kind === 'datasources' ? route.tableId : undefined}
-          busy={busy}
-          createAppDraftRequest={createAppDraftRequest}
-          onSelectApp={handleSelectApp}
-          onCreateApp={handleCreateApp}
-          onRenameApp={handleRenameApp}
-          onDeleteApp={handleDeleteApp}
-          onReorderApps={handleReorderApps}
-          onSelectTable={handleSelectTable}
-          onEnterTableEntry={handleEnterTableEntry}
-          onOpenTableEntryNewTab={handleOpenEntryNewTab}
-          onCopyTableEntryLink={handleCopyEntryLink}
-          onCreateNormalTable={handleCreateNormalTable}
-          onRenameTable={handleRenameTable}
-          onDeleteTable={handleDeleteTable}
-          onOpenImport={() => setShowImportModal(true)}
-          onResetSeed={handleResetSeed}
-        />
-      )}
+      >
+        {/* 当前板块子目录：嵌在一级导航下方 */}
+        {sidebarSection && (
+          <Sidebar
+            section={sidebarSection}
+            currentUser={currentUser}
+            userCapabilities={userCapabilities}
+            apps={apps}
+            views={views}
+            tables={tables}
+            activeAppId={activeApp?.id}
+            activeEntryTableId={route.kind === 'entries' ? route.tableId : undefined}
+            activeDatasourceTableId={route.kind === 'datasources' ? route.tableId : undefined}
+            busy={busy}
+            createAppDraftRequest={createAppDraftRequest}
+            onSelectApp={handleSelectApp}
+            onCreateApp={handleCreateApp}
+            onRenameApp={handleRenameApp}
+            onDeleteApp={handleDeleteApp}
+            onReorderApps={handleReorderApps}
+            onSelectTable={handleSelectTable}
+            onEnterTableEntry={handleEnterTableEntry}
+            onOpenTableEntryNewTab={handleOpenEntryNewTab}
+            onCopyTableEntryLink={handleCopyEntryLink}
+            onCreateNormalTable={handleCreateNormalTable}
+            onRenameTable={handleRenameTable}
+            onDeleteTable={handleDeleteTable}
+            onOpenImport={() => setShowImportModal(true)}
+            onResetSeed={handleResetSeed}
+          />
+        )}
+      </NavRail>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">{renderMainContent()}</main>
 

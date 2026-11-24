@@ -1,6 +1,6 @@
 // 傻瓜式跨表查找（VLOOKUP）三步向导弹窗：选表与模式 -> 联合匹配条件与实时预览 -> 勾选全量带出列或汇总指标
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Plus, Sparkles, Trash2, X } from 'lucide-react'
 import {
   createLookupColumnsFromWizard,
@@ -275,97 +275,100 @@ export function LookupWizardModal({
       hint: TYPE_TAG_MAP[c.type],
     }))
 
+  const stepDefs = [
+    { num: 1, label: '选目标表与模式' },
+    { num: 2, label: '匹配条件与预览' },
+    { num: 3, label: mode === 'one' ? '选择带出字段' : '配置汇总指标' },
+  ]
+
   return (
-    <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
-      onClick={() => !submitting && onClose()}
-    >
+    <div className="st-overlay" onClick={() => !submitting && onClose()}>
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="st-modal max-w-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="跨表关联查找 (VLOOKUP) 向导"
       >
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <Sparkles className="h-4 w-4 text-blue-600" />
-              <span>跨表关联查找（VLOOKUP 向导）</span>
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              无需手写公式，3 步完成跨表信息带出或流水汇总
-            </p>
+        <div className="st-modal-header">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="st-modal-title">跨表关联查找（VLOOKUP 向导）</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                无需手写公式，3 步完成跨表信息带出或流水汇总
+              </p>
+            </div>
           </div>
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5 text-xs">
-          {[
-            { num: 1, title: '1. 选目标表与模式' },
-            { num: 2, title: '2. 匹配条件与预览' },
-            { num: 3, title: `3. ${mode === 'one' ? '选择带出字段' : '配置汇总指标'}` },
-          ].map((s) => (
-            <div
-              key={s.num}
-              className={`rounded-md px-2.5 py-1.5 text-center font-medium ${
-                step === s.num
-                  ? 'bg-blue-600 text-white'
-                  : step > s.num
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : 'bg-white text-slate-500'
-              }`}
-            >
-              {s.title}
-            </div>
+        {/* 步骤条 */}
+        <div className="flex shrink-0 items-center gap-3 border-b border-slate-100 px-6 py-3">
+          {stepDefs.map((s, i) => (
+            <Fragment key={s.num}>
+              {i > 0 && (
+                <div className={`h-px flex-1 ${step >= s.num ? 'bg-blue-600' : 'bg-slate-200'}`} />
+              )}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium tabular-nums ${
+                    step >= s.num ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  {s.num}
+                </span>
+                <span
+                  className={`text-sm whitespace-nowrap ${
+                    step === s.num ? 'font-medium text-slate-900' : 'text-slate-500'
+                  }`}
+                >
+                  {s.label}
+                </span>
+              </div>
+            </Fragment>
           ))}
         </div>
 
-        <div className="max-h-[65vh] overflow-y-auto px-5 py-4">
+        <div className="st-modal-body st-scroll max-h-[70vh]">
           {targetCandidates.length === 0 ? (
-            <div className="py-10 text-center text-xs text-slate-400">
-              暂无其他数据表可关联，请先新建或保留至少两张表。
-            </div>
+            <div className="st-empty">暂无其他数据表可关联，请先新建或保留至少两张表。</div>
           ) : step === 1 ? (
             <div className="space-y-5">
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-slate-700">
-                  要查找哪张表的数据？
-                </label>
+                <label className="st-label">要查找哪张表的数据？</label>
                 <div className="grid grid-cols-2 gap-2.5">
                   {targetCandidates.map((t) => (
                     <button
                       key={t.meta.id}
                       type="button"
                       onClick={() => handleSelectTargetTable(t.meta.id)}
-                      className={`rounded-lg border p-3 text-left transition-colors ${
-                        targetTableId === t.meta.id
-                          ? 'border-blue-500 bg-blue-50/50'
-                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      className={`st-choice ${
+                        targetTableId === t.meta.id ? 'st-choice-active' : ''
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-xs font-semibold text-slate-900">
+                        <span className="truncate text-sm font-medium text-slate-900">
                           {t.meta.name}
                         </span>
                         <span
-                          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                            t.meta.kind === 'advanced'
-                              ? 'bg-indigo-50 text-indigo-700'
-                              : 'bg-slate-100 text-slate-600'
+                          className={`st-badge ${
+                            t.meta.kind === 'advanced' ? 'st-badge-violet' : 'st-badge-gray'
                           }`}
                         >
                           {t.meta.kind === 'advanced' ? 'SQL 主数据' : '普通表'}
                         </span>
                       </div>
-                      <div className="mt-1 truncate text-[11px] text-slate-500">
+                      <div className="mt-1 truncate text-xs text-slate-500">
                         {t.meta.description ||
                           `${t.records.length} 条记录 · ${getEligibleLookupTargetColumns(t.meta.columns).length} 列`}
                       </div>
@@ -375,35 +378,27 @@ export function LookupWizardModal({
               </div>
 
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-slate-700">关联方式</label>
+                <label className="st-label">关联方式</label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setMode('one')}
-                    className={`rounded-lg border p-3 text-left transition-colors ${
-                      mode === 'one'
-                        ? 'border-blue-500 bg-blue-50/50'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
+                    className={`st-choice ${mode === 'one' ? 'st-choice-active' : ''}`}
                   >
-                    <div className="text-xs font-semibold text-slate-900">一对一查找带出字段</div>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    <div className="text-sm font-medium text-slate-900">一对一查找带出字段</div>
+                    <div className="mt-1 text-xs leading-relaxed text-slate-500">
                       如：根据负责人姓名查工号、部门、职级，一次可勾选带出多列，支持重名消歧
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setMode('rollup')}
-                    className={`rounded-lg border p-3 text-left transition-colors ${
-                      mode === 'rollup'
-                        ? 'border-blue-500 bg-blue-50/50'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
+                    className={`st-choice ${mode === 'rollup' ? 'st-choice-active' : ''}`}
                   >
-                    <div className="text-xs font-semibold text-slate-900">
+                    <div className="text-sm font-medium text-slate-900">
                       一对多汇总计算 (Rollup)
                     </div>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    <div className="mt-1 text-xs leading-relaxed text-slate-500">
                       如：根据项目编号去回款流水表汇总累计回款总额或回款次数
                     </div>
                   </button>
@@ -413,16 +408,14 @@ export function LookupWizardModal({
           ) : step === 2 ? (
             <div className="space-y-4">
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-700">
-                    匹配条件（多条件按 AND 联合匹配）
-                  </label>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="st-section-label">匹配条件（多条件按 AND 联合匹配）</span>
                   <button
                     type="button"
                     onClick={addRule}
-                    className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 hover:bg-slate-50"
+                    className="st-btn st-btn-xs st-btn-secondary"
                   >
-                    <Plus className="h-3 w-3" />
+                    <Plus className="h-3.5 w-3.5" />
                     <span>追加联合条件</span>
                   </button>
                 </div>
@@ -440,7 +433,7 @@ export function LookupWizardModal({
                         options={sourceColOptions}
                         onChange={(val) => updateRule(idx, { sourceField: val })}
                       />
-                      <span className="text-xs font-semibold text-slate-400">=</span>
+                      <span className="text-xs font-medium text-slate-400">=</span>
                       <CustomSelect
                         size="sm"
                         className="flex-1"
@@ -454,7 +447,7 @@ export function LookupWizardModal({
                           type="button"
                           onClick={() => removeRule(idx)}
                           aria-label="删除此匹配条件"
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -464,11 +457,11 @@ export function LookupWizardModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs">
+              <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-xs">
                 <div className="flex items-center gap-1.5 text-emerald-700">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
                   <span>
-                    唯一命中 <strong>{stats.matchedRows}</strong> 行
+                    唯一命中 <strong className="tabular-nums">{stats.matchedRows}</strong> 行
                   </span>
                 </div>
                 <div
@@ -478,38 +471,38 @@ export function LookupWizardModal({
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   <span>
-                    多候选 <strong>{stats.conflictRows}</strong> 行
+                    多候选 <strong className="tabular-nums">{stats.conflictRows}</strong> 行
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-slate-500">
                   <Circle className="h-4 w-4 shrink-0" />
                   <span>
-                    未命中 <strong>{stats.unmatchedRows}</strong> 行
+                    未命中 <strong className="tabular-nums">{stats.unmatchedRows}</strong> 行
                   </span>
                 </div>
               </div>
 
               {stats.conflictRows > 0 && mode === 'one' && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-800">
-                  检测到 {stats.conflictRows} 行命中多个同名候选（如重名员工）。你可以点击上方「+
-                  追加联合条件」（如加上部门一致），或者直接完成创建后在单元格右上角点选消歧义。
+                <div className="st-alert st-alert-amber">
+                  检测到 {stats.conflictRows}{' '}
+                  行命中多个同名候选（如重名员工）。你可以点击上方「追加联合条件」（如加上部门一致），或者直接完成创建后在单元格右上角点选消歧义。
                 </div>
               )}
             </div>
           ) : mode === 'one' ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-slate-700">
+              <div className="flex items-center justify-between gap-2">
+                <span className="st-section-label">
                   勾选从「{targetBundle?.meta.name}」带出的列（已选 {checkedCount} /{' '}
                   {returnSelections.length} 列）
-                </label>
+                </span>
                 <div className="flex items-center gap-3 text-xs">
                   <button
                     type="button"
                     onClick={() =>
                       setReturnSelections((prev) => prev.map((r) => ({ ...r, checked: true })))
                     }
-                    className="text-blue-600 hover:underline"
+                    className="font-medium text-blue-600 hover:underline"
                   >
                     全选
                   </button>
@@ -524,16 +517,16 @@ export function LookupWizardModal({
                   </button>
                 </div>
               </div>
-              <div className="max-h-60 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2">
+              <div className="st-scroll max-h-60 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
                 {returnSelections.map((item, idx) => (
                   <div
                     key={item.field}
-                    className="flex items-center justify-between gap-3 rounded-md bg-white px-2.5 py-1.5 shadow-2xs"
+                    className="flex items-center justify-between gap-3 px-2.5 py-1.5"
                   >
                     <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                       <input
                         type="checkbox"
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                        className="st-checkbox"
                         checked={item.checked}
                         onChange={(e) =>
                           setReturnSelections((prev) =>
@@ -543,17 +536,17 @@ export function LookupWizardModal({
                           )
                         }
                       />
-                      <span className="truncate text-xs font-medium text-slate-800">
-                        {item.originalTitle}
+                      <span className="truncate text-sm text-slate-800">{item.originalTitle}</span>
+                      <span className="truncate font-mono text-xs text-slate-400">
+                        {item.field}
                       </span>
-                      <span className="text-[11px] text-slate-400">{item.field}</span>
                     </label>
                     <input
                       type="text"
-                      className={`h-7 w-44 rounded-md border px-2 text-xs text-slate-800 focus:outline-none ${
+                      className={`st-input st-input-sm w-44 ${
                         item.checked && !item.title.trim()
-                          ? 'border-red-400 bg-red-50/40'
-                          : 'border-slate-200 focus:border-blue-500'
+                          ? 'border-red-400 bg-red-50/40 focus:border-red-400'
+                          : ''
                       }`}
                       value={item.title}
                       disabled={!item.checked}
@@ -569,14 +562,16 @@ export function LookupWizardModal({
                   </div>
                 ))}
               </div>
-              <div className="min-h-[16px] text-xs text-red-600">
-                {hasEmptyCheckedTitle ? '已勾选项的新列显示名称不能为空' : ''}
+              <div className="min-h-[20px]">
+                {hasEmptyCheckedTitle && (
+                  <div className="st-alert st-alert-red">已勾选项的新列显示名称不能为空</div>
+                )}
               </div>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-700">目标表汇总字段</label>
+                <label className="st-label">目标表汇总字段</label>
                 <CustomSelect
                   className="w-full"
                   value={rollupField}
@@ -590,7 +585,7 @@ export function LookupWizardModal({
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-700">聚合方式</label>
+                <label className="st-label">聚合方式</label>
                 <CustomSelect
                   className="w-full"
                   value={rollupAgg}
@@ -600,10 +595,10 @@ export function LookupWizardModal({
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-700">生成列标题</label>
+                <label className="st-label">生成列标题</label>
                 <input
                   type="text"
-                  className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-[13px] text-slate-800 focus:border-blue-500 focus:outline-none"
+                  className="st-input"
                   value={rollupTitle}
                   onChange={(e) => setRollupTitle(e.target.value)}
                   placeholder="例如：累计回款"
@@ -613,12 +608,12 @@ export function LookupWizardModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+        <div className="st-modal-footer justify-between">
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
-            className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="st-btn st-btn-secondary"
           >
             取消
           </button>
@@ -628,7 +623,7 @@ export function LookupWizardModal({
                 type="button"
                 disabled={submitting}
                 onClick={() => setStep((s) => (s === 3 ? 2 : 1))}
-                className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="st-btn st-btn-secondary"
               >
                 上一步
               </button>
@@ -641,7 +636,7 @@ export function LookupWizardModal({
                   if (step === 2) prepareStep3Defaults()
                   setStep((s) => (s === 1 ? 2 : 3))
                 }}
-                className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                className="st-btn st-btn-primary"
               >
                 下一步
               </button>
@@ -650,7 +645,7 @@ export function LookupWizardModal({
                 type="button"
                 disabled={submitting || !canSubmit}
                 onClick={() => void handleFinish()}
-                className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                className="st-btn st-btn-primary"
               >
                 {submitting ? '生成中...' : '完成并添加列'}
               </button>

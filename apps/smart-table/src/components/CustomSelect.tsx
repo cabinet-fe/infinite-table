@@ -49,15 +49,15 @@ interface MenuCoords {
 }
 
 const SIZE_CLASSES: Record<NonNullable<CustomSelectProps['size']>, string> = {
-  xs: 'h-6 px-2 text-xs gap-1',
-  sm: 'h-7 px-2.5 text-xs gap-1.5',
-  md: 'h-8 px-2.5 text-[13px] gap-1.5',
+  xs: 'h-7 rounded-md px-2 text-xs',
+  sm: 'h-7 rounded-md px-2.5 text-xs',
+  md: 'h-8 rounded-lg px-2.5 text-sm',
 }
 
 const VARIANT_CLASSES: Record<NonNullable<CustomSelectProps['variant']>, string> = {
-  default: 'border border-slate-200 bg-white hover:border-slate-300',
-  pill: 'border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100/70 rounded-full',
-  ghost: 'border border-transparent bg-transparent hover:bg-slate-100',
+  default: 'border-slate-200 bg-white hover:border-slate-300',
+  pill: 'rounded-full border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100/70',
+  ghost: 'border-transparent bg-transparent hover:bg-slate-100',
 }
 
 export function CustomSelect<T extends string = string>({
@@ -239,13 +239,13 @@ export function CustomSelect<T extends string = string>({
         aria-controls={open ? listboxId : undefined}
         aria-label={ariaLabel}
         disabled={disabled}
-        className={`inline-flex items-center justify-between rounded-md font-normal transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]} ${open ? 'border-blue-500 ring-2 ring-blue-500/15' : ''} ${!selectedOpt && !triggerLabel ? 'text-slate-400' : 'text-slate-800'} ${className}`}
+        className={`inline-flex w-full items-center justify-between gap-2 border font-normal transition-colors focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 ${SIZE_CLASSES[size]} ${VARIANT_CLASSES[variant]} ${open ? 'border-blue-500 ring-2 ring-blue-500/20' : ''} ${!selectedOpt && !triggerLabel ? 'text-slate-400' : 'text-slate-800'} ${className}`}
         onClick={() => !disabled && setOpen((v) => !v)}
         onKeyDown={handleTriggerKeyDown}
       >
         <span className="truncate">{displayLabel}</span>
         <ChevronDown
-          className={`shrink-0 text-slate-400 transition-transform ${size === 'xs' ? 'h-3 w-3' : 'h-3.5 w-3.5'} ${open ? 'rotate-180' : ''}`}
+          className={`shrink-0 text-slate-400 transition-transform ${size === 'xs' ? 'h-3.5 w-3.5' : 'h-4 w-4'} ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -257,7 +257,7 @@ export function CustomSelect<T extends string = string>({
             id={listboxId}
             role="listbox"
             data-st-portal-menu="true"
-            className={`fixed z-[1200] max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg ${coords.openAbove ? '-translate-y-full' : ''}`}
+            className={`st-popover p-1 fixed z-[1200] max-h-64 overflow-y-auto st-scroll ${coords.openAbove ? '-translate-y-full' : ''}`}
             style={{
               left: coords.left,
               top: coords.top,
@@ -265,12 +265,12 @@ export function CustomSelect<T extends string = string>({
             }}
           >
             {enableSearch && (
-              <div className="mb-1 flex items-center gap-1.5 border-b border-slate-100 px-2 py-1.5">
-                <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <div className="relative mb-1">
+                <Search className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <input
                   ref={searchInputRef}
                   type="text"
-                  className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                  className="st-input st-input-sm pr-7 pl-7"
                   value={query}
                   placeholder="搜索选项..."
                   aria-label="搜索选项"
@@ -280,7 +280,7 @@ export function CustomSelect<T extends string = string>({
                 {query !== '' && (
                   <button
                     type="button"
-                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    className="st-icon-btn st-icon-btn-xs absolute top-1/2 right-0.5 -translate-y-1/2"
                     aria-label="清空搜索"
                     onClick={() => applySearch('')}
                   >
@@ -303,12 +303,12 @@ export function CustomSelect<T extends string = string>({
                     data-opt-index={idx}
                     aria-selected={isSelected}
                     disabled={opt.disabled}
-                    className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+                    className={`st-menu-item st-menu-item-sm justify-between ${
                       isSelected
-                        ? 'bg-blue-50 font-medium text-blue-700'
+                        ? 'st-menu-item-active font-medium'
                         : isHighlighted
-                          ? 'bg-slate-100 text-slate-900'
-                          : 'text-slate-700 hover:bg-slate-50'
+                          ? 'bg-slate-100'
+                          : ''
                     }`}
                     onMouseEnter={() => setActiveIndex(idx)}
                     onClick={() => {
@@ -321,12 +321,12 @@ export function CustomSelect<T extends string = string>({
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate">{opt.label}</span>
                       {opt.hint && (
-                        <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-500">
+                        <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-xs text-slate-500">
                           {opt.hint}
                         </span>
                       )}
                     </span>
-                    {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
+                    {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
                   </button>
                 )
               })

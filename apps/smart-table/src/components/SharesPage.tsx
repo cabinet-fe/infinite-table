@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Ban,
   Check,
-  Clock,
   Copy,
   ExternalLink,
   Lock,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react'
 import { ApiError, listShares, revokeShare } from '../api'
 import { buildRoutePath } from '../domain/router'
+import { PageHeading } from './PageHeading'
 import {
   buildShareFullUrl,
   copyTextToClipboard,
@@ -43,25 +43,25 @@ export interface SharesPageProps {
 
 type StatusFilter = 'all' | ShareStatus
 
-function statusBadgeStyle(status: ShareStatus): string {
+function statusBadgeClass(status: ShareStatus): string {
   switch (status) {
     case 'active':
-      return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80'
+      return 'st-badge-green'
     case 'expired':
-      return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80'
+      return 'st-badge-amber'
     case 'revoked':
-      return 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
+      return 'st-badge-gray'
   }
 }
 
-function targetTypeBadgeStyle(targetType: ShareTargetType): string {
+function targetTypeBadgeClass(targetType: ShareTargetType): string {
   switch (targetType) {
     case 'app':
-      return 'bg-blue-50 text-blue-700'
+      return 'st-badge-violet'
     case 'view':
-      return 'bg-violet-50 text-violet-700'
+      return 'st-badge-blue'
     case 'entry':
-      return 'bg-emerald-50 text-emerald-700'
+      return 'st-badge-green'
   }
 }
 
@@ -194,12 +194,12 @@ export function SharesPage({
         data-testid="shares-forbidden"
         className="flex h-full w-full flex-col items-center justify-center bg-slate-50 p-6"
       >
-        <div className="flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+        <div className="st-card flex max-w-md flex-col items-center p-8 text-center">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-600">
             <Lock className="h-6 w-6" />
           </div>
-          <h2 className="text-sm font-semibold text-slate-900">无权访问分享管理</h2>
-          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+          <h2 className="text-base font-semibold text-slate-900">无权访问分享管理</h2>
+          <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
             {forbiddenMessage ??
               '普通成员无权创建或管理对外分享链接，请联系管理员或资源负责人生成并管理链接。'}
           </p>
@@ -207,9 +207,9 @@ export function SharesPage({
             <button
               type="button"
               onClick={onBackToWorkbench}
-              className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="st-btn st-btn-secondary mt-5"
             >
-              <ArrowLeft className="h-3.5 w-3.5" />
+              <ArrowLeft className="h-4 w-4" />
               <span>返回工作台</span>
             </button>
           )}
@@ -219,82 +219,57 @@ export function SharesPage({
   }
 
   return (
-    <div
-      data-testid="shares-page"
-      className="flex h-full w-full flex-col overflow-hidden bg-slate-50 text-slate-900"
-    >
-      {/* 顶部标题与搜索 */}
-      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {onBackToWorkbench && (
-            <button
-              type="button"
-              onClick={onBackToWorkbench}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>工作台</span>
-            </button>
-          )}
-          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-            <Share2 className="h-4 w-4" />
-          </span>
-          <h1 className="truncate text-sm font-semibold text-slate-900">分享管理</h1>
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              currentUser.role === 'admin'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'bg-sky-50 text-sky-700'
-            }`}
-          >
-            {currentUser.role === 'admin'
+    <div data-testid="shares-page" className="st-page overflow-hidden bg-white text-slate-900">
+      {/* 页头：标题、检索与刷新（返回工作台由常驻侧栏承担） */}
+      <header className="st-page-header justify-between">
+        <PageHeading
+          icon={<Share2 className="h-4 w-4" />}
+          title="分享管理"
+          meta={
+            currentUser.role === 'admin'
               ? '管理员 · 全空间分享链接'
-              : '负责人 · 仅本人创建的分享链接'}
-          </span>
-        </div>
+              : '负责人 · 仅本人创建的分享链接'
+          }
+        />
 
         <div className="flex shrink-0 items-center gap-2">
           <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               aria-label="搜索分享链接"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索资源名、创建人或 Token..."
-              className="h-7 w-56 rounded-md border border-slate-200 bg-slate-50/70 pr-7 pl-8 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none"
+              className="st-input w-72 pr-8 pl-8"
             />
             {searchQuery !== '' && (
               <button
                 type="button"
                 aria-label="清空搜索"
                 onClick={() => setSearchQuery('')}
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-200/60 hover:text-slate-600"
+                className="st-icon-btn st-icon-btn-xs absolute top-1/2 right-1 -translate-y-1/2"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
-
           <button
             type="button"
+            aria-label="刷新"
             disabled={loading || revokingId !== null}
             onClick={() => void loadShares()}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="st-tool st-tool-icon"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>刷新</span>
+            <RefreshCw className={`h-4 w-4${loading ? ' animate-spin' : ''}`} />
+            <span className="sr-only">刷新</span>
           </button>
         </div>
       </header>
 
-      {/* 状态过滤 Tab 条 */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white/80 px-5 py-2">
-        <div
-          className="flex flex-wrap items-center gap-1.5"
-          role="tablist"
-          aria-label="分享状态筛选"
-        >
+      {/* 状态筛选条 */}
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-6">
+        <div className="flex items-center gap-0.5" role="tablist" aria-label="分享状态筛选">
           {(
             [
               { id: 'all', label: '全部链接', count: counts.all },
@@ -311,17 +286,11 @@ export function SharesPage({
                 role="tab"
                 aria-selected={active}
                 onClick={() => setStatusFilter(tab.id)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  active
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
-                }`}
+                className={`st-chip${active ? ' st-chip-active' : ''}`}
               >
                 <span>{tab.label}</span>
                 <span
-                  className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-                    active ? 'bg-white/20 text-white' : 'bg-white text-slate-500'
-                  }`}
+                  className={`ml-1 tabular-nums ${active ? 'text-blue-500' : 'text-slate-400'}`}
                 >
                   {tab.count}
                 </span>
@@ -329,26 +298,22 @@ export function SharesPage({
             )
           })}
         </div>
-
-        <span className="text-[11px] text-slate-500">
-          可在多维数据台、视图或数据录入端点击「分享」创建新链接，此处统一管理生命周期
+        <span className="min-w-0 truncate text-xs text-slate-500">
+          在多维数据台、视图或数据录入端点击「分享」即可创建新链接
         </span>
       </div>
 
       {/* 主列表区 */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="st-page-body">
         {loading && shares.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-500">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600"
-              aria-hidden="true"
-            />
+            <div className="st-spinner" aria-hidden="true" />
             <div className="text-xs">正在加载分享链接...</div>
           </div>
         ) : loadError && shares.length === 0 ? (
           <div
             data-testid="shares-error"
-            className="mx-auto mt-12 flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm"
+            className="st-card mx-auto mt-12 flex max-w-md flex-col items-center p-8 text-center"
           >
             <Share2 className="mb-2.5 h-7 w-7 text-slate-400" />
             <div className="text-sm font-semibold text-slate-900">分享列表加载失败</div>
@@ -356,13 +321,13 @@ export function SharesPage({
             <button
               type="button"
               onClick={() => void loadShares()}
-              className="mt-4 inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="st-btn st-btn-sm st-btn-primary mt-4"
             >
               重试加载
             </button>
           </div>
         ) : filteredShares.length === 0 ? (
-          <div className="mx-auto mt-10 max-w-lg rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
+          <div className="st-empty mx-auto max-w-lg py-10">
             <Share2 className="mx-auto mb-2.5 h-7 w-7 text-slate-300" />
             <div className="text-sm font-semibold text-slate-800">
               {shares.length === 0 ? '暂无对外分享链接' : '没有符合当前筛选条件的分享链接'}
@@ -374,17 +339,17 @@ export function SharesPage({
             </p>
           </div>
         ) : (
-          <div className="mx-auto max-w-6xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xs">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-semibold text-slate-500">
-                  <th className="px-4 py-2.5">资源名称与链接</th>
-                  <th className="px-3 py-2.5">分享类型</th>
-                  <th className="px-3 py-2.5">创建人</th>
-                  <th className="px-3 py-2.5">状态</th>
-                  <th className="px-3 py-2.5">访问验证</th>
-                  <th className="px-3 py-2.5">到期时间</th>
-                  <th className="px-4 py-2.5 text-right">操作</th>
+          <div className="st-card w-full max-w-[1120px] overflow-hidden">
+            <table className="st-table">
+              <thead className="bg-slate-50/70">
+                <tr>
+                  <th className="st-th">资源名称与链接</th>
+                  <th className="st-th">分享类型</th>
+                  <th className="st-th">创建人</th>
+                  <th className="st-th">状态</th>
+                  <th className="st-th">访问验证</th>
+                  <th className="st-th">到期时间</th>
+                  <th className="st-th text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -395,70 +360,79 @@ export function SharesPage({
                     <tr
                       key={share.id}
                       data-testid={`share-row-${share.id}`}
-                      className={
-                        isActive ? 'hover:bg-slate-50/70' : 'bg-slate-50/40 text-slate-500'
-                      }
+                      className={`transition-colors hover:bg-slate-50${isActive ? '' : ' bg-slate-50/50'}`}
                     >
-                      <td className="max-w-xs px-4 py-3">
+                      <td className="st-td h-auto min-w-[320px] py-2.5">
                         <div
-                          className="truncate font-semibold text-slate-900"
+                          className={`truncate font-medium ${isActive ? 'text-slate-900' : 'text-slate-500'}`}
                           title={share.targetName}
                         >
                           {share.targetName}
                         </div>
-                        <div className="mt-0.5 truncate font-mono text-[11px] text-slate-400">
-                          {sharePath}
+                        <div className="mt-1 flex items-center gap-1">
+                          <span
+                            className="min-w-0 truncate rounded bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-500"
+                            title={sharePath}
+                          >
+                            {sharePath}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`复制分享链接 ${share.targetName}`}
+                            onClick={() => void handleCopy(share)}
+                            className="st-icon-btn st-icon-btn-xs"
+                          >
+                            {copiedId === share.id ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
                         </div>
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${targetTypeBadgeStyle(share.targetType)}`}
-                        >
+                      <td className="st-td whitespace-nowrap">
+                        <span className={`st-badge ${targetTypeBadgeClass(share.targetType)}`}>
                           {SHARE_TARGET_LABELS[share.targetType]}
                         </span>
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-700">
-                        {share.createdByName}
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadgeStyle(share.status)}`}
-                        >
+                      <td className="st-td whitespace-nowrap">{share.createdByName}</td>
+                      <td className="st-td whitespace-nowrap">
+                        <span className={`st-badge ${statusBadgeClass(share.status)}`}>
                           {SHARE_STATUS_LABELS[share.status]}
                         </span>
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        {share.hasPassword ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                            <Lock className="h-2.5 w-2.5" />
-                            <span>已设密码</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                            <Unlock className="h-2.5 w-2.5" />
-                            <span>免密访问</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-600">
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3 w-3 text-slate-400" />
-                          <span>{formatShareTimestamp(share.expiresAt)}</span>
+                      <td className="st-td whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                          {share.hasPassword ? (
+                            <>
+                              <Lock className="h-3.5 w-3.5" />
+                              <span>密码保护</span>
+                              <span className="sr-only">已设密码</span>
+                            </>
+                          ) : (
+                            <>
+                              <Unlock className="h-3.5 w-3.5" />
+                              <span>免密访问</span>
+                            </>
+                          )}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <td className="st-td whitespace-nowrap tabular-nums">
+                        {formatShareTimestamp(share.expiresAt)}
+                      </td>
+                      <td className="st-td whitespace-nowrap text-right">
                         {isActive ? (
                           <div className="inline-flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               aria-label={`复制分享链接 ${share.targetName}`}
                               onClick={() => void handleCopy(share)}
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                              className="st-btn st-btn-xs st-btn-ghost"
                             >
                               {copiedId === share.id ? (
-                                <Check className="h-3 w-3 text-emerald-600" />
+                                <Check className="h-3.5 w-3.5 text-emerald-600" />
                               ) : (
-                                <Copy className="h-3 w-3" />
+                                <Copy className="h-3.5 w-3.5" />
                               )}
                               <span>{copiedId === share.id ? '已复制' : '复制链接'}</span>
                             </button>
@@ -467,9 +441,9 @@ export function SharesPage({
                               target="_blank"
                               rel="noopener noreferrer"
                               aria-label={`打开分享页 ${share.targetName}`}
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                              className="st-btn st-btn-xs st-btn-ghost"
                             >
-                              <ExternalLink className="h-3 w-3" />
+                              <ExternalLink className="h-3.5 w-3.5" />
                               <span>打开</span>
                             </a>
                             <button
@@ -477,14 +451,14 @@ export function SharesPage({
                               disabled={revokingId !== null}
                               aria-label={`失效分享链接 ${share.id}`}
                               onClick={() => void handleRevoke(share)}
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 text-[11px] font-medium text-red-700 hover:bg-red-100 disabled:opacity-40"
+                              className="st-btn st-btn-xs st-btn-ghost text-red-600 hover:bg-red-50 hover:text-red-700"
                             >
-                              <Ban className="h-3 w-3" />
+                              <Ban className="h-3.5 w-3.5" />
                               <span>{revokingId === share.id ? '处理中...' : '立即失效'}</span>
                             </button>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-xs text-slate-500">
                             {share.status === 'revoked' && share.revokedAt
                               ? `失效于 ${formatShareTimestamp(share.revokedAt, '')}`
                               : '不可访问'}

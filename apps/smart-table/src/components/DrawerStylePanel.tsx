@@ -1,7 +1,7 @@
 // 视图配置抽屉 · 样式与条件格式分栏：冻结列数、行高档位、列级对齐/配色、选区背景/文字色设置与清除、条件格式规则增删改
 
 import { useEffect, useState } from 'react'
-import { AlignCenter, AlignLeft, AlignRight, Eraser, Plus, Trash2 } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight, Eraser, Minus, Plus, Trash2 } from 'lucide-react'
 import type { SmartGridSelectionInfo } from '../canvas/smart-grid'
 import { scalarToText } from '../domain/utils'
 import { applyCellStyleToSelection } from '../domain/workspace-helpers'
@@ -51,6 +51,45 @@ const CF_OPERATORS: { value: FilterOperator; label: string }[] = [
   { value: 'is_empty', label: '为空' },
   { value: 'is_not_empty', label: '不为空' },
 ]
+
+// 「小色块 + 文案」配色 chip（选中：浅蓝底蓝描边）
+function ColorChip({
+  label,
+  bg,
+  title,
+  selected,
+  disabled,
+  onClick,
+}: {
+  label: string
+  bg: string
+  title: string
+  selected?: boolean
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      data-selected={selected ? 'true' : undefined}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition-colors ${
+        selected
+          ? 'border-blue-300 bg-blue-50 text-blue-700'
+          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+      } disabled:pointer-events-none disabled:opacity-40`}
+    >
+      <span
+        className="h-3 w-3 shrink-0 rounded-full border border-slate-200"
+        style={{ backgroundColor: bg }}
+      />
+      <span>{label}</span>
+    </button>
+  )
+}
 
 export function DrawerStylePanel({
   view,
@@ -149,48 +188,48 @@ export function DrawerStylePanel({
 
   return (
     <div className="space-y-5">
-      {/* 冻结列与行高档位 */}
+      {/* 布局与密度 */}
       <section className="space-y-2.5">
-        <h3 className="text-xs font-semibold text-slate-800">布局与密度</h3>
-        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
-          <span className="text-xs text-slate-600">左侧冻结列数</span>
-          <div className="flex items-center gap-1.5">
+        <h3 className="st-section-label">布局与密度</h3>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-slate-700">左侧冻结列数</span>
+          <div className="inline-flex items-center rounded-lg border border-slate-200">
             <button
               type="button"
               disabled={frozenCount <= 0}
               onClick={() => onUpdateView({ frozenColCount: Math.max(0, frozenCount - 1) })}
-              className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              className="st-icon-btn"
               aria-label="减少冻结列"
             >
-              -
+              <Minus className="h-3.5 w-3.5" />
             </button>
-            <span className="w-6 text-center text-xs font-semibold text-slate-800">
+            <span className="w-8 text-center text-sm text-slate-800 tabular-nums">
               {frozenCount}
             </span>
             <button
               type="button"
               disabled={frozenCount >= maxFrozen}
               onClick={() => onUpdateView({ frozenColCount: Math.min(maxFrozen, frozenCount + 1) })}
-              className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              className="st-icon-btn"
               aria-label="增加冻结列"
             >
-              +
+              <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
 
-        <div className="space-y-1">
-          <span className="text-xs text-slate-600">行高档位</span>
-          <div className="grid grid-cols-3 gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-slate-700">行高档位</span>
+          <div className="flex items-center gap-1.5">
             {ROW_HEIGHT_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => onUpdateView({ rowHeight: opt.value })}
-                className={`h-7 rounded-md text-[11px] font-medium transition-colors ${
+                className={`inline-flex h-7 items-center rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition-colors ${
                   rowHeight === opt.value
-                    ? 'bg-white text-blue-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {opt.label}
@@ -201,14 +240,14 @@ export function DrawerStylePanel({
       </section>
 
       {/* 列级样式与对齐 */}
-      <section className="space-y-2.5 border-t border-slate-100 pt-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">列级样式与配色</h3>
+      <section className="space-y-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">列级样式与配色</h3>
           {Object.keys(activeColStyle).length > 0 && (
             <button
               type="button"
               onClick={() => patchColumnStyle(null)}
-              className="text-[11px] text-slate-500 hover:text-red-600"
+              className="st-btn st-btn-xs st-btn-ghost"
             >
               重置此列
             </button>
@@ -224,9 +263,9 @@ export function DrawerStylePanel({
           onChange={setTargetColKey}
         />
 
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-600">水平对齐</span>
-          <div className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-0.5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-slate-700">水平对齐</span>
+          <div className="st-segment w-32">
             {(
               [
                 { val: 'left', icon: AlignLeft, title: '左对齐' },
@@ -244,11 +283,7 @@ export function DrawerStylePanel({
                   onClick={() =>
                     patchColumnStyle({ align: active ? undefined : (val as CellTextAlign) })
                   }
-                  className={`rounded p-1 transition-colors ${
-                    active
-                      ? 'bg-white text-blue-600 shadow-2xs'
-                      : 'text-slate-500 hover:text-slate-800'
-                  }`}
+                  className={`st-segment-item ${active ? 'st-segment-item-active' : ''}`}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </button>
@@ -258,115 +293,96 @@ export function DrawerStylePanel({
         </div>
 
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-600">列头配色</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-700">列头配色</span>
             {activeColStyle.headerBgColor && (
               <button
                 type="button"
                 onClick={() =>
                   patchColumnStyle({ headerBgColor: undefined, headerTextColor: undefined })
                 }
-                className="text-[11px] text-slate-400 hover:text-slate-700"
+                className="st-btn st-btn-xs st-btn-ghost"
               >
                 清除
               </button>
             )}
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {COLOR_PRESETS.map((p) => {
-              const selected = activeColStyle.headerBgColor === p.bg
-              return (
-                <button
-                  key={`hdr-${p.bg}`}
-                  type="button"
-                  title={`列头 · ${p.label}`}
-                  onClick={() => patchColumnStyle({ headerBgColor: p.bg, headerTextColor: p.text })}
-                  className={`h-6 rounded-md border px-2 text-[11px] font-medium transition-all ${
-                    selected ? 'ring-2 ring-blue-500/40 border-blue-500' : 'border-black/10'
-                  }`}
-                  style={{ backgroundColor: p.bg, color: p.text }}
-                >
-                  {p.label}
-                </button>
-              )
-            })}
+            {COLOR_PRESETS.map((p) => (
+              <ColorChip
+                key={`hdr-${p.bg}`}
+                label={p.label}
+                bg={p.bg}
+                title={`列头 · ${p.label}`}
+                selected={activeColStyle.headerBgColor === p.bg}
+                onClick={() => patchColumnStyle({ headerBgColor: p.bg, headerTextColor: p.text })}
+              />
+            ))}
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-600">整列底色与文字色</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-700">整列底色与文字色</span>
             {activeColStyle.bgColor && (
               <button
                 type="button"
                 onClick={() => patchColumnStyle({ bgColor: undefined, textColor: undefined })}
-                className="text-[11px] text-slate-400 hover:text-slate-700"
+                className="st-btn st-btn-xs st-btn-ghost"
               >
                 清除
               </button>
             )}
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {COLOR_PRESETS.map((p) => {
-              const selected = activeColStyle.bgColor === p.bg
-              return (
-                <button
-                  key={`col-${p.bg}`}
-                  type="button"
-                  title={`整列 · ${p.label}`}
-                  onClick={() => patchColumnStyle({ bgColor: p.bg, textColor: p.text })}
-                  className={`h-6 rounded-md border px-2 text-[11px] font-medium transition-all ${
-                    selected ? 'ring-2 ring-blue-500/40 border-blue-500' : 'border-black/10'
-                  }`}
-                  style={{ backgroundColor: p.bg, color: p.text }}
-                >
-                  {p.label}
-                </button>
-              )
-            })}
+            {COLOR_PRESETS.map((p) => (
+              <ColorChip
+                key={`col-${p.bg}`}
+                label={p.label}
+                bg={p.bg}
+                title={`整列 · ${p.label}`}
+                selected={activeColStyle.bgColor === p.bg}
+                onClick={() => patchColumnStyle({ bgColor: p.bg, textColor: p.text })}
+              />
+            ))}
           </div>
         </div>
       </section>
 
       {/* 当前选区自定义配色 */}
-      <section className="space-y-2 border-t border-slate-100 pt-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">当前选区配色</h3>
-          <span className="text-[11px] text-slate-500">
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">当前选区配色</h3>
+          <span className="text-xs text-slate-500">
             {selectionCount > 0 ? `已选中 ${selectionCount} 格` : '请在画布框选单元格'}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {COLOR_PRESETS.map((p) => (
-            <button
+            <ColorChip
               key={`sel-${p.bg}`}
-              type="button"
-              disabled={selectionCount === 0}
+              label={p.label}
+              bg={p.bg}
               title={`应用到选区：${p.label}`}
+              disabled={selectionCount === 0}
               onClick={() => handleSelectionStyle(p.bg, p.text)}
-              className="h-6 rounded-md border border-black/10 px-2 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ backgroundColor: p.bg, color: p.text }}
-            >
-              {p.label}
-            </button>
+            />
           ))}
           <button
             type="button"
             disabled={selectionCount === 0}
             onClick={() => handleSelectionStyle(undefined, undefined, true)}
-            className="inline-flex h-6 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
           >
-            <Eraser className="h-3 w-3" />
+            <Eraser className="h-3.5 w-3.5 shrink-0" />
             <span>清除选区</span>
           </button>
         </div>
       </section>
 
       {/* 条件格式规则 */}
-      <section className="space-y-2.5 border-t border-slate-100 pt-4">
-        <h3 className="text-xs font-semibold text-slate-800">
-          条件格式规则 ({view.conditionalFormats?.length ?? 0})
-        </h3>
+      <section className="space-y-2.5">
+        <h3 className="st-section-label">条件格式规则 ({view.conditionalFormats?.length ?? 0})</h3>
 
         <div className="space-y-1.5">
           {(view.conditionalFormats ?? []).map((rule) => {
@@ -375,7 +391,7 @@ export function DrawerStylePanel({
             return (
               <div
                 key={rule.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2"
+                className="st-card group flex items-center justify-between gap-2 p-3"
               >
                 <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                   <input
@@ -388,17 +404,15 @@ export function DrawerStylePanel({
                         ),
                       })
                     }
-                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                    className="st-checkbox"
                   />
                   <span
-                    className="h-3.5 w-3.5 shrink-0 rounded border border-black/10"
+                    className="h-3.5 w-3.5 shrink-0 rounded border border-slate-200"
                     style={{ backgroundColor: rule.bgColor ?? '#fef2f2' }}
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium text-slate-800">
-                      {rule.name || fieldTitle}
-                    </div>
-                    <div className="truncate text-[10px] text-slate-500">
+                    <div className="truncate text-sm text-slate-800">{rule.name || fieldTitle}</div>
+                    <div className="truncate text-xs text-slate-600">
                       {fieldTitle} {rule.operator} {scalarToText(rule.value)} ·{' '}
                       {rule.scope === 'row' ? '整行' : '单元格'}
                     </div>
@@ -414,7 +428,7 @@ export function DrawerStylePanel({
                       ),
                     })
                   }
-                  className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="st-icon-btn st-icon-btn-xs st-icon-btn-danger opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -425,11 +439,11 @@ export function DrawerStylePanel({
 
         <form
           onSubmit={(e) => handleAddConditionalRule(e)}
-          className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-2.5"
+          className="space-y-2 rounded-xl border border-dashed border-slate-200 p-3"
         >
           <input
             type="text"
-            className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+            className="st-input st-input-sm"
             placeholder="规则名称（可选）"
             value={cfName}
             onChange={(e) => setCfName(e.target.value)}
@@ -454,7 +468,7 @@ export function DrawerStylePanel({
             {cfOperator !== 'is_empty' && cfOperator !== 'is_not_empty' ? (
               <input
                 type="text"
-                className="h-6 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                className="st-input st-input-sm"
                 placeholder="比较值"
                 value={cfValue}
                 onChange={(e) => setCfValue(e.target.value)}
@@ -473,26 +487,26 @@ export function DrawerStylePanel({
               onChange={setCfScope}
             />
           </div>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 pt-0.5">
             <div className="flex items-center gap-1">
               {COLOR_PRESETS.slice(0, 5).map((p, idx) => (
                 <button
                   key={`cf-swatch-${p.bg}`}
                   type="button"
                   title={p.label}
+                  aria-label={p.label}
                   onClick={() => setCfPresetIdx(idx)}
                   className={`h-5 w-5 rounded-full border transition-transform ${
-                    cfPresetIdx === idx ? 'scale-110 ring-2 ring-blue-500/40' : 'border-black/15'
+                    cfPresetIdx === idx
+                      ? 'scale-110 border-blue-500 ring-2 ring-blue-500/30'
+                      : 'border-slate-200'
                   }`}
                   style={{ backgroundColor: p.bg }}
                 />
               ))}
             </div>
-            <button
-              type="submit"
-              className="inline-flex h-6 items-center gap-1 rounded bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700"
-            >
-              <Plus className="h-3 w-3" />
+            <button type="submit" className="st-btn st-btn-sm st-btn-secondary">
+              <Plus className="h-3.5 w-3.5" />
               <span>添加规则</span>
             </button>
           </div>

@@ -1,4 +1,4 @@
-// 二级业务目录侧栏（与最左 NavRail 配合）：
+// 侧栏子目录：嵌在统一侧栏（NavRail）激活的一级导航下方，按板块展示三类二级目录。
 // 1. 「apps」多维数据台目录：展示用户可见的多维数据台，按能力控制新建/重命名/调序/删除，普通成员不暴露数据源信息。
 // 2. 「entries」数据录入表目录：展示普通表填报直达入口，支持切换、新标签打开与复制直达链接。
 // 3. 「datasources」数据源中心目录：自建普通表 + SQL 物理表分组（仅管理员/负责人可见），按权限控制建表/导入/重命名/删表与重置种子。
@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Link2,
   Lock,
+  MoreHorizontal,
   Pencil,
   Plus,
   RotateCcw,
@@ -90,12 +91,6 @@ export function ViewTypeIcon({
   }
 }
 
-const SECTION_META: Record<SidebarSection, { title: string; badge: string }> = {
-  apps: { title: '多维数据台', badge: '应用工作台' },
-  entries: { title: '数据录入表', badge: '填报入口' },
-  datasources: { title: '数据源中心', badge: '底层数据' },
-}
-
 export function Sidebar({
   section,
   currentUser,
@@ -131,6 +126,9 @@ export function Sidebar({
   const [renamingAppId, setRenamingAppId] = useState<string | null>(null)
   const [renameAppDraft, setRenameAppDraft] = useState('')
   const [confirmDeleteApp, setConfirmDeleteApp] = useState<SmartApp | null>(null)
+  // 展开中「⋯」管理菜单的多维数据台 id 及菜单落点（固定定位，避免被侧栏滚动容器裁切）
+  const [manageMenuId, setManageMenuId] = useState<string | null>(null)
+  const [manageMenuPos, setManageMenuPos] = useState({ top: 0, left: 0 })
 
   // 数据源中心状态
   const [creatingTable, setCreatingTable] = useState(false)
@@ -264,669 +262,649 @@ export function Sidebar({
     }
   }
 
-  const headerMeta = SECTION_META[section]
+  // 管理菜单打开期间：ESC 或点击菜单外部关闭
+  useEffect(() => {
+    if (!manageMenuId) return
+    const onPointerDown = (e: PointerEvent) => {
+      if ((e.target as HTMLElement | null)?.closest('[data-app-manage-menu]')) return
+      setManageMenuId(null)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setManageMenuId(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [manageMenuId])
+
+  // 「⋯」右对齐、菜单限制在侧栏宽度内；固定定位是因为子目录列表自身可滚动
+  function toggleManageMenu(anchor: HTMLElement, appId: string) {
+    if (manageMenuId === appId) {
+      setManageMenuId(null)
+      return
+    }
+    const rect = anchor.getBoundingClientRect()
+    setManageMenuPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 164) })
+    setManageMenuId(appId)
+  }
+
+  const openRowFocus =
+    'flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40'
 
   return (
-    <aside
-      className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white select-none"
-      aria-label="业务目录导航"
-    >
-      {/* 二级目录标题栏 */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-3.5">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-blue-600" aria-hidden="true" />
-          <span className="text-sm font-semibold tracking-tight text-slate-900">
-            {headerMeta.title}
-          </span>
-        </div>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-          {headerMeta.badge}
-        </span>
-      </div>
+    <div className="px-2 pb-3">
+      {section === 'apps' && (
+        <section aria-label="多维数据台">
+          <div className="mt-3 flex h-7 items-center justify-between pr-1.5 pl-[38px]">
+            <span className="st-section-label">
+              全部应用
+              <span className="ml-1.5 font-normal text-slate-400 tabular-nums">{apps.length}</span>
+            </span>
+            {userCapabilities.canCreateApp && (
+              <button
+                type="button"
+                disabled={busy || tables.length === 0}
+                onClick={() => setCreatingApp((v) => !v)}
+                title="基于数据源新建多维数据台"
+                aria-label="基于数据源新建多维数据台"
+                className="st-icon-btn st-icon-btn-xs"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
 
-      {/* 目录列表滚动区 */}
-      <div className="flex-1 overflow-y-auto px-2.5 py-3">
-        {section === 'apps' && (
-          <section aria-label="多维数据台">
-            <div className="mb-2 flex items-center justify-between px-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  全部应用
-                </span>
-                <span className="rounded bg-slate-100 px-1.5 py-0.2 text-[10px] font-medium text-slate-500">
-                  {apps.length}
-                </span>
-              </div>
-              {userCapabilities.canCreateApp && (
+          {userCapabilities.canCreateApp && creatingApp && (
+            <form
+              onSubmit={(e) => void handleCreateAppSubmit(e)}
+              className="st-card mb-2 space-y-2 p-3"
+            >
+              <input
+                type="text"
+                className="st-input st-input-sm"
+                placeholder="多维数据台名称，如：华东大区业绩台账"
+                value={newAppName}
+                onChange={(e) => setNewAppName(e.target.value)}
+                autoFocus
+              />
+              <CustomSelect
+                size="xs"
+                className="w-full"
+                value={newAppTableId}
+                ariaLabel="选择数据源"
+                options={tables.map((t) => ({ value: t.meta.id, label: t.meta.name }))}
+                onChange={(val) => setNewAppTableId(val)}
+              />
+              <input
+                type="text"
+                className="st-input st-input-sm"
+                placeholder="业务用途说明（可选）"
+                value={newAppDesc}
+                onChange={(e) => setNewAppDesc(e.target.value)}
+              />
+              <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
-                  disabled={busy || tables.length === 0}
-                  onClick={() => setCreatingApp((v) => !v)}
-                  className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                  title="基于数据源新建多维数据台"
+                  onClick={() => setCreatingApp(false)}
+                  className="st-btn st-btn-xs st-btn-ghost"
                 >
-                  <Plus className="h-3 w-3" />
-                  <span>新建</span>
+                  取消
                 </button>
+                <button
+                  type="submit"
+                  disabled={busy || !newAppName.trim()}
+                  className="st-btn st-btn-xs st-btn-primary"
+                >
+                  创建多维数据台
+                </button>
+              </div>
+            </form>
+          )}
+
+          {apps.length === 0 ? (
+            <div className="st-empty py-3">当前账号暂无可见的多维数据台</div>
+          ) : (
+            <ul className="space-y-0.5">
+              {apps.map((app, idx) => {
+                const active = activeAppId === app.id
+                const isRenaming = renamingAppId === app.id
+                const sourceTableName = tableNameById.get(app.tableId) ?? app.tableId
+                const viewCount = viewCountByAppId.get(app.id) ?? 0
+                const canConfigThisApp = canConfigureAppItem(currentUser, app)
+
+                return (
+                  <li key={app.id}>
+                    {isRenaming ? (
+                      <div className="py-0.5 pr-1 pl-[30px]">
+                        <input
+                          type="text"
+                          className="st-input st-input-sm"
+                          value={renameAppDraft}
+                          autoFocus
+                          onChange={(e) => setRenameAppDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              void commitRenameApp(app)
+                            } else if (e.key === 'Escape') {
+                              setRenamingAppId(null)
+                            }
+                          }}
+                          onBlur={() => void commitRenameApp(app)}
+                        />
+                      </div>
+                    ) : (
+                      <div className={`group st-nav-child ${active ? 'st-nav-child-active' : ''}`}>
+                        <button
+                          type="button"
+                          onClick={() => onSelectApp(app.id)}
+                          onDoubleClick={() => {
+                            if (!canConfigThisApp) return
+                            setRenamingAppId(app.id)
+                            setRenameAppDraft(app.name)
+                          }}
+                          className={openRowFocus}
+                        >
+                          <Layers className="h-4 w-4 shrink-0" />
+                          <span className="min-w-0">
+                            <span
+                              className={`block truncate leading-5 ${active ? 'pr-12' : 'pr-7'}`}
+                              title={app.name}
+                            >
+                              {app.name}
+                            </span>
+                            {/* 数据源来源只在选中项下显示，避免每行都带两行 */}
+                            {active && userCapabilities.canAccessDataSources && (
+                              <span className="block truncate text-xs leading-4 font-normal text-slate-500">
+                                数据源：{sourceTableName}
+                              </span>
+                            )}
+                          </span>
+                        </button>
+
+                        {/* 视图数只在选中行显示；该行带第二行数据源说明，计数对齐首行避让 */}
+                        {active && (
+                          <span className="pointer-events-none absolute top-1 right-2 text-xs whitespace-nowrap tabular-nums text-slate-500 group-hover:hidden">
+                            {viewCount} 视图
+                          </span>
+                        )}
+                        {canConfigThisApp && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            aria-label={`管理多维数据台 ${app.name}`}
+                            title="重命名、调序或删除多维数据台"
+                            aria-haspopup="menu"
+                            aria-expanded={manageMenuId === app.id}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleManageMenu(e.currentTarget, app.id)
+                            }}
+                            className={`st-icon-btn st-icon-btn-xs absolute top-1/2 right-1.5 hidden -translate-y-1/2 group-hover:inline-flex ${
+                              manageMenuId === app.id ? 'inline-flex bg-slate-200/80' : ''
+                            }`}
+                          >
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {manageMenuId === app.id && (
+                      <div
+                        role="menu"
+                        data-app-manage-menu
+                        aria-label={`管理多维数据台 ${app.name}`}
+                        className="st-popover fixed z-50 w-40"
+                        style={manageMenuPos}
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="st-menu-item"
+                          onClick={() => {
+                            setManageMenuId(null)
+                            setRenamingAppId(app.id)
+                            setRenameAppDraft(app.name)
+                          }}
+                        >
+                          <Pencil className="h-4 w-4 text-slate-400" />
+                          重命名
+                        </button>
+                        {canReorderApps && idx > 0 && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="st-menu-item"
+                            onClick={() => {
+                              setManageMenuId(null)
+                              void handleMoveApp(idx, -1)
+                            }}
+                          >
+                            <ArrowUp className="h-4 w-4 text-slate-400" />
+                            上移
+                          </button>
+                        )}
+                        {canReorderApps && idx < apps.length - 1 && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="st-menu-item"
+                            onClick={() => {
+                              setManageMenuId(null)
+                              void handleMoveApp(idx, 1)
+                            }}
+                          >
+                            <ArrowDown className="h-4 w-4 text-slate-400" />
+                            下移
+                          </button>
+                        )}
+                        {apps.length > 1 && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="st-menu-item st-menu-item-danger"
+                            onClick={() => {
+                              setManageMenuId(null)
+                              setConfirmDeleteApp(app)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            删除
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {section === 'entries' && (
+        <section aria-label="数据录入表">
+          <div className="mt-3 flex h-7 items-center pr-1.5 pl-[38px]">
+            <span className="st-section-label">
+              可填报普通表
+              <span className="ml-1.5 font-normal text-slate-400 tabular-nums">
+                {normalTables.length}
+              </span>
+            </span>
+          </div>
+
+          {normalTables.length === 0 ? (
+            <div className="st-empty py-3">暂无可访问的普通数据录入表</div>
+          ) : (
+            <ul className="space-y-0.5">
+              {normalTables.map((bundle) => {
+                const active = activeEntryTableId === bundle.meta.id
+                const canEdit = canEditEntryTableItem(currentUser, bundle.meta, apps, views)
+                return (
+                  <li key={bundle.meta.id}>
+                    <div className={`group st-nav-child ${active ? 'st-nav-child-active' : ''}`}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onEnterTableEntry?.(bundle.meta.id)}
+                        className={openRowFocus}
+                      >
+                        <ClipboardList className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block truncate pr-10 leading-5" title={bundle.meta.name}>
+                            {bundle.meta.name}
+                          </span>
+                          {!canEdit && (
+                            <span className="flex items-center gap-1 text-xs leading-4 font-normal text-slate-500">
+                              <Lock className="h-2.5 w-2.5" />
+                              只读查看
+                            </span>
+                          )}
+                        </span>
+                      </button>
+
+                      <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
+                        <span className="text-xs whitespace-nowrap tabular-nums text-slate-400 group-hover:hidden">
+                          {bundle.records.length} 条
+                        </span>
+                        <div className="hidden items-center gap-0.5 group-hover:flex">
+                          {onOpenTableEntryNewTab && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              title="新标签页打开录入页"
+                              aria-label={`新标签打开 ${bundle.meta.name} 录入页`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onOpenTableEntryNewTab(bundle.meta.id)
+                              }}
+                              className="st-icon-btn st-icon-btn-xs"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {onCopyTableEntryLink && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              title="复制独立录入链接"
+                              aria-label={`复制 ${bundle.meta.name} 录入链接`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void onCopyTableEntryLink(bundle.meta.id)
+                              }}
+                              className="st-icon-btn st-icon-btn-xs"
+                            >
+                              <Link2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {section === 'datasources' &&
+        (userCapabilities.canAccessDataSources ? (
+          <section aria-label="数据源中心">
+            <div className="mt-3 flex h-7 items-center justify-between pr-1.5 pl-[38px]">
+              <span className="st-section-label">
+                数据表目录
+                <span className="ml-1.5 font-normal text-slate-400 tabular-nums">
+                  {tables.length}
+                </span>
+              </span>
+              {userCapabilities.canCreateTable && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={onOpenImport}
+                    title="从 Excel / CSV 导入建表"
+                    aria-label="导入"
+                    className="st-icon-btn st-icon-btn-xs"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setNormalCollapsed(false)
+                      setCreatingTable((v) => !v)
+                    }}
+                    title="新建普通自建表"
+                    className="st-icon-btn st-icon-btn-xs"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
             </div>
 
-            {userCapabilities.canCreateApp && creatingApp && (
+            {userCapabilities.canCreateTable && creatingTable && (
               <form
-                onSubmit={(e) => void handleCreateAppSubmit(e)}
-                className="mb-2.5 space-y-2 rounded-lg border border-blue-200 bg-blue-50/40 p-2.5"
+                onSubmit={(e) => void handleCreateTableSubmit(e)}
+                className="st-card mb-2 space-y-2 p-3"
               >
                 <input
                   type="text"
-                  className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                  placeholder="多维数据台名称，如：华东大区业绩台账"
-                  value={newAppName}
-                  onChange={(e) => setNewAppName(e.target.value)}
+                  className="st-input st-input-sm"
+                  placeholder="输入表名，如：客户跟进表"
+                  value={newTableName}
+                  onChange={(e) => setNewTableName(e.target.value)}
                   autoFocus
-                />
-                <CustomSelect
-                  size="xs"
-                  className="w-full"
-                  value={newAppTableId}
-                  ariaLabel="选择数据源"
-                  options={tables.map((t) => ({ value: t.meta.id, label: t.meta.name }))}
-                  onChange={(val) => setNewAppTableId(val)}
                 />
                 <input
                   type="text"
-                  className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                  placeholder="业务用途说明（可选）"
-                  value={newAppDesc}
-                  onChange={(e) => setNewAppDesc(e.target.value)}
+                  className="st-input st-input-sm"
+                  placeholder="可选描述"
+                  value={newTableDesc}
+                  onChange={(e) => setNewTableDesc(e.target.value)}
                 />
                 <div className="flex items-center justify-end gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setCreatingApp(false)}
-                    className="h-6 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-50"
+                    onClick={() => {
+                      setCreatingTable(false)
+                      setNewTableName('')
+                      setNewTableDesc('')
+                    }}
+                    className="st-btn st-btn-xs st-btn-ghost"
                   >
                     取消
                   </button>
                   <button
                     type="submit"
-                    disabled={busy || !newAppName.trim()}
-                    className="h-6 rounded bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                    disabled={busy || !newTableName.trim()}
+                    className="st-btn st-btn-xs st-btn-primary"
                   >
-                    创建多维数据台
+                    创建
                   </button>
                 </div>
               </form>
             )}
 
-            {apps.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-                当前账号暂无可见的多维数据台
-              </div>
-            ) : (
-              <ul className="space-y-0.5">
-                {apps.map((app, idx) => {
-                  const active = activeAppId === app.id
-                  const isRenaming = renamingAppId === app.id
-                  const sourceTableName = tableNameById.get(app.tableId) ?? app.tableId
-                  const viewCount = viewCountByAppId.get(app.id) ?? 0
-                  const canConfigThisApp = canConfigureAppItem(currentUser, app)
-
-                  return (
-                    <li key={app.id}>
-                      {isRenaming ? (
-                        <div className="px-1 py-0.5">
-                          <input
-                            type="text"
-                            className="h-7 w-full rounded-md border border-blue-500 bg-white px-2 text-xs text-slate-800 focus:outline-none"
-                            value={renameAppDraft}
-                            autoFocus
-                            onChange={(e) => setRenameAppDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault()
-                                void commitRenameApp(app)
-                              } else if (e.key === 'Escape') {
-                                setRenamingAppId(null)
-                              }
-                            }}
-                            onBlur={() => void commitRenameApp(app)}
-                          />
-                        </div>
-                      ) : (
-                        <div
-                          className={`group flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors ${
-                            active
-                              ? 'bg-blue-50 text-blue-700'
-                              : 'text-slate-700 hover:bg-slate-100/80'
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => onSelectApp(app.id)}
-                            onDoubleClick={() => {
-                              if (!canConfigThisApp) return
-                              setRenamingAppId(app.id)
-                              setRenameAppDraft(app.name)
-                            }}
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          >
-                            <Layers
-                              className={`h-3.5 w-3.5 shrink-0 ${
-                                active ? 'text-blue-600' : 'text-slate-400'
-                              }`}
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span
-                                className={`block truncate text-xs ${active ? 'font-semibold' : 'font-medium'}`}
-                                title={app.name}
-                              >
-                                {app.name}
-                              </span>
-                              {userCapabilities.canAccessDataSources && (
-                                <span className="block truncate text-[10px] text-slate-400">
-                                  数据源：{sourceTableName}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-
-                          <div className="ml-1 flex shrink-0 items-center gap-1">
-                            <span
-                              className={`rounded px-1.5 py-0.2 text-[10px] ${
-                                active
-                                  ? 'bg-blue-100/80 text-blue-700'
-                                  : 'bg-slate-100 text-slate-500'
-                              }`}
-                            >
-                              {viewCount} 视图
-                            </span>
-                            {canConfigThisApp && (
-                              <div className="hidden items-center gap-0.5 group-hover:flex">
-                                {canReorderApps && idx > 0 && (
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    title="上移多维数据台"
-                                    aria-label={`上移 ${app.name}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      void handleMoveApp(idx, -1)
-                                    }}
-                                    className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                                  >
-                                    <ArrowUp className="h-3 w-3" />
-                                  </button>
-                                )}
-                                {canReorderApps && idx < apps.length - 1 && (
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    title="下移多维数据台"
-                                    aria-label={`下移 ${app.name}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      void handleMoveApp(idx, 1)
-                                    }}
-                                    className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                                  >
-                                    <ArrowDown className="h-3 w-3" />
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  title="重命名多维数据台"
-                                  aria-label={`重命名 ${app.name}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setRenamingAppId(app.id)
-                                    setRenameAppDraft(app.name)
-                                  }}
-                                  className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-slate-700"
-                                >
-                                  <Pencil className="h-3 w-3" />
-                                </button>
-                                {apps.length > 1 && (
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    title="删除多维数据台"
-                                    aria-label={`删除 ${app.name}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setConfirmDeleteApp(app)
-                                    }}
-                                    className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </section>
-        )}
-
-        {section === 'entries' && (
-          <section aria-label="数据录入表">
-            <div className="mb-2 flex items-center justify-between px-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  可填报普通表
-                </span>
-                <span className="rounded bg-emerald-50 px-1.5 py-0.2 text-[10px] font-medium text-emerald-700">
-                  {normalTables.length}
-                </span>
-              </div>
-            </div>
-
-            {normalTables.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-                暂无可访问的普通数据录入表
-              </div>
-            ) : (
-              <ul className="space-y-0.5">
-                {normalTables.map((bundle) => {
-                  const active = activeEntryTableId === bundle.meta.id
-                  const canEdit = canEditEntryTableItem(currentUser, bundle.meta, apps, views)
-                  return (
-                    <li key={bundle.meta.id}>
-                      <div
-                        className={`group flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors ${
-                          active
-                            ? 'bg-emerald-50 text-emerald-800'
-                            : 'text-slate-700 hover:bg-emerald-50/60'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          disabled={busy}
-                          title={`打开「${bundle.meta.name}」数据录入端`}
-                          onClick={() => onEnterTableEntry?.(bundle.meta.id)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs disabled:opacity-50"
-                        >
-                          <ClipboardList className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                          <span className="min-w-0 flex-1">
-                            <span
-                              className={`block truncate ${active ? 'font-semibold' : 'font-medium'}`}
-                              title={bundle.meta.name}
-                            >
-                              {bundle.meta.name}
-                            </span>
-                            {!canEdit && (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400">
-                                <Lock className="h-2.5 w-2.5" />
-                                <span>只读查看</span>
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                        <div className="ml-1 flex shrink-0 items-center gap-1">
-                          <span className="text-[10px] text-slate-400 group-hover:hidden">
-                            {bundle.records.length} 条
-                          </span>
-                          <div className="hidden items-center gap-0.5 group-hover:flex">
-                            {onOpenTableEntryNewTab && (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                title="新标签页打开录入页"
-                                aria-label={`新标签打开 ${bundle.meta.name} 录入页`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onOpenTableEntryNewTab(bundle.meta.id)
-                                }}
-                                className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-emerald-700"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                              </button>
-                            )}
-                            {onCopyTableEntryLink && (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                title="复制独立录入链接"
-                                aria-label={`复制 ${bundle.meta.name} 录入链接`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  void onCopyTableEntryLink(bundle.meta.id)
-                                }}
-                                className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-emerald-700"
-                              >
-                                <Link2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </section>
-        )}
-
-        {section === 'datasources' &&
-          (userCapabilities.canAccessDataSources ? (
-            <section aria-label="数据源中心">
-              <div className="mb-2 flex items-center justify-between px-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  数据表目录
-                </span>
-                {userCapabilities.canCreateTable && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        setNormalCollapsed(false)
-                        setCreatingTable((v) => !v)
-                      }}
-                      title="新建普通自建表"
-                      className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
-                    >
-                      <Plus className="h-3 w-3" />
-                      <span>新建</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={onOpenImport}
-                      title="从 Excel / CSV 导入建表"
-                      className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40"
-                    >
-                      <FileSpreadsheet className="h-3 w-3" />
-                      <span>导入</span>
-                    </button>
-                  </div>
+            {/* 自建普通表分组 */}
+            <div className="mb-2">
+              <button
+                type="button"
+                onClick={() => setNormalCollapsed((v) => !v)}
+                aria-expanded={!normalCollapsed}
+                className="mt-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left hover:bg-slate-200/60"
+              >
+                {normalCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
                 )}
-              </div>
+                <span className="st-section-label flex-1">自建普通表</span>
+                <span className="text-xs text-slate-400 tabular-nums">{normalTables.length}</span>
+              </button>
 
-              {userCapabilities.canCreateTable && creatingTable && (
-                <form
-                  onSubmit={(e) => void handleCreateTableSubmit(e)}
-                  className="mb-2.5 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2"
-                >
-                  <input
-                    type="text"
-                    className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                    placeholder="输入表名，如：客户跟进表"
-                    value={newTableName}
-                    onChange={(e) => setNewTableName(e.target.value)}
-                    autoFocus
-                  />
-                  <input
-                    type="text"
-                    className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                    placeholder="可选描述"
-                    value={newTableDesc}
-                    onChange={(e) => setNewTableDesc(e.target.value)}
-                  />
-                  <div className="flex items-center justify-end gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCreatingTable(false)
-                        setNewTableName('')
-                        setNewTableDesc('')
-                      }}
-                      className="h-6 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-50"
-                    >
-                      取消
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={busy || !newTableName.trim()}
-                      className="h-6 rounded bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-                    >
-                      创建
-                    </button>
-                  </div>
-                </form>
-              )}
+              {!normalCollapsed && (
+                <ul className="space-y-0.5">
+                  {normalTables.map((bundle) => {
+                    const active = activeDatasourceTableId === bundle.meta.id
+                    const isRenaming = renamingTableId === bundle.meta.id
+                    const canConfigTable = canConfigureTableItem(
+                      currentUser,
+                      bundle.meta,
+                      appsByTableId.get(bundle.meta.id) ?? [],
+                    )
 
-              {/* 自建普通表分组 */}
-              <div className="mb-2">
-                <button
-                  type="button"
-                  onClick={() => setNormalCollapsed((v) => !v)}
-                  aria-expanded={!normalCollapsed}
-                  className="mb-1 flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-slate-500 hover:bg-slate-100"
-                >
-                  {normalCollapsed ? (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                  <span className="flex-1">自建普通表</span>
-                  <span className="text-[10px] text-slate-400">{normalTables.length}</span>
-                </button>
-
-                {!normalCollapsed && (
-                  <ul className="space-y-0.5 pl-1">
-                    {normalTables.map((bundle) => {
-                      const active = activeDatasourceTableId === bundle.meta.id
-                      const isRenaming = renamingTableId === bundle.meta.id
-                      const canConfigTable = canConfigureTableItem(
-                        currentUser,
-                        bundle.meta,
-                        appsByTableId.get(bundle.meta.id) ?? [],
-                      )
-
-                      return (
-                        <li key={bundle.meta.id}>
-                          {isRenaming ? (
-                            <div className="px-1 py-0.5">
-                              <input
-                                type="text"
-                                className="h-7 w-full rounded-md border border-blue-500 bg-white px-2 text-xs text-slate-800 focus:outline-none"
-                                value={renameTableDraft}
-                                autoFocus
-                                onChange={(e) => setRenameTableDraft(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    void commitRenameTable(bundle.meta.id, bundle.meta.name)
-                                  } else if (e.key === 'Escape') {
-                                    setRenamingTableId(null)
-                                  }
-                                }}
-                                onBlur={() =>
+                    return (
+                      <li key={bundle.meta.id}>
+                        {isRenaming ? (
+                          <div className="py-0.5 pr-1 pl-[30px]">
+                            <input
+                              type="text"
+                              className="st-input st-input-sm"
+                              value={renameTableDraft}
+                              autoFocus
+                              onChange={(e) => setRenameTableDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
                                   void commitRenameTable(bundle.meta.id, bundle.meta.name)
+                                } else if (e.key === 'Escape') {
+                                  setRenamingTableId(null)
                                 }
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              className={`group flex items-center justify-between rounded-md px-2 py-1.5 transition-colors ${
-                                active
-                                  ? 'bg-slate-900 text-white'
-                                  : 'text-slate-700 hover:bg-slate-100/80'
-                              }`}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => onSelectTable(bundle.meta.id)}
-                                onDoubleClick={() => {
-                                  if (!canConfigTable) return
-                                  setRenamingTableId(bundle.meta.id)
-                                  setRenameTableDraft(bundle.meta.name)
-                                }}
-                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
-                              >
-                                <Table2
-                                  className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-blue-300' : 'text-slate-400'}`}
-                                />
-                                <span className="truncate font-medium" title={bundle.meta.name}>
-                                  {bundle.meta.name}
-                                </span>
-                              </button>
-                              <div className="ml-1 flex shrink-0 items-center gap-1">
-                                <span
-                                  className={`text-[10px] ${active ? 'text-slate-300' : 'text-slate-400'}`}
-                                >
-                                  {bundle.records.length}
-                                </span>
-                                {canConfigTable && (
-                                  <div className="hidden items-center gap-0.5 group-hover:flex">
-                                    <button
-                                      type="button"
-                                      disabled={busy}
-                                      title="重命名数据表"
-                                      aria-label={`重命名 ${bundle.meta.name}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        setRenamingTableId(bundle.meta.id)
-                                        setRenameTableDraft(bundle.meta.name)
-                                      }}
-                                      className={`rounded p-0.5 ${
-                                        active
-                                          ? 'text-slate-300 hover:bg-white/10 hover:text-white'
-                                          : 'text-slate-400 hover:bg-white hover:text-slate-700'
-                                      }`}
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </button>
-                                    {tables.length > 1 && (
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        title="删除数据表"
-                                        aria-label={`删除 ${bundle.meta.name}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          setConfirmDeleteTable(bundle)
-                                        }}
-                                        className={`rounded p-0.5 ${
-                                          active
-                                            ? 'text-slate-300 hover:bg-red-500/20 hover:text-red-300'
-                                            : 'text-slate-400 hover:bg-red-50 hover:text-red-600'
-                                        }`}
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-
-              {/* SQL 物理表分组 */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setAdvancedCollapsed((v) => !v)}
-                  aria-expanded={!advancedCollapsed}
-                  className="mb-1 flex w-full items-center gap-1 rounded px-1.5 py-1 text-left text-[11px] font-medium text-slate-500 hover:bg-slate-100"
-                >
-                  {advancedCollapsed ? (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                  <span className="flex-1">SQL 物理表</span>
-                  <span className="rounded bg-indigo-50 px-1 py-0.2 text-[9px] font-semibold text-indigo-600">
-                    SQL
-                  </span>
-                  <span className="text-[10px] text-slate-400">{advancedTables.length}</span>
-                </button>
-
-                {!advancedCollapsed && (
-                  <ul className="space-y-0.5 pl-1">
-                    {advancedTables.map((bundle) => {
-                      const active = activeDatasourceTableId === bundle.meta.id
-                      const canConfigTable = canConfigureTableItem(
-                        currentUser,
-                        bundle.meta,
-                        appsByTableId.get(bundle.meta.id) ?? [],
-                      )
-                      return (
-                        <li key={bundle.meta.id}>
+                              }}
+                              onBlur={() =>
+                                void commitRenameTable(bundle.meta.id, bundle.meta.name)
+                              }
+                            />
+                          </div>
+                        ) : (
                           <div
-                            className={`group flex items-center justify-between rounded-md px-2 py-1.5 transition-colors ${
-                              active
-                                ? 'bg-slate-900 text-white'
-                                : 'text-slate-700 hover:bg-slate-100/80'
-                            }`}
+                            className={`group st-nav-child ${active ? 'st-nav-child-active' : ''}`}
                           >
                             <button
                               type="button"
                               onClick={() => onSelectTable(bundle.meta.id)}
-                              className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
+                              onDoubleClick={() => {
+                                if (!canConfigTable) return
+                                setRenamingTableId(bundle.meta.id)
+                                setRenameTableDraft(bundle.meta.name)
+                              }}
+                              className={openRowFocus}
                             >
-                              <Database
-                                className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-indigo-300' : 'text-indigo-500'}`}
-                              />
-                              <span className="truncate font-medium" title={bundle.meta.name}>
+                              <Table2 className="h-4 w-4 shrink-0" />
+                              <span
+                                className="block truncate pr-10 leading-5"
+                                title={bundle.meta.name}
+                              >
                                 {bundle.meta.name}
                               </span>
                             </button>
-                            <div className="ml-1 flex shrink-0 items-center gap-1">
-                              <span
-                                className={`text-[10px] ${active ? 'text-slate-300' : 'text-slate-400'}`}
-                              >
+
+                            <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
+                              <span className="text-xs text-slate-400 tabular-nums group-hover:hidden">
                                 {bundle.records.length}
                               </span>
-                              {!bundle.meta.system && canConfigTable && (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  title="删除数据表"
-                                  aria-label={`删除 ${bundle.meta.name}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setConfirmDeleteTable(bundle)
-                                  }}
-                                  className="hidden rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 group-hover:inline-flex"
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
+                              {canConfigTable && (
+                                <div className="hidden items-center gap-0.5 group-hover:flex">
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    title="重命名数据表"
+                                    aria-label={`重命名 ${bundle.meta.name}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setRenamingTableId(bundle.meta.id)
+                                      setRenameTableDraft(bundle.meta.name)
+                                    }}
+                                    className="st-icon-btn st-icon-btn-xs"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  {tables.length > 1 && (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      title="删除数据表"
+                                      aria-label={`删除 ${bundle.meta.name}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setConfirmDeleteTable(bundle)
+                                      }}
+                                      className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-            </section>
-          ) : (
-            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-800">
-              普通成员无权访问数据源中心。
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
             </div>
-          ))}
-      </div>
 
-      {/* 底部管理员操作区：仅管理员可见重置演示数据 */}
-      {section === 'datasources' && userCapabilities.canResetSeed && (
-        <div className="shrink-0 border-t border-slate-200 p-2.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setConfirmResetOpen(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>重置演示数据</span>
-          </button>
-        </div>
-      )}
+            {/* SQL 物理表分组 */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setAdvancedCollapsed((v) => !v)}
+                aria-expanded={!advancedCollapsed}
+                className="mt-1 flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left hover:bg-slate-200/60"
+              >
+                {advancedCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                )}
+                <span className="st-section-label flex-1">SQL 物理表</span>
+                <span className="st-badge st-badge-violet">SQL</span>
+                <span className="text-xs text-slate-400 tabular-nums">{advancedTables.length}</span>
+              </button>
+
+              {!advancedCollapsed && (
+                <ul className="space-y-0.5">
+                  {advancedTables.map((bundle) => {
+                    const active = activeDatasourceTableId === bundle.meta.id
+                    const canConfigTable = canConfigureTableItem(
+                      currentUser,
+                      bundle.meta,
+                      appsByTableId.get(bundle.meta.id) ?? [],
+                    )
+                    return (
+                      <li key={bundle.meta.id}>
+                        <div
+                          className={`group st-nav-child ${active ? 'st-nav-child-active' : ''}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onSelectTable(bundle.meta.id)}
+                            className={openRowFocus}
+                          >
+                            <Database className="h-4 w-4 shrink-0 text-indigo-500" />
+                            <span
+                              className="block truncate pr-10 leading-5"
+                              title={bundle.meta.name}
+                            >
+                              {bundle.meta.name}
+                            </span>
+                          </button>
+
+                          <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5">
+                            <span className="text-xs text-slate-400 tabular-nums group-hover:hidden">
+                              {bundle.records.length}
+                            </span>
+                            {!bundle.meta.system && canConfigTable && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                title="删除数据表"
+                                aria-label={`删除 ${bundle.meta.name}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setConfirmDeleteTable(bundle)
+                                }}
+                                className="st-icon-btn st-icon-btn-xs st-icon-btn-danger hidden group-hover:inline-flex"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {/* 底部管理员操作：仅管理员可见重置演示数据 */}
+            {userCapabilities.canResetSeed && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmResetOpen(true)}
+                className="st-nav-item mt-3"
+              >
+                <RotateCcw className="h-[18px] w-[18px]" />
+                <span>重置演示数据</span>
+              </button>
+            )}
+          </section>
+        ) : (
+          <div className="st-alert st-alert-amber mt-3">普通成员无权访问数据源中心。</div>
+        ))}
 
       <ConfirmModal
         open={confirmDeleteApp !== null}
@@ -973,6 +951,6 @@ export function Sidebar({
           setConfirmResetOpen(false)
         }}
       />
-    </aside>
+    </div>
   )
 }

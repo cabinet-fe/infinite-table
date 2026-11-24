@@ -51,15 +51,13 @@ export function SummaryMenuPopover({ info, onSelect, onClose }: SummaryMenuPopov
       ref={menuRef}
       role="menu"
       aria-label={`${info.column.title} 汇总统计选项`}
-      className={`fixed z-[1150] w-[168px] rounded-lg border border-slate-200 bg-white p-1 shadow-lg ${
-        openAbove ? '-translate-y-full' : ''
-      }`}
+      className={`st-popover min-w-48 fixed z-[1150] ${openAbove ? '-translate-y-full' : ''}`}
       style={{ left, top }}
     >
-      <div className="truncate border-b border-slate-100 px-2.5 py-1.5 text-[11px] font-medium text-slate-500">
+      <div className="st-section-label truncate px-2.5 pt-1.5 pb-1">
         {info.column.title} · 汇总方式
       </div>
-      <div className="mt-0.5 flex flex-col">
+      <div className="flex flex-col">
         {options.map((type) => {
           const active = info.summaryType === type
           return (
@@ -68,16 +66,14 @@ export function SummaryMenuPopover({ info, onSelect, onClose }: SummaryMenuPopov
               type="button"
               role="menuitemradio"
               aria-checked={active}
-              className={`flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs transition-colors ${
-                active ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-              }`}
+              className={`st-menu-item justify-between ${active ? 'st-menu-item-active font-medium' : ''}`}
               onClick={() => {
                 onSelect(info.columnKey, type)
                 onClose()
               }}
             >
-              <span>{SUMMARY_LABELS[type]}</span>
-              {active && <Check className="h-3.5 w-3.5 text-blue-600" />}
+              <span className="truncate">{SUMMARY_LABELS[type]}</span>
+              {active && <Check className="h-4 w-4 shrink-0" />}
             </button>
           )
         })}

@@ -1,20 +1,106 @@
-/* 多维数据台（DataDesk）工作台全局样式：Tailwind CSS v4 + 设计 tokens（现代浅灰表面 + 单一蓝色强调） */
+/*
+ * 多维数据台（DataDesk）工作台全局样式：Tailwind CSS v4 + 设计 tokens。
+ *
+ * 设计原则：外壳退后、内容向前。
+ * - 表面分层靠底色（侧栏浅灰 / 主区纯白），不靠描边；描边只用于输入框、卡片与分隔线，且尽量细、尽量淡。
+ * - 控件默认「静音」：工具栏按钮无边框无底色，悬停才出现底色；每条工具栏只允许一个实心主按钮。
+ * - 品牌蓝只用于三类语义：主操作（实心）、选中态（浅底）、链接/焦点；其余一律中性灰。
+ * - 字号只用标准档位：xs 12（辅助）/ sm 14（正文）/ base 16（标题）/ xl 20 / 2xl 24 / 3xl 30（KPI 数字）。
+ *
+ * 改这里即可全局换肤：组件里沿用的 `blue-*` / `slate-*` 类名在下方被整体覆盖为品牌蓝与中性灰。
+ */
 @import 'tailwindcss';
 
 @theme {
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Segoe UI',
-    Roboto, sans-serif;
-  --color-st-bg: #f6f7f9;
+    -apple-system, BlinkMacSystemFont, 'Inter', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* 语义令牌 */
+  --color-st-bg: #f5f6f8; /* 看板 / 仪表盘等内容画布底色 */
   --color-st-surface: #ffffff;
-  --color-st-border: #e5e6eb;
+  --color-st-sidebar: #f7f8fa; /* 统一侧栏底色 */
+  --color-st-border: #e3e5e9;
   --color-st-text: #1f2329;
   --color-st-sub: #646a73;
   --color-st-muted: #8f959e;
   --color-st-primary: #3370ff;
+  --color-st-tint: #e8f0ff; /* 选中态浅蓝底 */
+
+  /* 中性灰：覆盖 Tailwind 默认 slate（默认值偏蓝，这里改为近乎无彩的中性灰） */
+  --color-slate-50: #f7f8fa;
+  --color-slate-100: #f0f1f4;
+  --color-slate-200: #e3e5e9;
+  --color-slate-300: #cdd1d8;
+  --color-slate-400: #8f959e;
+  --color-slate-500: #646a73;
+  --color-slate-600: #52575f;
+  --color-slate-700: #3a3f48;
+  --color-slate-800: #2b303a;
+  --color-slate-900: #1f2329;
+  --color-slate-950: #14161b;
+
+  /* 品牌蓝：覆盖 Tailwind 默认 blue（600 = 主操作，700 = 悬停 / 选中文字） */
+  --color-blue-50: #eef4ff;
+  --color-blue-100: #dbe6ff;
+  --color-blue-200: #b9d1ff;
+  --color-blue-300: #93b4ff;
+  --color-blue-400: #5f92ff;
+  --color-blue-500: #4d82ff;
+  --color-blue-600: #3370ff;
+  --color-blue-700: #2a5ee6;
+  --color-blue-800: #1f4bcc;
+  --color-blue-900: #1a3fa8;
+  --color-blue-950: #142a66;
+
+  /* 层级阴影：card = 悬停抬起，panel = 浮层，modal = 弹窗/抽屉 */
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 4px 12px rgb(16 24 40 / 0.06);
+  --shadow-panel: 0 1px 2px rgb(16 24 40 / 0.04), 0 6px 20px rgb(16 24 40 / 0.1);
+  --shadow-modal: 0 2px 8px rgb(16 24 40 / 0.06), 0 20px 56px rgb(16 24 40 / 0.18);
+
+  /* 浮层出入场动效 */
+  --animate-pop-in: pop-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-slide-in-right: slide-in-right 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
 }
 
 @layer base {
+  /*
+   * 根字号必须保持浏览器默认 16px：Tailwind 的间距与字号全部基于 rem，
+   * 一旦改小根字号，h-8 / text-xs / w-64 等会被整体压缩（曾因 13px 导致全应用缩到 81%）。
+   * 正文默认 14px（只设在 body 上），辅助信息用 text-xs。
+   */
+  html {
+    font-size: 100%;
+  }
+
   html,
   body,
   #root {
@@ -24,18 +110,392 @@
     width: 100%;
     font-family: var(--font-sans);
     color: var(--color-st-text);
-    background-color: var(--color-st-bg);
-    font-size: 13px;
+    background-color: var(--color-st-surface);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body,
+  #root {
+    font-size: 14px;
   }
 
   button,
   input,
-  textarea {
+  textarea,
+  select {
     font-family: inherit;
   }
 
   button:not(:disabled) {
     cursor: pointer;
+  }
+
+  /* 图标线宽统一调细一档（lucide 默认 2），与细描边、浅底色的整体质感一致 */
+  .lucide {
+    stroke-width: 1.75;
+  }
+
+  /* 统一文本选中与键盘焦点样式（输入类控件由各自 focus 样式负责） */
+  ::selection {
+    background: rgb(51 112 255 / 0.18);
+  }
+
+  :where(
+    button,
+    a,
+    [role='button'],
+    [role='tab'],
+    [role='menuitem'],
+    [role='option'],
+    [tabindex]
+  ):focus-visible {
+    outline: 2px solid var(--color-blue-500);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/*
+ * 共用样式类（components 层，优先级低于 Tailwind 工具类，可直接叠加 w-full / mt-2 等做局部微调）。
+ * 命名统一 `st-` 前缀；变体类需与基类搭配使用，如 `st-btn st-btn-primary`。
+ */
+@layer components {
+  /* ---------- 按钮 ---------- */
+  .st-btn {
+    @apply inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40;
+  }
+  /* 主操作：整屏视线唯一落点，每条工具栏 / 每个弹窗页脚最多一个 */
+  .st-btn-primary {
+    @apply bg-blue-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] hover:bg-blue-700 active:bg-blue-800;
+  }
+  /* 次级操作：浅灰实底、无描边 */
+  .st-btn-secondary {
+    @apply bg-slate-100 text-slate-800 hover:bg-slate-200 active:bg-slate-300;
+  }
+  .st-btn-ghost {
+    @apply text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+  }
+  .st-btn-soft {
+    @apply bg-blue-50 text-blue-700 hover:bg-blue-100;
+  }
+  .st-btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 active:bg-red-800;
+  }
+  .st-btn-danger-soft {
+    @apply bg-red-50 text-red-700 hover:bg-red-100;
+  }
+  .st-btn-success-soft {
+    @apply bg-emerald-50 text-emerald-700 hover:bg-emerald-100;
+  }
+  .st-btn-sm {
+    @apply h-7 gap-1 rounded-md px-2.5 text-xs;
+  }
+  .st-btn-xs {
+    @apply h-6 gap-1 rounded-md px-2 text-xs;
+  }
+  .st-btn-lg {
+    @apply h-10 gap-2 rounded-lg px-4 text-sm;
+  }
+  .st-btn-icon-sm {
+    @apply w-7 px-0;
+  }
+
+  /* ---------- 工具栏控件（静音：默认无边框无底色） ---------- */
+  .st-tool {
+    @apply inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm whitespace-nowrap text-slate-600 transition-colors duration-150 select-none hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40;
+  }
+  .st-tool-icon {
+    @apply w-7 px-0;
+  }
+  .st-tool-active {
+    @apply bg-st-tint text-blue-700 hover:bg-blue-100 hover:text-blue-700;
+  }
+
+  /* 图标按钮（卡片角落、行内等轻操作） */
+  .st-icon-btn {
+    @apply inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors duration-150 select-none hover:bg-slate-200/70 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-30;
+  }
+  .st-icon-btn-xs {
+    @apply h-6 w-6;
+  }
+  .st-icon-btn-danger {
+    @apply hover:bg-red-50 hover:text-red-600;
+  }
+
+  /* ---------- 表单 ---------- */
+  .st-input {
+    @apply h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none disabled:bg-slate-50 disabled:text-slate-500 read-only:bg-slate-50;
+  }
+  .st-input-sm {
+    @apply h-7 rounded-md px-2 text-xs;
+  }
+  .st-input-lg {
+    @apply h-10 px-3;
+  }
+  .st-label {
+    @apply mb-1.5 block text-sm font-medium text-slate-700;
+  }
+  .st-label-sm {
+    @apply mb-1 block text-xs font-medium text-slate-600;
+  }
+  .st-help {
+    @apply text-xs leading-relaxed text-slate-500;
+  }
+  .st-checkbox {
+    @apply h-3.5 w-3.5 shrink-0 cursor-pointer accent-blue-600;
+  }
+
+  /* ---------- 文本 / 徽标 ---------- */
+  .st-section-label {
+    @apply text-xs font-medium text-slate-500;
+  }
+  .st-badge {
+    @apply inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium whitespace-nowrap;
+  }
+  .st-badge-gray {
+    @apply bg-slate-100 text-slate-600;
+  }
+  .st-badge-blue {
+    @apply bg-blue-50 text-blue-700;
+  }
+  .st-badge-green {
+    @apply bg-emerald-50 text-emerald-700;
+  }
+  .st-badge-amber {
+    @apply bg-amber-50 text-amber-700;
+  }
+  .st-badge-red {
+    @apply bg-red-50 text-red-700;
+  }
+  .st-badge-violet {
+    @apply bg-indigo-50 text-indigo-700;
+  }
+  .st-pill {
+    @apply inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-medium whitespace-nowrap;
+  }
+  .st-pill-gray {
+    @apply bg-slate-100 text-slate-600;
+  }
+  .st-pill-blue {
+    @apply bg-blue-50 text-blue-700;
+  }
+  .st-pill-green {
+    @apply bg-emerald-50 text-emerald-700;
+  }
+  .st-pill-amber {
+    @apply bg-amber-50 text-amber-700;
+  }
+  .st-pill-red {
+    @apply bg-red-50 text-red-700;
+  }
+  .st-pill-violet {
+    @apply bg-indigo-50 text-indigo-700;
+  }
+
+  /* 筛选 / 分段胶囊（可点击）：静音样式，带选中值时才亮起 */
+  .st-chip {
+    @apply inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm font-normal whitespace-nowrap text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40;
+  }
+  .st-chip-active {
+    @apply bg-st-tint font-medium text-blue-700 hover:bg-blue-100 hover:text-blue-700;
+  }
+
+  /* 提示条（信息 / 成功 / 警告 / 错误） */
+  .st-alert {
+    @apply flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed;
+  }
+  .st-alert-blue {
+    @apply border-blue-200 bg-blue-50 text-blue-700;
+  }
+  .st-alert-slate {
+    @apply border-slate-200 bg-slate-50 text-slate-600;
+  }
+  .st-alert-green {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+  .st-alert-amber {
+    @apply border-amber-200 bg-amber-50 text-amber-700;
+  }
+  .st-alert-red {
+    @apply border-red-200 bg-red-50 text-red-700;
+  }
+
+  /* ---------- 容器 ---------- */
+  .st-card {
+    @apply rounded-xl border border-slate-200 bg-white;
+  }
+  .st-empty {
+    @apply rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400;
+  }
+  .st-spinner {
+    @apply h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600;
+  }
+  .st-avatar {
+    @apply inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none;
+  }
+  .st-divider {
+    @apply h-px w-full bg-slate-100;
+  }
+  .st-divider-v {
+    @apply h-5 w-px shrink-0 bg-slate-200;
+  }
+
+  /* 细滚动条（浮层、抽屉、看板等滚动容器） */
+  .st-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-slate-300) transparent;
+  }
+  .st-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .st-scroll::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-color: var(--color-slate-300);
+    background-clip: content-box;
+  }
+  .st-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-slate-400);
+  }
+  .st-scroll::-webkit-scrollbar-track,
+  .st-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* ---------- 统一侧栏：品牌位 → 一级导航 → 当前板块子目录 → 账户区 ---------- */
+  .st-side {
+    @apply flex h-full w-64 shrink-0 flex-col bg-st-sidebar select-none;
+  }
+  /* 一级导航项：激活表示「所在板块」，用中性灰底 */
+  .st-nav-item {
+    @apply flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-sm font-medium whitespace-nowrap text-slate-700 transition-colors duration-150 hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40;
+  }
+  .st-nav-item svg {
+    @apply text-slate-500;
+  }
+  .st-nav-item-active {
+    @apply bg-slate-200/70 text-slate-900 hover:bg-slate-200/70;
+  }
+  .st-nav-item-active svg {
+    @apply text-slate-800;
+  }
+  /* 子目录条目（行容器，右端可叠放计数与管理按钮）：激活表示「选中的资源」，用品牌浅蓝底 */
+  /* 行容器需同时带 `group` 类（Tailwind v4 的标记类不能 @apply），供右端计数在悬停时让位给操作按钮 */
+  .st-nav-child {
+    @apply relative flex h-10 w-full cursor-pointer items-center rounded-lg pr-1.5 pl-8 text-left text-sm whitespace-nowrap text-slate-700 transition-colors duration-150 hover:bg-slate-200/60 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-40;
+  }
+  .st-nav-child svg {
+    @apply text-slate-400;
+  }
+  .st-nav-child-active {
+    @apply bg-st-tint font-medium text-blue-700 hover:bg-st-tint hover:text-blue-700;
+  }
+  .st-nav-child-active svg {
+    @apply text-blue-600;
+  }
+
+  /* 页签（视图切换）：静音，激活亮浅蓝 */
+  .st-tab {
+    @apply flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-sm whitespace-nowrap text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40;
+  }
+  .st-tab-active {
+    @apply bg-st-tint font-medium text-blue-700 hover:bg-st-tint hover:text-blue-700;
+  }
+  /* 分段控件 */
+  .st-segment {
+    @apply flex rounded-lg bg-slate-100 p-1;
+  }
+  .st-segment-item {
+    @apply h-7 flex-1 cursor-pointer rounded-md px-3 text-xs font-medium text-slate-600 whitespace-nowrap transition-colors duration-150 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40;
+  }
+  .st-segment-item-active {
+    @apply bg-white text-slate-900 shadow-xs;
+  }
+  /* 可选中卡片（单选/多选） */
+  .st-choice {
+    @apply cursor-pointer rounded-xl border border-slate-200 bg-white p-3.5 text-left transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40;
+  }
+  .st-choice-active {
+    @apply border-blue-500 bg-blue-50/60 hover:border-blue-500 hover:bg-blue-50/60;
+  }
+
+  /* ---------- 浮层：菜单 / 弹出面板 ---------- */
+  .st-popover {
+    @apply min-w-40 rounded-xl border border-slate-200 bg-white p-1.5 shadow-panel animate-pop-in;
+  }
+  .st-menu-item {
+    @apply flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-slate-700 transition-colors duration-150 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40;
+  }
+  .st-menu-item-sm {
+    @apply h-7 gap-2 px-2 text-xs;
+  }
+  .st-menu-item-danger {
+    @apply text-red-600 hover:bg-red-50;
+  }
+  .st-menu-item-active {
+    @apply bg-blue-50 text-blue-700 hover:bg-blue-100;
+  }
+
+  /* ---------- 弹窗 ---------- */
+  .st-overlay {
+    @apply fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px] animate-fade-in;
+  }
+  .st-modal {
+    @apply w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-modal animate-pop-in;
+  }
+  .st-modal-header {
+    @apply flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-6 py-4;
+  }
+  .st-modal-title {
+    @apply text-base leading-6 font-semibold text-slate-900;
+  }
+  .st-modal-body {
+    @apply min-h-0 flex-1 overflow-y-auto px-6 py-5;
+  }
+  .st-modal-footer {
+    @apply flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 bg-white px-6 py-4;
+  }
+
+  /* ---------- 抽屉 ---------- */
+  .st-drawer {
+    @apply fixed top-0 right-0 z-[1050] flex h-full w-[400px] max-w-[94vw] flex-col border-l border-slate-200 bg-white shadow-modal animate-slide-in-right;
+  }
+  .st-drawer-header {
+    @apply flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5;
+  }
+  .st-drawer-body {
+    @apply min-h-0 flex-1 overflow-y-auto px-5 py-4;
+  }
+
+  /* ---------- 独立页面（分享管理 / 权限管理） ---------- */
+  .st-page {
+    @apply flex h-full min-h-0 flex-col;
+  }
+  .st-page-header {
+    @apply flex h-14 shrink-0 items-center gap-3 bg-white px-6 pt-2;
+  }
+  .st-page-body {
+    @apply min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-4;
+  }
+
+  /* ---------- 表格（分享列表等轻量列表） ---------- */
+  .st-table {
+    @apply w-full border-collapse text-left;
+  }
+  .st-th {
+    @apply h-10 border-b border-slate-200 px-4 text-xs font-medium whitespace-nowrap text-slate-500;
+  }
+  .st-td {
+    @apply h-12 border-b border-slate-100 px-4 align-middle text-sm text-slate-700;
   }
 }

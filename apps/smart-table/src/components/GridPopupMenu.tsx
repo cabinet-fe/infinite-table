@@ -216,41 +216,41 @@ export function buildGridMenuItems(ctx: GridMenuContext): GridMenuItem[] {
 function renderItemIcon(id: GridMenuActionId) {
   switch (id) {
     case 'sort_asc':
-      return <ArrowUpAZ className="h-3.5 w-3.5" />
+      return <ArrowUpAZ className="h-4 w-4" />
     case 'sort_desc':
-      return <ArrowDownAZ className="h-3.5 w-3.5" />
+      return <ArrowDownAZ className="h-4 w-4" />
     case 'sort_clear':
     case 'clear_filters':
-      return <XCircle className="h-3.5 w-3.5" />
+      return <XCircle className="h-4 w-4" />
     case 'freeze_to_col':
-      return <Pin className="h-3.5 w-3.5" />
+      return <Pin className="h-4 w-4" />
     case 'unfreeze_all':
-      return <PinOff className="h-3.5 w-3.5" />
+      return <PinOff className="h-4 w-4" />
     case 'hide_col':
-      return <EyeOff className="h-3.5 w-3.5" />
+      return <EyeOff className="h-4 w-4" />
     case 'open_col_style':
     case 'open_selection_style':
-      return <Paintbrush className="h-3.5 w-3.5" />
+      return <Paintbrush className="h-4 w-4" />
     case 'edit_lookup_col':
-      return <Settings className="h-3.5 w-3.5" />
+      return <Settings className="h-4 w-4" />
     case 'rename_col':
     case 'edit_cell':
-      return <Edit3 className="h-3.5 w-3.5" />
+      return <Edit3 className="h-4 w-4" />
     case 'delete_col':
     case 'delete_row':
-      return <Trash2 className="h-3.5 w-3.5" />
+      return <Trash2 className="h-4 w-4" />
     case 'copy_cell':
     case 'copy_row':
     case 'duplicate_row':
-      return <Copy className="h-3.5 w-3.5" />
+      return <Copy className="h-4 w-4" />
     case 'filter_by_cell':
-      return <Filter className="h-3.5 w-3.5" />
+      return <Filter className="h-4 w-4" />
     case 'clear_selection_style':
-      return <Eraser className="h-3.5 w-3.5" />
+      return <Eraser className="h-4 w-4" />
     case 'add_row':
-      return <Plus className="h-3.5 w-3.5" />
+      return <Plus className="h-4 w-4" />
     default:
-      return <Columns3 className="h-3.5 w-3.5" />
+      return <Columns3 className="h-4 w-4" />
   }
 }
 
@@ -302,15 +302,15 @@ export function GridPopupMenu({ context, onAction, onClose }: GridPopupMenuProps
       ref={menuRef}
       role="menu"
       aria-label="表格快捷操作菜单"
-      className="fixed z-[1150] w-[216px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl"
+      className="st-popover w-54 fixed z-[1150]"
       style={{ left, top }}
     >
       {context.column && (
-        <div className="mb-1 flex items-center justify-between gap-2 border-b border-slate-100 px-2 py-1 text-[11px] text-slate-500">
-          <span className="truncate font-medium text-slate-700">{context.column.title}</span>
+        <div className="st-section-label flex items-center justify-between gap-2 px-2.5 pt-1.5 pb-1">
+          <span className="truncate">{context.column.title}</span>
           {!context.canEditRecords && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-              <Lock className="h-2.5 w-2.5" />
+            <span className="st-badge st-badge-gray">
+              <Lock className="h-3 w-3" />
               只读
             </span>
           )}
@@ -318,8 +318,8 @@ export function GridPopupMenu({ context, onAction, onClose }: GridPopupMenuProps
       )}
 
       {showQuickSwatches && (
-        <div className="mb-1 flex items-center justify-between border-b border-slate-100 px-2 py-1.5">
-          <span className="text-[11px] text-slate-500">快速标色</span>
+        <div className="st-section-label flex items-center justify-between px-2.5 pt-1.5 pb-1">
+          <span>快速标色</span>
           <div className="flex items-center gap-1.5">
             {QUICK_CELL_COLOR_SWATCHES.map((swatch) => (
               <button
@@ -327,7 +327,7 @@ export function GridPopupMenu({ context, onAction, onClose }: GridPopupMenuProps
                 type="button"
                 title={swatch.label}
                 aria-label={swatch.label}
-                className="h-4 w-4 rounded-full border border-black/15 transition-transform hover:scale-110"
+                className="h-4 w-4 rounded-full border border-slate-200 transition-transform hover:scale-110"
                 style={{ backgroundColor: swatch.bgColor }}
                 onClick={() => {
                   onAction('apply_selection_style', {
@@ -345,21 +345,19 @@ export function GridPopupMenu({ context, onAction, onClose }: GridPopupMenuProps
       <div className="flex flex-col">
         {items.map((item) => (
           <div key={item.id}>
-            {item.dividerBefore && <div className="my-1 border-t border-slate-100" />}
+            {item.dividerBefore && <div className="st-divider my-1" />}
             <button
               type="button"
               role="menuitem"
               disabled={item.disabled}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                item.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-100'
-              }`}
+              className={`st-menu-item ${item.danger ? 'st-menu-item-danger' : ''}`}
               onClick={() => {
                 if (item.disabled) return
                 onAction(item.id, item.stylePatch)
                 onClose()
               }}
             >
-              <span className={item.danger ? 'text-red-500' : 'text-slate-400'}>
+              <span className={`shrink-0 ${item.danger ? 'text-red-500' : 'text-slate-400'}`}>
                 {renderItemIcon(item.id)}
               </span>
               <span className="truncate">{item.label}</span>

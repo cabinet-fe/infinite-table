@@ -2,20 +2,7 @@
 // 配置有效期与可选密码、一键复制 /s/:token 完整链接，并列出当前资源历史/有效链接支持立即失效。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Ban,
-  Check,
-  Clock,
-  Copy,
-  Eye,
-  EyeOff,
-  Link2,
-  Lock,
-  Plus,
-  RefreshCw,
-  Share2,
-  X,
-} from 'lucide-react'
+import { Check, Copy, Eye, EyeOff, Link2, Lock, Plus, RefreshCw, Share2, X } from 'lucide-react'
 import { ApiError, createShare, listShares, revokeShare } from '../api'
 import {
   buildShareFullUrl,
@@ -49,14 +36,14 @@ const EXPIRY_OPTIONS: readonly { label: string; days: number | null }[] = [
   { label: '永久', days: null },
 ]
 
-function statusBadgeStyle(status: ShareStatus): string {
+function statusBadgeClass(status: ShareStatus): string {
   switch (status) {
     case 'active':
-      return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80'
+      return 'st-badge st-badge-green'
     case 'expired':
-      return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80'
+      return 'st-badge st-badge-amber'
     case 'revoked':
-      return 'bg-slate-100 text-slate-500 ring-1 ring-slate-200'
+      return 'st-badge st-badge-gray'
   }
 }
 
@@ -250,54 +237,54 @@ export function ShareModal({
   const activeCount = shares.filter((s) => s.status === 'active').length
 
   return (
-    <div
-      className="fixed inset-0 z-[1080] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
-      onClick={() => !busy && onClose()}
-    >
+    <div className="st-overlay" onClick={() => !busy && onClose()}>
       <div
         data-testid="share-modal"
         role="dialog"
         aria-modal="true"
         aria-label="对外一键分享"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="st-modal flex max-h-[85vh] max-w-[560px] flex-col"
       >
         {/* 弹窗头 */}
-        <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-3.5">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <Share2 className="h-4 w-4" />
-              </span>
-              <h2 className="text-sm font-semibold text-slate-900">对外一键分享</h2>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                {SHARE_TARGET_LABELS[selectedTarget.targetType]}
-              </span>
+        <header className="st-modal-header">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              <Share2 className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="st-modal-title">对外一键分享</h2>
+                <span className="st-badge st-badge-blue">
+                  {SHARE_TARGET_LABELS[selectedTarget.targetType]}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-xs text-slate-500">
+                目标资源：{selectedTarget.targetName}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {selectedTarget.targetType === 'entry'
+                  ? '访客免登录填报，历史内部数据严格隔离'
+                  : '访客免登录只读交互，数据边界不超过创建者权限'}
+              </p>
             </div>
-            <p className="mt-1 truncate text-xs text-slate-500">
-              目标资源：
-              <strong className="font-medium text-slate-800">{selectedTarget.targetName}</strong>
-              {selectedTarget.targetType === 'entry'
-                ? '（访客免登录填报，历史内部数据严格隔离）'
-                : '（访客免登录只读交互，数据边界不超过创建者权限）'}
-            </p>
           </div>
           <button
             type="button"
             disabled={busy}
             onClick={onClose}
             aria-label="关闭分享弹窗"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
             <X className="h-4 w-4" />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="st-modal-body st-scroll max-h-[70vh] space-y-5">
           {/* 多目标切换（当应用与视图同时可分享时） */}
           {targets.length > 1 && (
-            <div className="space-y-1.5">
-              <div className="text-[11px] font-medium text-slate-500">选择分享对象</div>
+            <div>
+              <div className="st-label">选择分享对象</div>
               <div role="radiogroup" aria-label="选择分享对象" className="grid grid-cols-2 gap-2">
                 {targets.map((opt) => {
                   const key = `${opt.targetType}:${opt.targetId}`
@@ -312,17 +299,15 @@ export function ShareModal({
                       aria-checked={active}
                       disabled={busy}
                       onClick={() => setSelectedKey(key)}
-                      className={`flex flex-col items-start rounded-xl border px-3 py-2 text-left transition-colors ${
-                        active
-                          ? 'border-blue-500 bg-blue-50/70 text-blue-800'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      className={`st-choice flex flex-col items-start gap-0.5 ${
+                        active ? 'st-choice-active' : ''
                       }`}
                     >
-                      <span className="text-[10px] font-medium text-slate-500">
-                        {SHARE_TARGET_LABELS[opt.targetType]}
-                      </span>
-                      <span className="mt-0.5 w-full truncate text-xs font-semibold">
+                      <span className="w-full truncate text-sm font-medium text-slate-900">
                         {opt.targetName}
+                      </span>
+                      <span className="truncate text-xs text-slate-500">
+                        {SHARE_TARGET_LABELS[opt.targetType]}
                       </span>
                     </button>
                   )
@@ -332,18 +317,11 @@ export function ShareModal({
           )}
 
           {/* 新建分享链接表单 */}
-          <form
-            onSubmit={(e) => void handleCreateSubmit(e)}
-            className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="space-y-1">
-                <div className="text-[11px] font-medium text-slate-600">链接有效期</div>
-                <div
-                  role="radiogroup"
-                  aria-label="分享有效期"
-                  className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5"
-                >
+          <form onSubmit={(e) => void handleCreateSubmit(e)} className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="st-label-sm">链接有效期</div>
+                <div role="radiogroup" aria-label="分享有效期" className="st-segment w-full">
                   {EXPIRY_OPTIONS.map((opt) => {
                     const active = expiresInDays === opt.days
                     return (
@@ -354,11 +332,7 @@ export function ShareModal({
                         aria-checked={active}
                         disabled={busy}
                         onClick={() => setExpiresInDays(opt.days)}
-                        className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                          active
-                            ? 'bg-blue-600 text-white shadow-2xs'
-                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                        }`}
+                        className={`st-segment-item px-2 ${active ? 'st-segment-item-active' : ''}`}
                       >
                         {opt.label}
                       </button>
@@ -367,11 +341,8 @@ export function ShareModal({
                 </div>
               </div>
 
-              <div className="min-w-[200px] flex-1 space-y-1">
-                <label
-                  htmlFor="st-share-password"
-                  className="block text-[11px] font-medium text-slate-600"
-                >
+              <div>
+                <label htmlFor="st-share-password" className="st-label-sm">
                   访问密码（可选）
                 </label>
                 <div className="relative">
@@ -382,13 +353,13 @@ export function ShareModal({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="留空则免密直接访问"
-                    className="h-8 w-full rounded-lg border border-slate-200 bg-white pr-8 pl-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                    className="st-input pr-9"
                   />
                   <button
                     type="button"
                     aria-label={showPassword ? '隐藏密码' : '显示密码'}
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-2 flex items-center text-slate-400 hover:text-slate-600"
+                    className="st-icon-btn absolute right-1 top-1/2 -translate-y-1/2"
                   >
                     {showPassword ? (
                       <EyeOff className="h-3.5 w-3.5" />
@@ -400,17 +371,13 @@ export function ShareModal({
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2 pt-0.5">
-              <span className="text-[11px] text-slate-500">
-                生成后即可一键复制完整 <code className="text-slate-700">/s/:token</code>{' '}
-                链接分发给访客
-              </span>
-              <button
-                type="submit"
-                disabled={busy}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                <Plus className="h-3.5 w-3.5" />
+            <div className="st-alert st-alert-slate">
+              生成后即可一键复制完整 <code className="font-mono">/s/:token</code> 链接分发给访客
+            </div>
+
+            <div className="flex justify-end">
+              <button type="submit" disabled={busy} className="st-btn st-btn-primary">
+                <Plus className="h-4 w-4" />
                 <span>{creating ? '生成中...' : '生成分享链接'}</span>
               </button>
             </div>
@@ -418,36 +385,38 @@ export function ShareModal({
 
           {/* 新建成功高亮条 */}
           {latestMatchesCurrent && latestCreated && (
-            <div
-              data-testid="share-created-banner"
-              className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
-                  <Link2 className="h-3.5 w-3.5" />
-                  <span>新链接已生成</span>
-                  {latestCreated.hasPassword && (
-                    <span className="inline-flex items-center gap-0.5 rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200">
-                      <Lock className="h-2.5 w-2.5" />
-                      <span>已设密码</span>
-                    </span>
-                  )}
+            <div data-testid="share-created-banner" className="st-alert st-alert-green">
+              <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 font-semibold">
+                    新链接已生成
+                    {latestCreated.hasPassword && (
+                      <span className="st-badge st-badge-amber">
+                        <Lock className="h-3 w-3" />
+                        已设密码
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyShare(latestCreated)}
+                    className="st-btn st-btn-xs st-btn-secondary shrink-0"
+                  >
+                    {copiedId === latestCreated.id ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    <span>{copiedId === latestCreated.id ? '已复制' : '复制完整链接'}</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleCopyShare(latestCreated)}
-                  className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2.5 text-xs font-medium text-white hover:bg-emerald-700"
+                <div
+                  className="truncate font-mono text-slate-600"
+                  title={buildShareFullUrl(latestCreated.token)}
                 >
-                  {copiedId === latestCreated.id ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                  <span>{copiedId === latestCreated.id ? '已复制' : '复制完整链接'}</span>
-                </button>
-              </div>
-              <div className="mt-1.5 truncate rounded-md border border-emerald-200/80 bg-white px-2.5 py-1.5 font-mono text-[11px] text-slate-700">
-                {buildShareFullUrl(latestCreated.token)}
+                  {buildShareFullUrl(latestCreated.token)}
+                </div>
               </div>
             </div>
           )}
@@ -456,36 +425,30 @@ export function ShareModal({
           <section aria-label="当前资源分享链接" className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-900">
                   当前资源关联链接（{shares.length}）
                 </h3>
                 {activeCount > 0 && (
-                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                    {activeCount} 条生效中
-                  </span>
+                  <span className="st-badge st-badge-green">{activeCount} 条生效中</span>
                 )}
               </div>
               <button
                 type="button"
                 disabled={loadingList || busy}
                 onClick={() => void loadTargetShares(selectedTarget)}
-                className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                className="st-btn st-btn-xs st-btn-ghost"
               >
-                <RefreshCw className={`h-3 w-3 ${loadingList ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${loadingList ? 'animate-spin' : ''}`} />
                 <span>刷新</span>
               </button>
             </div>
 
             {loadingList && shares.length === 0 ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50/50 py-6 text-center text-xs text-slate-400">
-                正在加载分享链接...
-              </div>
+              <div className="st-empty py-6">正在加载分享链接...</div>
             ) : listError ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700">
-                {listError}
-              </div>
+              <div className="st-alert st-alert-red">{listError}</div>
             ) : shares.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-6 text-center text-xs text-slate-400">
+              <div className="st-empty py-6">
                 当前资源暂未生成对外分享链接，点击上方「生成分享链接」即可创建。
               </div>
             ) : (
@@ -497,73 +460,55 @@ export function ShareModal({
                     <li
                       key={share.id}
                       data-testid={`modal-share-item-${share.id}`}
-                      className={`rounded-xl border p-3 transition-colors ${
-                        isActive
-                          ? 'border-slate-200 bg-white'
-                          : 'border-slate-200/80 bg-slate-50/70'
-                      }`}
+                      className="st-card p-3"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadgeStyle(share.status)}`}
-                            >
-                              {SHARE_STATUS_LABELS[share.status]}
-                            </span>
-                            {share.hasPassword ? (
-                              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                                <Lock className="h-2.5 w-2.5" />
-                                <span>已设密码</span>
-                              </span>
-                            ) : (
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                                免密访问
-                              </span>
-                            )}
-                            <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-500">
-                              <Clock className="h-3 w-3 text-slate-400" />
-                              <span>{formatShareTimestamp(share.expiresAt)}</span>
-                            </span>
-                          </div>
-
-                          <div
-                            className="truncate font-mono text-[11px] text-slate-600"
-                            title={fullUrl}
-                          >
-                            /s/{share.token}
-                          </div>
-
-                          <div className="text-[10px] text-slate-400">
-                            创建人：{share.createdByName} · 创建于{' '}
-                            {formatShareTimestamp(share.createdAt, '-')}
-                          </div>
-                        </div>
-
+                      <div className="flex items-center gap-2">
+                        <span className={statusBadgeClass(share.status)}>
+                          {SHARE_STATUS_LABELS[share.status]}
+                        </span>
+                        <span
+                          className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600"
+                          title={fullUrl}
+                        >
+                          /s/{share.token}
+                        </span>
+                        <span
+                          className="max-w-28 shrink-0 truncate text-xs text-slate-400 tabular-nums"
+                          title={`有效期至：${formatShareTimestamp(share.expiresAt)}`}
+                        >
+                          {formatShareTimestamp(share.expiresAt)}
+                        </span>
                         {isActive && (
-                          <div className="flex shrink-0 items-center gap-1">
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <a
+                              href={fullUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="st-btn st-btn-xs st-btn-secondary"
+                            >
+                              打开
+                            </a>
                             <button
                               type="button"
                               disabled={busy}
                               aria-label={`复制分享链接 ${share.token}`}
                               onClick={() => void handleCopyShare(share)}
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                              className="st-btn st-btn-xs st-btn-secondary"
                             >
                               {copiedId === share.id ? (
-                                <Check className="h-3 w-3 text-emerald-600" />
+                                <Check className="h-3.5 w-3.5" />
                               ) : (
-                                <Copy className="h-3 w-3" />
+                                <Copy className="h-3.5 w-3.5" />
                               )}
-                              <span>{copiedId === share.id ? '已复制' : '复制链接'}</span>
+                              <span>{copiedId === share.id ? '已复制' : '复制'}</span>
                             </button>
                             <button
                               type="button"
                               disabled={busy}
                               aria-label={`立即失效 ${share.token}`}
                               onClick={() => void handleRevoke(share)}
-                              className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 text-[11px] font-medium text-red-700 hover:bg-red-100 disabled:opacity-40"
+                              className="st-btn st-btn-xs st-btn-danger-soft"
                             >
-                              <Ban className="h-3 w-3" />
                               <span>{revokingId === share.id ? '处理中...' : '立即失效'}</span>
                             </button>
                           </div>

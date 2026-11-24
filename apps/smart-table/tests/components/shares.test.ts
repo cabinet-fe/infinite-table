@@ -382,7 +382,7 @@ describe('一键分享入口权限裁剪（AppViewTabs / Toolbar / EntryWorkspac
     )
     expect(tabMount.container.textContent).not.toContain('分享应用')
 
-    // Toolbar: app 模式与 datasource normal 模式可见，member 不可见，advanced 数据源不可见
+    // Toolbar: 数据源普通表可见「对外分享」，member 与 advanced 数据源不可见
     const fullCaps: WorkspaceActionCapabilities = {
       canView: true,
       canEditRecords: true,
@@ -401,6 +401,7 @@ describe('一键分享入口权限裁剪（AppViewTabs / Toolbar / EntryWorkspac
       canManageDataSource: false,
       canAccessDataSources: false,
     }
+    // Toolbar：应用视图模式的分享入口已合并到页头（AppViewTabs），工具栏不再重复提供
     const onOpenShare = vi.fn<() => void>()
     const tbMount = mountComponent(
       createElement(Toolbar, {
@@ -429,19 +430,14 @@ describe('一键分享入口权限裁剪（AppViewTabs / Toolbar / EntryWorkspac
         onNotify: noop,
       }),
     )
-    const shareViewBtn = Array.from(tbMount.container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('分享视图'),
-    )!
-    expect(shareViewBtn).toBeDefined()
-    act(() => shareViewBtn.click())
-    expect(onOpenShare).toHaveBeenCalledTimes(1)
+    expect(tbMount.container.textContent).not.toContain('分享')
 
+    // 数据源普通表：具备分享权限时露出「对外分享」
     tbMount.rerender(
       createElement(Toolbar, {
-        capabilities: memberCaps,
-        targetKind: 'app',
+        capabilities: fullCaps,
+        targetKind: 'datasource',
         tableMeta: normalBundle.meta,
-        activeView: view,
         visibleColumns: cols,
         allComputedRecords: normalBundle.records,
         displayRecords: normalBundle.records,
@@ -463,7 +459,41 @@ describe('一键分享入口权限裁剪（AppViewTabs / Toolbar / EntryWorkspac
         onNotify: noop,
       }),
     )
-    expect(tbMount.container.textContent).not.toContain('分享视图')
+    const shareEntryBtn = Array.from(tbMount.container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('对外分享'),
+    )!
+    expect(shareEntryBtn).toBeDefined()
+    act(() => shareEntryBtn.click())
+    expect(onOpenShare).toHaveBeenCalledTimes(1)
+
+    // 普通成员无分享权限：数据源普通表也不露出
+    tbMount.rerender(
+      createElement(Toolbar, {
+        capabilities: memberCaps,
+        targetKind: 'datasource',
+        tableMeta: normalBundle.meta,
+        visibleColumns: cols,
+        allComputedRecords: normalBundle.records,
+        displayRecords: normalBundle.records,
+        unresolvedConflictCount: 0,
+        selectedRecordIds: [],
+        watermarkEnabled: false,
+        configDrawerOpen: false,
+        onUpdateFilters: noop,
+        onToggleConfigDrawer: noop,
+        onAddRow: noopAsync,
+        onDeleteSelectedRows: noopAsync,
+        onOpenAddColumn: noop,
+        onOpenColumnManager: noop,
+        onOpenLookupWizard: noop,
+        onCreateAppFromTable: noop,
+        onJumpToFirstConflict: noop,
+        onToggleWatermark: noop,
+        onOpenShare,
+        onNotify: noop,
+      }),
+    )
+    expect(tbMount.container.textContent).not.toContain('对外分享')
 
     tbMount.rerender(
       createElement(Toolbar, {

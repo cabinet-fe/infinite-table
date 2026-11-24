@@ -215,137 +215,127 @@ export function AppendImportModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
-      onClick={() => !submitting && onClose()}
-    >
+    <div className="st-overlay" onClick={() => !submitting && onClose()}>
       <div
-        className="w-full max-w-3xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="st-modal max-w-lg"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`向 ${tableName} 追加导入 Excel / CSV`}
       >
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <FileSpreadsheet className="h-4 w-4 text-blue-600" />
-              <span>批量追加导入（{tableName}）</span>
+        <div className="st-modal-header">
+          <div className="min-w-0">
+            <h2 className="st-modal-title flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 shrink-0 text-blue-600" />
+              <span className="truncate">批量追加导入（{tableName}）</span>
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              匹配目标表原始列并执行全量必填与类型校验，任意行校验失败将整批拦截不落库
-            </p>
+            <p className="mt-0.5 text-xs text-slate-500">本地解析，逐行校验通过后批量写入</p>
           </div>
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="max-h-[72vh] space-y-4 overflow-y-auto px-5 py-4">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-700">
-              选择文件（.xlsx / .csv，支持拖拽）
-            </label>
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="点击选择或拖拽 Excel / CSV 文件到此处"
-              onClick={() => !submitting && !previewing && fileInputRef.current?.click()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  fileInputRef.current?.click()
-                }
-              }}
-              onDragOver={(e) => {
+        <div className="st-modal-body st-scroll max-h-[70vh] space-y-4">
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="点击选择或拖拽 Excel / CSV 文件到此处"
+            onClick={() => !submitting && !previewing && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                if (!submitting && !previewing) setDragActive(true)
-              }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-              className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-3.5 transition-colors ${
-                dragActive
-                  ? 'border-blue-500 bg-blue-50/70'
-                  : fileName
-                    ? 'border-blue-200 bg-blue-50/30'
-                    : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
-              }`}
-            >
-              {fileName ? (
-                <>
-                  <FileSpreadsheet className="h-6 w-6 shrink-0 text-blue-600" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold text-slate-800" title={fileName}>
-                      {fileName}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      {preview
-                        ? `${preview.totalRows} 行数据 · ${preview.columns.length} 列 · 点击可重新选择文件`
-                        : previewing
-                          ? '正在本地解析...'
-                          : '解析失败，点击重新选择'}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Upload className="h-6 w-6 shrink-0 text-slate-400" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-slate-700">
-                      拖拽文件到此处，或点击选择
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      支持 .xlsx / .csv，自动按表头匹配已有列，支持手动调整或跳过列
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.csv"
-              className="hidden"
-              disabled={previewing || submitting}
-              onChange={handleFileChange}
-            />
-            {previewError && <div className="text-xs text-red-600">{previewError}</div>}
+                fileInputRef.current?.click()
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              if (!submitting && !previewing) setDragActive(true)
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-8 text-center transition-colors ${
+              dragActive
+                ? 'border-blue-400 bg-blue-50/40'
+                : fileName
+                  ? 'border-blue-200 bg-blue-50/30'
+                  : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            {fileName ? (
+              <>
+                <FileSpreadsheet className="h-6 w-6 shrink-0 text-blue-600" />
+                <div
+                  className="max-w-full truncate px-6 text-sm font-medium text-slate-700"
+                  title={fileName}
+                >
+                  {fileName}
+                </div>
+                <div className="px-6 text-xs text-slate-500">
+                  {preview
+                    ? `${preview.totalRows} 行数据 · ${preview.columns.length} 列 · 点击可重新选择文件`
+                    : previewing
+                      ? '正在本地解析...'
+                      : '解析失败，点击重新选择'}
+                </div>
+              </>
+            ) : (
+              <>
+                <Upload className="h-6 w-6 shrink-0 text-slate-400" />
+                <div className="text-sm text-slate-600">拖拽文件到此处，或点击选择</div>
+                <div className="text-xs text-slate-500">
+                  支持 .xlsx / .csv，自动按表头匹配已有列
+                </div>
+              </>
+            )}
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.csv"
+            className="hidden"
+            disabled={previewing || submitting}
+            onChange={handleFileChange}
+          />
+          {previewError && (
+            <div role="alert" className="st-alert st-alert-red">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{previewError}</span>
+            </div>
+          )}
 
           {preview && (
             <>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-700">
-                    字段映射（导入列 → 目标表原始列）
-                  </label>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="st-label-sm mb-0">字段映射（导入列 → 目标列）</span>
+                  <span className="text-xs text-slate-500">
                     已映射 {mappedTargetKeys.size} / {rawTargetColumns.length} 个目标列
                   </span>
                 </div>
-                <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2.5">
+                <div className="st-scroll max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2">
                   {mappings.map((mapping) => (
                     <div
                       key={mapping.sourceIndex}
-                      className="flex items-center justify-between gap-3 rounded-md bg-white px-2.5 py-1.5 shadow-2xs"
+                      className="flex items-center justify-between gap-3 rounded-md bg-white px-2.5 py-1.5 shadow-xs"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-xs font-medium text-slate-800">
                           {mapping.sourceLabel}
                         </div>
-                        <div className="truncate text-[10px] text-slate-400">
+                        <div className="truncate text-xs text-slate-500">
                           样例：{preview.rows[0]?.[mapping.sourceIndex] || '(空)'}
                         </div>
                       </div>
                       <span className="text-xs text-slate-400">→</span>
                       <CustomSelect
                         size="sm"
-                        className="w-48"
+                        className="w-44 shrink-0"
                         value={mapping.targetField ?? SKIP_IMPORT_VALUE}
                         ariaLabel={`导入列 ${mapping.sourceLabel} 映射目标`}
                         options={targetSelectOptions}
@@ -363,8 +353,8 @@ export function AppendImportModal({
                   ))}
                 </div>
                 {missingRequiredColumns.length > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  <div className="st-alert st-alert-amber">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                     <span>
                       以下必填字段尚未映射：
                       {missingRequiredColumns.map((c) => c.title).join('、')}
@@ -374,41 +364,40 @@ export function AppendImportModal({
               </div>
 
               {preview.truncated && (
-                <div className="flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <div className="st-alert st-alert-amber">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   <span>文件超出 5000 行 × 50 列上限，超出部分不会导入</span>
                 </div>
               )}
 
               {(activeErrors.length > 0 || submitErrorMsg) && (
-                <div
-                  role="alert"
-                  className="space-y-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700"
-                >
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>
+                <div role="alert" className="st-alert st-alert-red">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="font-medium">
                       {submitErrorMsg ??
                         `校验未通过：共 ${activeErrors.length} 处错误（涉及 ${errorsByRow.size} 行），请修正后提交`}
-                    </span>
+                    </div>
+                    {activeErrors.length > 0 && (
+                      <ul className="st-scroll max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4">
+                        {activeErrors.slice(0, 20).map((err, idx) => (
+                          <li key={`${err.rowIndex}-${err.field}-${idx}`}>
+                            第 {err.rowIndex + 1} 行 [{err.columnTitle}]：{err.message}
+                          </li>
+                        ))}
+                        {activeErrors.length > 20 && (
+                          <li>
+                            另有 {activeErrors.length - 20} 条错误，请在下方预览表中查看高亮行
+                          </li>
+                        )}
+                      </ul>
+                    )}
                   </div>
-                  {activeErrors.length > 0 && (
-                    <ul className="max-h-24 list-disc space-y-0.5 overflow-y-auto pl-5 text-[11px]">
-                      {activeErrors.slice(0, 20).map((err, idx) => (
-                        <li key={`${err.rowIndex}-${err.field}-${idx}`}>
-                          第 {err.rowIndex + 1} 行 [{err.columnTitle}]：{err.message}
-                        </li>
-                      ))}
-                      {activeErrors.length > 20 && (
-                        <li>另有 {activeErrors.length - 20} 条错误，请在下方预览表中查看高亮行</li>
-                      )}
-                    </ul>
-                  )}
                 </div>
               )}
 
               {activeErrors.length === 0 && preview.rows.length > 0 && (
-                <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                <div className="st-alert st-alert-slate">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
                   <span>全量 {preview.rows.length} 行校验通过，可确认追加导入</span>
                 </div>
@@ -416,28 +405,26 @@ export function AppendImportModal({
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-700">
+                  <span className="st-label-sm mb-0">
                     校验预览（共 {preview.rows.length} 行
                     {errorsByRow.size > 0 ? ` · ${errorsByRow.size} 行异常` : ''}）
-                  </label>
+                  </span>
                   {errorsByRow.size > 0 && (
                     <button
                       type="button"
                       onClick={() => setOnlyShowErrorRows((v) => !v)}
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs font-medium text-blue-600 hover:underline"
                     >
                       {onlyShowErrorRows ? '显示全部预览' : `仅看异常行 (${errorsByRow.size})`}
                     </button>
                   )}
                 </div>
 
-                <div className="max-h-52 overflow-auto rounded-lg border border-slate-200">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead className="sticky top-0 bg-slate-50 text-slate-600">
+                <div className="st-scroll max-h-52 overflow-auto rounded-lg border border-slate-200">
+                  <table className="st-table text-xs">
+                    <thead className="sticky top-0 bg-slate-50">
                       <tr>
-                        <th className="border-b border-r border-slate-200 px-2 py-1.5 font-medium">
-                          行号
-                        </th>
+                        <th className="st-th px-2">行号</th>
                         {mappings
                           .filter((m) => m.targetField !== null)
                           .map((mapping) => {
@@ -445,10 +432,7 @@ export function AppendImportModal({
                               (c) => c.key === mapping.targetField,
                             )
                             return (
-                              <th
-                                key={mapping.sourceIndex}
-                                className="border-b border-r border-slate-200 px-2.5 py-1.5 font-medium"
-                              >
+                              <th key={mapping.sourceIndex} className="st-th px-2">
                                 {targetCol?.title ?? mapping.targetField}
                                 {targetCol?.required && (
                                   <span className="ml-0.5 text-red-500">*</span>
@@ -456,12 +440,10 @@ export function AppendImportModal({
                               </th>
                             )
                           })}
-                        <th className="border-b border-slate-200 px-2.5 py-1.5 font-medium">
-                          校验结果
-                        </th>
+                        <th className="st-th px-2">校验结果</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {visibleRowIndices.map((rowIndex) => {
                         const row = preview.rows[rowIndex] ?? []
                         const rowErrors = errorsByRow.get(rowIndex) ?? []
@@ -477,7 +459,7 @@ export function AppendImportModal({
                               hasRowErr ? 'bg-red-50/80 text-red-900' : 'hover:bg-slate-50/70'
                             }
                           >
-                            <td className="border-r border-slate-100 px-2 py-1.5 font-mono text-[11px] text-slate-500">
+                            <td className="st-td h-8 px-2 font-mono text-xs text-slate-500">
                               {rowIndex + 1}
                             </td>
                             {mappings
@@ -488,7 +470,7 @@ export function AppendImportModal({
                                 return (
                                   <td
                                     key={mapping.sourceIndex}
-                                    className={`max-w-[150px] truncate border-r border-slate-100 px-2.5 py-1.5 ${
+                                    className={`st-td h-8 max-w-[150px] truncate px-2 text-xs ${
                                       cellErr ? 'bg-red-100/80 font-medium text-red-700' : ''
                                     }`}
                                   >
@@ -496,7 +478,7 @@ export function AppendImportModal({
                                   </td>
                                 )
                               })}
-                            <td className="px-2.5 py-1.5 text-[11px]">
+                            <td className="st-td h-8 px-2 text-xs">
                               {hasRowErr ? (
                                 <span className="font-medium text-red-600">
                                   {rowErrors
@@ -518,12 +500,12 @@ export function AppendImportModal({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+        <div className="st-modal-footer">
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
-            className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            className="st-btn st-btn-secondary"
           >
             取消
           </button>
@@ -531,7 +513,7 @@ export function AppendImportModal({
             type="button"
             disabled={submitting || previewing || !preview || preview.rows.length === 0}
             onClick={() => void handleSubmit()}
-            className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+            className="st-btn st-btn-primary"
           >
             {submitting
               ? '导入中...'

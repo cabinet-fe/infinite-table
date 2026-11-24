@@ -3,7 +3,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowLeft,
   Check,
   ChevronDown,
   ClipboardList,
@@ -30,6 +29,7 @@ import { AppendImportModal } from './AppendImportModal'
 import { CellEditorPopover } from './CellEditorPopover'
 import { ConfirmModal } from './ConfirmModal'
 import { EntryRecordDrawer } from './EntryRecordDrawer'
+import { PageHeading } from './PageHeading'
 import type { ToastType } from './Toast'
 import { exportRecordsAsFile } from './Toolbar'
 
@@ -47,7 +47,6 @@ export interface EntryWorkspaceProps {
   onUpdateRecord: (recordId: string, patch: Record<string, unknown>) => Promise<SmartRecord | void>
   onDeleteRecords: (recordIds: string[]) => Promise<void>
   onBatchAppendRecords: (records: Record<string, unknown>[]) => Promise<void>
-  onBackToWorkbench?: () => void
   onNotify?: (type: ToastType, message: string) => void
 }
 
@@ -79,7 +78,6 @@ export function EntryWorkspace({
   onUpdateRecord,
   onDeleteRecords,
   onBatchAppendRecords,
-  onBackToWorkbench,
   onNotify,
 }: EntryWorkspaceProps) {
   const rawColumns = useMemo(() => filterRawColumns(bundle.meta.columns), [bundle.meta.columns])
@@ -342,98 +340,81 @@ export function EntryWorkspace({
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-slate-50 text-slate-900">
-      {/* 数据录入端精简顶部工具栏 */}
+    <div className="flex h-full w-full flex-col overflow-hidden bg-white text-slate-900">
+      {/* 顶部工具栏：左侧表身份与分享入口，右侧录入主操作 */}
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {onBackToWorkbench && (
-            <button
-              type="button"
-              onClick={onBackToWorkbench}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>工作台</span>
-            </button>
-          )}
-          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-            <ClipboardList className="h-4 w-4" />
-          </span>
-          {onSwitchTable ? (
-            <div ref={switcherMenuRef} className="relative min-w-0">
-              <button
-                type="button"
-                aria-label="切换数据录入表"
-                aria-expanded={switcherOpen}
-                onClick={() => {
-                  const nextOpen = !switcherOpen
-                  setSwitcherOpen(nextOpen)
-                  if (nextOpen) {
-                    void onLoadSwitchableTables?.()
-                  }
-                }}
-                className="inline-flex h-8 max-w-[260px] items-center gap-1.5 rounded-md border border-transparent px-2 text-sm font-semibold text-slate-900 hover:border-slate-200 hover:bg-slate-50"
-              >
-                <span className="truncate">{bundle.meta.name}</span>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              </button>
-
-              {switcherOpen && (
-                <div className="absolute left-0 top-full z-[900] mt-1.5 w-60 rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
-                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    切换数据录入表
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {switcherOptions.map((item) => {
-                      const active = item.id === bundle.meta.id
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            setSwitcherOpen(false)
-                            if (item.id !== bundle.meta.id) {
-                              onSwitchTable(item.id)
-                            }
-                          }}
-                          className={`flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs ${
-                            active
-                              ? 'bg-emerald-50 font-semibold text-emerald-700'
-                              : 'text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="truncate">{item.name}</span>
-                          {active && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />}
-                        </button>
-                      )
-                    })}
-                  </div>
+        {/* 左：表身份（表名即切换入口） */}
+        <div ref={switcherMenuRef} className="flex min-w-0 items-center gap-2">
+          <PageHeading
+            icon={<Table2 className="h-4 w-4" />}
+            meta={`数据录入端 · ${bundle.records.length} 条记录`}
+            title={
+              onSwitchTable ? (
+                <button
+                  type="button"
+                  aria-label="切换数据录入表"
+                  aria-expanded={switcherOpen}
+                  onClick={() => {
+                    const nextOpen = !switcherOpen
+                    setSwitcherOpen(nextOpen)
+                    if (nextOpen) {
+                      void onLoadSwitchableTables?.()
+                    }
+                  }}
+                  className="-ml-1 flex h-7 max-w-64 items-center gap-1 rounded-md px-1.5 text-slate-900 transition-colors hover:bg-slate-100"
+                >
+                  <span className="min-w-0 flex-1 truncate text-left">{bundle.meta.name}</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                </button>
+              ) : (
+                bundle.meta.name
+              )
+            }
+          >
+            {onSwitchTable && switcherOpen && (
+              <div className="st-popover absolute top-full left-8 z-[900] mt-2 w-60">
+                <div className="st-scroll max-h-64 overflow-y-auto">
+                  {switcherOptions.map((item) => {
+                    const active = item.id === bundle.meta.id
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setSwitcherOpen(false)
+                          if (item.id !== bundle.meta.id) {
+                            onSwitchTable(item.id)
+                          }
+                        }}
+                        className={`st-menu-item ${active ? 'st-menu-item-active' : ''}`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                        {active && <Check className="h-4 w-4 shrink-0" />}
+                      </button>
+                    )
+                  })}
                 </div>
-              )}
-            </div>
-          ) : (
-            <h1 className="truncate text-sm font-semibold text-slate-900">{bundle.meta.name}</h1>
-          )}
-          <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-            数据录入端
-          </span>
+              </div>
+            )}
+          </PageHeading>
           {readonly && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+            <span className="st-badge st-badge-gray shrink-0">
               <Eye className="h-3 w-3" />
-              <span>只读</span>
+              <span>只读权限</span>
             </span>
           )}
-          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-            {bundle.records.length} 条记录
-          </span>
+        </div>
+
+        {/* 右：分享 → 录入工具 → 主操作 → 导出 */}
+        <div className="flex shrink-0 items-center gap-0.5">
           {onCopyEntryLink && (
             <button
               type="button"
               onClick={() => void onCopyEntryLink()}
               title="复制当前数据录入页分享链接"
-              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
+              className="st-tool"
             >
-              <Link2 className="h-3.5 w-3.5" />
+              <Link2 className="h-4 w-4" />
               <span>复制链接</span>
             </button>
           )}
@@ -443,60 +424,50 @@ export function EntryWorkspace({
               disabled={busy}
               onClick={onOpenShare}
               title="创建免登录对外填报分享链接"
-              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+              aria-label="对外分享"
+              className="st-btn st-btn-secondary st-btn-sm ml-1.5"
             >
               <Share2 className="h-3.5 w-3.5" />
               <span>对外分享</span>
             </button>
           )}
-        </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
           {!readonly && (
             <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void handleQuickAddRow()}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>新增行</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setDrawerState({ open: true, mode: 'create' })}
-                className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>表单录入</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={busy || !focusedRecord}
-                title="查看或编辑当前选中行的详情表单（也可双击行号打开）"
-                onClick={() => {
-                  if (focusedRecord) {
-                    setDrawerState({ open: true, mode: 'edit', recordId: focusedRecord._id })
-                  }
-                }}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              >
-                <FilePenLine className="h-3.5 w-3.5" />
-                <span>行详情</span>
-              </button>
+              <div className="st-divider-v mx-1.5" />
 
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => setShowAppendModal(true)}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                className="st-tool"
               >
-                <FileSpreadsheet className="h-3.5 w-3.5" />
+                <FileSpreadsheet className="h-4 w-4" />
                 <span>批量追加导入</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDrawerState({ open: true, mode: 'create' })}
+                className="st-tool"
+              >
+                <ClipboardList className="h-4 w-4" />
+                <span>表单录入</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy || !focusedRecord}
+                title="查看或编辑当前选中行的详情表单（也可双击行号打开）"
+                aria-label="行详情"
+                onClick={() => {
+                  if (focusedRecord) {
+                    setDrawerState({ open: true, mode: 'edit', recordId: focusedRecord._id })
+                  }
+                }}
+                className="st-tool st-tool-icon"
+              >
+                <FilePenLine className="h-4 w-4" />
+                <span className="sr-only">行详情</span>
               </button>
 
               {selectedRecordIds.length > 0 && (
@@ -504,43 +475,56 @@ export function EntryWorkspace({
                   type="button"
                   disabled={busy}
                   onClick={() => setConfirmDeleteOpen(true)}
-                  className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-40"
+                  className="st-btn st-btn-danger-soft"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-4 w-4" />
                   <span>删除选中 ({selectedRecordIds.length})</span>
                 </button>
               )}
+
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleQuickAddRow()}
+                className="st-btn st-btn-primary ml-1.5"
+              >
+                <Plus className="h-4 w-4" />
+                <span>新增行</span>
+              </button>
             </>
           )}
 
-          <div ref={exportMenuRef} className="relative">
+          <div ref={exportMenuRef} className="relative ml-1.5">
             <button
               type="button"
               disabled={exporting}
+              aria-label="导出"
+              title="导出"
+              aria-expanded={exportOpen}
               onClick={() => setExportOpen((v) => !v)}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className="st-tool st-tool-icon"
             >
-              <Download className="h-3.5 w-3.5" />
-              <span>导出</span>
+              <Download className="h-4 w-4" />
+              <span className="sr-only">导出</span>
             </button>
 
             {exportOpen && (
-              <div className="absolute right-0 top-full z-[900] mt-1.5 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
+              <div className="st-popover absolute top-full right-0 z-[900] mt-2 w-40">
                 <button
                   type="button"
                   onClick={() => void handleExport('csv')}
-                  className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
+                  className="st-menu-item"
                 >
-                  <span>导出 CSV</span>
-                  <span className="text-[10px] text-slate-400">.csv</span>
+                  <span className="min-w-0 flex-1">导出 CSV</span>
+                  <span className="text-xs text-slate-400">.csv</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleExport('xlsx')}
-                  className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
+                  className="st-menu-item"
                 >
-                  <span>导出 Excel</span>
-                  <span className="text-[10px] text-slate-400">.xlsx</span>
+                  <span className="min-w-0 flex-1">导出 Excel</span>
+                  <span className="text-xs text-slate-400">.xlsx</span>
                 </button>
               </div>
             )}
@@ -553,21 +537,21 @@ export function EntryWorkspace({
         <div ref={gridContainerRef} className="h-full w-full" />
         {bundle.records.length === 0 && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/75 p-6">
-            <div className="pointer-events-auto flex max-w-sm flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-              <Table2 className="mb-2.5 h-7 w-7 text-slate-400" />
-              <div className="text-sm font-semibold text-slate-900">当前数据表暂无记录</div>
+            <div className="st-empty pointer-events-auto max-w-sm p-6">
+              <Table2 className="mx-auto mb-2 h-6 w-6 text-slate-400" />
+              <div className="text-sm text-slate-500">当前数据表暂无记录</div>
               <div className="mt-1 text-xs text-slate-500">
                 {readonly
                   ? '当前为只读权限，暂无可查看的记录。'
-                  : '点击下方按钮通过表单录入单条数据，或批量追加导入 Excel / CSV 文件。'}
+                  : '通过表单录入单条数据，或批量追加导入 Excel / CSV 文件。'}
               </div>
               {!readonly && (
-                <div className="mt-4 flex items-center gap-2">
+                <div className="mt-4 flex items-center justify-center gap-2">
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => setDrawerState({ open: true, mode: 'create' })}
-                    className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                    className="st-btn st-btn-sm st-btn-primary"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>表单录入</span>
@@ -576,7 +560,7 @@ export function EntryWorkspace({
                     type="button"
                     disabled={busy}
                     onClick={() => setShowAppendModal(true)}
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                    className="st-btn st-btn-sm st-btn-secondary"
                   >
                     <FileSpreadsheet className="h-3.5 w-3.5" />
                     <span>批量追加导入</span>

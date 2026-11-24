@@ -162,8 +162,8 @@ export function DrawerPivotPanel({
     <div className="space-y-5">
       {/* 行维度 */}
       <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">行维度</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">行维度</h3>
           {availableDimOptions.length > 0 && (
             <CustomSelect
               size="xs"
@@ -179,10 +179,7 @@ export function DrawerPivotPanel({
           {config.rowDimensions.map((key) => {
             const label = colTitleOf(columns, key)
             return (
-              <span
-                key={key}
-                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700"
-              >
+              <span key={key} className="st-pill st-pill-blue">
                 <span>{label}</span>
                 <button
                   type="button"
@@ -190,7 +187,7 @@ export function DrawerPivotPanel({
                   title={rowDimLocked ? '至少保留 1 个行维度' : `移除行维度 ${label}`}
                   aria-label={`移除行维度 ${label}`}
                   onClick={() => removeDimension('row', key)}
-                  className="rounded-full p-0.5 hover:bg-blue-100 disabled:opacity-40"
+                  className="-mr-1 rounded-full p-0.5 transition-colors hover:bg-blue-100 disabled:pointer-events-none disabled:opacity-40"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -201,9 +198,9 @@ export function DrawerPivotPanel({
       </section>
 
       {/* 列维度 */}
-      <section className="space-y-2 border-t border-slate-100 pt-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">列维度</h3>
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">列维度</h3>
           {availableDimOptions.length > 0 && (
             <CustomSelect
               size="xs"
@@ -216,22 +213,20 @@ export function DrawerPivotPanel({
           )}
         </div>
         {config.columnDimensions.length === 0 ? (
-          <div className="text-xs text-slate-400">未设置列维度（按行维度平铺汇总）</div>
+          <div className="text-xs text-slate-500">未设置列维度（按行维度平铺汇总）</div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {config.columnDimensions.map((key) => {
               const label = colTitleOf(columns, key)
               return (
-                <span
-                  key={key}
-                  className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700"
-                >
+                <span key={key} className="st-pill st-pill-violet">
                   <span>{label}</span>
                   <button
                     type="button"
+                    title={`移除列维度 ${label}`}
                     aria-label={`移除列维度 ${label}`}
                     onClick={() => removeDimension('col', key)}
-                    className="rounded-full p-0.5 hover:bg-violet-100"
+                    className="-mr-1 rounded-full p-0.5 transition-colors hover:bg-indigo-100"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -243,9 +238,9 @@ export function DrawerPivotPanel({
       </section>
 
       {/* 度量指标 */}
-      <section className="space-y-2 border-t border-slate-100 pt-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">汇总指标</h3>
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">汇总指标</h3>
           <CustomSelect
             size="xs"
             value=""
@@ -260,21 +255,15 @@ export function DrawerPivotPanel({
             const isCount = isCountRecordMeasure(m.field)
             const displayName = colTitleOf(columns, m.field)
             return (
-              <div
-                key={m.key}
-                className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5"
-              >
+              <div key={m.key} className="st-card group space-y-1.5 p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
                     {displayName}
                   </span>
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex shrink-0 items-center gap-1">
                     {isCount ? (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] text-slate-600"
-                        title="记录数仅支持计数"
-                      >
-                        <Lock className="h-2.5 w-2.5" />
+                      <span className="st-pill st-pill-gray" title="记录数仅支持计数">
+                        <Lock className="h-3 w-3 shrink-0" />
                         <span>计数</span>
                       </span>
                     ) : (
@@ -292,7 +281,7 @@ export function DrawerPivotPanel({
                         type="button"
                         onClick={() => removeMeasure(m.key)}
                         aria-label={`移除指标 ${displayName}`}
-                        className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="st-icon-btn st-icon-btn-xs st-icon-btn-danger opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -301,7 +290,7 @@ export function DrawerPivotPanel({
                 </div>
                 {!isCount && m.agg !== 'count' && (
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-slate-400">小数位数</span>
+                    <span className="text-xs text-slate-500">小数位数</span>
                     <CustomSelect
                       size="xs"
                       variant="pill"
@@ -319,23 +308,23 @@ export function DrawerPivotPanel({
       </section>
 
       {/* 总计与折叠选项 */}
-      <section className="space-y-3 border-t border-slate-100 pt-4">
-        <h3 className="text-xs font-semibold text-slate-800">显示与展开控制</h3>
-        <div className="space-y-2">
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
-            <span>显示总计行</span>
+      <section className="space-y-2.5">
+        <h3 className="st-section-label">显示与展开控制</h3>
+        <div className="space-y-1">
+          <label className="flex cursor-pointer items-center justify-between gap-3 px-2 py-1">
+            <span className="text-sm text-slate-700">显示总计行</span>
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+              className="st-checkbox"
               checked={config.showGrandTotal ?? true}
               onChange={(e) => onChangeConfig({ ...config, showGrandTotal: e.target.checked })}
             />
           </label>
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
-            <span>树形分组折叠</span>
+          <label className="flex cursor-pointer items-center justify-between gap-3 px-2 py-1">
+            <span className="text-sm text-slate-700">树形分组折叠</span>
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+              className="st-checkbox"
               checked={config.collapsible ?? true}
               onChange={(e) => onChangeConfig({ ...config, collapsible: e.target.checked })}
             />
@@ -343,25 +332,21 @@ export function DrawerPivotPanel({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onExpandAll}
-            className="h-7 rounded-md border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
+          <button type="button" onClick={onExpandAll} className="st-btn st-btn-sm st-btn-secondary">
             全部展开
           </button>
           <button
             type="button"
             onClick={onCollapseAll}
-            className="h-7 rounded-md border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="st-btn st-btn-sm st-btn-secondary"
           >
             全部收起
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 rounded-lg bg-amber-50/70 px-3 py-2 text-[11px] text-amber-800">
-          <Lightbulb className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-          <span>提示：双击任意透视汇总格可打开明细下钻抽屉</span>
+        <div className="st-alert st-alert-amber">
+          <Lightbulb className="h-3.5 w-3.5 shrink-0" />
+          <span>双击任意透视汇总格可打开明细下钻抽屉</span>
         </div>
       </section>
     </div>

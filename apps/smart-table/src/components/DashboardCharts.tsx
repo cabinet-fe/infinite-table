@@ -1,6 +1,6 @@
 // 仪表盘 Chart.js 图表组件集：按需注册六类图型，支持单/多系列（并列/堆叠）渲染与图例点击隔离。
 
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import {
   ArcElement,
   BarController,
@@ -55,16 +55,26 @@ export type SupportedChartJsType = 'bar' | 'line' | 'pie' | 'doughnut' | 'radar'
 
 export type DashboardChartConfigOutput = ChartConfiguration<SupportedChartJsType, number[], string>
 
+// 分类色板：品牌蓝优先、低饱和和谐，全部图表共用同一顺序
 const CHART_PALETTE = [
-  '#2563eb',
-  '#0d9488',
-  '#d97706',
-  '#7c3aed',
-  '#e11d48',
-  '#0284c7',
-  '#059669',
-  '#4f46e5',
+  '#3370ff',
+  '#22b573',
+  '#ff8800',
+  '#f54a45',
+  '#7f3bf5',
+  '#14b8c4',
+  '#f6bd16',
+  '#8f959e',
 ] as const
+
+/** 「(空)」等空值分组统一灰色 */
+const EMPTY_GROUP_COLOR = '#cdd1d8'
+
+// chart.js 全局默认：字体、字号与文字色与设计规范对齐
+Chart.defaults.font.family =
+  "-apple-system, BlinkMacSystemFont, 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif"
+Chart.defaults.font.size = 12
+Chart.defaults.color = '#646a73'
 
 const CHART_ARIA_LABELS: Record<Exclude<DashboardChartType, 'pie'>, string> = {
   bar: '柱状图',
@@ -121,6 +131,7 @@ function resolveSeriesColor(
   explicitColor?: string,
   col?: SmartColumn,
 ): string {
+  if (label === '(空)' || label === '') return EMPTY_GROUP_COLOR
   const opt = col?.options?.find((o) => o.label === label)
   if (opt?.textColor) return opt.textColor
   if (explicitColor) return explicitColor
@@ -175,7 +186,7 @@ export function isLegendClick<
   )
 }
 
-function createDonutCenterPlugin(totalText: string): Plugin<'doughnut'> {
+function createDonutCenterPlugin(getTotalText: () => string): Plugin<'doughnut'> {
   return {
     id: 'donutCenterText',
     afterDraw(chart) {
@@ -188,12 +199,12 @@ function createDonutCenterPlugin(totalText: string): Plugin<'doughnut'> {
       ctx.save()
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillStyle = '#64748b'
+      ctx.fillStyle = '#646a73'
       ctx.font = '10px sans-serif'
       ctx.fillText('合计', cx, cy - 8)
-      ctx.fillStyle = '#0f172a'
-      ctx.font = '700 12px sans-serif'
-      ctx.fillText(totalText, cx, cy + 9)
+      ctx.fillStyle = '#1f2329'
+      ctx.font = '600 12px sans-serif'
+      ctx.fillText(getTotalText(), cx, cy + 9)
       ctx.restore()
     },
   }
@@ -234,6 +245,8 @@ export function buildChartConfiguration(
   dimensionCol?: SmartColumn,
   measureCol?: SmartColumn,
   seriesCol?: SmartColumn,
+  getDonutTotalText?: () => string,
+  getTooltipContext?: () => { chart: DashboardChartResult; measureCol?: SmartColumn },
 ): DashboardChartConfigOutput {
   const measureLabel =
     chart.agg === 'count' ? '记录数' : (measureCol?.title ?? (chart.measureField || chart.title))
@@ -245,12 +258,10 @@ export function buildChartConfiguration(
     display: chart.chartType === 'pie' || hasMultiSeries,
     position: (chart.chartType === 'pie' ? 'right' : 'top') as 'right' | 'top',
     labels: {
-      boxWidth: 10,
-      boxHeight: 10,
+      boxWidth: 8,
+      boxHeight: 8,
       usePointStyle: true,
       padding: 12,
-      color: '#475569',
-      font: { size: 11 },
     },
     onHover: (_event: unknown, _item: unknown, legend: { chart: Chart }) => {
       legend.chart.canvas.style.cursor = 'pointer'
@@ -261,12 +272,24 @@ export function buildChartConfiguration(
   }
 
   const tooltipOptions = {
-    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+    backgroundColor: '#ffffff',
+    titleColor: '#1f2329',
+    bodyColor: '#646a73',
+    borderColor: '#e5e7ea',
+    borderWidth: 1,
     padding: 10,
     cornerRadius: 8,
+    boxPadding: 4,
     callbacks: {
-      label: (ctx: TooltipItem<SupportedChartJsType>) =>
-        buildTooltipLabel(ctx, chart, hasMultiSeries, measureCol),
+      label: (ctx: TooltipItem<SupportedChartJsType>) => {
+        const latest = getTooltipContext?.()
+        const activeChart = latest?.chart ?? chart
+        const activeMeasureCol = latest ? latest.measureCol : measureCol
+        const activeMulti =
+          activeChart.chartType !== 'pie' &&
+          Boolean(activeChart.series && activeChart.series.length > 0)
+        return buildTooltipLabel(ctx, activeChart, activeMulti, activeMeasureCol)
+      },
     },
   }
 
@@ -292,14 +315,20 @@ export function buildChartConfiguration(
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: chart.donut ? '58%' : 0,
+        cutout: chart.donut ? '62%' : 0,
         plugins: {
           legend: legendOptions,
           tooltip: tooltipOptions,
         },
       },
       ...(chart.donut
-        ? { plugins: [createDonutCenterPlugin(totalText) as Plugin<SupportedChartJsType>] }
+        ? {
+            plugins: [
+              createDonutCenterPlugin(
+                getDonutTotalText ?? (() => totalText),
+              ) as Plugin<SupportedChartJsType>,
+            ],
+          }
         : {}),
     } as DashboardChartConfigOutput
   }
@@ -312,7 +341,7 @@ export function buildChartConfiguration(
             label: s.name,
             data: s.values,
             borderColor: color,
-            backgroundColor: toAlphaColor(color, 0.18),
+            backgroundColor: toAlphaColor(color, 0.12),
             fill: true,
             borderWidth: 2,
             pointRadius: 3,
@@ -324,7 +353,7 @@ export function buildChartConfiguration(
             label: measureLabel,
             data: chart.data.map((d) => d.value),
             borderColor: CHART_PALETTE[0],
-            backgroundColor: toAlphaColor(CHART_PALETTE[0], 0.18),
+            backgroundColor: toAlphaColor(CHART_PALETTE[0], 0.12),
             fill: true,
             borderWidth: 2,
             pointRadius: 3,
@@ -341,13 +370,11 @@ export function buildChartConfiguration(
         scales: {
           r: {
             beginAtZero: true,
-            grid: { color: '#e2e8f0' },
-            angleLines: { color: '#e2e8f0' },
-            pointLabels: { color: '#475569', font: { size: 11 } },
+            grid: { color: '#eef0f3' },
+            angleLines: { color: '#eef0f3' },
+            pointLabels: { color: '#646a73' },
             ticks: {
               backdropColor: 'transparent',
-              color: '#64748b',
-              font: { size: 10 },
               callback: (val) => formatAxisTick(Number(val)),
             },
           },
@@ -370,7 +397,7 @@ export function buildChartConfiguration(
             label: s.name,
             data: s.values,
             borderColor: color,
-            backgroundColor: isArea ? toAlphaColor(color, 0.18) : color,
+            backgroundColor: isArea ? toAlphaColor(color, 0.12) : color,
             fill: isArea,
             tension,
             borderWidth: 2,
@@ -383,12 +410,12 @@ export function buildChartConfiguration(
             label: measureLabel,
             data: chart.data.map((d) => d.value),
             borderColor: CHART_PALETTE[0],
-            backgroundColor: isArea ? toAlphaColor(CHART_PALETTE[0], 0.16) : CHART_PALETTE[0],
+            backgroundColor: isArea ? toAlphaColor(CHART_PALETTE[0], 0.12) : CHART_PALETTE[0],
             fill: isArea,
             tension,
-            borderWidth: 2.2,
-            pointRadius: 3.5,
-            pointHoverRadius: 5.5,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
           },
         ]
 
@@ -401,14 +428,11 @@ export function buildChartConfiguration(
         scales: {
           x: {
             grid: { display: false },
-            ticks: { color: '#64748b', font: { size: 11 } },
           },
           y: {
             beginAtZero: true,
-            grid: { color: '#f1f5f9' },
+            grid: { color: '#eef0f3' },
             ticks: {
-              color: '#64748b',
-              font: { size: 11 },
               callback: (val) => formatAxisTick(Number(val)),
             },
           },
@@ -429,6 +453,7 @@ export function buildChartConfiguration(
         data: s.values,
         backgroundColor: resolveSeriesColor(s.name, idx, s.color, seriesCol),
         borderRadius: 4,
+        barPercentage: 0.7,
         maxBarThickness: isHorizontal ? 26 : 36,
       }))
     : [
@@ -439,6 +464,7 @@ export function buildChartConfiguration(
             resolveSeriesColor(d.label, idx, d.color, dimensionCol),
           ),
           borderRadius: 4,
+          barPercentage: 0.7,
           maxBarThickness: isHorizontal ? 28 : 40,
         },
       ]
@@ -446,15 +472,12 @@ export function buildChartConfiguration(
   const categoryAxis = {
     stacked,
     grid: { display: false },
-    ticks: { color: '#64748b', font: { size: 11 } },
   }
   const valueAxis = {
     stacked,
     beginAtZero: true,
-    grid: { color: '#f1f5f9' },
+    grid: { color: '#eef0f3' },
     ticks: {
-      color: '#64748b',
-      font: { size: 11 },
       callback: (val: string | number) => formatAxisTick(Number(val)),
     },
   }
@@ -483,7 +506,41 @@ export interface DashboardChartBodyProps {
   onChartBodyClick?: (event: React.MouseEvent<HTMLDivElement>) => void
 }
 
-export function DashboardChartBody({
+function resolveChartInstanceKey(chart: DashboardChartResult): string {
+  if (chart.chartType === 'pie') {
+    return chart.donut ? 'doughnut' : 'pie'
+  }
+  if (chart.chartType === 'horizontalBar') return 'bar:y'
+  if (chart.chartType === 'bar') return 'bar:x'
+  if (chart.chartType === 'area' || chart.chartType === 'line') return 'line'
+  return chart.chartType
+}
+
+function buildChartRenderSignature(
+  config: DashboardChartConfigOutput,
+  instanceKey: string,
+  donutTotalText: string,
+): string {
+  return JSON.stringify({
+    instanceKey,
+    labels: config.data.labels,
+    datasets: config.data.datasets,
+    donutTotalText,
+    options: {
+      indexAxis: config.options?.indexAxis,
+      cutout: (config.options as { cutout?: unknown } | undefined)?.cutout,
+      scales: config.options?.scales,
+      legend: config.options?.plugins?.legend
+        ? {
+            display: config.options.plugins.legend.display,
+            position: config.options.plugins.legend.position,
+          }
+        : undefined,
+    },
+  })
+}
+
+export const DashboardChartBody = memo(function DashboardChartBody({
   chart,
   dimensionCol,
   measureCol,
@@ -492,10 +549,39 @@ export function DashboardChartBody({
 }: DashboardChartBodyProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const chartRef = useRef<Chart<SupportedChartJsType, number[], string> | null>(null)
+  const instanceKeyRef = useRef<string | null>(null)
+  const signatureRef = useRef<string | null>(null)
+  const totalTextRef = useRef<string>('')
+  const tooltipCtxRef = useRef<{ chart: DashboardChartResult; measureCol?: SmartColumn }>({
+    chart,
+    measureCol,
+  })
+
+  const totalText =
+    chart.chartType === 'pie' && chart.donut
+      ? formatChartMetric(chart.totalValue, chart.agg, measureCol)
+      : ''
+  totalTextRef.current = totalText
+  tooltipCtxRef.current = { chart, measureCol }
+
+  useEffect(() => {
+    return () => {
+      chartRef.current?.destroy()
+      chartRef.current = null
+      instanceKeyRef.current = null
+      signatureRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || chart.data.length === 0) {
+      if (chartRef.current) {
+        chartRef.current.destroy()
+        chartRef.current = null
+        instanceKeyRef.current = null
+        signatureRef.current = null
+      }
       return
     }
     const ctx = canvas.getContext('2d')
@@ -503,24 +589,44 @@ export function DashboardChartBody({
       return
     }
 
-    const config = buildChartConfiguration(chart, dimensionCol, measureCol, seriesCol)
+    const instanceKey = resolveChartInstanceKey(chart)
+    const config = buildChartConfiguration(
+      chart,
+      dimensionCol,
+      measureCol,
+      seriesCol,
+      () => totalTextRef.current,
+      () => tooltipCtxRef.current,
+    )
+    const nextSignature = buildChartRenderSignature(config, instanceKey, totalTextRef.current)
+
+    if (chartRef.current && instanceKeyRef.current === instanceKey) {
+      if (signatureRef.current === nextSignature) {
+        return
+      }
+      chartRef.current.data = config.data as never
+      if (config.options) {
+        chartRef.current.options = config.options as never
+      }
+      signatureRef.current = nextSignature
+      chartRef.current.update()
+      return
+    }
+
+    if (chartRef.current) {
+      chartRef.current.destroy()
+      chartRef.current = null
+    }
+
     const instance = new Chart(canvas, config)
     chartRef.current = instance
-
-    return () => {
-      instance.destroy()
-      if (chartRef.current === instance) {
-        chartRef.current = null
-      }
-    }
+    instanceKeyRef.current = instanceKey
+    signatureRef.current = nextSignature
   }, [chart, dimensionCol, measureCol, seriesCol])
 
   if (chart.data.length === 0) {
     return (
-      <div
-        onClick={onChartBodyClick}
-        className="flex h-56 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-xs text-slate-400"
-      >
+      <div onClick={onChartBodyClick} className="st-empty flex h-56 items-center justify-center">
         暂无满足当前筛选条件的数据
       </div>
     )
@@ -545,4 +651,4 @@ export function DashboardChartBody({
       />
     </div>
   )
-}
+})

@@ -169,32 +169,32 @@ export function CellEditorPopover({
   return (
     <div className="fixed inset-0 z-[1050]" onClick={() => !submitting && onClose()}>
       <div
-        className="fixed overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="st-popover p-2 fixed"
         style={{ left, top, width: popoverW }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`编辑 ${column.title}`}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-          <span className="truncate text-xs font-semibold text-slate-800">{column.title}</span>
+        <div className="flex items-center justify-between gap-2 px-1 pb-1">
+          <span className="st-section-label truncate">{column.title}</span>
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭编辑器"
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn st-icon-btn-xs"
           >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
         {column.type === 'select' ? (
-          <div className="p-2.5 space-y-2">
-            <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
-              <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                className="st-input st-input-sm pl-7"
                 placeholder="搜索或输入新选项..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -208,7 +208,7 @@ export function CellEditorPopover({
               />
             </div>
 
-            <div className="max-h-52 space-y-1 overflow-y-auto">
+            <div className="st-scroll max-h-52 space-y-0.5 overflow-y-auto">
               {filteredOptions.map((opt) => {
                 const isSelected = opt.label === currentText
                 return (
@@ -217,17 +217,15 @@ export function CellEditorPopover({
                     type="button"
                     disabled={submitting}
                     onClick={() => void commitValue(opt.label)}
-                    className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 transition-colors ${
-                      isSelected ? 'bg-blue-50/70' : 'hover:bg-slate-50'
-                    }`}
+                    className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     <span
-                      className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
+                      className="st-pill"
                       style={{ backgroundColor: opt.color, color: opt.textColor }}
                     >
                       {opt.label}
                     </span>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-blue-600" />}
+                    {isSelected && <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-blue-600" />}
                   </button>
                 )
               })}
@@ -241,7 +239,7 @@ export function CellEditorPopover({
                   type="button"
                   disabled={submitting}
                   onClick={() => void handleCreateOption(query)}
-                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-blue-200 bg-blue-50/50 px-2 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                  className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-blue-200 bg-blue-50/50 px-2 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span className="truncate">创建并选择「{query.trim()}」</span>
@@ -250,22 +248,25 @@ export function CellEditorPopover({
             </div>
 
             {currentText !== '' && (
-              <div className="border-t border-slate-100 pt-1.5 text-right">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => void commitValue('')}
-                  className="text-xs text-slate-500 hover:text-red-600"
-                >
-                  清空当前值
-                </button>
+              <div className="pt-1.5">
+                <div className="st-divider" />
+                <div className="mt-1.5 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void commitValue('')}
+                    className="st-btn st-btn-xs st-btn-ghost"
+                  >
+                    清空当前值
+                  </button>
+                </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="p-2.5 space-y-2.5">
+          <div className="space-y-2.5">
             <form
-              className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1"
+              className="flex items-center gap-1.5"
               onSubmit={(e) => {
                 e.preventDefault()
                 const parsed = parseYmd(dateInput)
@@ -276,27 +277,29 @@ export function CellEditorPopover({
                 }
               }}
             >
-              <Calendar className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <input
-                type="text"
-                className="min-w-0 flex-1 bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
-                placeholder="YYYY-MM-DD"
-                value={dateInput}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setDateInput(val)
-                  const parsed = parseYmd(val)
-                  if (parsed) {
-                    setViewYear(parsed.year)
-                    setViewMonth(parsed.month)
-                  }
-                }}
-                autoFocus
-              />
+              <div className="relative min-w-0 flex-1">
+                <Calendar className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  className="st-input st-input-sm pl-7"
+                  placeholder="YYYY-MM-DD"
+                  value={dateInput}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setDateInput(val)
+                    const parsed = parseYmd(val)
+                    if (parsed) {
+                      setViewYear(parsed.year)
+                      setViewMonth(parsed.month)
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
               <button
                 type="submit"
                 disabled={submitting || (dateInput.trim() !== '' && !parseYmd(dateInput))}
-                className="h-6 rounded bg-blue-600 px-2 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                className="st-btn st-btn-xs st-btn-primary"
               >
                 确定
               </button>
@@ -307,18 +310,18 @@ export function CellEditorPopover({
                 type="button"
                 onClick={() => shiftMonth(-1)}
                 aria-label="上一月"
-                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                className="st-icon-btn"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <span className="text-xs font-semibold text-slate-800">
+              <span className="text-sm font-semibold text-slate-900 tabular-nums">
                 {viewYear} 年 {viewMonth + 1} 月
               </span>
               <button
                 type="button"
                 onClick={() => shiftMonth(1)}
                 aria-label="下一月"
-                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                className="st-icon-btn"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -326,7 +329,7 @@ export function CellEditorPopover({
 
             <div className="grid grid-cols-7 gap-0.5 text-center">
               {WEEKDAYS.map((wd) => (
-                <div key={wd} className="py-1 text-[11px] font-medium text-slate-400">
+                <div key={wd} className="py-1 text-xs font-medium text-slate-400">
                   {wd}
                 </div>
               ))}
@@ -341,7 +344,7 @@ export function CellEditorPopover({
                     onClick={() => void commitValue(cell.ymd)}
                     className={`h-7 rounded-md text-xs transition-colors ${
                       cell.ymd === currentText
-                        ? 'bg-blue-600 font-semibold text-white'
+                        ? 'bg-blue-600 font-medium text-white'
                         : cell.ymd === todayYmd
                           ? 'bg-blue-50 font-medium text-blue-700 hover:bg-blue-100'
                           : 'text-slate-700 hover:bg-slate-100'
@@ -353,25 +356,28 @@ export function CellEditorPopover({
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-100 pt-1.5 text-xs">
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void commitValue(todayYmd)}
-                className="text-blue-600 hover:underline"
-              >
-                选择今天
-              </button>
-              {currentText !== '' && (
+            <div className="pt-1.5">
+              <div className="st-divider" />
+              <div className="mt-1.5 flex items-center justify-between">
                 <button
                   type="button"
                   disabled={submitting}
-                  onClick={() => void commitValue('')}
-                  className="text-slate-500 hover:text-red-600"
+                  onClick={() => void commitValue(todayYmd)}
+                  className="st-btn st-btn-xs st-btn-ghost"
                 >
-                  清空日期
+                  选择今天
                 </button>
-              )}
+                {currentText !== '' && (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void commitValue('')}
+                    className="st-btn st-btn-xs st-btn-ghost"
+                  >
+                    清空日期
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

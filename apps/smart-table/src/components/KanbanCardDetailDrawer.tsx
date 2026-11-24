@@ -163,161 +163,165 @@ export function KanbanCardDetailDrawer({
       onClick={() => !saving && onClose()}
     >
       <aside
-        className="flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl"
+        className="st-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="卡片详情"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-3.5">
+        <div className="st-drawer-header">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+              <h2 className="truncate text-base font-semibold text-slate-900">{drawerTitle}</h2>
+              <span className={`st-badge shrink-0 ${readonly ? 'st-badge-gray' : 'st-badge-blue'}`}>
                 {readonly ? '只读详情' : '编辑卡片'}
               </span>
-              <span className="truncate font-mono text-[11px] text-slate-400">{record._id}</span>
             </div>
-            <h2 className="mt-1 truncate text-sm font-semibold text-slate-900">{drawerTitle}</h2>
+            <div className="mt-0.5 truncate font-mono text-xs text-slate-500">{record._id}</div>
           </div>
           <button
             type="button"
             disabled={saving}
             onClick={onClose}
             aria-label="关闭卡片详情"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-1 space-y-3.5 overflow-y-auto px-5 py-4">
-            {columns.map((col) => {
-              const editable = isFieldEditable(col)
-              const rawVal = record[col.key]
-              const displayStr = formatSmartCellDisplayValue(col, rawVal)
+          <div className="st-drawer-body st-scroll">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              {columns.map((col) => {
+                const editable = isFieldEditable(col)
+                const rawVal = record[col.key]
+                const displayStr = formatSmartCellDisplayValue(col, rawVal)
+                // 标题、链接、图片与进度条需要完整一行，其余短字段两列并排
+                const wide =
+                  col.type === 'text' ||
+                  col.type === 'link' ||
+                  col.type === 'image' ||
+                  col.type === 'progress'
 
-              return (
-                <div key={col.key} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <label className="font-medium text-slate-700">{col.title}</label>
-                    {(col.type === 'lookup' || col.type === 'formula') && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
-                        <Lock className="h-2.5 w-2.5" />
-                        <span>{col.type === 'lookup' ? '跨表关联' : '公式计算'}</span>
-                      </span>
-                    )}
-                    {primaryKeyField === col.key && (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500">
-                        <Lock className="h-2.5 w-2.5" />
-                        <span>业务主键</span>
-                      </span>
-                    )}
-                  </div>
+                return (
+                  <div key={col.key} className={`min-w-0 space-y-1 ${wide ? 'col-span-2' : ''}`}>
+                    <div className="flex items-center justify-between text-xs">
+                      <label className="st-label-sm mb-0">{col.title}</label>
+                      {(col.type === 'lookup' || col.type === 'formula') && (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                          <Lock className="h-2.5 w-2.5" />
+                          <span>{col.type === 'lookup' ? '跨表关联' : '公式计算'}</span>
+                        </span>
+                      )}
+                      {primaryKeyField === col.key && (
+                        <span className="inline-flex items-center gap-1 text-xs text-indigo-500">
+                          <Lock className="h-2.5 w-2.5" />
+                          <span>业务主键</span>
+                        </span>
+                      )}
+                    </div>
 
-                  {!editable ? (
-                    <ReadOnlyFieldValue col={col} rawVal={rawVal} displayStr={displayStr} />
-                  ) : col.type === 'select' && col.options && col.options.length > 0 ? (
-                    <CustomSelect
-                      size="sm"
-                      className="w-full"
-                      value={scalarToText(drafts[col.key])}
-                      ariaLabel={col.title}
-                      options={[
-                        { value: '', label: '(未设置)' },
-                        ...col.options.map((opt) => ({ value: opt.label, label: opt.label })),
-                      ]}
-                      onChange={(val) => setDrafts((prev) => ({ ...prev, [col.key]: val }))}
-                    />
-                  ) : col.type === 'checkbox' ? (
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-xs text-slate-700">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                        checked={Boolean(drafts[col.key])}
-                        onChange={(e) =>
-                          setDrafts((prev) => ({ ...prev, [col.key]: e.target.checked }))
-                        }
+                    {!editable ? (
+                      <ReadOnlyFieldValue col={col} rawVal={rawVal} displayStr={displayStr} />
+                    ) : col.type === 'select' && col.options && col.options.length > 0 ? (
+                      <CustomSelect
+                        size="sm"
+                        className="w-full"
+                        value={scalarToText(drafts[col.key])}
+                        ariaLabel={col.title}
+                        options={[
+                          { value: '', label: '(未设置)' },
+                          ...col.options.map((opt) => ({ value: opt.label, label: opt.label })),
+                        ]}
+                        onChange={(val) => setDrafts((prev) => ({ ...prev, [col.key]: val }))}
                       />
-                      <span>{drafts[col.key] ? '是' : '否'}</span>
-                    </label>
-                  ) : col.type === 'progress' ? (
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={Number(drafts[col.key] || 0)}
-                        onChange={(e) =>
-                          setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
-                        }
-                        className="flex-1 accent-blue-600"
-                      />
+                    ) : col.type === 'checkbox' ? (
+                      <label className="inline-flex h-7 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          className="st-checkbox"
+                          checked={Boolean(drafts[col.key])}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({ ...prev, [col.key]: e.target.checked }))
+                          }
+                        />
+                        <span>{drafts[col.key] ? '是' : '否'}</span>
+                      </label>
+                    ) : col.type === 'progress' ? (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={Number(drafts[col.key] || 0)}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
+                          }
+                          className="flex-1 accent-blue-600"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          aria-label={col.title}
+                          value={scalarToText(drafts[col.key])}
+                          onChange={(e) =>
+                            setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
+                          }
+                          className="st-input st-input-sm w-16 text-right"
+                        />
+                        <span className="text-xs text-slate-500">%</span>
+                      </div>
+                    ) : col.type === 'number' ? (
                       <input
                         type="number"
-                        min={0}
-                        max={100}
+                        step="any"
                         aria-label={col.title}
                         value={scalarToText(drafts[col.key])}
                         onChange={(e) =>
                           setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
                         }
-                        className="h-8 w-16 rounded-md border border-slate-200 px-2 text-right text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                        className="st-input"
                       />
-                      <span className="text-xs text-slate-500">%</span>
-                    </div>
-                  ) : col.type === 'number' ? (
-                    <input
-                      type="number"
-                      step="any"
-                      aria-label={col.title}
-                      value={scalarToText(drafts[col.key])}
-                      onChange={(e) =>
-                        setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
-                      }
-                      className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                  ) : col.type === 'date' ? (
-                    <input
-                      type="date"
-                      aria-label={col.title}
-                      value={scalarToText(drafts[col.key])}
-                      onChange={(e) =>
-                        setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
-                      }
-                      className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      aria-label={col.title}
-                      value={scalarToText(drafts[col.key])}
-                      onChange={(e) =>
-                        setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
-                      }
-                      className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                  )}
-                </div>
-              )
-            })}
+                    ) : col.type === 'date' ? (
+                      <input
+                        type="date"
+                        aria-label={col.title}
+                        value={scalarToText(drafts[col.key])}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
+                        }
+                        className="st-input"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        aria-label={col.title}
+                        value={scalarToText(drafts[col.key])}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({ ...prev, [col.key]: e.target.value }))
+                        }
+                        className="st-input"
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+          <div className="st-modal-footer px-5 py-3">
             <button
               type="button"
               disabled={saving}
               onClick={onClose}
-              className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="st-btn st-btn-secondary"
             >
               {readonly ? '关闭' : '取消'}
             </button>
             {!readonly && (
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                <Save className="h-3.5 w-3.5" />
+              <button type="submit" disabled={saving} className="st-btn st-btn-primary">
+                <Save className="h-4 w-4" />
                 <span>{saving ? '保存中...' : '保存修改'}</span>
               </button>
             )}

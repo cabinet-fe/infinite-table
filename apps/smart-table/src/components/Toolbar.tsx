@@ -1,9 +1,12 @@
-// 顶部精简工具栏：展示当前视图/数据源上下文、快捷筛选胶囊、条件筛选浮层（不可配置时为临时筛选）、
-// CSV/XLSX 导出以及按真实权限能力快照裁剪的写操作、字段管理与视图配置入口（无前端伪模式开关）。
+// 工作台页头的第二段——静音工具栏：快捷筛选、条件筛选浮层（不可配置时为临时筛选）、CSV/XLSX 导出，
+// 以及按真实权限能力快照裁剪的写操作、字段管理与视图配置入口（无前端伪模式开关）。
+// 数据源模式下在工具栏上方多渲染一行页头（表名 + 表类型 + 新建多维数据台 / 对外分享），与多维数据台页头同构。
+// 除「新增行」外一律无边框无底色；应用视图模式的分享入口在页头（AppViewTabs），工具栏不再重复提供。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  ChevronDown,
   Columns3,
   Database,
   Download,
@@ -15,6 +18,7 @@ import {
   Plus,
   Share2,
   SlidersHorizontal,
+  Sigma,
   Sparkles,
   Stamp,
   Table2,
@@ -41,7 +45,7 @@ import type {
 } from '../shared/schema'
 import { ConfirmModal } from './ConfirmModal'
 import { CustomSelect } from './CustomSelect'
-import { ViewTypeIcon } from './Sidebar'
+import { PageHeading } from './PageHeading'
 import type { ToastType } from './Toast'
 
 /** 导出当前可见列与记录为 CSV / XLSX 文件（供主工作台 Toolbar 与独立录入端共用） */
@@ -374,456 +378,439 @@ export function Toolbar({
   const filterCount = filterGroup.conditions.length
 
   return (
-    <header
-      ref={toolbarRef}
-      className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4"
-    >
-      {/* 左侧：视图/数据源标题 + 快捷筛选 + 条件筛选 */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <div className="flex min-w-0 items-center gap-2 pr-1">
-          {isDatasource ? (
-            <>
-              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600">
-                {tableMeta.kind === 'advanced' ? (
-                  <Database className="h-3.5 w-3.5 text-indigo-600" />
-                ) : (
-                  <Table2 className="h-3.5 w-3.5 text-slate-600" />
-                )}
-              </span>
-              <h1 className="truncate text-sm font-semibold text-slate-900">{tableMeta.name}</h1>
-              {tableMeta.kind === 'advanced' ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-                  <KeyRound className="h-3 w-3" />
-                  <span>SQL 主数据 · {tableMeta.primaryKeyField ?? '_id'}</span>
-                </span>
+    <div ref={toolbarRef} className="flex shrink-0 flex-col">
+      {/* 数据源模式页头：表名 + 表类型，右侧为建台与分享 */}
+      {isDatasource && (
+        <header className="flex h-12 shrink-0 items-center gap-3 px-4">
+          <PageHeading
+            icon={
+              tableMeta.kind === 'advanced' ? (
+                <KeyRound className="h-4 w-4" />
               ) : (
-                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                  原始数据表
-                </span>
-              )}
-            </>
-          ) : (
-            activeView && (
-              <>
-                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100">
-                  <ViewTypeIcon type={activeView.type} className="h-3.5 w-3.5" />
-                </span>
-                <span className="truncate text-xs font-medium text-slate-700">
-                  {activeView.name}
-                </span>
-              </>
-            )
-          )}
-        </div>
-
-        {/* 快捷筛选胶囊（所有有查看权限的用户均可交互） */}
-        {!isDatasource &&
-          quickFilterFields.map((fieldKey) => {
-            const col = tableMeta.columns.find((c) => c.key === fieldKey)
-            if (!col) return null
-            const options = quickFieldOptions.get(fieldKey) ?? []
-            const selected = quickFilterValues[fieldKey] ?? []
-            const isOpen = popover?.kind === 'quick' && popover.field === fieldKey
-
-            return (
-              <div key={fieldKey} className="relative shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setPopover(isOpen ? null : { kind: 'quick', field: fieldKey })}
-                  className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs transition-colors ${
-                    selected.length > 0
-                      ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <span>{col.title}</span>
-                  {selected.length > 0 && (
-                    <span className="max-w-[110px] truncate text-blue-600">
-                      : {selected.join(', ')}
-                    </span>
-                  )}
-                </button>
-
-                {isOpen && (
-                  <div className="absolute left-0 top-full z-[900] mt-1.5 w-56 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
-                    <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
-                      <span>筛选：{col.title}</span>
-                      {selected.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => clearQuickField(fieldKey)}
-                          className="text-[11px] font-normal text-blue-600 hover:underline"
-                        >
-                          清空
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-1 max-h-56 space-y-0.5 overflow-y-auto">
-                      {options.length === 0 ? (
-                        <div className="py-3 text-center text-xs text-slate-400">暂无可选值</div>
-                      ) : (
-                        options.map((opt) => (
-                          <label
-                            key={opt}
-                            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
-                          >
-                            <input
-                              type="checkbox"
-                              className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
-                              checked={selected.includes(opt)}
-                              onChange={() => toggleQuickValue(fieldKey, opt)}
-                            />
-                            <span className={opt === '(空)' ? 'italic text-slate-400' : 'truncate'}>
-                              {opt}
-                            </span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-        {/* 条件筛选（无配置权时为会话内临时筛选，具备配置权时自动持久化） */}
-        {!isDatasource && (
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setPopover(popover?.kind === 'filter' ? null : { kind: 'filter' })}
-              className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-xs transition-colors ${
-                filterCount > 0
-                  ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
-                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Filter className="h-3.5 w-3.5" />
-              <span>
-                {canConfigure ? '筛选' : '临时筛选'}
-                {filterCount > 0 ? ` (${filterCount})` : ''}
-              </span>
-            </button>
-
-            {popover?.kind === 'filter' && (
-              <div className="absolute left-0 top-full z-[900] mt-1.5 w-[440px] max-w-[90vw] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-                <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                  <span className="text-xs font-semibold text-slate-800">
-                    {canConfigure ? '条件筛选（实时保存）' : '临时筛选（仅当前会话生效）'}
-                  </span>
-                  <CustomSelect
-                    size="xs"
-                    value={filterGroup.conjunction}
-                    ariaLabel="多条件逻辑关系"
-                    options={[
-                      { value: 'and', label: '满足所有条件 (AND)' },
-                      { value: 'or', label: '满足任一条件 (OR)' },
-                    ]}
-                    onChange={(val) =>
-                      onUpdateFilters({
-                        filterGroup: { ...filterGroup, conjunction: val },
-                      })
-                    }
-                  />
-                </div>
-                <div className="max-h-60 space-y-2 overflow-y-auto">
-                  {filterGroup.conditions.length === 0 ? (
-                    <div className="py-3 text-center text-xs text-slate-400">暂无筛选条件</div>
-                  ) : (
-                    filterGroup.conditions.map((cond) => (
-                      <div key={cond.id} className="flex items-center gap-1.5">
-                        <CustomSelect
-                          size="xs"
-                          className="w-32"
-                          value={cond.field}
-                          ariaLabel="筛选字段"
-                          options={columnSelectOptions}
-                          onChange={(val) => updateFilterCondition(cond.id, { field: val })}
-                        />
-                        <CustomSelect
-                          size="xs"
-                          className="w-28"
-                          value={cond.operator}
-                          ariaLabel="筛选操作符"
-                          options={OPERATOR_OPTIONS}
-                          onChange={(val) => updateFilterCondition(cond.id, { operator: val })}
-                        />
-                        {cond.operator !== 'is_empty' && cond.operator !== 'is_not_empty' && (
-                          <input
-                            type="text"
-                            className="h-6 min-w-0 flex-1 rounded-md border border-slate-200 px-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-                            value={filterDrafts[cond.id] ?? scalarToText(cond.value)}
-                            placeholder="输入值"
-                            onChange={(e) => handleFilterTextChange(cond.id, e.target.value)}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => removeFilterCondition(cond.id)}
-                          aria-label="移除条件"
-                          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-                <div className="mt-2.5 flex items-center justify-between border-t border-slate-100 pt-2">
-                  <button
-                    type="button"
-                    onClick={addFilterCondition}
-                    className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 hover:bg-slate-50"
-                  >
-                    <Plus className="h-3 w-3" />
-                    <span>添加条件</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPopover(null)}
-                    className="h-6 rounded border border-slate-200 bg-white px-2.5 text-xs text-slate-600 hover:bg-slate-50"
-                  >
-                    关闭
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 重名消歧提示胶囊（仅具备应用配置权时可交互消歧） */}
-        {canConfigure && isGridEditableTarget && unresolvedConflictCount > 0 && (
-          <button
-            type="button"
-            onClick={onJumpToFirstConflict}
-            title="点击立即定位到存在重名冲突的单元格进行消歧"
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
-          >
-            <AlertTriangle className="h-3.5 w-3.5" />
-            <span>{unresolvedConflictCount} 处重名待消歧</span>
-          </button>
-        )}
-      </div>
-
-      {/* 右侧：按权限裁剪的写操作 / 配置入口 + 导出 */}
-      <div className="flex shrink-0 items-center gap-1.5">
-        {!canEditRecords && (
-          <span className="inline-flex h-7 items-center gap-1 rounded-full bg-slate-100 px-2.5 text-[11px] font-medium text-slate-600">
-            <Eye className="h-3 w-3" />
-            <span>只读权限</span>
-          </span>
-        )}
-
-        {canEditRecords && isGridEditableTarget && (
-          <>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onAddRow()}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>新增行</span>
-            </button>
-
-            {selectedRecordIds.length > 0 && (
+                <Table2 className="h-4 w-4" />
+              )
+            }
+            title={tableMeta.name}
+            meta={
+              tableMeta.kind === 'advanced'
+                ? `SQL 主数据 · ${tableMeta.primaryKeyField ?? '_id'}`
+                : '原始数据表'
+            }
+          />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {canCreateApp && (
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => setConfirmDeleteRows(true)}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-40"
+                onClick={onCreateAppFromTable}
+                className="st-btn st-btn-secondary st-btn-sm"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>删除选中 ({selectedRecordIds.length})</span>
+                <Plus className="h-3.5 w-3.5" />
+                <span>新建多维数据台</span>
               </button>
             )}
-          </>
-        )}
+            {canCreateShare && onOpenShare && tableMeta.kind === 'normal' && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onOpenShare}
+                aria-label="对外分享"
+                title="创建免登录对外填报分享链接"
+                className="st-btn st-btn-secondary st-btn-sm"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                <span>对外分享</span>
+              </button>
+            )}
+          </div>
+        </header>
+      )}
 
-        {canConfigure && isDatasource && tableMeta.kind === 'normal' && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onOpenAddColumn}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>新增列</span>
-          </button>
-        )}
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3">
+        {/* 左侧：快捷筛选 + 条件筛选 + 重名提示（数据源模式无筛选，留空） */}
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          {/* 快捷筛选胶囊（所有有查看权限的用户均可交互） */}
+          {!isDatasource &&
+            quickFilterFields.map((fieldKey) => {
+              const col = tableMeta.columns.find((c) => c.key === fieldKey)
+              if (!col) return null
+              const options = quickFieldOptions.get(fieldKey) ?? []
+              const selected = quickFilterValues[fieldKey] ?? []
+              const isOpen = popover?.kind === 'quick' && popover.field === fieldKey
 
-        {canConfigure && isDatasource && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onOpenColumnManager}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <Columns3 className="h-3.5 w-3.5" />
-            <span>字段管理</span>
-          </button>
-        )}
+              return (
+                <div key={fieldKey} className="relative shrink-0">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={() => setPopover(isOpen ? null : { kind: 'quick', field: fieldKey })}
+                    className={`st-tool shrink-0 ${selected.length > 0 ? 'st-tool-active' : ''}`}
+                  >
+                    <span className="truncate">{col.title}</span>
+                    {selected.length > 0 && (
+                      <span className="max-w-28 truncate opacity-80">· {selected.join(', ')}</span>
+                    )}
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                  </button>
 
-        {canManageDataSource && isDatasource && tableMeta.kind === 'normal' && (
-          <>
+                  {isOpen && (
+                    <div className="st-popover absolute left-0 top-full z-[900] mt-2 w-56">
+                      <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1.5 text-xs font-medium text-slate-700">
+                        <span>筛选：{col.title}</span>
+                        {selected.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => clearQuickField(fieldKey)}
+                            className="st-btn st-btn-xs st-btn-ghost"
+                          >
+                            清空
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-1 max-h-56 space-y-0.5 overflow-y-auto p-1">
+                        {options.length === 0 ? (
+                          <div className="py-3 text-center text-xs text-slate-400">暂无可选值</div>
+                        ) : (
+                          options.map((opt) => (
+                            <label
+                              key={opt}
+                              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                className="st-checkbox"
+                                checked={selected.includes(opt)}
+                                onChange={() => toggleQuickValue(fieldKey, opt)}
+                              />
+                              <span
+                                className={opt === '(空)' ? 'italic text-slate-400' : 'truncate'}
+                              >
+                                {opt}
+                              </span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+          {/* 条件筛选（无配置权时为会话内临时筛选，具备配置权时自动持久化） */}
+          {!isDatasource && (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                aria-expanded={popover?.kind === 'filter'}
+                onClick={() => setPopover(popover?.kind === 'filter' ? null : { kind: 'filter' })}
+                className={`st-tool shrink-0 ${filterCount > 0 ? 'st-tool-active' : ''}`}
+              >
+                <Filter className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                  {canConfigure ? '筛选' : '临时筛选'}
+                  {filterCount > 0 ? ` (${filterCount})` : ''}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+              </button>
+
+              {popover?.kind === 'filter' && (
+                <div className="st-popover absolute left-0 top-full z-[900] mt-2 w-[480px] max-w-[90vw] p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <span className="shrink-0 text-sm font-semibold whitespace-nowrap text-slate-900">
+                      {canConfigure ? '条件筛选（实时保存）' : '临时筛选（仅当前会话生效）'}
+                    </span>
+                    <CustomSelect
+                      size="xs"
+                      className="w-56 shrink-0"
+                      value={filterGroup.conjunction}
+                      ariaLabel="多条件逻辑关系"
+                      options={[
+                        { value: 'and', label: '满足所有条件 (AND)' },
+                        { value: 'or', label: '满足任一条件 (OR)' },
+                      ]}
+                      onChange={(val) =>
+                        onUpdateFilters({
+                          filterGroup: { ...filterGroup, conjunction: val },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="st-scroll max-h-60 space-y-2 overflow-y-auto">
+                    {filterGroup.conditions.length === 0 ? (
+                      <div className="py-3 text-center text-xs text-slate-400">暂无筛选条件</div>
+                    ) : (
+                      filterGroup.conditions.map((cond) => (
+                        <div key={cond.id} className="flex items-center gap-1.5">
+                          <CustomSelect
+                            size="xs"
+                            className="w-32"
+                            value={cond.field}
+                            ariaLabel="筛选字段"
+                            options={columnSelectOptions}
+                            onChange={(val) => updateFilterCondition(cond.id, { field: val })}
+                          />
+                          <CustomSelect
+                            size="xs"
+                            className="w-28"
+                            value={cond.operator}
+                            ariaLabel="筛选操作符"
+                            options={OPERATOR_OPTIONS}
+                            onChange={(val) => updateFilterCondition(cond.id, { operator: val })}
+                          />
+                          {cond.operator !== 'is_empty' && cond.operator !== 'is_not_empty' && (
+                            <input
+                              type="text"
+                              className="st-input st-input-sm min-w-0 flex-1"
+                              value={filterDrafts[cond.id] ?? scalarToText(cond.value)}
+                              placeholder="输入值"
+                              onChange={(e) => handleFilterTextChange(cond.id, e.target.value)}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeFilterCondition(cond.id)}
+                            aria-label="移除条件"
+                            className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                    <button
+                      type="button"
+                      onClick={addFilterCondition}
+                      className="st-btn st-btn-xs st-btn-secondary"
+                    >
+                      <Plus className="h-3 w-3" />
+                      <span>添加条件</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPopover(null)}
+                      className="st-btn st-btn-xs st-btn-secondary"
+                    >
+                      关闭
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 重名消歧提示胶囊（仅具备应用配置权时可交互消歧） */}
+          {canConfigure && isGridEditableTarget && unresolvedConflictCount > 0 && (
             <button
               type="button"
-              disabled={busy}
-              onClick={handleOpenEntryPage}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+              onClick={onJumpToFirstConflict}
+              title="点击立即定位到存在重名冲突的单元格进行消歧"
+              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-amber-50 px-2 text-xs font-medium whitespace-nowrap text-amber-700 transition-colors hover:bg-amber-100"
             >
-              <ExternalLink className="h-3.5 w-3.5" />
-              <span>打开录入页</span>
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>{unresolvedConflictCount} 处重名</span>
+              <span className="sr-only">待消歧</span>
             </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void handleCopyEntryLink()}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              <span>复制录入链接</span>
-            </button>
-          </>
-        )}
+          )}
+        </div>
 
-        {canCreateApp && isDatasource && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onCreateAppFromTable}
-            className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>新建多维数据台</span>
-          </button>
-        )}
+        {/* 右侧：字段与工具（静音） → 主操作 → 视图配置 */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          {canEditRecords && isGridEditableTarget && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onAddRow()}
+                className="st-btn st-btn-primary"
+              >
+                <Plus className="h-4 w-4" />
+                <span>新增行</span>
+              </button>
 
-        {canConfigure && !isDatasource && (
-          <>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onOpenAddColumn}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>新增公式列</span>
+              {selectedRecordIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmDeleteRows(true)}
+                  className="st-btn st-btn-danger-soft"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>删除选中 ({selectedRecordIds.length})</span>
+                </button>
+              )}
+
+              <div className="st-divider-v" />
+            </>
+          )}
+
+          {canConfigure && !isDatasource && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onOpenAddColumn}
+                title="新增公式列"
+                className="st-tool st-tool-icon"
+              >
+                <Sigma className="h-4 w-4" />
+                <span className="sr-only">新增公式列</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onOpenColumnManager}
+                title="派生列管理"
+                className="st-tool st-tool-icon"
+              >
+                <Columns3 className="h-4 w-4" />
+                <span className="sr-only">派生列管理</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onOpenLookupWizard}
+                title="VLOOKUP 关联查询"
+                className="st-tool"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>VLOOKUP</span>
+              </button>
+            </>
+          )}
+
+          {canConfigure && isDatasource && tableMeta.kind === 'normal' && (
+            <button type="button" disabled={busy} onClick={onOpenAddColumn} className="st-tool">
+              <Plus className="h-4 w-4" />
+              <span>新增列</span>
             </button>
+          )}
+
+          {canConfigure && isDatasource && (
             <button
               type="button"
               disabled={busy}
               onClick={onOpenColumnManager}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              title="字段管理"
+              className="st-tool st-tool-icon"
             >
-              <Columns3 className="h-3.5 w-3.5" />
-              <span>派生列管理</span>
+              <Columns3 className="h-4 w-4" />
+              <span className="sr-only">字段管理</span>
             </button>
+          )}
+
+          {canManageDataSource && isDatasource && tableMeta.kind === 'normal' && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleOpenEntryPage}
+                className="st-tool"
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span>打开录入页</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleCopyEntryLink()}
+                title="复制录入链接"
+                className="st-tool st-tool-icon"
+              >
+                <Link2 className="h-4 w-4" />
+                <span className="sr-only">复制录入链接</span>
+              </button>
+            </>
+          )}
+
+          {canConfigure && isDatasource && <div className="st-divider-v" />}
+
+          {canManageDataSource && !isDatasource && onJumpToDatasource && (
             <button
               type="button"
               disabled={busy}
-              onClick={onOpenLookupWizard}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+              onClick={() => onJumpToDatasource(tableMeta.id)}
+              title="查看并管理底层数据源"
+              className="st-tool st-tool-icon"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>VLOOKUP</span>
+              <Database className="h-4 w-4" />
+              <span className="sr-only">数据源</span>
             </button>
-          </>
-        )}
+          )}
 
-        {canManageDataSource && !isDatasource && onJumpToDatasource && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onJumpToDatasource(tableMeta.id)}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <Database className="h-3.5 w-3.5" />
-            <span>数据源</span>
-          </button>
-        )}
+          {canConfigure && !isDatasource && (
+            <button
+              type="button"
+              onClick={onToggleWatermark}
+              title="切换水印显示"
+              className={`st-tool st-tool-icon ${watermarkEnabled ? 'st-tool-active' : ''}`}
+            >
+              <Stamp className="h-4 w-4" />
+              <span className="sr-only">{watermarkEnabled ? '水印: 开' : '水印'}</span>
+            </button>
+          )}
 
-        {canConfigure && !isDatasource && (
-          <button
-            type="button"
-            onClick={onToggleWatermark}
-            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors ${
-              watermarkEnabled
-                ? 'border-blue-300 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <Stamp className="h-3.5 w-3.5" />
-            <span>{watermarkEnabled ? '水印: 开' : '水印'}</span>
-          </button>
-        )}
+          {/* CSV / XLSX 导出（所有有权查看的用户均保留） */}
+          <div className="relative">
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => setPopover(popover?.kind === 'export' ? null : { kind: 'export' })}
+              title="导出"
+              aria-expanded={popover?.kind === 'export'}
+              className="st-tool st-tool-icon"
+            >
+              <Download className="h-4 w-4" />
+              <span className="sr-only">导出</span>
+            </button>
 
-        {/* CSV / XLSX 导出（所有有权查看的用户均保留） */}
-        <div className="relative">
-          <button
-            type="button"
-            disabled={exporting}
-            onClick={() => setPopover(popover?.kind === 'export' ? null : { kind: 'export' })}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>导出</span>
-          </button>
+            {popover?.kind === 'export' && (
+              <div className="st-popover absolute right-0 top-full z-[900] mt-2 w-44">
+                <button
+                  type="button"
+                  onClick={() => void handleExport('csv')}
+                  className="st-menu-item"
+                >
+                  <span>导出 CSV</span>
+                  <span className="ml-auto text-xs text-slate-400">.csv</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleExport('xlsx')}
+                  className="st-menu-item"
+                >
+                  <span>导出 Excel</span>
+                  <span className="ml-auto text-xs text-slate-400">.xlsx</span>
+                </button>
+              </div>
+            )}
+          </div>
 
-          {popover?.kind === 'export' && (
-            <div className="absolute right-0 top-full z-[900] mt-1.5 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
-              <button
-                type="button"
-                onClick={() => void handleExport('csv')}
-                className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
-              >
-                <span>导出 CSV</span>
-                <span className="text-[10px] text-slate-400">.csv</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleExport('xlsx')}
-                className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
-              >
-                <span>导出 Excel</span>
-                <span className="text-[10px] text-slate-400">.xlsx</span>
-              </button>
-            </div>
+          {canConfigure && !isDatasource && <div className="st-divider-v" />}
+
+          {/* 统一视图配置抽屉入口（仅具备视图配置权 + 应用视图模式可见） */}
+          {canConfigure && !isDatasource && (
+            <button
+              type="button"
+              onClick={onToggleConfigDrawer}
+              aria-expanded={configDrawerOpen}
+              className={`st-tool ${configDrawerOpen ? 'st-tool-active' : ''}`}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>视图配置</span>
+            </button>
+          )}
+
+          {!canEditRecords && (
+            <span className="st-badge st-badge-gray">
+              <Eye className="h-3 w-3" />
+              <span>只读权限</span>
+            </span>
           )}
         </div>
-
-        {canCreateShare && onOpenShare && (!isDatasource || tableMeta.kind === 'normal') && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onOpenShare}
-            title={
-              isDatasource ? '创建免登录对外填报分享链接' : '创建或管理当前视图或应用的对外分享链接'
-            }
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50/70 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100/70 disabled:opacity-40"
-          >
-            <Share2 className="h-3.5 w-3.5" />
-            <span>{isDatasource ? '对外分享' : '分享视图'}</span>
-          </button>
-        )}
-
-        {/* 统一视图配置抽屉入口（仅具备视图配置权 + 应用视图模式可见） */}
-        {canConfigure && !isDatasource && (
-          <button
-            type="button"
-            onClick={onToggleConfigDrawer}
-            aria-expanded={configDrawerOpen}
-            className={`inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-xs font-medium transition-colors ${
-              configDrawerOpen
-                ? 'border-blue-600 bg-blue-600 text-white'
-                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            <span>视图配置</span>
-          </button>
-        )}
-      </div>
+      </header>
 
       <ConfirmModal
         open={confirmDeleteRows}
@@ -837,6 +824,6 @@ export function Toolbar({
           setConfirmDeleteRows(false)
         }}
       />
-    </header>
+    </div>
   )
 }

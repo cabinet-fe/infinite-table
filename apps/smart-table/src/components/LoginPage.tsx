@@ -1,4 +1,5 @@
-// 独立无侧栏登录页（/login）：支持账号密码提交、行内错误提示、回跳提示及内置演示账号快捷填入与一键登录。
+// 独立无侧栏登录页（/login）：左侧品牌区 + 右侧登录区。
+// 支持账号密码提交、行内错误提示、回跳提示及内置演示账号快捷填入与一键登录。
 
 import { useState } from 'react'
 import {
@@ -6,7 +7,9 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  LayoutGrid,
   LogIn,
+  ShieldCheck,
   Sparkles,
   Table2,
   UserCheck,
@@ -23,16 +26,33 @@ export interface LoginPageProps {
   onSubmit: (username: string, password: string) => Promise<void>
 }
 
-function roleChipStyle(role: UserRole): string {
+function roleBadgeStyle(role: UserRole): string {
   switch (role) {
     case 'admin':
-      return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80'
+      return 'st-badge st-badge-violet'
     case 'manager':
-      return 'bg-sky-50 text-sky-700 ring-1 ring-sky-200/80'
+      return 'st-badge st-badge-blue'
     default:
-      return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200'
+      return 'st-badge st-badge-gray'
   }
 }
+
+function roleAvatarTone(role: UserRole): string {
+  switch (role) {
+    case 'admin':
+      return 'bg-indigo-500'
+    case 'manager':
+      return 'bg-blue-500'
+    default:
+      return 'bg-slate-400'
+  }
+}
+
+const BRAND_FEATURES = [
+  { icon: LayoutGrid, text: '表格、看板、透视、仪表盘四类视图' },
+  { icon: Sparkles, text: '向导式 VLOOKUP 跨表关联与公式列' },
+  { icon: ShieldCheck, text: '两层权限隔离与一键对外分享' },
+] as const
 
 export function LoginPage({
   demoAccounts,
@@ -82,198 +102,215 @@ export function LoginPage({
   }
 
   return (
-    <div
-      data-testid="login-page"
-      className="flex min-h-screen w-screen items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/40 to-slate-100 p-4 text-slate-900"
-    >
-      <div className="grid w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-xl md:grid-cols-[1.05fr_1fr]">
-        {/* 左侧：品牌与账号密码表单 */}
-        <section className="flex flex-col justify-between p-7 sm:p-9">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
-                <Table2 className="h-5 w-5" />
-              </span>
-              <div>
-                <h1 className="text-base font-bold tracking-tight text-slate-900">
-                  多维数据台 · DataDesk
-                </h1>
-                <p className="text-[11px] text-slate-500">多维数据分析与企业协作工作台</p>
-              </div>
+    <div data-testid="login-page" className="flex min-h-screen bg-white">
+      {/* 品牌区：品牌蓝渐变 + 细网格底纹，窄屏隐藏 */}
+      <aside className="relative hidden w-[46%] max-w-[680px] shrink-0 flex-col overflow-hidden bg-blue-700 p-12 text-white lg:flex">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(160deg,#4d82ff_0%,#3370ff_38%,#1f4bcc_100%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_82%_8%,rgba(255,255,255,0.2),transparent_46%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+            maskImage: 'linear-gradient(to bottom, transparent, black 30%, black 85%, transparent)',
+          }}
+        />
+
+        <div className="relative flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25">
+            <Table2 className="h-5 w-5" />
+          </span>
+          <div className="text-lg leading-6 font-semibold">
+            多维数据台 <span className="font-normal text-white/70">· DataDesk</span>
+          </div>
+        </div>
+
+        <div className="relative mt-auto mb-auto">
+          <h2 className="text-3xl leading-tight font-semibold tracking-tight">
+            多维数据分析与
+            <br />
+            企业协作工作台
+          </h2>
+          <ul className="mt-10 space-y-4 text-sm">
+            {BRAND_FEATURES.map(({ icon: Icon, text }) => (
+              <li key={text} className="flex items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/15">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="text-white/90">{text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
+
+      {/* 登录区 */}
+      <main className="flex min-w-0 flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-[400px]">
+          {/* 品牌区隐藏时（窄屏）在表单上方补品牌名 */}
+          <div className="mb-8 lg:hidden">
+            <div className="text-lg leading-6 font-semibold text-slate-900">
+              多维数据台 <span className="font-normal text-slate-500">· DataDesk</span>
             </div>
-
-            <div className="mt-7">
-              <h2 className="text-lg font-semibold text-slate-900">登录工作台</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                使用企业账号登录，或从右侧选择演示角色快捷体验两层权限隔离。
-              </p>
-              {redirectTo && redirectTo !== '/' && (
-                <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-[11px] text-blue-700">
-                  <KeyRound className="h-3 w-3 shrink-0" />
-                  <span className="truncate">登录后将回跳至：{redirectTo}</span>
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={(e) => void handleFormSubmit(e)} className="mt-6 space-y-4" noValidate>
-              <div>
-                <label
-                  htmlFor="st-login-username"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
-                >
-                  账号
-                </label>
-                <input
-                  id="st-login-username"
-                  type="text"
-                  autoComplete="username"
-                  disabled={busy}
-                  value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value)
-                    if (localError) setLocalError(null)
-                  }}
-                  placeholder="请输入账号，如 admin / manager / member"
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 focus:outline-none disabled:bg-slate-50"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="st-login-password"
-                  className="mb-1.5 block text-xs font-medium text-slate-700"
-                >
-                  密码
-                </label>
-                <div className="relative">
-                  <input
-                    id="st-login-password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    disabled={busy}
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value)
-                      if (localError) setLocalError(null)
-                    }}
-                    placeholder="请输入登录密码"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pr-9 pl-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 focus:outline-none disabled:bg-slate-50"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
-                    className="absolute inset-y-0 right-2 flex items-center text-slate-400 hover:text-slate-600"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {displayError && (
-                <div
-                  role="alert"
-                  className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-                >
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
-                  <span>{displayError}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={busy}
-                className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-700 disabled:opacity-50"
-              >
-                <LogIn className="h-3.5 w-3.5" />
-                <span>{busy ? '登录中...' : '登录'}</span>
-              </button>
-            </form>
+            <p className="mt-1 text-sm text-slate-500">多维数据分析与企业协作工作台</p>
           </div>
 
-          <p className="mt-6 text-[11px] text-slate-400">
-            会话通过 HttpOnly Cookie 持久化存储，登出后立即失效。
+          <h1 className="text-2xl leading-8 font-semibold tracking-tight text-slate-900">
+            登录工作台
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            使用企业账号登录，或选择下方演示角色快速体验。
           </p>
-        </section>
-
-        {/* 右侧：内置演示账号快捷填入与一键切换登录 */}
-        <section
-          aria-label="演示账号快捷切换"
-          className="border-t border-slate-200/80 bg-slate-50/80 p-7 sm:p-8 md:border-t-0 md:border-l"
-        >
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Sparkles className="h-4 w-4 text-blue-600" />
-              <h3 className="text-xs font-semibold text-slate-800">演示账号快捷体验</h3>
-            </div>
-            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200/80">
-              三种角色权限
-            </span>
-          </div>
-
-          {loadingAccounts ? (
-            <div className="py-10 text-center text-xs text-slate-400">正在加载演示账号列表...</div>
-          ) : demoAccounts.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white p-4 text-center text-xs text-slate-400">
-              暂无可用的内置演示账号，请使用上方账号密码登录。
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {demoAccounts.map((acc) => (
-                <div
-                  key={acc.username}
-                  data-demo-username={acc.username}
-                  className="rounded-xl border border-slate-200/90 bg-white p-3 shadow-2xs transition-colors hover:border-blue-200"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-semibold text-slate-900">
-                          {acc.displayName}
-                        </span>
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${roleChipStyle(acc.role)}`}
-                        >
-                          {USER_ROLE_LABELS[acc.role]}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-slate-400">
-                        账号 <code className="text-slate-600">{acc.username}</code> · 密码{' '}
-                        <code className="text-slate-600">{acc.password}</code>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                    {acc.description}
-                  </p>
-                  <div className="mt-2.5 flex items-center justify-end gap-1.5">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      aria-label={`填入 ${acc.displayName}`}
-                      onClick={() => handleFillAccount(acc)}
-                      className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      填入
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      aria-label={`一键登录 ${acc.displayName}`}
-                      onClick={() => void handleQuickLogin(acc)}
-                      className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-200/80 hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      <UserCheck className="h-3 w-3" />
-                      <span>一键登录</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+          {redirectTo && redirectTo !== '/' && (
+            <div className="st-alert st-alert-blue mt-4">
+              <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">登录后将回跳至：{redirectTo}</span>
             </div>
           )}
-        </section>
-      </div>
+
+          <form onSubmit={(e) => void handleFormSubmit(e)} className="mt-6 space-y-4" noValidate>
+            <div>
+              <label htmlFor="st-login-username" className="st-label">
+                账号
+              </label>
+              <input
+                id="st-login-username"
+                type="text"
+                autoComplete="username"
+                disabled={busy}
+                value={username}
+                onChange={(e) => {
+                  setUsername(e.target.value)
+                  if (localError) setLocalError(null)
+                }}
+                placeholder="请输入账号，如 admin / manager / member"
+                className="st-input st-input-lg"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label htmlFor="st-login-password" className="st-label">
+                密码
+              </label>
+              <div className="relative">
+                <input
+                  id="st-login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  disabled={busy}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (localError) setLocalError(null)
+                  }}
+                  placeholder="请输入登录密码"
+                  className="st-input st-input-lg pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                  className="st-icon-btn absolute inset-y-0 right-1 my-auto"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {displayError && (
+              <div role="alert" className="st-alert st-alert-red">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{displayError}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={busy}
+              className="st-btn st-btn-primary st-btn-lg w-full"
+            >
+              <LogIn className="h-4 w-4" />
+              <span>{busy ? '登录中...' : '登录'}</span>
+            </button>
+          </form>
+
+          {/* 演示账号：紧凑行，填入 / 一键登录 */}
+          <div className="st-divider my-5" />
+          <section aria-label="演示账号快捷切换">
+            <div className="mb-3 flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+              <h3 className="st-section-label">演示账号快捷体验</h3>
+            </div>
+
+            {loadingAccounts ? (
+              <div className="py-10 text-center text-sm text-slate-500">
+                正在加载演示账号列表...
+              </div>
+            ) : demoAccounts.length === 0 ? (
+              <div className="st-empty">暂无可用的内置演示账号，请使用上方账号密码登录。</div>
+            ) : (
+              <ul className="space-y-1">
+                {demoAccounts.map((acc) => (
+                  <li
+                    key={acc.username}
+                    data-demo-username={acc.username}
+                    className="rounded-xl border border-slate-200 px-3 py-2 transition-colors hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className={`st-avatar h-8 w-8 text-xs ${roleAvatarTone(acc.role)}`}>
+                        {acc.displayName.slice(0, 1)}
+                      </span>
+                      <span className="truncate text-sm font-medium text-slate-900">
+                        {acc.displayName}
+                      </span>
+                      <span className={roleBadgeStyle(acc.role)}>{USER_ROLE_LABELS[acc.role]}</span>
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`填入 ${acc.displayName}`}
+                          title="把账号密码填入上方表单"
+                          onClick={() => handleFillAccount(acc)}
+                          className="st-btn st-btn-xs st-btn-ghost"
+                        >
+                          填入
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`一键登录 ${acc.displayName}`}
+                          onClick={() => void handleQuickLogin(acc)}
+                          className="st-btn st-btn-xs st-btn-soft"
+                        >
+                          <UserCheck className="h-3.5 w-3.5" />
+                          <span>一键登录</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 flex min-w-0 items-center gap-2 pl-[42px] text-xs text-slate-500">
+                      <span className="shrink-0 font-mono">
+                        {acc.username} / {acc.password}
+                      </span>
+                      <span className="truncate" title={acc.description}>
+                        {acc.description}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </main>
     </div>
   )
 }

@@ -68,7 +68,7 @@ apps/smart-table/
     ├── main.tsx
     ├── app.css
     ├── api.ts                        # REST API 客户端（含 401 会话失效统一拦截）
-    ├── App.tsx                       # 主壳：History 路由、会话门禁、NavRail + 二级目录双栏、工作台编排
+    ├── App.tsx                       # 主壳：History 路由、会话门禁、统一侧栏 NavRail（内嵌 Sidebar 子目录）、工作台编排
     ├── shared/
     │   ├── schema.ts                 # 表、列、SmartApp、WorkspaceView、用户/会话/权限/分享核心类型单源
     │   ├── api-types.ts              # 前后端 REST 请求/响应契约
@@ -93,11 +93,12 @@ apps/smart-table/
     │   ├── smart-grid.ts             # ListTable 封装：富媒体渲染器、原生底部冻结汇总行、热区与右键菜单、水印/打印
     │   └── smart-pivot.ts            # PivotGrid 封装：维度/度量映射、原地刷新、小数位格式化、水印、下钻桥接
     ├── components/
-    │   ├── NavRail.tsx               # 最左窄图标导航轨（按角色能力过滤一级入口 + 账号切换/登出）
-    │   ├── Sidebar.tsx               # 二级业务目录（多维数据台 / 数据录入表 / 数据源中心）
+    │   ├── NavRail.tsx               # 统一侧栏（品牌位 + 按角色能力过滤的一级导航 + 当前板块子目录插槽 + 账号切换/登出）
+    │   ├── Sidebar.tsx               # 侧栏子目录（多维数据台 / 数据录入表 / 数据源中心，嵌在激活的一级导航下方）
     │   ├── LoginPage.tsx             # 独立无侧栏登录页（/login，含内置演示账号快捷填入与一键登录）
-    │   ├── AppViewTabs.tsx           # 当前多维数据台顶部视图 Tab 栏（四类视图切换/新建/调序/分享）
-    │   ├── Toolbar.tsx               # 权限裁剪工具栏（筛选/排序/快捷胶囊/派生列/VLOOKUP/水印/导出）
+    │   ├── AppViewTabs.tsx           # 多维数据台页头（应用标题 + 视图页签：四类视图切换/新建/调序 + 应用与视图共用的分享入口）
+    │   ├── PageHeading.tsx             # 各页头共用的标题簇（图标徽标 + 标题 + 说明文字）
+    │   ├── Toolbar.tsx               # 权限裁剪的静音工具栏（筛选/快捷筛选/派生列/VLOOKUP/水印/导出/视图配置；数据源模式下附带表名页头与建台/分享入口）
     │   ├── EntryWorkspace.tsx        # 独立数据录入端（/entries/:tableId：行内编辑/表单抽屉/批量追加导入）
     │   ├── EntryRecordDrawer.tsx     # 录入端单行新建/编辑表单抽屉
     │   ├── AppendImportModal.tsx     # 录入端批量追加导入弹窗
@@ -128,9 +129,9 @@ apps/smart-table/
 
 ## 2. 导航架构、路由与账号权限体系
 
-### 2.1 左侧双栏导航轨与独立路由（`src/domain/router.ts`）
+### 2.1 统一侧栏与独立路由（`src/domain/router.ts`）
 
-- **布局形态**：最左窄图标导航轨（`NavRail`：工作台 / 数据录入 / 数据源 / 分享管理 / 权限管理 + 底部用户角色菜单与登出）+ 二级业务目录（`Sidebar`）+ 主工作区；`/login` 与 `/s/:token` 为独立无侧栏全屏路由。
+- **布局形态**：统一侧栏（`NavRail`：品牌位 + 按角色能力过滤的一级导航「工作台 / 数据录入 / 数据源 / 分享管理 / 权限管理」+ 当前板块子目录 `Sidebar`（嵌在激活的一级导航下方）+ 底部账户菜单与登出）+ 主工作区；主工作区为两段式页头（标题 / 视图页签 / 分享，下接一条除「新增行」外全部无边框无底色的静音工具栏）；`/login` 与 `/s/:token` 为独立无侧栏全屏路由。
 - **支持路由**：
   - `/`、`/apps/:appId`、`/apps/:appId/views/:viewId`：多维数据台应用与四类视图工作台（表格 / 看板 / 透视 / 仪表盘）。
   - `/entries`、`/entries/:tableId`：普通数据表独立数据录入端（支持旧 `/?entry=<tableId>` 自动 `replaceState` 规范化跳转）。

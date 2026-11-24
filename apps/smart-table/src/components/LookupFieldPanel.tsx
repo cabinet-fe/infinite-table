@@ -153,21 +153,23 @@ export function LookupFieldPanel({
   return (
     <div className="fixed inset-0 z-[1050]" onClick={() => !submitting && onClose()}>
       <div
-        className="fixed w-[380px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+        className="st-popover w-[380px] p-0"
         style={{ left, top }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={`关联字段设置 ${item.title}`}
       >
-        <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3">
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
-              <Settings className="h-3.5 w-3.5 text-blue-600" />
-              <span>关联字段设置</span>
+        <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              <Settings className="h-4 w-4" />
             </div>
-            <div className="mt-0.5 text-[11px] text-slate-500">
-              {sourceTable.meta.name} → {targetBundle?.meta.name ?? group.targetTableId}（
-              {group.mode === 'one' ? '一对一带出' : '一对多汇总'}）
+            <div>
+              <div className="text-sm font-semibold text-slate-900">关联字段设置</div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                {sourceTable.meta.name} → {targetBundle?.meta.name ?? group.targetTableId}（
+                {group.mode === 'one' ? '一对一带出' : '一对多汇总'}）
+              </div>
             </div>
           </div>
           <button
@@ -175,27 +177,24 @@ export function LookupFieldPanel({
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="max-h-[420px] space-y-4 overflow-y-auto p-4">
+        <div className="st-scroll max-h-[420px] space-y-4 overflow-y-auto p-4">
           <div className="space-y-1.5">
-            <label
-              className="block text-xs font-medium text-slate-700"
-              htmlFor="st-lookup-field-title"
-            >
+            <label className="st-label" htmlFor="st-lookup-field-title">
               列名
             </label>
             <input
               id="st-lookup-field-title"
               type="text"
-              className={`h-8 w-full rounded-md border px-2.5 text-xs text-slate-800 focus:outline-none ${
+              className={`st-input ${
                 item.title.trim() === ''
-                  ? 'border-red-400 bg-red-50/40'
-                  : 'border-slate-200 focus:border-blue-500'
+                  ? 'border-red-400 bg-red-50/40 focus:border-red-400 focus:ring-red-500/20'
+                  : ''
               }`}
               value={item.title}
               disabled={submitting}
@@ -208,19 +207,17 @@ export function LookupFieldPanel({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-slate-700">
-                匹配条件（AND 联合，同组列共用）
-              </label>
+            <div className="flex items-center justify-between gap-2">
+              <span className="st-section-label">匹配条件（AND 联合，同组列共用）</span>
               <button
                 type="button"
                 disabled={
                   submitting || eligibleSourceCols.length === 0 || targetColumns.length === 0
                 }
                 onClick={handleAppendRule}
-                className="inline-flex h-6 items-center gap-0.5 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                className="st-btn st-btn-xs st-btn-secondary"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-3.5 w-3.5" />
                 <span>追加</span>
               </button>
             </div>
@@ -261,7 +258,7 @@ export function LookupFieldPanel({
                         )
                       }
                     />
-                    <span className="text-xs font-semibold text-slate-400">=</span>
+                    <span className="text-xs font-medium text-slate-400">=</span>
                     <CustomSelect
                       size="sm"
                       className="flex-1"
@@ -283,9 +280,9 @@ export function LookupFieldPanel({
                           setDraft((prev) => removeLookupRule(prev, group.groupId, idx))
                         }
                         aria-label="删除此匹配条件"
-                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
                   </div>
@@ -293,11 +290,11 @@ export function LookupFieldPanel({
               })}
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5 rounded-lg bg-slate-50 p-2 text-[11px]">
+            <div className="grid grid-cols-3 gap-1.5 rounded-lg bg-slate-50 p-2.5 text-xs">
               <div className="flex items-center gap-1 text-emerald-700">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  命中 <strong>{stats.matchedRows}</strong>
+                  命中 <strong className="tabular-nums">{stats.matchedRows}</strong>
                 </span>
               </div>
               <div
@@ -307,13 +304,13 @@ export function LookupFieldPanel({
               >
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  冲突 <strong>{stats.conflictRows}</strong>
+                  冲突 <strong className="tabular-nums">{stats.conflictRows}</strong>
                 </span>
               </div>
               <div className="flex items-center gap-1 text-slate-500">
                 <Circle className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  未命中 <strong>{stats.unmatchedRows}</strong>
+                  未命中 <strong className="tabular-nums">{stats.unmatchedRows}</strong>
                 </span>
               </div>
             </div>
@@ -321,9 +318,7 @@ export function LookupFieldPanel({
 
           {group.mode === 'one' ? (
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-slate-700">
-                带出字段（从目标表取哪一列）
-              </label>
+              <label className="st-label">带出字段（从目标表取哪一列）</label>
               <CustomSelect
                 className="w-full"
                 value={item.field}
@@ -345,9 +340,7 @@ export function LookupFieldPanel({
             </div>
           ) : (
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-slate-700">
-                聚合字段与方式（对匹配到的全部行计算）
-              </label>
+              <label className="st-label">聚合字段与方式（对匹配到的全部行计算）</label>
               <div className="flex items-center gap-2">
                 <CustomSelect
                   size="sm"
@@ -385,8 +378,8 @@ export function LookupFieldPanel({
         </div>
 
         {error && (
-          <div className="border-t border-red-100 bg-red-50 px-4 py-2 text-xs text-red-600">
-            {error}
+          <div className="border-t border-slate-100 p-3">
+            <div className="st-alert st-alert-red">{error}</div>
           </div>
         )}
 
@@ -398,7 +391,7 @@ export function LookupFieldPanel({
                 type="button"
                 disabled={submitting}
                 onClick={() => void handleDelete()}
-                className="h-6 rounded bg-red-600 px-2 text-[11px] font-medium text-white hover:bg-red-700"
+                className="st-btn st-btn-xs st-btn-danger"
               >
                 确认删除
               </button>
@@ -406,7 +399,7 @@ export function LookupFieldPanel({
                 type="button"
                 disabled={submitting}
                 onClick={() => setConfirmDelete(false)}
-                className="h-6 rounded border border-slate-200 bg-white px-2 text-[11px] text-slate-600"
+                className="st-btn st-btn-xs st-btn-secondary"
               >
                 取消
               </button>
@@ -418,9 +411,9 @@ export function LookupFieldPanel({
               title="删除此关联列"
               aria-label="删除此关联列"
               onClick={() => setConfirmDelete(true)}
-              className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              className="st-icon-btn st-icon-btn-danger"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
             </button>
           )}
           <div className="flex items-center gap-2">
@@ -428,7 +421,7 @@ export function LookupFieldPanel({
               type="button"
               disabled={submitting}
               onClick={onClose}
-              className="h-7 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="st-btn st-btn-sm st-btn-secondary"
             >
               取消
             </button>
@@ -436,7 +429,7 @@ export function LookupFieldPanel({
               type="button"
               disabled={submitting || !dirty || error !== null}
               onClick={() => void handleSave()}
-              className="h-7 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+              className="st-btn st-btn-sm st-btn-primary"
             >
               {submitting ? '保存中...' : '保存'}
             </button>

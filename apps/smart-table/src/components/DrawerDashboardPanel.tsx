@@ -270,7 +270,7 @@ function DraftTextInput({
           ;(e.target as HTMLInputElement).blur()
         }
       }}
-      className={`h-7 min-w-0 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none ${className}`}
+      className={`st-input st-input-sm min-w-0 ${className}`}
     />
   )
 }
@@ -322,7 +322,7 @@ function DraftLimitInput({
           ;(e.target as HTMLInputElement).blur()
         }
       }}
-      className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+      className="st-input st-input-sm"
     />
   )
 }
@@ -352,7 +352,7 @@ function SingleCardHeader({
           type="button"
           onClick={onBack}
           aria-label="返回目录"
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          className="st-btn st-btn-xs st-btn-ghost"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           <span>返回目录</span>
@@ -365,7 +365,7 @@ function SingleCardHeader({
             aria-label={`上移${itemLabel} ${title}`}
             title={`上移${itemLabel}`}
             onClick={() => onMove(index - 1)}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+            className="st-icon-btn st-icon-btn-xs"
           >
             <ArrowUp className="h-3.5 w-3.5" />
           </button>
@@ -375,7 +375,7 @@ function SingleCardHeader({
             aria-label={`下移${itemLabel} ${title}`}
             title={`下移${itemLabel}`}
             onClick={() => onMove(index + 1)}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+            className="st-icon-btn st-icon-btn-xs"
           >
             <ArrowDown className="h-3.5 w-3.5" />
           </button>
@@ -384,25 +384,21 @@ function SingleCardHeader({
             aria-label={`删除${itemLabel} ${title}`}
             title={`删除${itemLabel}`}
             onClick={onDelete}
-            className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span
-            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-              kind === 'kpi' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
-            }`}
-          >
+          <span className={`st-badge ${kind === 'kpi' ? 'st-badge-blue' : 'st-badge-green'}`}>
             {kind === 'kpi' ? 'KPI 指标卡' : '统计图表'}
           </span>
-          <span className="truncate text-xs font-semibold text-slate-800">{title}</span>
+          <span className="truncate text-sm font-medium text-slate-900">{title}</span>
         </div>
-        <span className="shrink-0 text-[11px] text-slate-400">
+        <span className="shrink-0 text-xs text-slate-500 tabular-nums">
           {index + 1}/{total}
         </span>
       </div>
@@ -427,7 +423,7 @@ function KpiEditorForm({
   return (
     <div className="space-y-3.5" data-dashboard-editor="kpi" data-kpi-id={kpi.id}>
       <label className="block space-y-1">
-        <span className="text-[11px] font-medium text-slate-600">指标标题</span>
+        <span className="st-label-sm">指标标题</span>
         <DraftTextInput
           value={kpi.title}
           ariaLabel="指标卡标题"
@@ -439,7 +435,7 @@ function KpiEditorForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">指标字段</span>
+          <span className="st-label-sm">指标字段</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -458,7 +454,7 @@ function KpiEditorForm({
           />
         </div>
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">聚合方式</span>
+          <span className="st-label-sm">聚合方式</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -474,7 +470,7 @@ function KpiEditorForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">数字格式</span>
+          <span className="st-label-sm">数字格式</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -489,7 +485,7 @@ function KpiEditorForm({
           />
         </div>
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">小数位数</span>
+          <span className="st-label-sm">小数位数</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -507,7 +503,7 @@ function KpiEditorForm({
 
       <div className="grid grid-cols-2 gap-2">
         <label className="block space-y-1">
-          <span className="text-[11px] font-medium text-slate-600">数值前缀</span>
+          <span className="st-label-sm">数值前缀</span>
           <DraftTextInput
             value={kpi.prefix ?? ''}
             ariaLabel="数值前缀"
@@ -517,7 +513,7 @@ function KpiEditorForm({
           />
         </label>
         <label className="block space-y-1">
-          <span className="text-[11px] font-medium text-slate-600">数值后缀</span>
+          <span className="st-label-sm">数值后缀</span>
           <DraftTextInput
             value={kpi.suffix ?? ''}
             ariaLabel="数值后缀"
@@ -529,7 +525,7 @@ function KpiEditorForm({
       </div>
 
       <div className="space-y-1.5">
-        <span className="block text-[11px] font-medium text-slate-600">图标风格</span>
+        <span className="st-label-sm">图标风格</span>
         <div className="grid grid-cols-4 gap-1.5">
           {KPI_ICON_OPTIONS.map(({ value, label, Icon }) => {
             const active = currentIcon === value
@@ -541,7 +537,7 @@ function KpiEditorForm({
                 aria-pressed={active}
                 data-kpi-icon={value}
                 onClick={() => onUpdate({ icon: value })}
-                className={`flex h-8 items-center justify-center gap-1 rounded-md border px-1.5 text-[11px] transition-colors ${
+                className={`flex h-8 items-center justify-center gap-1 rounded-md border px-1.5 text-xs transition-colors ${
                   active
                     ? 'border-blue-500 bg-blue-50 font-medium text-blue-700'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -556,7 +552,7 @@ function KpiEditorForm({
       </div>
 
       <div className="flex items-center justify-between pt-0.5">
-        <span className="text-[11px] font-medium text-slate-600">主题色</span>
+        <span className="st-label-sm">主题色</span>
         <div className="flex items-center gap-1.5">
           {KPI_ACCENTS.map((color) => (
             <button
@@ -568,7 +564,7 @@ function KpiEditorForm({
               className={`h-4.5 w-4.5 rounded-full border transition-transform ${
                 kpi.accentColor === color
                   ? 'scale-110 border-slate-900 ring-1 ring-slate-400'
-                  : 'border-white'
+                  : 'border-slate-200'
               }`}
               style={{ backgroundColor: color }}
             />
@@ -608,7 +604,7 @@ function ChartEditorForm({
   return (
     <div className="space-y-3.5" data-dashboard-editor="chart" data-chart-id={chart.id}>
       <label className="block space-y-1">
-        <span className="text-[11px] font-medium text-slate-600">图表标题</span>
+        <span className="st-label-sm">图表标题</span>
         <DraftTextInput
           value={chart.title}
           ariaLabel="图表标题"
@@ -620,7 +616,7 @@ function ChartEditorForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">图表类型</span>
+          <span className="st-label-sm">图表类型</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -636,7 +632,7 @@ function ChartEditorForm({
           />
         </div>
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">主分组维度</span>
+          <span className="st-label-sm">主分组维度</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -654,9 +650,7 @@ function ChartEditorForm({
       </div>
 
       <div className="space-y-1">
-        <span className="block text-[11px] font-medium text-slate-600">
-          二级分组维度（对比系列）
-        </span>
+        <span className="st-label-sm">二级分组维度（对比系列）</span>
         <CustomSelect
           size="sm"
           className="w-full"
@@ -672,11 +666,8 @@ function ChartEditorForm({
           }
         />
         {isPie && (
-          <p
-            role="note"
-            className="flex items-center gap-1 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-700"
-          >
-            <Info className="h-3 w-3 shrink-0" />
+          <p role="note" className="st-alert st-alert-amber">
+            <Info className="h-3.5 w-3.5 shrink-0" />
             <span>饼图 / 环形图不支持二级分组，仅按主维度统计占比。</span>
           </p>
         )}
@@ -685,20 +676,16 @@ function ChartEditorForm({
       {supportsStacked && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-slate-600">多系列排列</span>
-            {!hasSeries && <span className="text-[10px] text-slate-400">选择二级分组后可用</span>}
+            <span className="st-label-sm">多系列排列</span>
+            {!hasSeries && <span className="text-xs text-slate-500">选择二级分组后可用</span>}
           </div>
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-0.5">
+          <div className="st-segment">
             <button
               type="button"
               disabled={!hasSeries}
               aria-pressed={!chart.stacked}
               onClick={() => onUpdate({ stacked: false })}
-              className={`h-7 rounded-md text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
-                !chart.stacked
-                  ? 'bg-white text-slate-800 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`st-segment-item ${!chart.stacked ? 'st-segment-item-active' : ''} disabled:pointer-events-none disabled:opacity-40`}
             >
               并列分组
             </button>
@@ -707,11 +694,7 @@ function ChartEditorForm({
               disabled={!hasSeries}
               aria-pressed={Boolean(chart.stacked)}
               onClick={() => onUpdate({ stacked: true })}
-              className={`h-7 rounded-md text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
-                chart.stacked
-                  ? 'bg-white text-blue-700 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`st-segment-item ${chart.stacked ? 'st-segment-item-active' : ''} disabled:pointer-events-none disabled:opacity-40`}
             >
               堆叠
             </button>
@@ -721,7 +704,7 @@ function ChartEditorForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">聚合方式</span>
+          <span className="st-label-sm">聚合方式</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -738,9 +721,9 @@ function ChartEditorForm({
           />
         </div>
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">度量字段</span>
+          <span className="st-label-sm">度量字段</span>
           {chart.agg === 'count' ? (
-            <div className="flex h-7 items-center rounded-md border border-slate-200 bg-slate-100 px-2.5 text-xs text-slate-500">
+            <div className="flex h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-500">
               记录数
             </div>
           ) : (
@@ -758,7 +741,7 @@ function ChartEditorForm({
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <span className="block text-[11px] font-medium text-slate-600">排序方式</span>
+          <span className="st-label-sm">排序方式</span>
           <CustomSelect
             size="sm"
             className="w-full"
@@ -769,7 +752,7 @@ function ChartEditorForm({
           />
         </div>
         <label className="block space-y-1">
-          <span className="text-[11px] font-medium text-slate-600">展示上限（Top N）</span>
+          <span className="st-label-sm">展示上限（Top N）</span>
           <DraftLimitInput value={chart.limit} onCommit={(limit) => onUpdate({ limit })} />
         </label>
       </div>
@@ -780,7 +763,7 @@ function ChartEditorForm({
             <input
               type="checkbox"
               aria-label="环形图"
-              className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+              className="st-checkbox"
               checked={Boolean(chart.donut)}
               onChange={(e) => onUpdate({ donut: e.target.checked })}
             />
@@ -791,7 +774,7 @@ function ChartEditorForm({
           <input
             type="checkbox"
             aria-label="通栏展示"
-            className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+            className="st-checkbox"
             checked={chart.span === 2}
             onChange={(e) => onUpdate({ span: e.target.checked ? 2 : 1 })}
           />
@@ -825,85 +808,84 @@ function DashboardCatalogView({
 }) {
   return (
     <div className="space-y-5" data-dashboard-catalog="true">
-      <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
+      <div className="st-alert st-alert-slate">
         点击任意卡片目录项或画布中的卡片，即可进入单卡精细配置。
       </div>
 
       {/* KPI 指标卡目录 */}
-      <section className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">
-            KPI 指标卡（{config.kpis.length}）
-          </h3>
-          <button
-            type="button"
-            onClick={onAddKpi}
-            className="inline-flex h-6 items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
-          >
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">KPI 指标卡（{config.kpis.length}）</h3>
+          <button type="button" onClick={onAddKpi} className="st-btn st-btn-xs st-btn-secondary">
             <Plus className="h-3 w-3" />
             <span>添加指标卡</span>
           </button>
         </div>
 
         {config.kpis.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
-            暂无 KPI 指标卡
-          </div>
+          <div className="st-empty py-3">暂无 KPI 指标卡</div>
         ) : (
           <div className="space-y-1.5">
             {config.kpis.map((kpi, idx) => {
               const fieldTitle = getColumnTitle(columns, kpi.field)
+              const Icon =
+                KPI_ICON_OPTIONS.find((o) => o.value === (kpi.icon ?? 'auto'))?.Icon ?? Sparkles
+              const accent = kpi.accentColor ?? '#2563eb'
               return (
                 <div
                   key={kpi.id}
                   data-catalog-kpi-id={kpi.id}
-                  className="flex items-center justify-between gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 transition-colors hover:border-blue-300 hover:bg-blue-50/30"
+                  className="st-card group flex items-center gap-2 p-3"
                 >
                   <button
                     type="button"
                     aria-label={`配置指标卡 ${kpi.title}`}
                     onClick={() => onSelect({ kind: 'kpi', id: kpi.id })}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
                   >
                     <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: kpi.accentColor ?? '#2563eb' }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-slate-800">{kpi.title}</div>
-                      <div className="truncate text-[10px] text-slate-400">
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100"
+                      style={{ color: accent }}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-900">
+                        {kpi.title}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">
                         {fieldTitle} · {SUMMARY_LABELS[kpi.agg]}
-                      </div>
-                    </div>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                      </span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
                   </button>
 
-                  <div className="flex shrink-0 items-center gap-0.5 border-l border-slate-100 pl-1">
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <button
                       type="button"
                       disabled={idx === 0}
                       aria-label={`上移指标卡 ${kpi.title}`}
                       onClick={() => onMoveKpi(idx, idx - 1)}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+                      className="st-icon-btn st-icon-btn-xs"
                     >
-                      <ArrowUp className="h-3 w-3" />
+                      <ArrowUp className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       disabled={idx === config.kpis.length - 1}
                       aria-label={`下移指标卡 ${kpi.title}`}
                       onClick={() => onMoveKpi(idx, idx + 1)}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+                      className="st-icon-btn st-icon-btn-xs"
                     >
-                      <ArrowDown className="h-3 w-3" />
+                      <ArrowDown className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       aria-label={`删除指标卡 ${kpi.title}`}
                       onClick={() => onRemoveKpi(kpi.id)}
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
@@ -914,16 +896,14 @@ function DashboardCatalogView({
       </section>
 
       {/* 统计图表目录 */}
-      <section className="space-y-2.5 border-t border-slate-100 pt-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-slate-800">
-            统计图表（{config.charts.length}）
-          </h3>
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="st-section-label">统计图表（{config.charts.length}）</h3>
           <button
             type="button"
             disabled={columns.length === 0}
             onClick={onAddChart}
-            className="inline-flex h-6 items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+            className="st-btn st-btn-xs st-btn-secondary"
           >
             <Plus className="h-3 w-3" />
             <span>添加图表</span>
@@ -931,9 +911,7 @@ function DashboardCatalogView({
         </div>
 
         {config.charts.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
-            暂无统计图表
-          </div>
+          <div className="st-empty py-3">暂无统计图表</div>
         ) : (
           <div className="space-y-1.5">
             {config.charts.map((chart, idx) => {
@@ -946,53 +924,55 @@ function DashboardCatalogView({
                 <div
                   key={chart.id}
                   data-catalog-chart-id={chart.id}
-                  className="flex items-center justify-between gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 transition-colors hover:border-emerald-300 hover:bg-emerald-50/30"
+                  className="st-card group flex items-center gap-2 p-3"
                 >
                   <button
                     type="button"
                     aria-label={`配置图表 ${chart.title}`}
                     onClick={() => onSelect({ kind: 'chart', id: chart.id })}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
                   >
-                    <BarChart3 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-slate-800">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                      <BarChart3 className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-900">
                         {chart.title}
-                      </div>
-                      <div className="truncate text-[10px] text-slate-400">
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">
                         {CHART_TYPE_LABELS[chart.chartType]} · {dimTitle}
                         {seriesSummary}
-                      </div>
-                    </div>
-                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+                      </span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
                   </button>
 
-                  <div className="flex shrink-0 items-center gap-0.5 border-l border-slate-100 pl-1">
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <button
                       type="button"
                       disabled={idx === 0}
                       aria-label={`上移图表 ${chart.title}`}
                       onClick={() => onMoveChart(idx, idx - 1)}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+                      className="st-icon-btn st-icon-btn-xs"
                     >
-                      <ArrowUp className="h-3 w-3" />
+                      <ArrowUp className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       disabled={idx === config.charts.length - 1}
                       aria-label={`下移图表 ${chart.title}`}
                       onClick={() => onMoveChart(idx, idx + 1)}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+                      className="st-icon-btn st-icon-btn-xs"
                     >
-                      <ArrowDown className="h-3 w-3" />
+                      <ArrowDown className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
                       aria-label={`删除图表 ${chart.title}`}
                       onClick={() => onRemoveChart(chart.id)}
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="st-icon-btn st-icon-btn-xs st-icon-btn-danger"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>

@@ -124,142 +124,127 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
-      onClick={() => !submitting && onClose()}
-    >
+    <div className="st-overlay" onClick={() => !submitting && onClose()}>
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="st-modal max-w-3xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="导入 Excel / CSV"
       >
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <Table2 className="h-4 w-4 text-blue-600" />
+        <div className="st-modal-header">
+          <div className="min-w-0">
+            <h2 className="st-modal-title flex items-center gap-2">
+              <Table2 className="h-4 w-4 shrink-0 text-blue-600" />
               <span>导入 Excel / CSV</span>
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              文件在浏览器本地解析，先预览列类型，确认后一键建表
-            </p>
+            <p className="mt-0.5 text-xs text-slate-500">本地解析，先预览列类型，确认后一键建表</p>
           </div>
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="max-h-[72vh] space-y-4 overflow-y-auto px-5 py-4">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-700">
-              选择文件（.xlsx / .csv，支持拖拽）
-            </label>
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="点击选择或拖拽 Excel / CSV 文件到此处"
-              onClick={() => !submitting && !previewing && fileInputRef.current?.click()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  fileInputRef.current?.click()
-                }
-              }}
-              onDragOver={(e) => {
+        <div className="st-modal-body st-scroll max-h-[70vh] space-y-4">
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="点击选择或拖拽 Excel / CSV 文件到此处"
+            onClick={() => !submitting && !previewing && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
-                if (!submitting && !previewing) setDragActive(true)
-              }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-              className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed p-4 transition-colors ${
-                dragActive
-                  ? 'border-blue-500 bg-blue-50/70'
-                  : fileName
-                    ? 'border-blue-200 bg-blue-50/30'
-                    : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
-              }`}
-            >
-              {fileName ? (
-                <>
-                  <FileSpreadsheet className="h-6 w-6 shrink-0 text-blue-600" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold text-slate-800" title={fileName}>
-                      {fileName}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      {preview
-                        ? `${preview.totalRows} 行 · ${preview.columns.length} 列 · 点击可重新选择文件`
-                        : previewing
-                          ? '正在本地解析...'
-                          : '解析失败，点击重新选择'}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Upload className="h-6 w-6 shrink-0 text-slate-400" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-slate-700">
-                      拖拽文件到此处，或点击选择
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-slate-500">
-                      支持 .xlsx / .csv，最大 5000 行 × 50 列，文件不会上传服务器
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.csv"
-              className="hidden"
-              disabled={previewing || submitting}
-              onChange={(e) => handleFileChange(e)}
-            />
-            {previewError && <div className="text-xs text-red-600">{previewError}</div>}
+                fileInputRef.current?.click()
+              }
+            }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              if (!submitting && !previewing) setDragActive(true)
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-8 text-center transition-colors ${
+              dragActive
+                ? 'border-blue-400 bg-blue-50/40'
+                : fileName
+                  ? 'border-blue-200 bg-blue-50/30'
+                  : 'border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            {fileName ? (
+              <>
+                <FileSpreadsheet className="h-6 w-6 shrink-0 text-blue-600" />
+                <div
+                  className="max-w-full truncate px-6 text-sm font-medium text-slate-700"
+                  title={fileName}
+                >
+                  {fileName}
+                </div>
+                <div className="px-6 text-xs text-slate-500">
+                  {preview
+                    ? `${preview.totalRows} 行 · ${preview.columns.length} 列 · 点击可重新选择文件`
+                    : previewing
+                      ? '正在本地解析...'
+                      : '解析失败，点击重新选择'}
+                </div>
+              </>
+            ) : (
+              <>
+                <Upload className="h-6 w-6 shrink-0 text-slate-400" />
+                <div className="text-sm text-slate-600">拖拽文件到此处，或点击选择</div>
+                <div className="text-xs text-slate-500">
+                  支持 .xlsx / .csv，最大 5000 行 × 50 列
+                </div>
+              </>
+            )}
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.csv"
+            className="hidden"
+            disabled={previewing || submitting}
+            onChange={handleFileChange}
+          />
+          {previewError && (
+            <div role="alert" className="st-alert st-alert-red">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{previewError}</span>
+            </div>
+          )}
 
           {preview && (
             <>
-              <div className="space-y-1.5">
-                <label
-                  className="block text-xs font-medium text-slate-700"
-                  htmlFor="st-import-name"
-                >
+              <div>
+                <label className="st-label" htmlFor="st-import-name">
                   表名
                 </label>
                 <input
                   id="st-import-name"
                   type="text"
-                  className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-[13px] text-slate-800 focus:border-blue-500 focus:outline-none"
+                  className="st-input"
                   value={tableName}
                   disabled={submitting}
                   onChange={(e) => setTableName(e.target.value)}
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-700">存储形态</label>
+              <div>
+                <label className="st-label">存储形态</label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     disabled={submitting}
                     onClick={() => setKind('normal')}
-                    className={`rounded-lg border p-3 text-left transition-colors ${
-                      kind === 'normal'
-                        ? 'border-blue-500 bg-blue-50/50'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
+                    className={`st-choice ${kind === 'normal' ? 'st-choice-active' : ''}`}
                   >
-                    <div className="text-xs font-semibold text-slate-900">普通自建表</div>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    <div className="text-sm font-medium text-slate-900">普通自建表</div>
+                    <div className="st-help mt-1">
                       Excel 式灵活编辑，可自由增删行列、视图与公式列
                     </div>
                   </button>
@@ -267,14 +252,10 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
                     type="button"
                     disabled={submitting}
                     onClick={() => setKind('advanced')}
-                    className={`rounded-lg border p-3 text-left transition-colors ${
-                      kind === 'advanced'
-                        ? 'border-blue-500 bg-blue-50/50'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
+                    className={`st-choice ${kind === 'advanced' ? 'st-choice-active' : ''}`}
                   >
-                    <div className="text-xs font-semibold text-slate-900">SQL 物理表</div>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    <div className="text-sm font-medium text-slate-900">SQL 物理表</div>
+                    <div className="st-help mt-1">
                       落库为 SQLite 物理表，首列数据列作为主键，适合作为主数据被跨表引用
                     </div>
                   </button>
@@ -282,15 +263,13 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-700">
-                  列配置（{columns.length} 列）
-                </label>
-                <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2">
+                <label className="st-label">列配置（{columns.length} 列）</label>
+                <div className="st-scroll max-h-40 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2">
                   {columns.map((column) => (
                     <div key={column.key} className="flex items-center gap-2">
                       <input
                         type="text"
-                        className="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                        className="st-input st-input-sm min-w-0 flex-1"
                         value={column.label}
                         aria-label={`列「${column.label}」标题`}
                         disabled={submitting}
@@ -304,7 +283,7 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
                         value={column.type}
                         options={IMPORT_TYPE_OPTIONS}
                         size="sm"
-                        className="w-28"
+                        className="w-28 shrink-0"
                         ariaLabel={`列「${column.label}」类型`}
                         disabled={submitting}
                         onChange={(type) =>
@@ -318,39 +297,36 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-700">数据预览</label>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="st-label-sm mb-0">数据预览</span>
+                  <span className="text-xs text-slate-500">
                     共 {preview.totalRows} 行
                     {!preview.truncated && ` · 展示前 ${PREVIEW_DISPLAY_ROWS} 行`}
                   </span>
                 </div>
                 {preview.truncated && (
-                  <div className="flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <div className="st-alert st-alert-amber">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                     <span>文件超出 5000 行 × 50 列上限，超出部分不会导入</span>
                   </div>
                 )}
-                <div className="max-h-44 overflow-auto rounded-lg border border-slate-200">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead className="sticky top-0 bg-slate-50 text-slate-600">
+                <div className="st-scroll max-h-44 overflow-auto rounded-lg border border-slate-200">
+                  <table className="st-table text-xs">
+                    <thead className="sticky top-0 bg-slate-50">
                       <tr>
                         {columns.map((column) => (
-                          <th
-                            key={column.key}
-                            className="border-b border-r border-slate-200 px-2.5 py-1.5 font-medium last:border-r-0"
-                          >
+                          <th key={column.key} className="st-th px-2">
                             {column.label}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody>
                       {preview.rows.slice(0, PREVIEW_DISPLAY_ROWS).map((row, rowIndex) => (
                         <tr key={rowIndex} className="hover:bg-slate-50/70">
                           {columns.map((column, colIndex) => (
                             <td
                               key={column.key}
-                              className="max-w-[160px] truncate border-r border-slate-100 px-2.5 py-1.5 text-slate-700 last:border-r-0"
+                              className="st-td h-8 max-w-[160px] truncate px-2 text-xs text-slate-700"
                             >
                               {row[colIndex] ?? ''}
                             </td>
@@ -365,12 +341,12 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+        <div className="st-modal-footer">
           <button
             type="button"
             disabled={submitting}
             onClick={onClose}
-            className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            className="st-btn st-btn-secondary"
           >
             取消
           </button>
@@ -378,7 +354,7 @@ export function ImportExcelModal({ onClose, onImported, onError }: ImportExcelMo
             type="button"
             disabled={submitting || previewing || !preview || !tableName.trim()}
             onClick={() => void handleImport()}
-            className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+            className="st-btn st-btn-primary"
           >
             {submitting ? '导入中...' : '导入'}
           </button>

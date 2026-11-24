@@ -124,8 +124,8 @@ export function EntryRecordForm({
   onCancel,
   onSubmit,
   className = 'flex min-h-0 flex-1 flex-col',
-  fieldsClassName = 'flex-1 space-y-3.5 overflow-y-auto px-5 py-4',
-  footerClassName = 'flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/70 px-5 py-3',
+  fieldsClassName = 'st-drawer-body grid grid-cols-2 gap-x-4 gap-y-4',
+  footerClassName = 'st-modal-footer',
 }: EntryRecordFormProps) {
   const rawColumns = useMemo(() => filterRawColumns(columns), [columns])
   const [drafts, setDrafts] = useState<Record<string, unknown>>({})
@@ -193,10 +193,7 @@ export function EntryRecordForm({
     <form onSubmit={(e) => void handleSubmit(e)} noValidate className={className}>
       <div className={fieldsClassName}>
         {submitError && (
-          <div
-            role="alert"
-            className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-          >
+          <div role="alert" className="st-alert st-alert-red col-span-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{submitError}</span>
           </div>
@@ -205,9 +202,8 @@ export function EntryRecordForm({
         {rawColumns.map((col) => {
           const errMsg = fieldErrors[col.key]
           const hasErr = Boolean(errMsg)
-          const inputBorderClass = hasErr
-            ? 'border-red-400 bg-red-50/40 focus:border-red-500'
-            : 'border-slate-200 bg-white focus:border-blue-500'
+          const errorBorderClass = hasErr ? 'border-red-400 bg-red-50/40 focus:border-red-500' : ''
+          const fullRow = col.type === 'image' || col.type === 'link'
           const inputId = `st-entry-field-${col.key}`
 
           return (
@@ -215,10 +211,10 @@ export function EntryRecordForm({
               key={col.key}
               data-field-key={col.key}
               data-field-error={hasErr ? 'true' : undefined}
-              className="space-y-1"
+              className={fullRow ? 'col-span-2 space-y-1' : 'space-y-1'}
             >
-              <div className="flex items-center justify-between text-xs">
-                <label htmlFor={inputId} className="font-medium text-slate-700">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor={inputId} className="st-label mb-0">
                   <span>{col.title}</span>
                   {col.required && (
                     <span className="ml-0.5 text-red-500" aria-label="必填">
@@ -226,9 +222,7 @@ export function EntryRecordForm({
                     </span>
                   )}
                 </label>
-                <span className="text-[10px] text-slate-400">
-                  {TYPE_HINTS[col.type] ?? col.type}
-                </span>
+                <span className="text-xs text-slate-400">{TYPE_HINTS[col.type] ?? col.type}</span>
               </div>
 
               {col.type === 'select' && col.options && col.options.length > 0 ? (
@@ -247,13 +241,13 @@ export function EntryRecordForm({
                   />
                 </div>
               ) : col.type === 'checkbox' ? (
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-1.5 text-xs text-slate-700">
+                <label className="inline-flex cursor-pointer items-center gap-2 py-1 text-sm text-slate-700">
                   <input
                     id={inputId}
                     type="checkbox"
                     disabled={disabled}
                     aria-invalid={hasErr || undefined}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    className="st-checkbox"
                     checked={Boolean(drafts[col.key])}
                     onChange={(e) => updateField(col.key, e.target.checked)}
                   />
@@ -280,7 +274,7 @@ export function EntryRecordForm({
                     aria-invalid={hasErr || undefined}
                     value={scalarToText(drafts[col.key])}
                     onChange={(e) => updateField(col.key, e.target.value)}
-                    className={`h-8 w-16 rounded-md border px-2 text-right text-xs text-slate-800 focus:outline-none ${inputBorderClass}`}
+                    className={`st-input w-16 px-2 text-right text-xs ${errorBorderClass}`}
                   />
                   <span className="text-xs text-slate-500">%</span>
                 </div>
@@ -295,7 +289,7 @@ export function EntryRecordForm({
                   placeholder="输入数值"
                   value={scalarToText(drafts[col.key])}
                   onChange={(e) => updateField(col.key, e.target.value)}
-                  className={`h-8 w-full rounded-md border px-2.5 text-xs text-slate-800 focus:outline-none ${inputBorderClass}`}
+                  className={`st-input ${errorBorderClass}`}
                 />
               ) : col.type === 'date' ? (
                 <input
@@ -306,7 +300,7 @@ export function EntryRecordForm({
                   aria-invalid={hasErr || undefined}
                   value={scalarToText(drafts[col.key])}
                   onChange={(e) => updateField(col.key, e.target.value)}
-                  className={`h-8 w-full rounded-md border px-2.5 text-xs text-slate-800 focus:outline-none ${inputBorderClass}`}
+                  className={`st-input ${errorBorderClass}`}
                 />
               ) : col.type === 'image' ? (
                 <div className="space-y-1.5">
@@ -319,7 +313,7 @@ export function EntryRecordForm({
                     placeholder="输入图片地址 (URL)"
                     value={scalarToText(drafts[col.key])}
                     onChange={(e) => updateField(col.key, e.target.value)}
-                    className={`h-8 w-full rounded-md border px-2.5 text-xs text-slate-800 focus:outline-none ${inputBorderClass}`}
+                    className={`st-input ${errorBorderClass}`}
                   />
                   {scalarToText(drafts[col.key]).trim() !== '' && (
                     <div className="rounded-md border border-slate-100 bg-slate-50 p-1.5">
@@ -347,12 +341,12 @@ export function EntryRecordForm({
                   }
                   value={scalarToText(drafts[col.key])}
                   onChange={(e) => updateField(col.key, e.target.value)}
-                  className={`h-8 w-full rounded-md border px-2.5 text-xs text-slate-800 focus:outline-none ${inputBorderClass}`}
+                  className={`st-input ${errorBorderClass}`}
                 />
               )}
 
               {hasErr && (
-                <p role="alert" className="text-[11px] text-red-600">
+                <p role="alert" className="st-alert st-alert-red px-2 py-1">
                   {errMsg}
                 </p>
               )}
@@ -367,17 +361,13 @@ export function EntryRecordForm({
             type="button"
             disabled={disabled}
             onClick={onCancel}
-            className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="st-btn st-btn-secondary"
           >
             {cancelLabel}
           </button>
         )}
-        <button
-          type="submit"
-          disabled={disabled}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          <Save className="h-3.5 w-3.5" />
+        <button type="submit" disabled={disabled} className="st-btn st-btn-primary">
+          <Save className="h-4 w-4" />
           <span>{submitting ? '提交中...' : resolvedSubmitLabel}</span>
         </button>
       </div>
@@ -416,35 +406,26 @@ export function EntryRecordDrawer({
       onClick={() => !busy && onClose()}
     >
       <aside
-        className="flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl"
+        className="st-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={mode === 'create' ? '新建录入记录' : '编辑记录详情'}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-3.5">
+        <div className="st-drawer-header">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                  mode === 'create' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
-                }`}
-              >
-                {mode === 'create' ? '表单录入' : '编辑详情'}
-              </span>
-              {mode === 'edit' && record && (
-                <span className="truncate font-mono text-[11px] text-slate-400">{record._id}</span>
-              )}
-            </div>
-            <h2 className="mt-1 truncate text-sm font-semibold text-slate-900">
-              {mode === 'create' ? '新增数据记录' : '编辑记录详情'}
+            <h2 className="truncate text-base font-semibold text-slate-900">
+              {mode === 'create' ? '新建记录' : '编辑记录'}
             </h2>
+            {mode === 'edit' && record && (
+              <div className="mt-0.5 truncate text-xs text-slate-500">{record._id}</div>
+            )}
           </div>
           <button
             type="button"
             disabled={busy}
             onClick={onClose}
             aria-label="关闭表单抽屉"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="st-icon-btn"
           >
             <X className="h-4 w-4" />
           </button>

@@ -16,7 +16,6 @@ import {
   ShieldCheck,
   Table2,
   UserCheck,
-  Users,
   X,
 } from 'lucide-react'
 import {
@@ -43,6 +42,7 @@ import type {
 } from '../shared/schema'
 import { CustomSelect } from './CustomSelect'
 import { ViewTypeIcon } from './Sidebar'
+import { PageHeading } from './PageHeading'
 import type { ToastType } from './Toast'
 
 export interface PermissionsPageProps {
@@ -158,8 +158,8 @@ function SegmentedToggle<T extends string>({
   onChange: (next: T) => void
 }) {
   return (
-    <div className="space-y-1">
-      <div className="text-[11px] font-medium text-slate-500">{label}</div>
+    <div>
+      <div className="st-label-sm">{label}</div>
       <div
         role="radiogroup"
         aria-label={ariaLabel}
@@ -176,10 +176,8 @@ function SegmentedToggle<T extends string>({
               title={opt.title}
               disabled={disabled}
               onClick={() => onChange(opt.value)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                active
-                  ? 'bg-white text-blue-700 shadow-2xs ring-1 ring-blue-200/80'
-                  : 'text-slate-600 hover:text-slate-900'
+              className={`h-7 rounded-md px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                active ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               {opt.label}
@@ -215,17 +213,17 @@ function ManagerCheckList({
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-sky-200/80 bg-sky-50/50 px-3 py-2.5">
+    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-700">
-          <UserCheck className="h-3.5 w-3.5 text-sky-600" />
+        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+          <UserCheck className="h-4 w-4 text-slate-400" />
           <span>指定可见与可管理的负责人名单</span>
         </div>
-        <span className="text-[11px] text-slate-500">已选 {selectedIds.length} 人</span>
+        <span className="text-xs text-slate-500">已选 {selectedIds.length} 人</span>
       </div>
 
       {candidates.length === 0 ? (
-        <div className="text-xs text-slate-400">暂无可选负责人（需负责人或管理员角色账号）</div>
+        <div className="text-xs text-slate-500">暂无可选负责人（需负责人或管理员角色账号）</div>
       ) : (
         <div className="flex flex-wrap gap-2">
           {candidates.map((user) => {
@@ -233,10 +231,10 @@ function ManagerCheckList({
             return (
               <label
                 key={user.id}
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors ${
                   checked
-                    ? 'border-blue-300 bg-white font-medium text-blue-700 shadow-2xs'
-                    : 'border-slate-200 bg-white/80 text-slate-700 hover:border-slate-300'
+                    ? 'border-blue-300 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
               >
                 <input
@@ -245,10 +243,10 @@ function ManagerCheckList({
                   disabled={disabled}
                   aria-label={`${resourceLabel} 指定负责人 ${user.displayName}`}
                   onChange={() => toggleUser(user.id)}
-                  className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="st-checkbox"
                 />
                 <span>{user.displayName}</span>
-                <span className="rounded bg-slate-100 px-1 py-0.2 text-[10px] text-slate-500">
+                <span className="rounded bg-slate-100 px-1 text-slate-500">
                   {USER_ROLE_LABELS[user.role]}
                 </span>
               </label>
@@ -258,7 +256,7 @@ function ManagerCheckList({
       )}
 
       {selectedIds.length === 0 && (
-        <p className="mt-1.5 text-[11px] text-amber-700">
+        <p className="mt-2 text-xs text-amber-700">
           未勾选任何负责人时，仅资源创建者本人与管理员可见。
         </p>
       )}
@@ -282,10 +280,10 @@ function ResourceSaveBar({
   onSave: () => void
 }) {
   return (
-    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
-      <div className="text-[11px]">
+    <div className="mt-4 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+      <div className="text-xs">
         {dirty ? (
-          <span className="inline-flex items-center gap-1 font-medium text-amber-600">
+          <span className="inline-flex items-center gap-1.5 font-medium text-amber-600">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
             <span>有未保存修改</span>
           </span>
@@ -300,9 +298,9 @@ function ResourceSaveBar({
             type="button"
             disabled={saving}
             onClick={onReset}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="st-btn st-btn-sm st-btn-secondary"
           >
-            <RotateCcw className="h-3 w-3" />
+            <RotateCcw className="h-3.5 w-3.5" />
             <span>重置</span>
           </button>
         )}
@@ -311,9 +309,9 @@ function ResourceSaveBar({
           disabled={!dirty || saving}
           aria-label={`保存${resourceKindLabel} ${resourceName} 权限`}
           onClick={onSave}
-          className="inline-flex h-7 items-center gap-1 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+          className={`st-btn st-btn-sm ${dirty ? 'st-btn-primary' : 'st-btn-secondary'}`}
         >
-          <Save className="h-3 w-3" />
+          <Save className="h-3.5 w-3.5" />
           <span>{saving ? '保存中...' : '保存配置'}</span>
         </button>
       </div>
@@ -346,7 +344,7 @@ function ScopedAccessEditor<TMemberChoice extends string>({
 }) {
   return (
     <>
-      <div className="mt-3 flex flex-wrap items-start gap-4">
+      <div className="mt-4 grid gap-x-8 gap-y-4 md:grid-cols-2">
         <SegmentedToggle
           label="可见范围"
           ariaLabel={`${resourceLabel} 可见范围`}
@@ -715,25 +713,25 @@ export function PermissionsPage({
         data-testid="permissions-forbidden"
         className="flex h-full w-full flex-col items-center justify-center bg-slate-50 p-6"
       >
-        <div className="flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+        <div className="st-card flex max-w-md flex-col items-center p-8 text-center">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-600">
             <Lock className="h-6 w-6" />
           </div>
-          <h2 className="text-sm font-semibold text-slate-900">无权访问权限管理</h2>
-          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+          <h2 className="text-base font-semibold text-slate-900">无权访问权限管理</h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">
             {forbiddenMessage ??
               '仅管理员与负责人可配置多维数据台应用/视图可见范围、成员操作权限与数据表行级策略。'}
           </p>
-          <p className="mt-2.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-500">
             普通成员仅可按授权范围在「工作台」只读查看或协作编辑应用，以及在「数据录入」端填报授权数据表。
           </p>
           {onBackToWorkbench && (
             <button
               type="button"
               onClick={onBackToWorkbench}
-              className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="st-btn st-btn-secondary mt-5"
             >
-              <ArrowLeft className="h-3.5 w-3.5" />
+              <ArrowLeft className="h-4 w-4" />
               <span>返回工作台</span>
             </button>
           )}
@@ -752,169 +750,130 @@ export function PermissionsPage({
   return (
     <div
       data-testid="permissions-page"
-      className="flex h-full w-full flex-col overflow-hidden bg-slate-50 text-slate-900"
+      className="st-page w-full overflow-hidden bg-white text-slate-900"
     >
-      {/* 顶部标题与检索栏 */}
-      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {onBackToWorkbench && (
-            <button
-              type="button"
-              onClick={onBackToWorkbench}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 hover:bg-slate-50"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>工作台</span>
-            </button>
-          )}
-          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-            <ShieldCheck className="h-4 w-4" />
-          </span>
-          <h1 className="truncate text-sm font-semibold text-slate-900">权限管理</h1>
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              currentUser.role === 'admin'
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'bg-sky-50 text-sky-700'
-            }`}
-          >
-            {currentUser.role === 'admin'
+      {/* 顶部标题与检索栏（返回工作台由常驻侧栏承担） */}
+      <header className="st-page-header justify-between">
+        <PageHeading
+          icon={<ShieldCheck className="h-4 w-4" />}
+          title="权限管理"
+          meta={
+            currentUser.role === 'admin'
               ? '管理员 · 全空间权限矩阵'
-              : '负责人 · 仅本人创建或负责资源'}
-          </span>
-        </div>
+              : '负责人 · 仅本人创建或负责资源'
+          }
+        />
 
         <div className="flex shrink-0 items-center gap-2">
           <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               aria-label="搜索权限资源"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索应用、视图或数据表..."
-              className="h-7 w-56 rounded-md border border-slate-200 bg-slate-50/70 pr-7 pl-8 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none"
+              className="st-input w-72 pl-8 pr-8"
             />
             {searchQuery !== '' && (
               <button
                 type="button"
                 aria-label="清空搜索"
                 onClick={() => setSearchQuery('')}
-                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-200/60 hover:text-slate-600"
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
 
           <button
             type="button"
+            aria-label="刷新"
             disabled={loading || savingKey !== null}
             onClick={() => void loadOverview()}
-            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="st-tool st-tool-icon"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>刷新</span>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <span className="sr-only">刷新</span>
           </button>
         </div>
       </header>
 
-      {/* 分组导航条 + 两层权限模型说明 */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white/80 px-5 py-2">
-        <div
-          className="flex flex-wrap items-center gap-1.5"
-          role="tablist"
-          aria-label="权限分类筛选"
-        >
-          {(
-            [
-              { id: 'all', label: '全部资源', count: totalCount },
-              { id: 'apps', label: '多维数据台应用', count: overview?.apps.length ?? 0 },
-              { id: 'views', label: '应用视图', count: overview?.views.length ?? 0 },
-              { id: 'tables', label: '数据源表行级策略', count: overview?.tables.length ?? 0 },
-            ] as const
-          ).map((tab) => {
-            const active = sectionFilter === tab.id
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setSectionFilter(tab.id)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  active
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-                    active ? 'bg-white/20 text-white' : 'bg-white text-slate-500'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-          <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-          <span>第一层控应用/视图可见范围与成员读写；第二层控表内行级范围与绑定人员列</span>
-        </div>
+      {/* 资源类型筛选条 */}
+      <div
+        className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-slate-200 bg-white px-6 st-scroll"
+        role="tablist"
+        aria-label="权限分类筛选"
+      >
+        {(
+          [
+            { id: 'all', label: '全部资源', count: totalCount },
+            { id: 'apps', label: '多维数据台应用', count: overview?.apps.length ?? 0 },
+            { id: 'views', label: '应用视图', count: overview?.views.length ?? 0 },
+            { id: 'tables', label: '数据源表行级策略', count: overview?.tables.length ?? 0 },
+          ] as const
+        ).map((tab) => {
+          const active = sectionFilter === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setSectionFilter(tab.id)}
+              className={`st-chip ${active ? 'st-chip-active' : ''}`}
+            >
+              <span>{tab.label}</span>
+              <span className="ml-1 tabular-nums">{tab.count}</span>
+            </button>
+          )
+        })}
       </div>
 
-      {/* 主体权限矩阵区 */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      {/* 主体权限配置区 */}
+      <div className="st-page-body">
         {loading && !overview ? (
           <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-500">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-indigo-600"
-              aria-hidden="true"
-            />
-            <div className="text-xs">正在加载权限配置矩阵...</div>
+            <div className="st-spinner" aria-hidden="true" />
+            <div className="text-sm">正在加载权限配置...</div>
           </div>
         ) : loadError && !overview ? (
           <div
             data-testid="permissions-error"
-            className="mx-auto mt-12 flex max-w-md flex-col items-center rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm"
+            className="st-card mx-auto mt-12 flex max-w-md flex-col items-center p-8 text-center"
           >
-            <ShieldCheck className="mb-2.5 h-7 w-7 text-slate-400" />
-            <div className="text-sm font-semibold text-slate-900">权限矩阵加载失败</div>
-            <p className="mt-1 text-xs text-slate-500">{loadError}</p>
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <div className="text-base font-semibold text-slate-900">权限配置加载失败</div>
+            <p className="mt-1.5 text-sm text-slate-500">{loadError}</p>
             <button
               type="button"
               onClick={() => void loadOverview()}
-              className="mt-4 inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="st-btn st-btn-secondary mt-5"
             >
               重试加载
             </button>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-5xl flex-col gap-6">
+          <div className="mx-auto flex max-w-5xl flex-col gap-8">
             {/* 第一层：多维数据台应用 */}
             {showAppsSection && (
-              <section aria-label="多维数据台应用权限" className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Layers className="h-4 w-4 text-blue-600" />
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      多维数据台应用权限（第一层）
-                    </h2>
-                    <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                      {filteredApps.length}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-500">
+              <section aria-label="多维数据台应用权限" className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4.5 w-4.5 shrink-0 text-slate-400" />
+                  <h2 className="shrink-0 text-base font-semibold text-slate-900">
+                    多维数据台应用权限（第一层）
+                  </h2>
+                  <span className="st-badge st-badge-gray tabular-nums">{filteredApps.length}</span>
+                  <span className="ml-auto min-w-0 truncate pl-4 text-xs text-slate-500">
                     控制应用可见范围及下属视图默认成员操作权
                   </span>
                 </div>
 
                 {filteredApps.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400">
+                  <div className="st-empty">
                     {normalizedQuery
                       ? `没有匹配「${searchQuery}」的多维数据台应用`
                       : '当前账号暂无可配置权限的多维数据台应用'}
@@ -932,23 +891,18 @@ export function PermissionsPage({
                         <article
                           key={app.id}
                           data-testid={`perm-app-${app.id}`}
-                          className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs"
+                          className="st-card p-5"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-slate-900">
-                                  {app.name}
-                                </span>
-                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                                  多维数据台 · {viewCount} 视图
-                                </span>
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                                <span>创建人：{app.createdByName}</span>
-                                <span>绑定数据源：{tableName}</span>
-                              </div>
-                            </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <Layers className="h-4 w-4 shrink-0 text-slate-400" />
+                            <h3 className="text-sm font-semibold text-slate-900">{app.name}</h3>
+                            <span className="st-badge st-badge-blue">
+                              多维数据台 · {viewCount} 视图
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                            <span>创建人：{app.createdByName}</span>
+                            <span>绑定数据源：{tableName}</span>
                           </div>
 
                           <ScopedAccessEditor
@@ -988,24 +942,22 @@ export function PermissionsPage({
 
             {/* 第一层：应用视图 */}
             {showViewsSection && (
-              <section aria-label="应用视图权限" className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Table2 className="h-4 w-4 text-violet-600" />
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      应用视图权限（第一层精细覆盖）
-                    </h2>
-                    <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                      {filteredViews.length}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-500">
+              <section aria-label="应用视图权限" className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Table2 className="h-4.5 w-4.5 shrink-0 text-slate-400" />
+                  <h2 className="shrink-0 text-base font-semibold text-slate-900">
+                    应用视图权限（第一层精细覆盖）
+                  </h2>
+                  <span className="st-badge st-badge-gray tabular-nums">
+                    {filteredViews.length}
+                  </span>
+                  <span className="ml-auto min-w-0 truncate pl-4 text-xs text-slate-500">
                     受所属应用可见范围约束，支持独立收窄视图可见人与覆盖普通成员授权
                   </span>
                 </div>
 
                 {filteredViews.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400">
+                  <div className="st-empty">
                     {normalizedQuery
                       ? `没有匹配「${searchQuery}」的应用视图`
                       : '当前账号暂无可配置权限的应用视图'}
@@ -1030,26 +982,18 @@ export function PermissionsPage({
                         <article
                           key={view.id}
                           data-testid={`perm-view-${view.id}`}
-                          className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs"
+                          className="st-card p-5"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <ViewTypeIcon type={view.type} className="h-4 w-4 shrink-0" />
-                                <span className="text-sm font-semibold text-slate-900">
-                                  {view.name}
-                                </span>
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                                  {VIEW_TYPE_LABELS[view.type]}
-                                </span>
-                                <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
-                                  所属应用：{view.appName || view.appId}
-                                </span>
-                              </div>
-                              <div className="mt-1 text-[11px] text-slate-500">
-                                创建人：{view.createdByName}
-                              </div>
-                            </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <ViewTypeIcon type={view.type} className="h-4 w-4 shrink-0" />
+                            <h3 className="text-sm font-semibold text-slate-900">{view.name}</h3>
+                            <span className="st-badge st-badge-blue">
+                              {VIEW_TYPE_LABELS[view.type]}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                            <span>创建人：{view.createdByName}</span>
+                            <span>所属应用：{view.appName || view.appId}</span>
                           </div>
 
                           <ScopedAccessEditor
@@ -1089,24 +1033,22 @@ export function PermissionsPage({
 
             {/* 第二层：数据源表行级数据范围与业务负责人人员列绑定 */}
             {showTablesSection && (
-              <section aria-label="数据源表行级权限" className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-4 w-4 text-emerald-600" />
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      数据源表行级权限与负责人列绑定（第二层）
-                    </h2>
-                    <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                      {filteredTables.length}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-500">
+              <section aria-label="数据源表行级权限" className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4.5 w-4.5 shrink-0 text-slate-400" />
+                  <h2 className="shrink-0 text-base font-semibold text-slate-900">
+                    数据源表行级权限与负责人列绑定（第二层）
+                  </h2>
+                  <span className="st-badge st-badge-gray tabular-nums">
+                    {filteredTables.length}
+                  </span>
+                  <span className="ml-auto min-w-0 truncate pl-4 text-xs text-slate-500">
                     绑定 person 人员列后，按业务负责人姓名或记录创建人过滤表内数据行
                   </span>
                 </div>
 
                 {filteredTables.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400">
+                  <div className="st-empty">
                     {normalizedQuery
                       ? `没有匹配「${searchQuery}」的数据源表`
                       : '当前账号暂无可配置行级策略的数据源表'}
@@ -1129,31 +1071,24 @@ export function PermissionsPage({
                         <article
                           key={table.id}
                           data-testid={`perm-table-${table.id}`}
-                          className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs"
+                          className="st-card p-5"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-semibold text-slate-900">
-                                  {table.name}
-                                </span>
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                    table.kind === 'advanced'
-                                      ? 'bg-amber-50 text-amber-700'
-                                      : 'bg-emerald-50 text-emerald-700'
-                                  }`}
-                                >
-                                  {table.kind === 'advanced' ? 'SQL 主数据表' : '普通表'}
-                                </span>
-                              </div>
-                              <div className="mt-1 text-[11px] text-slate-500">
-                                创建人：{table.createdByName}
-                              </div>
-                            </div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <Table2 className="h-4 w-4 shrink-0 text-slate-400" />
+                            <h3 className="text-sm font-semibold text-slate-900">{table.name}</h3>
+                            <span
+                              className={`st-badge ${
+                                table.kind === 'advanced' ? 'st-badge-violet' : 'st-badge-gray'
+                              }`}
+                            >
+                              {table.kind === 'advanced' ? 'SQL 主数据表' : '普通表'}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                            <span>创建人：{table.createdByName}</span>
                           </div>
 
-                          <div className="mt-3 flex flex-wrap items-start gap-5">
+                          <div className="mt-4 grid gap-x-8 gap-y-4 md:grid-cols-2">
                             <SegmentedToggle
                               label="行级数据范围"
                               ariaLabel={`数据表 ${table.name} 行级数据范围`}
@@ -1163,10 +1098,8 @@ export function PermissionsPage({
                               onChange={(rowScope) => patchTableDraft(table, { rowScope })}
                             />
 
-                            <div className="min-w-[260px] flex-1 space-y-1">
-                              <div className="text-[11px] font-medium text-slate-500">
-                                绑定业务负责人列（person 类型）
-                              </div>
+                            <div className="min-w-0">
+                              <div className="st-label-sm">绑定业务负责人列（person 类型）</div>
                               <CustomSelect
                                 size="sm"
                                 className="w-full max-w-sm"
@@ -1181,7 +1114,7 @@ export function PermissionsPage({
                                 }
                               />
                               {table.personColumns.length === 0 && (
-                                <p className="text-[11px] text-slate-400">
+                                <p className="mt-1 text-xs text-slate-500">
                                   该表暂无 person 类型列，行归属将仅按记录创建人 createdBy 判定。
                                 </p>
                               )}
@@ -1203,7 +1136,7 @@ export function PermissionsPage({
                             )}
                           </div>
 
-                          <p className="mt-2 text-[11px] text-slate-500">
+                          <p className="mt-3 text-xs text-slate-500">
                             生效说明：{ROW_SCOPE_DESCRIPTIONS[draft.rowScope]}
                           </p>
 

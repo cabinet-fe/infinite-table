@@ -1,7 +1,7 @@
 // 新增列弹窗：按分层模式隔离数据源原始列（支持必填/对齐/格式/单选选项）与 SmartApp 公式派生列
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlignCenter, AlignLeft, AlignRight, X } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight, Database, Sigma, X } from 'lucide-react'
 import { validateFormulaExpr } from '../domain/formula-column'
 import {
   DECIMAL_PLACES_OPTIONS,
@@ -92,11 +92,11 @@ export function SelectOptionsEditor({
 
   return (
     <div className="space-y-2">
-      <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2">
+      <div className="st-scroll max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 p-2">
         {options.map((opt, idx) => (
           <div
             key={`${opt.label}-${idx}`}
-            className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1.5 shadow-2xs"
+            className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1.5"
           >
             <span
               className="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -104,7 +104,7 @@ export function SelectOptionsEditor({
             >
               {opt.label}
             </span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               {SELECT_COLOR_PRESETS.map((preset) => (
                 <button
                   key={preset.color}
@@ -127,7 +127,7 @@ export function SelectOptionsEditor({
                 <button
                   type="button"
                   disabled={disabled}
-                  className="ml-1 rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="st-icon-btn st-icon-btn-xs st-icon-btn-danger ml-0.5"
                   aria-label={`移除选项 ${opt.label}`}
                   onClick={() => onChange(options.filter((_, i) => i !== idx))}
                 >
@@ -142,8 +142,8 @@ export function SelectOptionsEditor({
         <input
           type="text"
           disabled={disabled}
-          className="h-7 flex-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
-          placeholder="输入新选项名称后按添加..."
+          className="st-input st-input-sm flex-1"
+          placeholder="输入新选项名称"
           value={newOptionInput}
           onChange={(e) => setNewOptionInput(e.target.value)}
           onKeyDown={(e) => {
@@ -155,7 +155,7 @@ export function SelectOptionsEditor({
         />
         <button
           type="button"
-          className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          className="st-btn st-btn-xs st-btn-secondary"
           disabled={disabled || !newOptionInput.trim()}
           onClick={handleAddOption}
         >
@@ -263,30 +263,30 @@ export function AddColumnModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
-      onClick={() => !submitting && onClose()}
-    >
+    <div className="st-overlay" onClick={() => !submitting && onClose()}>
       <div
-        className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="st-modal max-w-lg"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={isAppMode ? '新增公式派生列' : '新增原始字段列'}
       >
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">
-              {isAppMode ? '新增公式派生列' : '新增原始字段列'}
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {isAppMode
-                ? '基于底层数据源原始列与当前多维数据台关联列动态计算，仅作用于本多维数据台'
-                : '定义数据源表的原始字段结构与录入校验规则'}
-            </p>
+        <div className="st-modal-header">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              {isAppMode ? <Sigma className="h-5 w-5" /> : <Database className="h-5 w-5" />}
+            </div>
+            <div>
+              <h2 className="st-modal-title">{isAppMode ? '新增公式派生列' : '新增原始字段列'}</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {isAppMode
+                  ? '基于源表原始列与关联列动态计算，仅作用于本多维数据台'
+                  : '定义数据源表的字段结构与录入校验规则'}
+              </p>
+            </div>
           </div>
           <button
             type="button"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+            className="st-icon-btn"
             disabled={submitting}
             onClick={onClose}
             aria-label="关闭"
@@ -296,18 +296,15 @@ export function AddColumnModal({
         </div>
 
         <form onSubmit={(e) => void handleSubmit(e)}>
-          <div className="max-h-[70vh] space-y-3.5 overflow-y-auto px-5 py-4">
+          <div className="st-modal-body st-scroll max-h-[70vh] space-y-4">
             <div className="space-y-1.5">
-              <label
-                className="block text-xs font-medium text-slate-700"
-                htmlFor="st-add-col-title"
-              >
+              <label className="st-label" htmlFor="st-add-col-title">
                 列标题
               </label>
               <input
                 id="st-add-col-title"
                 type="text"
-                className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                className="st-input"
                 value={colTitle}
                 onChange={(e) => setColTitle(e.target.value)}
                 placeholder={isAppMode ? '例如：回款达成率 / 毛利额' : '例如：客户名称 / 合同金额'}
@@ -318,7 +315,7 @@ export function AddColumnModal({
             {!isAppMode && (
               <>
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-700">字段类型</label>
+                  <label className="st-label">字段类型</label>
                   <CustomSelect
                     className="w-full"
                     value={colType}
@@ -328,45 +325,42 @@ export function AddColumnModal({
                   />
                 </div>
 
-                <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
-                  <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
+                <div className="flex items-center justify-between gap-4">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                      className="st-checkbox"
                       checked={required}
                       onChange={(e) => setRequired(e.target.checked)}
                     />
-                    <span>设为必填（required）</span>
+                    <span>设为必填</span>
                   </label>
 
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-slate-500">列对齐</span>
-                    <div
-                      className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white p-0.5"
-                      role="group"
-                      aria-label="列对齐"
-                    >
-                      {COLUMN_ALIGN_OPTIONS.map(({ value, label, icon: Icon }) => {
-                        const active = align === value
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            title={label}
-                            aria-label={label}
-                            aria-pressed={active}
-                            onClick={() => setAlign(active ? undefined : value)}
-                            className={`rounded p-1 transition-colors ${
-                              active
-                                ? 'bg-blue-50 text-blue-600'
-                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                            }`}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                          </button>
-                        )
-                      })}
-                    </div>
+                  <div
+                    className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-white p-0.5"
+                    role="group"
+                    aria-label="列对齐"
+                  >
+                    {COLUMN_ALIGN_OPTIONS.map(({ value, label, icon: Icon }) => {
+                      const active = align === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          title={label}
+                          aria-label={label}
+                          aria-pressed={active}
+                          onClick={() => setAlign(active ? undefined : value)}
+                          className={`rounded p-1 transition-colors ${
+                            active
+                              ? 'bg-blue-50 text-blue-600'
+                              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </>
@@ -376,7 +370,7 @@ export function AddColumnModal({
               <div className="grid grid-cols-2 gap-3">
                 {(isAppMode || colType === 'number') && (
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-slate-700">数值显示格式</label>
+                    <label className="st-label">数值显示格式</label>
                     <CustomSelect
                       className="w-full"
                       value={colFormat}
@@ -387,7 +381,7 @@ export function AddColumnModal({
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-700">小数位数</label>
+                  <label className="st-label">小数位数</label>
                   <CustomSelect
                     className="w-full"
                     value={toDecimalPlacesChoice(decimalPlaces)}
@@ -401,7 +395,7 @@ export function AddColumnModal({
 
             {!isAppMode && colType === 'select' && (
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-slate-700">单选标签选项</label>
+                <label className="st-label">单选标签选项</label>
                 <SelectOptionsEditor
                   options={selectOptionsDraft}
                   disabled={submitting}
@@ -412,16 +406,13 @@ export function AddColumnModal({
 
             {isAppMode && (
               <div className="space-y-2">
-                <label
-                  className="block text-xs font-medium text-slate-700"
-                  htmlFor="st-formula-expr"
-                >
+                <label className="st-label" htmlFor="st-formula-expr">
                   公式表达式（支持 [列名] 引用源表及当前应用派生列）
                 </label>
                 <input
                   id="st-formula-expr"
                   type="text"
-                  className="h-8 w-full rounded-md border border-slate-200 px-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                  className="st-input font-mono"
                   value={formulaExpr}
                   onChange={(e) => setFormulaExpr(e.target.value)}
                   placeholder='例如：=[累计回款] / [合同金额] 或 IF([进度]>=100, "已达标", "进行中")'
@@ -431,28 +422,28 @@ export function AddColumnModal({
                     <button
                       key={c.key}
                       type="button"
-                      className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                      className="inline-flex h-6 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5 font-mono text-xs text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                       onClick={() => setFormulaExpr((prev) => `${prev}[${c.title}]`)}
                     >
                       [{c.title}]
                     </button>
                   ))}
                 </div>
-                <div
-                  className={`min-h-[18px] text-xs ${
-                    formulaValidation.valid ? 'text-emerald-600' : 'text-red-600'
-                  }`}
-                >
-                  {formulaValidation.valid ? '公式语法校验通过' : formulaValidation.error}
+                <div className="min-h-[20px]">
+                  {formulaValidation.valid ? (
+                    <div className="text-xs text-emerald-600">公式语法校验通过</div>
+                  ) : (
+                    <div className="st-alert st-alert-red">{formulaValidation.error}</div>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
+          <div className="st-modal-footer">
             <button
               type="button"
-              className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="st-btn st-btn-secondary"
               disabled={submitting}
               onClick={onClose}
             >
@@ -460,7 +451,7 @@ export function AddColumnModal({
             </button>
             <button
               type="submit"
-              className="h-8 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+              className="st-btn st-btn-primary"
               disabled={
                 submitting ||
                 !colTitle.trim() ||

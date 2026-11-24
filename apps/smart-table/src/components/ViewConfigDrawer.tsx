@@ -4,15 +4,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
+  ArrowLeftRight,
   ArrowUp,
+  Calendar,
   Columns3,
   Eye,
   EyeOff,
+  Gauge,
   GripVertical,
+  Hash,
+  Image,
+  Link2,
+  List,
   Plus,
+  Sigma,
   Sparkles,
+  SquareCheck,
   Trash2,
+  Type,
+  User,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import type { SmartGridSelectionInfo } from '../canvas/smart-grid'
 import { scalarToText } from '../domain/utils'
@@ -28,6 +40,7 @@ import {
 import type {
   FilterCondition,
   FilterOperator,
+  SmartColumnType,
   SmartPivotConfig,
   SmartTableMeta,
   SortRule,
@@ -76,6 +89,21 @@ const FILTER_OPERATORS: { value: FilterOperator; label: string }[] = [
   { value: 'is_empty', label: '为空' },
   { value: 'is_not_empty', label: '不为空' },
 ]
+
+// 字段行左侧的类型图标（16px，装饰性）
+const FIELD_TYPE_ICONS: Record<SmartColumnType, LucideIcon> = {
+  text: Type,
+  number: Hash,
+  select: List,
+  date: Calendar,
+  checkbox: SquareCheck,
+  person: User,
+  progress: Gauge,
+  image: Image,
+  link: Link2,
+  lookup: ArrowLeftRight,
+  formula: Sigma,
+}
 
 export function ViewConfigDrawer({
   open,
@@ -237,61 +265,53 @@ export function ViewConfigDrawer({
 
   return (
     <aside
-      className="flex h-full w-[380px] shrink-0 flex-col border-l border-slate-200 bg-white shadow-sm"
+      className="flex h-full w-[400px] shrink-0 flex-col border-l border-slate-200 bg-white shadow-modal"
       aria-label="视图配置抽屉"
     >
       {/* 抽屉头 */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+      <div className="st-drawer-header">
         <div className="min-w-0">
-          <h2 className="truncate text-xs font-semibold text-slate-900">视图配置 · {view.name}</h2>
+          <h2 className="text-base leading-6 font-semibold text-slate-900">视图配置</h2>
+          <p className="truncate text-xs text-slate-500">{view.name}</p>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="关闭视图配置抽屉"
-          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="st-icon-btn"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* 分栏导航 */}
-      <div className="shrink-0 border-b border-slate-200 bg-slate-50/70 px-3 py-2">
-        <div
-          className="grid gap-1 rounded-lg bg-slate-200/70 p-0.5"
-          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
-        >
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onTabChange(tab.id)}
-              className={`h-7 rounded-md text-xs font-medium transition-colors ${
-                effectiveTab === tab.id
-                  ? 'bg-white text-blue-700 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      {/* 分栏导航（分段控件） */}
+      <div className="st-segment mx-5 mt-4 shrink-0">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onTabChange(tab.id)}
+            className={`st-segment-item ${effectiveTab === tab.id ? 'st-segment-item-active' : ''}`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="st-drawer-body st-scroll pt-3">
         {effectiveTab === 'fields' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-800">
+          <div className="space-y-5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-slate-900">
                 字段显示与顺序（{visibleCount}/{tableMeta.columns.length}）
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 {hiddenSet.size > 0 && (
                   <button
                     type="button"
                     onClick={() => onUpdateView({ hiddenColumns: [] })}
-                    className="text-[11px] text-blue-600 hover:underline"
+                    className="st-btn st-btn-xs st-btn-ghost"
                   >
                     全部显示
                   </button>
@@ -299,18 +319,19 @@ export function ViewConfigDrawer({
                 <button
                   type="button"
                   onClick={() => onUpdateView({ columnOrder: tableMeta.columns.map((c) => c.key) })}
-                  className="text-[11px] text-slate-500 hover:text-slate-800"
+                  className="st-btn st-btn-xs st-btn-ghost"
                 >
                   重置顺序
                 </button>
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-0.5">
               {orderedColumnKeys.map((key, idx) => {
                 const col = colByKey.get(key)
                 if (!col) return null
                 const isHidden = hiddenSet.has(key)
+                const TypeIcon = FIELD_TYPE_ICONS[col.type] ?? Type
                 return (
                   <div
                     key={key}
@@ -324,29 +345,33 @@ export function ViewConfigDrawer({
                       setDraggingKey(null)
                     }}
                     onDragEnd={() => setDraggingKey(null)}
-                    className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${
-                      isHidden
-                        ? 'border-slate-200/70 bg-slate-50/50 text-slate-400'
-                        : 'border-slate-200 bg-white text-slate-800'
-                    } ${draggingKey === key ? 'opacity-50' : ''}`}
+                    className={`group flex h-9 items-center gap-2 rounded-lg px-2 transition-colors hover:bg-slate-50 ${
+                      draggingKey === key ? 'opacity-50' : ''
+                    }`}
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-slate-300" />
-                      <span className="truncate text-xs font-medium">{col.title}</span>
-                      <span className="shrink-0 rounded bg-slate-100 px-1 py-0.2 text-[10px] text-slate-400">
-                        {col.type}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-0.5">
+                    <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-slate-300" />
+                    <TypeIcon className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span
+                      className={`truncate text-sm ${isHidden ? 'text-slate-400' : 'text-slate-800'}`}
+                    >
+                      {col.title}
+                    </span>
+                    {col.type === 'lookup' && (
+                      <span className="st-badge st-badge-blue">VLOOKUP</span>
+                    )}
+                    {col.type === 'formula' && (
+                      <span className="st-badge st-badge-violet">公式</span>
+                    )}
+                    <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <button
                         type="button"
                         disabled={idx === 0}
                         title="上移字段"
                         aria-label={`上移字段 ${col.title}`}
                         onClick={() => handleMoveColumn(idx, idx - 1)}
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+                        className="st-icon-btn st-icon-btn-xs"
                       >
-                        <ArrowUp className="h-3 w-3" />
+                        <ArrowUp className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
@@ -354,9 +379,9 @@ export function ViewConfigDrawer({
                         title="下移字段"
                         aria-label={`下移字段 ${col.title}`}
                         onClick={() => handleMoveColumn(idx, idx + 1)}
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30"
+                        className="st-icon-btn st-icon-btn-xs"
                       >
-                        <ArrowDown className="h-3 w-3" />
+                        <ArrowDown className="h-3.5 w-3.5" />
                       </button>
                       <button
                         type="button"
@@ -364,11 +389,7 @@ export function ViewConfigDrawer({
                         title={isHidden ? '显示此列' : '隐藏此列'}
                         aria-label={isHidden ? `显示 ${col.title}` : `隐藏 ${col.title}`}
                         onClick={() => handleToggleColVisible(key)}
-                        className={`rounded p-1 transition-colors ${
-                          isHidden
-                            ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
-                            : 'text-blue-600 hover:bg-blue-50'
-                        } disabled:opacity-30`}
+                        className={`st-icon-btn st-icon-btn-xs ${isHidden ? 'text-amber-500' : ''}`}
                       >
                         {isHidden ? (
                           <EyeOff className="h-3.5 w-3.5" />
@@ -382,15 +403,15 @@ export function ViewConfigDrawer({
               })}
             </div>
 
-            <div className="space-y-2 border-t border-slate-100 pt-3">
-              <div className="text-[11px] font-medium text-slate-500">表结构快速入口</div>
+            <div className="space-y-2">
+              <div className="st-section-label">表结构快速入口</div>
               <div className="flex flex-wrap gap-2">
                 {tableMeta.kind === 'normal' && (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={onOpenAddColumn}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50"
+                    className="st-btn st-btn-sm st-btn-secondary"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>新增列</span>
@@ -400,7 +421,7 @@ export function ViewConfigDrawer({
                   type="button"
                   disabled={busy}
                   onClick={onOpenLookupWizard}
-                  className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs text-blue-700 hover:bg-blue-100"
+                  className="st-btn st-btn-sm st-btn-secondary"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>VLOOKUP 向导</span>
@@ -409,7 +430,7 @@ export function ViewConfigDrawer({
                   type="button"
                   disabled={busy}
                   onClick={onOpenColumnManager}
-                  className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50"
+                  className="st-btn st-btn-sm st-btn-secondary"
                 >
                   <Columns3 className="h-3.5 w-3.5" />
                   <span>重命名/删列</span>
@@ -461,7 +482,7 @@ export function ViewConfigDrawer({
           <div className="space-y-5">
             {/* 快捷筛选字段 */}
             <section className="space-y-2">
-              <h3 className="text-xs font-semibold text-slate-800">工具栏快捷筛选字段</h3>
+              <h3 className="st-section-label">工具栏快捷筛选字段</h3>
               <div className="flex flex-wrap gap-1.5">
                 {tableMeta.columns.map((col) => {
                   const active = view.quickFilterFields.includes(col.key)
@@ -470,9 +491,9 @@ export function ViewConfigDrawer({
                       key={col.key}
                       type="button"
                       onClick={() => toggleQuickField(col.key)}
-                      className={`h-6 rounded-full border px-2.5 text-[11px] transition-colors ${
+                      className={`inline-flex h-7 items-center rounded-full border px-2.5 text-xs font-medium whitespace-nowrap transition-colors ${
                         active
-                          ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
                           : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -484,9 +505,9 @@ export function ViewConfigDrawer({
             </section>
 
             {/* 条件筛选 */}
-            <section className="space-y-2.5 border-t border-slate-100 pt-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-800">条件筛选</h3>
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="st-section-label">条件筛选</h3>
                 <CustomSelect
                   size="xs"
                   value={view.filterGroup.conjunction}
@@ -505,15 +526,13 @@ export function ViewConfigDrawer({
 
               <div className="space-y-1.5">
                 {view.filterGroup.conditions.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
-                    暂无固定筛选条件
-                  </div>
+                  <div className="st-empty py-3">暂无固定筛选条件</div>
                 ) : (
                   view.filterGroup.conditions.map((cond) => (
-                    <div key={cond.id} className="flex items-center gap-1">
+                    <div key={cond.id} className="group flex items-center gap-1">
                       <CustomSelect
                         size="xs"
-                        className="w-24"
+                        className="w-24 shrink-0"
                         value={cond.field}
                         ariaLabel="筛选字段"
                         options={columnOptions}
@@ -530,7 +549,7 @@ export function ViewConfigDrawer({
                       />
                       <CustomSelect
                         size="xs"
-                        className="w-24"
+                        className="w-24 shrink-0"
                         value={cond.operator}
                         ariaLabel="筛选操作符"
                         options={FILTER_OPERATORS}
@@ -548,7 +567,7 @@ export function ViewConfigDrawer({
                       {cond.operator !== 'is_empty' && cond.operator !== 'is_not_empty' && (
                         <input
                           type="text"
-                          className="h-6 min-w-0 flex-1 rounded-md border border-slate-200 px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                          className="st-input st-input-sm min-w-0 flex-1"
                           value={filterDrafts[cond.id] ?? scalarToText(cond.value)}
                           placeholder="值"
                           onChange={(e) => handleFilterTextChange(cond.id, e.target.value)}
@@ -567,9 +586,9 @@ export function ViewConfigDrawer({
                             },
                           })
                         }
-                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="st-icon-btn st-icon-btn-xs st-icon-btn-danger opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   ))
@@ -579,7 +598,7 @@ export function ViewConfigDrawer({
               <button
                 type="button"
                 onClick={addFilterCondition}
-                className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                className="st-btn st-btn-xs st-btn-secondary"
               >
                 <Plus className="h-3 w-3" />
                 <span>添加筛选条件</span>
@@ -587,29 +606,27 @@ export function ViewConfigDrawer({
             </section>
 
             {/* 多级排序 */}
-            <section className="space-y-2.5 border-t border-slate-100 pt-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-slate-800">多级排序</h3>
+            <section className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="st-section-label">多级排序</h3>
                 <button
                   type="button"
                   onClick={addSortRule}
-                  className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                  className="st-btn st-btn-xs st-btn-secondary"
                 >
                   <Plus className="h-3 w-3" />
                   <span>添加排序</span>
                 </button>
               </div>
               {view.sortRules.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
-                  默认记录插入顺序
-                </div>
+                <div className="st-empty py-3">默认记录插入顺序</div>
               ) : (
                 <div className="space-y-1.5">
                   {view.sortRules.map((rule, idx) => (
-                    <div key={`${rule.field}-${idx}`} className="flex items-center gap-1.5">
+                    <div key={`${rule.field}-${idx}`} className="group flex items-center gap-1.5">
                       <CustomSelect
                         size="xs"
-                        className="flex-1"
+                        className="min-w-0 flex-1"
                         value={rule.field}
                         ariaLabel="排序字段"
                         options={columnOptions}
@@ -623,7 +640,7 @@ export function ViewConfigDrawer({
                       />
                       <CustomSelect
                         size="xs"
-                        className="w-24"
+                        className="w-24 shrink-0"
                         value={rule.direction}
                         ariaLabel="排序方向"
                         options={[
@@ -646,9 +663,9 @@ export function ViewConfigDrawer({
                             sortRules: view.sortRules.filter((_, i) => i !== idx),
                           })
                         }
-                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="st-icon-btn st-icon-btn-xs st-icon-btn-danger opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   ))}
@@ -658,9 +675,9 @@ export function ViewConfigDrawer({
 
             {/* 底部汇总行设置（仅表格视图） */}
             {view.type === 'table' && (
-              <section className="space-y-2 border-t border-slate-100 pt-4">
-                <h3 className="text-xs font-semibold text-slate-800">底部汇总栏配置</h3>
-                <div className="space-y-1.5">
+              <section className="space-y-2">
+                <h3 className="st-section-label">底部汇总栏配置</h3>
+                <div className="space-y-0.5">
                   {tableMeta.columns.map((col) => {
                     const current = summariesMap[col.key] ?? 'none'
                     const available = getAvailableSummaryTypes(col).map((t) => ({
@@ -669,10 +686,10 @@ export function ViewConfigDrawer({
                     }))
                     return (
                       <div key={col.key} className="flex items-center justify-between gap-2">
-                        <span className="truncate text-xs text-slate-600">{col.title}</span>
+                        <span className="truncate text-sm text-slate-700">{col.title}</span>
                         <CustomSelect
                           size="xs"
-                          className="w-28"
+                          className="w-28 shrink-0"
                           value={current}
                           ariaLabel={`${col.title} 汇总方式`}
                           options={available}

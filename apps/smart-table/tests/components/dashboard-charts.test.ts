@@ -212,7 +212,7 @@ describe('DashboardChartBody (Chart.js)', () => {
     const donut = renderOne('pie', true)
     expect(donut.canvas.getAttribute('aria-label')).toBe('环形图')
     expect((donut.instance.config as { type: string }).type).toBe('doughnut')
-    expect((donut.instance.options as { cutout?: string | number }).cutout).toBe('58%')
+    expect((donut.instance.options as { cutout?: string | number }).cutout).toBe('62%')
     expect(donut.instance.config.plugins?.some((p) => p.id === 'donutCenterText')).toBe(true)
 
     const radar = renderOne('radar')

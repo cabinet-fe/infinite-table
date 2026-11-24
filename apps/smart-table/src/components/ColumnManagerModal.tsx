@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  Layers,
   Lock,
   Palette,
   Plus,
@@ -139,45 +140,42 @@ export function ColumnManagerModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-[1px]"
-      onClick={onClose}
-    >
+    <div className="st-overlay" onClick={onClose}>
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+        className="st-modal max-w-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={isAppMode ? '多维数据台派生列管理' : '数据源字段管理'}
       >
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">
-              {isAppMode ? '多维数据台派生列管理' : '数据源字段管理'}
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              {isAppMode
-                ? '增删改当前多维数据台共享的 VLOOKUP 关联列与公式列，源表原始列在此只读展示'
-                : tableKind === 'advanced'
-                  ? 'SQL 主数据物理列名称与删列受锁定，可配置必填、对齐、数值格式与单选配色'
-                  : '管理原始字段名称、删列及必填、对齐、数值格式与单选标签配色'}
-            </p>
+        <div className="st-modal-header">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              {isAppMode ? <Layers className="h-5 w-5" /> : <Database className="h-5 w-5" />}
+            </div>
+            <div>
+              <h2 className="st-modal-title">
+                {isAppMode ? '多维数据台派生列管理' : '数据源字段管理'}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {isAppMode
+                  ? '管理本多维数据台共享的 VLOOKUP 关联列与公式列，源表原始列只读展示'
+                  : tableKind === 'advanced'
+                    ? '主数据列名与删列受锁定，可配置必填、对齐、数值格式与单选配色'
+                    : '管理字段名称、必填、对齐、数值格式与单选配色'}
+              </p>
+            </div>
           </div>
-          <button
-            type="button"
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            onClick={onClose}
-            aria-label="关闭"
-          >
+          <button type="button" className="st-icon-btn" onClick={onClose} aria-label="关闭">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="max-h-[65vh] space-y-5 overflow-y-auto px-5 py-4">
+        <div className="st-modal-body st-scroll max-h-[70vh] space-y-5">
           {isAppMode ? (
             <>
               <section className="space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-semibold text-slate-800">
+                  <h3 className="st-section-label">
                     当前应用派生列（{effectiveDerivedColumns.length}）
                   </h3>
                   <div className="flex items-center gap-1.5">
@@ -189,7 +187,7 @@ export function ColumnManagerModal({
                           onClose()
                           onOpenAddFormula()
                         }}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        className="st-btn st-btn-xs st-btn-secondary"
                       >
                         <Plus className="h-3.5 w-3.5" />
                         <span>新增公式列</span>
@@ -203,7 +201,7 @@ export function ColumnManagerModal({
                           onClose()
                           onOpenLookupWizard()
                         }}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                        className="st-btn st-btn-xs st-btn-secondary"
                       >
                         <Sparkles className="h-3.5 w-3.5" />
                         <span>新增 VLOOKUP</span>
@@ -213,8 +211,8 @@ export function ColumnManagerModal({
                 </div>
 
                 {effectiveDerivedColumns.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-xs text-slate-500">
-                    暂无派生列，可通过上方按钮新增计算公式列或 VLOOKUP 关联列。
+                  <div className="st-empty py-3">
+                    暂无派生列，可通过上方按钮新增公式列或 VLOOKUP 关联列。
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -240,13 +238,13 @@ export function ColumnManagerModal({
                       return (
                         <div
                           key={col.key}
-                          className="space-y-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 px-3 py-2.5"
+                          className="st-card group space-y-2.5 p-4 transition-colors hover:border-slate-300"
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1 space-y-1">
                               <input
                                 type="text"
-                                className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                                className="st-input st-input-sm border-transparent bg-transparent px-1.5 text-sm font-medium text-slate-900 hover:border-slate-200"
                                 value={draftTitle}
                                 aria-label={`派生列 ${col.title} 名称`}
                                 onChange={(e) =>
@@ -262,27 +260,27 @@ export function ColumnManagerModal({
                                   }
                                 }}
                               />
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                              <div className="flex items-center gap-1.5">
                                 <span
-                                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                                    col.type === 'lookup'
-                                      ? 'bg-blue-50 text-blue-700'
-                                      : 'bg-purple-50 text-purple-700'
+                                  className={`st-badge ${
+                                    col.type === 'lookup' ? 'st-badge-blue' : 'st-badge-violet'
                                   }`}
                                 >
                                   {col.type === 'lookup' ? 'VLOOKUP 关联' : '公式计算'}
                                 </span>
-                                <span>{col.key}</span>
+                                <span className="truncate font-mono text-xs text-slate-400">
+                                  {col.key}
+                                </span>
                               </div>
                             </div>
 
-                            <div className="flex shrink-0 items-center gap-1">
+                            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                               {titleDirty && (
                                 <button
                                   type="button"
                                   disabled={busy}
                                   onClick={() => void commitRename(col, draftTitle)}
-                                  className="h-6 rounded bg-blue-600 px-2 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                                  className="st-btn st-btn-xs st-btn-primary"
                                 >
                                   保存名称
                                 </button>
@@ -297,9 +295,9 @@ export function ColumnManagerModal({
                                     onClose()
                                     onEditLookupColumn(col.key, e.currentTarget)
                                   }}
-                                  className="rounded-md p-1.5 text-slate-500 hover:bg-white hover:text-blue-600"
+                                  className="st-icon-btn"
                                 >
-                                  <Settings className="h-3.5 w-3.5" />
+                                  <Settings className="h-4 w-4" />
                                 </button>
                               )}
                               <button
@@ -308,19 +306,29 @@ export function ColumnManagerModal({
                                 title={`删除派生列 ${col.title}`}
                                 aria-label={`删除派生列 ${col.title}`}
                                 onClick={() => setConfirmDeleteCol(col)}
-                                className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                className="st-icon-btn st-icon-btn-danger"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Trash2 className="h-4 w-4" />
                               </button>
                             </div>
                           </div>
 
+                          {col.type === 'lookup' && col.lookupConfig && (
+                            <div className="border-t border-slate-100 pt-2.5">
+                              <div className="rounded-md bg-slate-50 px-2 py-1 font-mono text-xs break-all text-slate-600">
+                                {col.lookupConfig.matchRules
+                                  .map((r) => `${r.sourceField} = ${r.targetField}`)
+                                  .join(' 且 ')}
+                              </div>
+                            </div>
+                          )}
+
                           {col.type === 'formula' && (
-                            <div className="space-y-1.5 border-t border-slate-200/70 pt-2">
-                              <div className="flex items-center gap-2">
+                            <div className="space-y-1.5 border-t border-slate-100 pt-2.5">
+                              <div className="flex items-center gap-1.5">
                                 <input
                                   type="text"
-                                  className="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                                  className="st-input st-input-sm min-w-0 flex-1 bg-slate-50 font-mono focus:bg-white"
                                   value={exprDraft}
                                   aria-label={`公式列 ${col.title} 表达式`}
                                   onChange={(e) =>
@@ -363,14 +371,14 @@ export function ColumnManagerModal({
                                         formulaExpr: exprDraft.trim(),
                                       })
                                     }
-                                    className="h-7 shrink-0 rounded-md bg-blue-600 px-2.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                                    className="st-btn st-btn-xs st-btn-primary"
                                   >
                                     保存公式
                                   </button>
                                 )}
                               </div>
                               {!formulaValidation.valid && (
-                                <div className="text-[11px] text-red-600">
+                                <div className="st-alert st-alert-red">
                                   {formulaValidation.error}
                                 </div>
                               )}
@@ -383,11 +391,11 @@ export function ColumnManagerModal({
                 )}
               </section>
 
-              <section className="space-y-2 border-t border-slate-200 pt-4">
+              <section className="space-y-2 border-t border-slate-100 pt-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <Lock className="h-3.5 w-3.5 text-slate-400" />
-                    <h3 className="text-xs font-semibold text-slate-700">
+                    <h3 className="st-section-label">
                       底层数据源原始列（只读，{rawColumns.length}）
                     </h3>
                   </div>
@@ -398,29 +406,25 @@ export function ColumnManagerModal({
                         onClose()
                         onJumpToDatasource()
                       }}
-                      className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      className="st-btn st-btn-xs st-btn-secondary"
                     >
-                      <Database className="h-3.5 w-3.5 text-slate-500" />
+                      <Database className="h-3.5 w-3.5" />
                       <span>前往数据源中心管理</span>
                     </button>
                   )}
                 </div>
-                <div className="space-y-1.5">
+                <div className="divide-y divide-slate-100">
                   {rawColumns.map((col) => (
                     <div
                       key={col.key}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2 text-xs"
+                      className="flex items-center justify-between gap-3 py-1.5 text-xs"
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <Lock className="h-3 w-3 shrink-0 text-slate-400" />
-                        <span className="truncate font-medium text-slate-700">{col.title}</span>
-                        {col.required && (
-                          <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
-                            必填
-                          </span>
-                        )}
+                        <span className="truncate font-medium text-slate-600">{col.title}</span>
+                        {col.required && <span className="st-badge st-badge-red">必填</span>}
                       </div>
-                      <span className="shrink-0 text-[11px] text-slate-400">
+                      <span className="shrink-0 font-mono text-slate-400">
                         {col.key} · {col.type} · 只读
                       </span>
                     </div>
@@ -440,14 +444,14 @@ export function ColumnManagerModal({
                 return (
                   <div
                     key={col.key}
-                    className="space-y-2 rounded-lg border border-slate-200/80 bg-slate-50/50 px-3 py-2.5"
+                    className="st-card group space-y-2.5 p-4 transition-colors hover:border-slate-300"
                   >
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1 space-y-1">
                         {renameable ? (
                           <input
                             type="text"
-                            className="h-7 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 focus:border-blue-500 focus:outline-none"
+                            className="st-input st-input-sm border-transparent bg-transparent px-1.5 text-sm font-medium text-slate-900 hover:border-slate-200"
                             value={draftTitle}
                             aria-label={`列 ${col.title} 名称`}
                             onChange={(e) =>
@@ -464,31 +468,29 @@ export function ColumnManagerModal({
                             }}
                           />
                         ) : (
-                          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
-                            <Lock className="h-3 w-3 text-slate-400" />
+                          <div className="flex items-center gap-1.5 px-1.5 text-sm font-medium text-slate-900">
+                            <Lock className="h-3.5 w-3.5 text-slate-400" />
                             <span className="truncate">{col.title}</span>
                           </div>
                         )}
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                          <span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate font-mono text-xs text-slate-400">
                             {col.key} · {col.type}
                           </span>
                           {(col.isUniqueKey ||
                             (primaryKeyField && col.key === primaryKeyField)) && (
-                            <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700">
-                              唯一键
-                            </span>
+                            <span className="st-badge st-badge-violet">唯一键</span>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-1">
+                      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         {renameable && dirty && (
                           <button
                             type="button"
                             disabled={busy}
                             onClick={() => void commitRename(col, draftTitle)}
-                            className="h-6 rounded bg-blue-600 px-2 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                            className="st-btn st-btn-xs st-btn-primary"
                           >
                             保存名称
                           </button>
@@ -500,23 +502,23 @@ export function ColumnManagerModal({
                             title={`删除列 ${col.title}`}
                             aria-label={`删除列 ${col.title}`}
                             onClick={() => setConfirmDeleteCol(col)}
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            className="st-icon-btn st-icon-btn-danger"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         )}
                       </div>
                     </div>
 
                     {/* 原始列基础配置栏：必填、对齐、数值格式、单选配色 */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/70 pt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
                       <div className="flex flex-wrap items-center gap-3">
-                        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-700">
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600">
                           <input
                             type="checkbox"
                             disabled={busy}
                             aria-label={`${col.title} 必填`}
-                            className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                            className="st-checkbox"
                             checked={Boolean(col.required)}
                             onChange={(e) =>
                               void patchDatasourceColumn(col.key, { required: e.target.checked })
@@ -558,7 +560,7 @@ export function ColumnManagerModal({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         {col.type === 'number' && (
                           <CustomSelect
                             size="xs"
@@ -595,14 +597,14 @@ export function ColumnManagerModal({
                             onClick={() =>
                               setExpandedSelectKey((prev) => (prev === col.key ? null : col.key))
                             }
-                            className="inline-flex h-6 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                            className="st-btn st-btn-xs st-btn-secondary"
                           >
-                            <Palette className="h-3 w-3 text-slate-500" />
+                            <Palette className="h-3 w-3" />
                             <span>选项配色 ({col.options?.length ?? 0})</span>
                             {selectExpanded ? (
-                              <ChevronDown className="h-3 w-3 text-slate-400" />
+                              <ChevronDown className="h-3 w-3" />
                             ) : (
-                              <ChevronRight className="h-3 w-3 text-slate-400" />
+                              <ChevronRight className="h-3 w-3" />
                             )}
                           </button>
                         )}
@@ -610,15 +612,13 @@ export function ColumnManagerModal({
                     </div>
 
                     {col.type === 'select' && selectExpanded && (
-                      <div className="pt-1">
-                        <SelectOptionsEditor
-                          options={col.options ?? []}
-                          disabled={busy}
-                          onChange={(nextOptions: SelectOption[]) =>
-                            void patchDatasourceColumn(col.key, { options: nextOptions })
-                          }
-                        />
-                      </div>
+                      <SelectOptionsEditor
+                        options={col.options ?? []}
+                        disabled={busy}
+                        onChange={(nextOptions: SelectOption[]) =>
+                          void patchDatasourceColumn(col.key, { options: nextOptions })
+                        }
+                      />
                     )}
                   </div>
                 )
@@ -627,12 +627,8 @@ export function ColumnManagerModal({
           )}
         </div>
 
-        <div className="flex justify-end border-t border-slate-100 bg-slate-50/60 px-5 py-3">
-          <button
-            type="button"
-            className="h-8 rounded-md border border-slate-200 bg-white px-3.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            onClick={onClose}
-          >
+        <div className="st-modal-footer">
+          <button type="button" className="st-btn st-btn-primary" onClick={onClose}>
             完成
           </button>
         </div>
