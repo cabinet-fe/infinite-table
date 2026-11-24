@@ -167,7 +167,7 @@ function hucreAlignToModel(alignment: HucreAlignment): CellAlign | undefined {
  * - 纯 `0` / `0.00…` → fixed（小数位数 = 0 的个数）
  * 其余（百分比、货币符号、科学计数等四类之外）返回 undefined，维持忽略现状。
  */
-export function xlsxNumFmtToModel(numFmt: string | undefined): NumFmt | undefined {
+function xlsxNumFmtToModel(numFmt: string | undefined): NumFmt | undefined {
   if (!numFmt) return undefined
   if (numFmt.toUpperCase().includes('[DBNUM2')) return { type: 'cnUpper' }
   if (isDateFormat(numFmt)) return { type: 'date' }
@@ -689,7 +689,7 @@ export async function importXlsx(
  * @internal onProgress：每完成一个 sheet 回调（worker 导入进度反馈；
  * 无头调用不传——回调为同步调用，不影响模型语义）
  */
-export function buildWorkbookFromHucre(
+function buildWorkbookFromHucre(
   hucreWb: HucreWorkbook,
   onProgress?: (done: number, total: number) => void,
 ): Workbook {

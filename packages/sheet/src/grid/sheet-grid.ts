@@ -122,7 +122,7 @@ export interface SheetGridOptions {
   /** 是否显示列字母表头，默认 true */
   showColHeader?: boolean
   /**
-   * 滚动条（全形态透传引擎内建，缺省 true）：false 整体关闭；对象形态与 core
+   * 滚动条（全形态透传引擎内建，缺省 true）：false 整体关闭；对象形态与 grid
    * `ScrollbarOptions` 同形——`mode: 'native'` 切换浏览器原生滚动条（挂载容器内
    * 装配真实 DOM 滚动容器 + `scrollbar-gutter: stable` 预留，滚动条随 OS 外观/
    * 触控板惯性，宿主滚轮接线自动让位不双滚，`growOnScroll` 扩容后滚动范围随
@@ -130,19 +130,19 @@ export interface SheetGridOptions {
    */
   scrollbar?: boolean | ScrollbarOptions
   /**
-   * 主题覆盖层（core `ThemeOverride` 同形）：以内置 SHEET_GRID_THEME 为底经
+   * 主题覆盖层（grid `ThemeOverride` 同形）：以内置 SHEET_GRID_THEME 为底经
    * `extendsTheme` 深覆盖合成——未给的 token 保持内置缺省，未传（undefined）
    * 与现状完全一致。运行时换肤用 `updateTheme`（原地深覆盖，不重建网格）。
    */
   theme?: ThemeOverride
   /**
-   * 链接单击默认打开开关（core 同形透传）：true（缺省）单击命中链接格或带链接图片时
+   * 链接单击默认打开开关（table 同形透传）：true（缺省）单击命中链接格或带链接图片时
    * 引擎在派发链接点击事件后默认打开 URL；false 关闭默认打开，打开行为由宿主经
    * onCellLinkClick / onImageLinkClick 事件接管。
    */
   openCellLinkOnClick?: boolean
   /**
-   * 编辑浮层内缩开关（core 同形透传）：true 时编辑浮层落在锚定格四周可视边框内侧，
+   * 编辑浮层内缩开关（table 同形透传）：true 时编辑浮层落在锚定格四周可视边框内侧，
    * 格边框编辑期保持可见（对齐 Excel/WPS，双击进入编辑不再吞掉粗边框）；
    * 缺省 false 保持现状（浮层骑格缘）。
    */
@@ -155,7 +155,7 @@ export interface SheetGridOptions {
    */
   growOnScroll?: boolean
   /**
-   * 渲染设备像素比（core hostOptions.dpr 透传，缺省 window.devicePixelRatio）：
+   * 渲染设备像素比（table hostOptions.dpr 透传，缺省 window.devicePixelRatio）：
    * 像素断言/截图对比等确定性场景锁定 1，画布背板与 CSS 坐标系 1:1。
    */
   dpr?: number
