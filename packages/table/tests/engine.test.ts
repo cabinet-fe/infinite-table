@@ -132,7 +132,7 @@ describe('引擎装配协议契约（table 实现）', () => {
 
   it('导出读取面（engine.read）：有效数据 / 样式 / 几何 / 合并区', () => {
     const { table } = createTable({
-      resolveDisplayValue: (col, row, value) => `[${String(value)}]`,
+      resolveDisplayValue: (_col, _row, value) => `[${String(value)}]`,
       mergeCells: [{ startCol: 0, startRow: 0, endCol: 1, endRow: 0 }],
     })
     const read = table.read
