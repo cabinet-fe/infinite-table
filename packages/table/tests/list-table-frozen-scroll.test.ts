@@ -76,7 +76,7 @@ describe('ListTable 冻结带滚动 z 序', () => {
     table.scrollTo(0, 96)
     table.scrollTo(0, 31)
     const root = host.layers.get('body')!.root
-    const headerGroup = table.sceneState.headerGroup!
+    const headerGroup = table.sceneState.groups!.headerGroup
     const frozenHeader = table.sceneState.rowHeaderNodes.get(0)
     const enteringHeader = table.sceneState.rowHeaderNodes.get(1)
     expect(frozenHeader).toBeDefined()

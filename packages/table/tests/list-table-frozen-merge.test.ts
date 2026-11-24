@@ -145,7 +145,7 @@ describe('ListTable 跨冻结边界合并区', () => {
     // 主格后画于本帧滚入的滚动带格；表头容器仍在主格之上
     const entering = findNode(host, 5, 19)!
     expect(order(master)).toBeGreaterThan(order(entering))
-    expect(order(master)).toBeLessThan(order(table.sceneState.headerGroup!))
+    expect(order(master)).toBeLessThan(order(table.sceneState.groups!.headerGroup))
   })
 
   it('行向跨边界合并区：主格纵向钉固、滚入行重挂其下（延伸段不被盖写）', () => {

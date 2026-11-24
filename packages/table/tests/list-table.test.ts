@@ -264,10 +264,10 @@ describe('ListTable 行列头', () => {
     expect(table.getVisibleRange().cols).toEqual({ start: 2, end: 10 })
     expect(table.sceneState.colHeaderNodes.has(9)).toBe(true)
     expect(table.sceneState.cornerNode).not.toBeNull()
-    expect(table.sceneState.headerGroup!.children.at(-1)).toBe(table.sceneState.cornerNode)
+    expect(table.sceneState.groups!.headerGroup.children.at(-1)).toBe(table.sceneState.cornerNode)
     table.scrollTo(0, 0)
     table.scrollTo(200, 0)
-    expect(table.sceneState.headerGroup!.children.at(-1)).toBe(table.sceneState.cornerNode)
+    expect(table.sceneState.groups!.headerGroup.children.at(-1)).toBe(table.sceneState.cornerNode)
   })
 })
 
