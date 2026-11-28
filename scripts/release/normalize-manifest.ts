@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { findWorkspaceProtocolDeps } from './workspace-protocol'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGES_DIR = resolve(__dirname, '..', '..', 'packages')
@@ -24,6 +25,7 @@ interface PackageJson {
 }
 
 function main(): void {
+  let failed = false
   for (const entry of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
 
@@ -32,9 +34,21 @@ function main(): void {
     if (pkg.private === true || !pkg.devDependencies) continue
 
     delete pkg.devDependencies
+
+    // 剥离后其余依赖字段仍带协议：npm publish 不会展开，发出去就是坏元数据
+    const leftovers = findWorkspaceProtocolDeps(pkg)
+    if (leftovers.length > 0) {
+      console.error(
+        `[normalize-manifest] ✗ ${pkg.name ?? file} 残留 workspace: / catalog: 协议：${leftovers.join(', ')}`,
+      )
+      failed = true
+      continue
+    }
+
     writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8')
     console.log(`[normalize-manifest] 已剥离 ${pkg.name ?? file} 的 devDependencies`)
   }
+  if (failed) process.exit(1)
 }
 
 main()

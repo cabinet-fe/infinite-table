@@ -1,8 +1,8 @@
 # 发版流水线（发版规范 A：changesets · CI 发布）：
-# push main 触碰 packages/*/CHANGELOG.md 自动触发（本地 bun run release 产生的 version commit），
+# push main 触碰 packages/*/CHANGELOG.md 自动触发（本地 bun run release 产生的发版提交），
 # npm trusted publishing（OIDC）免 token 发布统一包 infinitable。
 # 鉴权不落任何 NPM_TOKEN secret：npm >= 11.5.1 自动探测 GitHub Actions OIDC 环境，
-# 凭 workflow 顶层 id-token: write 与 npmjs.com 包设置的 Trusted Publisher 配置
+# 凭发布 job 的 id-token: write 与 npmjs.com 包设置的 Trusted Publisher 配置
 # （cabinet-fe/infinite-table + release.yml）放行。
 # 幂等：changeset publish 对已在 registry 的同名同版本自动跳过，重跑安全。
 
@@ -15,9 +15,7 @@ on:
       - 'packages/*/CHANGELOG.md'
   workflow_dispatch:
 
-permissions:
-  contents: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: release
@@ -25,55 +23,48 @@ concurrency:
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
+    permissions:
+      contents: write # 推 tag、建 Release
+      id-token: write # trusted publishing
 
-      - name: 校验发布分支
-        run: |
-          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "手动发布仅允许从 main 触发，当前 ref: ${{ github.ref }}"
-            exit 1
-          fi
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # tag 经 GitHub API 推送，工作区不需要 git 凭证
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
 
+      - name: 安装 Node.js
+        # 不要设置 registry-url：占位 NODE_AUTH_TOKEN 会让 npm 跳过 OIDC 交换（npm/cli#8730）
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - run: bun install --frozen-lockfile
+
+      - run: bun run test
 
       - run: bun run build
 
       - run: bun run check:exports
 
-      - name: 安装 Node.js（供 npm publish 使用）
-        # 不要设置 registry-url：占位 NODE_AUTH_TOKEN 会让 npm 跳过 OIDC 交换（npm/cli#8730）
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
       - name: 安装 npm@11
-        # 固定 11.x：trusted publishing 需要 >= 11.5.1；npm 12 改了 `npm info --json`
-        # 输出结构（object -> list），changesets 2.31 解析不了会误判所有包"未发布"
+        # 固定 11.x：trusted publishing 需要 >= 11.5.1
         run: npm install -g npm@11
 
       - name: 剥离 devDependencies（供 changeset publish 使用）
         run: bun run scripts/release/normalize-manifest.ts
 
       - name: 发布到 npm
-        # action v1 的 published 输出按 `New tag: pkg@version` 行解析（changesets v2 格式）；
-        # 本仓库 changesets v3 输出 `Successfully published:`，该输出恒为 false，勿作下游条件。
-        uses: changesets/action@v1
-        with:
-          publish: bun run changeset publish
-          createGithubReleases: false
+        # publish 子 action 跑 `changeset publish` 并读取 CLI 输出：发布成功后经 GitHub API
+        # 推 infinitable@<版本> tag，并以 CHANGELOG 对应版本段为正文建同名 GitHub Release。
+        # 已在 registry 的版本不出事件，重跑时三者均为 no-op。
+        uses: changesets/action/publish@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
-
-      - name: 推送版本 tag
-        # changeset publish 成功后才打 infinitable@* 本地 tag；checkout fetch-depth: 0 已取回
-        # 远端存量 tag，按 pattern 推送对已存在/零匹配均为 no-op，重跑安全，不依赖 published 输出。
-        run: git push origin 'refs/tags/infinitable@*'

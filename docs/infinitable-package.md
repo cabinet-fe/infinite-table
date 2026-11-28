@@ -344,7 +344,7 @@ npm view infinitable versions   # 查已发布版本（CI 幂等发布，无空�
 
 本地（发版分支 main）：
 
-1. 前置：`git status --porcelain` 干净、在 main、`git pull --ff-only` 不落后。
+1. 前置：`git status --porcelain` 干净、在 main、`git pull --rebase` 不落后。
 2. 确认待处理 changeset `ls .changeset/*.md`；没有就手写（不跑交互式 CLI）并 commit `chore: add changeset`：
 
    ```markdown
@@ -355,21 +355,18 @@ npm view infinitable versions   # 查已发布版本（CI 幂等发布，无空�
    fix: 修复 xxx
    ```
 
-3. `bun run release`（= `bun run scripts/release.ts`）四阶段：前置检查 → `changeset version` + `bun install` → commit（`chore(release): publish infinitable`，暂存 `.changeset`/`packages`/`package.json`/`bun.lock`）→ push。`--dry-run` 到 version 后回滚不提交，`--force` 跳过分支检查。
+3. `bun run release`（= `bun run scripts/release.ts`）五阶段：前置检查（工作区干净、在 main、不落后、可发布包已存在于 npmjs）→ `changeset version` + `bun install` + 版本占用检查 → `bun run test` / `build` / `check:exports`（与 CI 同一套命令）→ commit（`chore(release): 发布 vX.Y.Z`）→ push。`--dry-run` 跑完前四阶段后回滚工作区，不提交；`--force` 跳过分支检查。
 
 远端 CI（release.yml，由 push main 触碰 `packages/*/CHANGELOG.md` 自动触发，亦可 workflow_dispatch；仅允许 main）：
 
 | 步骤 | 内容 |
 | --- | --- |
-| 1 | bun 1.4.2 + `bun install --frozen-lockfile` |
-| 2 | `bun run build`（tsc -b + 全部 `packages/*` vp build，含 build-types.mjs 类型装配与 assert-chart-chunk） |
-| 3 | `bun run check:exports`（上表 8 条守卫） |
-| 4 | Node 24 + 固定 npm@11（trusted publishing 需 ≥11.5.1；npm 12 改了 `npm info --json` 输出结构，changesets 2.31 解析不了） |
-| 5 | `scripts/release/normalize-manifest.ts` 剥离 devDependencies（全是 `workspace:*` 内部包，无法发布；dist 已自包含。CI 专用临时改动，不落库） |
-| 6 | `changesets/action@v1` → `bun run changeset publish`：npm OIDC trusted publishing 免 token（id-token: write + npmjs.com Trusted Publisher 配置），`NPM_CONFIG_PROVENANCE=true` 带 provenance |
-| 7 | 推送 `refs/tags/infinitable@*` 版本 tag（不依赖 action 的 published 输出——该输出在 changesets v3 下恒 false） |
+| 1 | bun 1.4.2 + Node 24 + 固定 npm@11（trusted publishing 需 ≥11.5.1） |
+| 2 | `bun install --frozen-lockfile` → `bun run test` → `bun run build`（tsc -b + 全部 `packages/*` vp build，含 build-types.mjs 类型装配与 assert-chart-chunk）→ `bun run check:exports`（上表 8 条守卫） |
+| 3 | `scripts/release/normalize-manifest.ts` 剥离 devDependencies（全是 `workspace:*` 内部包，无法发布；dist 已自包含），并校验依赖字段无 `workspace:` / `catalog:` 残留。CI 专用临时改动，不落库 |
+| 4 | `changesets/action/publish@v2` → `changeset publish`：npm OIDC trusted publishing 免 token（id-token: write + npmjs.com Trusted Publisher 配置），`NPM_CONFIG_PROVENANCE=true` 带 provenance；发布成功后经 GitHub API 推 `infinitable@X.Y.Z` tag，并以 CHANGELOG 对应版本段为正文建同名 GitHub Release |
 
-幂等：changeset publish 对已在 registry 的同名同版本自动跳过，同 commit 重跑安全。changesets 配置（`.changeset/config.json`）：access public、baseBranch main、commit false、updateInternalDependencies patch。
+幂等：changeset publish 对已在 registry 的同名同版本自动跳过，同 commit 重跑安全。发布是否成功以 `npm view infinitable@X.Y.Z version` 为准。changesets 配置（`.changeset/config.json`）：access public、baseBranch main、commit false、updateInternalDependencies patch。
 
 ## 边界与红线
 
@@ -377,5 +374,5 @@ npm view infinitable versions   # 查已发布版本（CI 幂等发布，无空�
 - **公开面即红线文档面**：主入口与两个子路径的导出符号集合被 `public-surface.test.ts` 快照冻结——增删导出必须显式改快照；禁止 `export *`；判据为「稳定公共 API（类型/配置/注册函数/插件接口/插件工厂）导出，内部实现细节、实验性 API、跨层内部工具不导出」，全量清单见 `agent-docs/apis/exports.md`。
 - **自包含红线**：dist JS 与类型树不得残留任何 `@infinitable/*` 说明符（check 5）；跨入口 instanceof 契约不得回退（check 8）；chart.js 不得静态混入主产物（assert-chart-chunk）。
 - **playground 不消费 dist**：仓内一律走子包 `dev` 条件吃源码；发布包 dist 只属于 npm 消费者，`check-package-exports.mjs` 是唯一合法的「外部消费者姿态」试用入口。
-- **发版红线**：禁止本地 `npm publish`、禁止推 `v*` tag 触发发版（旧路径已作废，tag 形态为 `infinitable@X.Y.Z`）、禁止 watch CI、禁止交互式 changeset CLI；normalize-manifest.ts 勿在本地跑（误跑 `git restore` 恢复）。
+- **发版红线**：禁止本地 `npm publish`、禁止推 `v*` tag 触发发版（旧路径已作废，tag 形态为 `infinitable@X.Y.Z`）、禁止流式 watch CI（轮询 run 状态到结束，再以 `npm view` 为准）、禁止交互式 changeset CLI；normalize-manifest.ts 勿在本地跑（误跑 `git restore` 恢复）。
 - 主题、协议、公式等各层行为契约分别见 [render-engine.md](./render-engine.md)、[grid-kernel.md](./grid-kernel.md)、[engine-assembly-protocol.md](./engine-assembly-protocol.md)、[list-table-engine.md](./list-table-engine.md)、[formulas.md](./formulas.md)、[pivot-engine.md](./pivot-engine.md)、[sheet.md](./sheet.md)；插件接口红线见 [plugin-interface-map.md](./plugin-interface-map.md)。

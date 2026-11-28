@@ -62,23 +62,23 @@ playground → 各内部包源码
 
 根 `package.json` 没有 `dev` 脚本；开发服务器在 `playground` 与 `website` 子包里。
 
-| 命令                                | 作用                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------ |
-| `bun run build`                     | `tsc -b` 产出类型，再对 `packages/*` 逐个 `vp build` 打包 dist           |
-| `bun run test`                      | `vp test run`，跑全部单测与量化基准回归（吃 workspace 源码）             |
-| `bun run test:changed`              | 按 git 改动映射受影响包，只跑相关测试                                    |
-| `bun run check`                     | `vp check`：oxfmt + oxlint + tsgolint 类型检查三合一                     |
-| `bun run lint`                      | `vp lint` + `bun run check:deps`                                         |
-| `bun run fmt` / `bun run fmt:check` | 格式化写入 / 只检查                                                      |
-| `bun run check:deps`                | 校验 `packages/grid` 与 `packages/table` 对 `@visactor/*` 零依赖         |
-| `bun run check:exports`             | 空项目消费冒烟：校验各包 dist、类型树与 `./sheet` 子路径；**需先 build** |
-| `bun run changeset`                 | changesets CLI（发版流程中不推荐交互式使用，见下文）                     |
-| `bun run release`                   | 发版准备：changeset version + install + commit + push                    |
-| `cd playground && bun run dev`      | 启动 playground（React + Vite MPA）                                      |
-| `cd website && bun run dev`         | 启动 VitePress 文档站点                                                  |
+| 命令                                | 作用                                                                                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `bun run build`                     | `tsc -b` 产出类型，再对 `packages/*` 逐个 `vp build` 打包 dist                          |
+| `bun run test`                      | `vp test run`，跑全部单测与量化基准回归（吃 workspace 源码）                            |
+| `bun run test:changed`              | 按 git 改动映射受影响包，只跑相关测试                                                   |
+| `bun run check`                     | `vp check`：oxfmt + oxlint + tsgolint 类型检查三合一                                    |
+| `bun run lint`                      | `vp lint` + `bun run check:deps`                                                        |
+| `bun run fmt` / `bun run fmt:check` | 格式化写入 / 只检查                                                                     |
+| `bun run check:deps`                | 校验 `packages/grid` 与 `packages/table` 对 `@visactor/*` 零依赖                        |
+| `bun run check:exports`             | 空项目消费冒烟：校验各包 dist、类型树与 `./sheet` 子路径；**需先 build**                |
+| `bun run changeset`                 | changesets CLI（发版流程中不推荐交互式使用，见下文）                                    |
+| `bun run release`                   | 发版准备：检查 → changeset version + install → test/build/check:exports → commit → push |
+| `cd playground && bun run dev`      | 启动 playground（React + Vite MPA）                                                     |
+| `cd website && bun run dev`         | 启动 VitePress 文档站点                                                                 |
 
 ::: tip 收尾口径
-日常任务收尾跑 `bun run lint` + `bun run test:changed` 即可。全量 `bun run test` 留给发版前；发版流水线本身不跑测试。
+日常任务收尾跑 `bun run lint` + `bun run test:changed` 即可。全量 `bun run test` 留给发版前，由 `bun run release` 与发版流水线执行。
 :::
 
 ## 测试规范
@@ -146,7 +146,7 @@ node playground/scripts/smoke.mjs
 
 流程要点：
 
-1. 确认工作区干净、在 `main`、`git pull --ff-only` 不落后。
+1. 确认工作区干净、在 `main`、`git pull --rebase` 不落后。
 2. 准备 changeset：在 `.changeset/` 写 `<slug>.md`：
 
    ```markdown
@@ -159,21 +159,18 @@ node playground/scripts/smoke.mjs
 
    不要跑交互式 `bun run changeset`。
 
-3. 执行 `bun run release`：自动完成 changeset version、`bun install`、commit、push。支持 `--dry-run` 演练与 `--force` 跳过分支检查。
+3. 执行 `bun run release`：依次完成前置检查（含可发布包与版本占用查询）、changeset version、`bun install`、全量 `bun run test` / `build` / `check:exports`、commit、push。支持 `--dry-run` 演练（跑完检查后回滚工作区）与 `--force` 跳过分支检查。
 4. push 触碰 `packages/*/CHANGELOG.md` 后自动触发 `.github/workflows/release.yml`：
-   - `bun install --frozen-lockfile` → `bun run build` → `bun run check:exports`；
+   - `bun install --frozen-lockfile` → `bun run test` → `bun run build` → `bun run check:exports`；
    - 剥离发布清单的 workspace devDependencies；
    - 经 npm trusted publishing（OIDC、provenance）发布；
-   - 成功后推送 `infinitable@X.Y.Z` 本地 tag。
+   - 成功后推送 `infinitable@X.Y.Z` tag 并建同名 GitHub Release（正文取 CHANGELOG 对应版本段）。
 
 禁止事项：
 
 - 本地 `npm publish`。
 - 推 `v*` tag 触发发版（旧流程已作废）。
-- watch CI；拿到 run 链接即结束。
-- 依赖 `changesets/action` 的 `published` 输出做下游条件（changesets v3 下恒为 false）。
-
-发布链不跑测试，发布前必须手动跑一次全量 `bun run test`。
+- 流式 watch CI；轮询 run 状态到结束即可，发布是否成功以 `npm view infinitable@X.Y.Z version` 为准。
 
 ## 代码风格
 
