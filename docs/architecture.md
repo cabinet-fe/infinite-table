@@ -38,7 +38,7 @@ multi-engine 架构是核心叙事：**table（ListTable）/ pivot（PivotGrid�
 | 引擎装配协议 | EngineAssembly 中立本体、EngineReadView 导出读取面、EnginePlugin 插件契约与三分类；协议插件跨引擎挂载 | [engine-assembly-protocol.md](./engine-assembly-protocol.md) |
 | 插件 | chart（Chart.js 按需动态分包 + 离屏出图）、print（headless 分页 + iframe 打印）、watermark（overlay 槽位平铺水印） | [print.md](./print.md) · [engine-assembly-protocol.md](./engine-assembly-protocol.md) |
 
-技术栈：TypeScript 7（tsgo）/ ESM only / 浏览器 + bun；bun workspaces + vite-plus（vp CLI：rolldown-vite / oxlint / oxfmt / vitest）；测试 vitest（浏览器行为用浏览器模式冒烟）；应用 UI（playground）React + shadcn/ui + Tailwind；应用后端（apps/print-form-designer）Bun + bun:sqlite + Hono；部署公开 npm 包 `infinitable`，其余子包与应用（playground、print-form-designer）及 website 私有不发。发版走 `.agents/skills/release` 技能（changesets + CI，禁止本地 publish）。
+技术栈：TypeScript 7（tsgo）/ ESM only / 浏览器 + bun；bun workspaces + vite-plus（vp CLI：rolldown-vite / oxlint / oxfmt / vitest）；测试 vitest（浏览器行为用浏览器模式冒烟）；应用 UI（playground）React + shadcn/ui + Tailwind；应用后端（apps/print-form-designer）Bun + bun:sqlite + Hono；部署公开 npm 包 `infinitable`，其余子包与应用（playground、print-form-designer）及 website 私有不发。发版走 changesets + CI（禁止本地 publish）。
 
 ### 场景走读（心智模型）
 

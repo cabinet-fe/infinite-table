@@ -340,7 +340,7 @@ npm view infinitable versions   # 查已发布版本（CI 幂等发布，无空�
 
 ## 发版流程走读（内部流程视角）
 
-> 本节是仓库内部发版流程（`.agents/skills/release` 技能 + `scripts/release.ts` + `.github/workflows/release.yml`）的文档化走读；规范 A：公开 npm，一切 publish 由 CI 完成，本地只准备并触发。
+> 本节是仓库内部发版流程（`scripts/release.ts` + `.github/workflows/release.yml`）的文档化走读；规范 A：公开 npm，一切 publish 由 CI 完成，本地只准备并触发。
 
 本地（发版分支 main）：
 

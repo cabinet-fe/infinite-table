@@ -42,7 +42,7 @@ infinitable/
 ├── website/             # VitePress 文档站点
 ├── scripts/             # 依赖检查、导出检查、增量测试、发版脚本
 ├── agent-docs/          # 面向 agent 的 API 文档
-└── .agents/             # agent 入口、文档、技能（含发版技能）
+└── .agents/             # agent 入口、文档、技能
 ```
 
 依赖方向（源码级）：
@@ -142,7 +142,7 @@ node playground/scripts/smoke.mjs
 
 ## 发版流程
 
-发版规范为 changesets + CI，发布分支 **main**，唯一发布物是 `infinitable`。详细清单见仓库内 `.agents/skills/release/SKILL.md`。
+发版规范为 changesets + CI，发布分支 **main**，唯一发布物是 `infinitable`。
 
 流程要点：
 
@@ -157,7 +157,7 @@ node playground/scripts/smoke.mjs
    fix: 修复 xxx
    ```
 
-   发版技能明确要求不要跑交互式 `bun run changeset`。
+   不要跑交互式 `bun run changeset`。
 
 3. 执行 `bun run release`：自动完成 changeset version、`bun install`、commit、push。支持 `--dry-run` 演练与 `--force` 跳过分支检查。
 4. push 触碰 `packages/*/CHANGELOG.md` 后自动触发 `.github/workflows/release.yml`：
