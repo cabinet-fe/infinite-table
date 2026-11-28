@@ -24,7 +24,7 @@
     "@infinitable/grid": "workspace:*",
     "@infinitable/protocol": "workspace:*",
     "@infinitable/table": "workspace:*",
-    "hucre": "^1.2.0"
+    "hucre": "^1.3.0"
   },
   "devDependencies": {
     "@cat-kit/core": "^1.2.1"
